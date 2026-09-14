@@ -1,0 +1,35 @@
+<section class="motion-monitor @(Fresh ? "" : "offline")" aria-label="Live device feedback">
+    <div class="monitor-heading">
+        <span class="eyebrow">Live feedback</span>
+        <span class="connection"><span class="signal-dot"></span>@(Fresh ? "Connected" : "No signal")</span>
+    </div>
+    <div class="motion-reading">
+        <h2 class="@(Fresh && (Enabled || Moving) ? "moving" : "")" role="status">@(Fresh ? Enabled || Moving ? "RUNNING" : "IDLE" : "OFFLINE")</h2>
+        <div class="telemetry"><strong data-testid="live-position">@Number(Position)</strong><span>mm</span></div>
+    </div>
+    <svg class="motion-rail" viewBox="0 0 200 36" role="img" aria-label="Reported carriage position">
+        <path class="rail" d="M5 18H195 M5 11V25 M195 11V25" />
+        <path class="rail-ticks" d="M52 14V22 M100 14V22 M148 14V22" />
+        @if (Fresh && Position is not null)
+        {
+            <rect class="carriage" x="@MarkerX" y="8" width="8" height="20" />
+        }
+    </svg>
+    <div class="monitor-footer">
+        <span>@(IsSimulator ? "Position from the simulator" : "Position")</span>
+        <span><strong data-testid="live-velocity">@Number(Velocity)</strong> mm/s</span>
+    </div>
+</section>
+
+@code {
+    [Parameter] public double? Position { get; set; }
+    [Parameter] public double? Velocity { get; set; }
+    [Parameter] public bool Moving { get; set; }
+    [Parameter] public bool Fresh { get; set; }
+    [Parameter] public bool Enabled { get; set; }
+    [Parameter] public bool IsSimulator { get; set; }
+
+    private string MarkerX => (5 + Math.Clamp(Position ?? 0, 0, 190) / 190 * 182).ToString("0.##", CultureInfo.InvariantCulture);
+    private string Number(double? value) => Fresh && value is { } number && double.IsFinite(number)
+        ? number.ToString("0.0", CultureInfo.InvariantCulture) : "--";
+}

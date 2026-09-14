@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><RootNamespace>OSSMDotNet.Simulation</RootNamespace></PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\ControlCore\ControlCore.csproj" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.0" />
+  </ItemGroup>
+</Project>

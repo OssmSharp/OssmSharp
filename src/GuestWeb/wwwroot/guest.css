@@ -1,0 +1,2 @@
+.guest-session { max-width: 700px; margin-inline: auto; }
+.guest-session > .actions { justify-content: flex-end; margin-top: 1rem; }

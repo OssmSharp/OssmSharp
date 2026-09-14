@@ -1,0 +1,2 @@
+# Normalize text to LF in Git; use CRLF in working-tree checkouts.
+* text=auto eol=crlf

@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <base href="/" />
+    <link rel="stylesheet" href="_content/SharedUi/controls.css" />
+    <link rel="stylesheet" href="guest.css" />
+    <HeadOutlet @rendermode="InteractiveServer" />
+</head>
+<body>
+    <p id="guest-boot-status" class="boot-status" role="status">Connecting...</p>
+    <Routes @rendermode="InteractiveServer" />
+    <div id="blazor-error-ui" role="alert">
+        Connection lost. Open a new invitation.
+    </div>
+    <script src="_framework/blazor.web.js" autostart="false"></script>
+    <script type="module" src="guest-start.js"></script>
+</body>
+</html>

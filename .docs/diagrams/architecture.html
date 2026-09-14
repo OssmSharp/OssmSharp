@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>OSSM system architecture</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='4' fill='%232d3142'/%3E%3Cpath d='M8 16H24M16 8V24' stroke='%23f5f5f5' stroke-width='4'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500&amp;family=Instrument+Serif&amp;display=swap">
+  <style>
+    :root {
+      color-scheme: light;
+      --paper: #f5f5f5;
+      --paper-2: #ececec;
+      --surface: #ffffff;
+      --ink: #2d3142;
+      --muted: #4f5d75;
+      --soft: #7a8399;
+      --rule: rgba(45, 49, 66, 0.12);
+      --rule-solid: #bfc0c0;
+      --accent: #eb6c36;
+      --accent-tint: rgba(235, 108, 54, 0.08);
+      --link: #2e5aa8;
+      --sans: "Geist", system-ui, sans-serif;
+      --serif: "Instrument Serif", Georgia, serif;
+      --mono: "Geist Mono", ui-monospace, monospace;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 48px 32px;
+      background: var(--paper);
+      color: var(--ink);
+      font: 400 16px/1.6 var(--sans);
+    }
+    main { max-width: 1280px; margin: 0 auto; }
+    header, .view-heading, figcaption, .constraints, footer { margin-inline: 40px; }
+    .eyebrow {
+      margin: 0 0 8px;
+      font: 500 12px/24px var(--mono);
+      color: var(--muted);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    h1 { margin: 0; font: 400 40px/1.2 var(--serif); }
+    .lead { margin: 16px 0 24px; max-width: 880px; font-size: 20px; line-height: 1.5; color: var(--muted); }
+    nav { display: flex; flex-wrap: wrap; gap: 24px; margin-top: 24px; }
+    a { color: var(--link); text-underline-offset: 4px; }
+    nav a { font-weight: 500; text-decoration: none; border-bottom: 1px solid var(--rule-solid); padding-bottom: 8px; }
+    nav a:hover { border-color: var(--link); }
+    :focus-visible { outline: 2px solid var(--link); outline-offset: 4px; }
+    .view { margin-top: 56px; scroll-margin-top: 24px; }
+    .view-heading { display: grid; grid-template-columns: 48px 1fr; gap: 16px; align-items: start; }
+    .view-number { font: 400 24px/32px var(--mono); color: var(--muted); }
+    h2 { font-size: 24px; line-height: 32px; margin: 0 0 8px; font-weight: 600; }
+    .view-heading p { margin: 0; color: var(--muted); max-width: 960px; }
+    figure { margin: 16px 0 0; }
+    .viewport { overflow-x: auto; overscroll-behavior-x: contain; scrollbar-gutter: stable; }
+    svg { width: 100%; min-width: 1120px; display: block; height: auto; }
+    svg text { fill: var(--ink); font-family: var(--sans); }
+    .name { font-size: 24px; font-weight: 600; }
+    .name-small { font-size: 20px; font-weight: 600; }
+    .body { font-size: 16px; fill: var(--muted); }
+    .body-strong { font-size: 16px; font-weight: 600; }
+    .tech { font-family: var(--mono); font-size: 12px; fill: var(--muted); }
+    .boundary-name { font-size: 12px; font-family: var(--mono); font-weight: 500; letter-spacing: 0.04em; fill: var(--muted); }
+    .boundary { fill: rgba(45, 49, 66, 0.02); stroke: var(--rule-solid); stroke-width: 1.2; stroke-dasharray: 8 4; }
+    .node-bg { fill: var(--paper); }
+    .node { fill: var(--surface); stroke: var(--ink); stroke-width: 1.2; }
+    .client { fill: rgba(79, 93, 117, 0.08); stroke: var(--muted); }
+    .focal { fill: var(--accent-tint); stroke: var(--accent); }
+    .hardware { fill: var(--paper-2); stroke: var(--muted); }
+    .outcome { fill: var(--paper-2); stroke: var(--rule-solid); }
+    .mask { fill: var(--paper); }
+    .edge { fill: none; stroke: var(--muted); stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round; }
+    .network { stroke: var(--link); }
+    .deny { stroke-dasharray: 4 4; }
+    .rule { stroke: var(--rule-solid); stroke-width: 0.8; }
+    figcaption { color: var(--muted); line-height: 1.5; padding-top: 8px; }
+    .constraints { margin-top: 32px; border-top: 1px solid var(--rule-solid); padding-top: 24px; }
+    .constraints p { margin: 8px 0 0; max-width: 1040px; color: var(--muted); }
+    .constraints strong { color: var(--ink); font-weight: 600; }
+    footer { margin-top: 40px; border-top: 1px solid var(--rule); padding-top: 24px; font-size: 12px; color: var(--muted); }
+    footer p { margin: 0 0 8px; }
+    @media (max-width: 768px) {
+      body { padding: 24px 16px; }
+      header, .view-heading, figcaption, .constraints, footer { margin-inline: 0; }
+      .lead { font-size: 16px; }
+      .view { margin-top: 40px; }
+      .view-heading { grid-template-columns: 32px 1fr; gap: 12px; }
+      .view-number { font-size: 20px; }
+      h2 { font-size: 20px; }
+      nav { gap: 16px; }
+    }
+    @media print {
+      body { padding: 0; }
+      nav { display: none; }
+      header, .view-heading, figcaption, .constraints, footer { margin-inline: 0; }
+      .viewport { overflow: visible; }
+      svg { min-width: 0; }
+      .view { break-inside: avoid; }
+      #enforcement { break-before: page; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <p class="eyebrow">Architecture proposal / .NET 10</p>
+      <h1>OSSM system architecture</h1>
+      <p class="lead">Guest access and device authority are separate processes. The guest web service handles the UI; the private admin service owns sessions, safety policy and every device write.</p>
+      <nav aria-label="Architecture views">
+        <a href="#deployment">01 &nbsp; Deployment &amp; connections</a>
+        <a href="#enforcement">02 &nbsp; Control enforcement</a>
+      </nav>
+    </header>
+
+    <section class="view" id="deployment" aria-labelledby="deployment-heading">
+      <div class="view-heading">
+        <span class="view-number" aria-hidden="true">01</span>
+        <div>
+          <h2 id="deployment-heading">Deployment &amp; connections</h2>
+          <p>Two independently running services on one computer. Remote access ends at guest web; local administration has its own private entry point.</p>
+        </div>
+      </div>
+      <figure>
+        <div class="viewport" role="region" tabindex="0" aria-label="Deployment diagram. Scroll horizontally on narrow screens.">
+          <svg viewBox="0 0 1280 720" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="dep-title dep-desc">
+            <title id="dep-title">OSSM deployment: restricted guest web and private admin</title>
+            <desc id="dep-desc">A guest browser connects to guest web over HTTPS and WSS. Guest web and admin are separate .NET 10 processes on one service host, connected by guest-scoped authenticated IPC. A local operator uses the private admin UI or CLI with an operator capability to generate links, approve sessions and set limits. Only admin's private .NET bridge reaches OSSM over BLE. Local one-box mode places the same guest browser on the service host, without changing privileges.</desc>
+            <defs>
+              <marker id="dep-arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M 0 0 L 8 4 L 0 8 Z" fill="#4f5d75"/></marker>
+              <marker id="dep-arrow-accent" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M 0 0 L 8 4 L 0 8 Z" fill="#eb6c36"/></marker>
+              <marker id="dep-arrow-link" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M 0 0 L 8 4 L 0 8 Z" fill="#2e5aa8"/></marker>
+            </defs>
+            <rect width="1280" height="720" fill="#f5f5f5"/>
+            <g data-boundary="service-host">
+              <rect x="352" y="64" width="688" height="560" rx="8" class="boundary"/>
+              <rect x="368" y="52" width="352" height="24" class="mask"/>
+              <text x="376" y="68" class="boundary-name">SERVICE HOST / ONE COMPUTER</text>
+            </g>
+            <text x="376" y="120" class="body-strong">Separate processes. Separate privileges.</text>
+            <text x="376" y="200" class="body">Only guest web may be exposed.</text>
+            <text x="376" y="224" class="body">Admin stays local.</text>
+            <text x="376" y="256" class="tech">No public proxy route to admin.</text>
+
+            <g data-edge="dep-public" data-from="dep-guest" data-to="dep-web">
+              <path d="M 248 408 H 392" class="edge network" marker-end="url(#dep-arrow-link)"/>
+            </g>
+            <g data-edge="dep-ipc" data-from="dep-web" data-to="dep-admin">
+              <path d="M 616 408 H 760" class="edge" marker-end="url(#dep-arrow)"/>
+            </g>
+            <g data-edge="dep-local-admin" data-from="dep-operator" data-to="dep-admin">
+              <path d="M 880 248 V 320" class="edge" marker-end="url(#dep-arrow)"/>
+            </g>
+            <g data-edge="dep-ble" data-from="dep-admin" data-to="dep-device">
+              <path d="M 1000 408 H 1104" class="edge" marker-end="url(#dep-arrow)"/>
+            </g>
+
+            <g data-label="dep-public">
+              <rect x="256" y="376" width="128" height="24" class="mask"/>
+              <text x="320" y="392" text-anchor="middle" class="tech">HTTPS / WSS</text>
+            </g>
+            <g data-label="dep-ipc">
+              <rect x="624" y="376" width="128" height="24" class="mask"/>
+              <text x="688" y="392" text-anchor="middle" class="tech">PRIVATE IPC</text>
+            </g>
+            <g data-label="dep-ipc-scope">
+              <rect x="624" y="424" width="128" height="24" class="mask"/>
+              <text x="688" y="440" text-anchor="middle" class="tech">Guest-scoped only</text>
+            </g>
+            <g data-label="dep-local-admin">
+              <rect x="888" y="272" width="136" height="24" class="mask"/>
+              <text x="896" y="288" class="tech">Operator token</text>
+            </g>
+            <g data-label="dep-ble">
+              <rect x="1008" y="376" width="88" height="24" class="mask"/>
+              <text x="1052" y="392" text-anchor="middle" class="tech">BLE</text>
+            </g>
+
+            <g data-node="dep-guest">
+              <rect x="40" y="320" width="208" height="208" rx="8" class="node-bg"/>
+              <rect x="40" y="320" width="208" height="208" rx="8" class="node client"/>
+              <text x="64" y="352" class="tech">CLIENT</text>
+              <text x="64" y="388" class="name-small">Guest browser</text>
+              <text x="64" y="424" class="body">Untrusted UI</text>
+              <text x="64" y="460" class="body">Join, input, Stop</text>
+              <text x="64" y="488" class="body">Show returned state</text>
+            </g>
+            <g data-node="dep-web">
+              <rect x="392" y="320" width="224" height="208" rx="8" class="node-bg"/>
+              <rect x="392" y="320" width="224" height="208" rx="8" class="node"/>
+              <text x="416" y="352" class="tech">PROCESS 01</text>
+              <text x="416" y="388" class="name">Guest web</text>
+              <text x="416" y="420" class="tech">ASP.NET Core 10</text>
+              <text x="416" y="456" class="body">Blazor server UI</text>
+              <text x="416" y="484" class="body">Guest operations only</text>
+              <text x="416" y="508" class="tech">No admin or device I/O</text>
+            </g>
+            <g data-node="dep-admin">
+              <rect x="760" y="320" width="240" height="208" rx="8" class="node-bg"/>
+              <rect x="760" y="320" width="240" height="208" rx="8" class="node focal"/>
+              <text x="784" y="352" class="tech">PROCESS 02 / PRIVATE</text>
+              <text x="784" y="388" class="name">Admin service</text>
+              <text x="784" y="420" class="tech">.NET 10 hosted worker</text>
+              <text x="784" y="456" class="body">Sessions + policy</text>
+              <text x="784" y="484" class="body">Single device owner</text>
+              <text x="784" y="508" class="tech">Includes .NET bridge</text>
+            </g>
+            <g data-node="dep-operator">
+              <rect x="712" y="160" width="288" height="88" rx="8" class="node-bg"/>
+              <rect x="712" y="160" width="288" height="88" rx="8" class="node client"/>
+              <text x="736" y="184" class="tech">LOCAL OPERATOR</text>
+              <text x="736" y="216" class="name-small">Admin UI or CLI</text>
+            </g>
+            <g data-node="dep-device">
+              <rect x="1104" y="352" width="136" height="152" rx="8" class="node hardware"/>
+              <text x="1120" y="376" class="tech">DEVICE</text>
+              <text x="1120" y="412" class="name">OSSM</text>
+              <text x="1120" y="448" class="body">Stock</text>
+              <text x="1120" y="472" class="body">firmware</text>
+            </g>
+
+            <text x="40" y="568" class="body-strong">No direct route to</text>
+            <text x="40" y="592" class="body">admin, bridge or device.</text>
+            <text x="376" y="568" class="body-strong">Local one-box mode</text>
+            <text x="376" y="596" class="body">The same browser runs here too, using loopback.</text>
+            <text x="1104" y="552" class="body-strong">Physical Stop</text>
+            <text x="1104" y="576" class="body">and knob</text>
+
+            <g data-legend="deployment">
+              <line x1="40" y1="664" x2="1240" y2="664" class="rule"/>
+              <rect x="40" y="684" width="24" height="16" rx="4" fill="none" stroke="#bfc0c0" stroke-dasharray="4 4"/>
+              <text x="80" y="696" class="tech">Machine boundary</text>
+              <rect x="336" y="680" width="24" height="24" rx="4" fill="#ffffff" stroke="#2d3142"/>
+              <text x="376" y="696" class="tech">Separate process / endpoint</text>
+              <path d="M 712 692 H 752" class="edge" marker-end="url(#dep-arrow)"/>
+              <text x="768" y="696" class="tech">Request direction; replies use the same channel</text>
+            </g>
+          </svg>
+        </div>
+        <figcaption>One-box means one computer, not one process. The guest web service has neither an operator capability nor device permissions. A local operator can generate a session link in one click; that link points to guest web, never admin.</figcaption>
+      </figure>
+    </section>
+
+    <section class="view" id="enforcement" aria-labelledby="enforcement-heading">
+      <div class="view-heading">
+        <span class="view-number" aria-hidden="true">02</span>
+        <div>
+          <h2 id="enforcement-heading">Control enforcement</h2>
+          <p>Guest web filters input early. Admin independently decides whether each request can reach the device; its controller checks again at execution.</p>
+        </div>
+      </div>
+      <figure>
+        <div class="viewport" role="region" tabindex="0" aria-label="Enforcement diagram. Scroll horizontally on narrow screens.">
+          <svg viewBox="0 0 1280 720" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="ctl-title ctl-desc">
+            <title id="ctl-title">Admin-side authorization, execution and priority Stop</title>
+            <desc id="ctl-desc">A request forwarded by guest web enters the private admin service. Admin validates the capability, session, allowed operation, schema and sequence, then checks arming, lockout, grant freshness, configured limits and the complete tuple. The single-writer controller rechecks current authority before calling the private device bridge. Failed checks reject the input without a motion write. Stop, expiry, connection loss and detected external parameter changes revoke authority. External changes additionally latch a lock that only explicit admin unlock can clear; unlock leaves the device paused.</desc>
+            <defs>
+              <marker id="ctl-arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M 0 0 L 8 4 L 0 8 Z" fill="#4f5d75"/></marker>
+              <marker id="ctl-arrow-accent" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M 0 0 L 8 4 L 0 8 Z" fill="#eb6c36"/></marker>
+              <marker id="ctl-arrow-link" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M 0 0 L 8 4 L 0 8 Z" fill="#2e5aa8"/></marker>
+            </defs>
+            <rect width="1280" height="720" fill="#f5f5f5"/>
+            <g data-boundary="admin-process">
+              <rect x="312" y="56" width="928" height="512" rx="8" class="boundary"/>
+              <rect x="328" y="44" width="456" height="24" class="mask"/>
+              <text x="336" y="60" class="boundary-name">PRIVATE ADMIN SERVICE / AUTHORITATIVE ENFORCEMENT</text>
+            </g>
+
+            <g data-edge="ctl-input" data-from="ctl-request" data-to="ctl-access">
+              <path d="M 264 288 H 352" class="edge network" marker-end="url(#ctl-arrow-link)"/>
+            </g>
+            <g data-edge="ctl-access-pass" data-from="ctl-access" data-to="ctl-policy">
+              <path d="M 584 288 H 664" class="edge" marker-end="url(#ctl-arrow)"/>
+            </g>
+            <g data-edge="ctl-policy-pass" data-from="ctl-policy" data-to="ctl-writer">
+              <path d="M 896 288 H 976" class="edge" marker-end="url(#ctl-arrow)"/>
+            </g>
+            <g data-edge="ctl-stop-path" data-from="ctl-stop" data-to="ctl-writer">
+              <path d="M 896 132 H 1084 Q 1092 132 1092 140 V 208" class="edge" marker-end="url(#ctl-arrow)"/>
+            </g>
+            <g data-edge="ctl-access-deny" data-from="ctl-access" data-to="ctl-denied">
+              <path d="M 468 368 V 448" class="edge deny" marker-end="url(#ctl-arrow)"/>
+            </g>
+            <g data-edge="ctl-policy-deny" data-from="ctl-policy" data-to="ctl-denied">
+              <path d="M 780 368 V 448" class="edge deny" marker-end="url(#ctl-arrow)"/>
+            </g>
+            <g data-edge="ctl-writer-deny" data-from="ctl-writer" data-to="ctl-denied">
+              <path d="M 976 344 H 936 Q 928 344 928 352 V 480 Q 928 488 920 488 H 896" class="edge deny" marker-end="url(#ctl-arrow)"/>
+            </g>
+            <g data-edge="ctl-write" data-from="ctl-writer" data-to="ctl-bridge">
+              <path d="M 1092 368 V 448" class="edge" marker-end="url(#ctl-arrow)"/>
+            </g>
+            <g data-edge="ctl-ble" data-from="ctl-bridge" data-to="ctl-device">
+              <path d="M 1092 544 V 600" class="edge" marker-end="url(#ctl-arrow)"/>
+            </g>
+
+            <g data-label="ctl-input">
+              <rect x="272" y="256" width="72" height="24" class="mask"/>
+              <text x="308" y="272" text-anchor="middle" class="tech">IPC</text>
+            </g>
+            <g data-label="ctl-access-pass">
+              <rect x="592" y="256" width="64" height="24" class="mask"/>
+              <text x="624" y="272" text-anchor="middle" class="tech">PASS</text>
+            </g>
+            <g data-label="ctl-policy-pass">
+              <rect x="904" y="256" width="64" height="24" class="mask"/>
+              <text x="936" y="272" text-anchor="middle" class="tech">PASS</text>
+            </g>
+            <g data-label="ctl-stop-path">
+              <rect x="920" y="100" width="144" height="24" class="mask"/>
+              <text x="992" y="116" text-anchor="middle" class="tech">PRIORITY STOP</text>
+            </g>
+            <g data-label="ctl-access-deny">
+              <rect x="380" y="392" width="80" height="24" class="mask"/>
+              <text x="420" y="408" text-anchor="middle" class="tech">DENY</text>
+            </g>
+            <g data-label="ctl-policy-deny">
+              <rect x="788" y="392" width="88" height="24" class="mask"/>
+              <text x="832" y="408" text-anchor="middle" class="tech">DENY</text>
+            </g>
+            <g data-label="ctl-writer-deny">
+              <rect x="936" y="392" width="80" height="24" class="mask"/>
+              <text x="976" y="408" text-anchor="middle" class="tech">DENY</text>
+            </g>
+            <g data-label="ctl-write">
+              <rect x="1100" y="392" width="88" height="24" class="mask"/>
+              <text x="1144" y="408" text-anchor="middle" class="tech">WRITE</text>
+            </g>
+            <g data-label="ctl-ble">
+              <rect x="1100" y="568" width="72" height="24" class="mask"/>
+              <text x="1136" y="584" text-anchor="middle" class="tech">BLE</text>
+            </g>
+
+            <g data-node="ctl-request">
+              <rect x="40" y="208" width="224" height="160" rx="8" class="node-bg"/>
+              <rect x="40" y="208" width="224" height="160" rx="8" class="node client"/>
+              <text x="64" y="240" class="tech">GUEST WEB PROCESS</text>
+              <text x="64" y="276" class="name-small">Guest request</text>
+              <text x="64" y="316" class="body">Forwarded capability</text>
+              <text x="64" y="344" class="body">and current input</text>
+            </g>
+            <g data-node="ctl-stop">
+              <rect x="352" y="96" width="544" height="72" rx="8" class="node-bg"/>
+              <rect x="352" y="96" width="544" height="72" rx="8" class="node focal"/>
+              <text x="376" y="124" class="name-small">Authenticated Stop / override / expiry / loss</text>
+              <text x="376" y="152" class="body">External override latches LOCKED. Admin unlock only.</text>
+            </g>
+            <g data-node="ctl-access">
+              <rect x="352" y="208" width="232" height="160" rx="8" class="node-bg"/>
+              <rect x="352" y="208" width="232" height="160" rx="8" class="node"/>
+              <text x="376" y="240" class="tech">1 / ACCESS</text>
+              <text x="376" y="276" class="name-small">Validate request</text>
+              <text x="376" y="304" class="body">Token + session</text>
+              <text x="376" y="328" class="body">Allowed operation</text>
+              <text x="376" y="352" class="body">Schema + sequence</text>
+            </g>
+            <g data-node="ctl-policy">
+              <rect x="664" y="208" width="232" height="160" rx="8" class="node-bg"/>
+              <rect x="664" y="208" width="232" height="160" rx="8" class="node focal"/>
+              <text x="688" y="240" class="tech">2 / POLICY</text>
+              <text x="688" y="276" class="name-small">Authorize motion</text>
+              <text x="688" y="304" class="body">Armed + no lockout</text>
+              <text x="688" y="328" class="body">Fresh grant + limits</text>
+              <text x="688" y="352" class="body">Valid tuple + revision</text>
+            </g>
+            <g data-node="ctl-writer">
+              <rect x="976" y="208" width="232" height="160" rx="8" class="node-bg"/>
+              <rect x="976" y="208" width="232" height="160" rx="8" class="node"/>
+              <text x="1000" y="240" class="tech">3 / EXECUTION</text>
+              <text x="1000" y="276" class="name-small">Recheck + serialize</text>
+              <text x="1000" y="304" class="body">Policy, grant, generation</text>
+              <text x="1000" y="328" class="body">One in-flight operation</text>
+              <text x="1000" y="352" class="body">One desired-state slot</text>
+            </g>
+            <g data-node="ctl-denied">
+              <rect x="352" y="448" width="544" height="80" rx="8" class="node-bg"/>
+              <rect x="352" y="448" width="544" height="80" rx="8" class="node outcome"/>
+              <text x="376" y="480" class="name-small">Rejected request: no motion write</text>
+              <text x="376" y="508" class="body">Return a reason. Do not extend the grant.</text>
+            </g>
+            <g data-node="ctl-bridge">
+              <rect x="976" y="448" width="232" height="96" rx="8" class="node-bg"/>
+              <rect x="976" y="448" width="232" height="96" rx="8" class="node"/>
+              <text x="1000" y="476" class="tech">PRIVATE .NET ADAPTER</text>
+              <text x="1000" y="508" class="name-small">Device bridge</text>
+              <text x="1000" y="528" class="body">Protocol + native I/O</text>
+            </g>
+            <g data-node="ctl-device">
+              <rect x="976" y="600" width="232" height="56" rx="8" class="node hardware"/>
+              <text x="1092" y="636" text-anchor="middle" class="name-small">Stock OSSM</text>
+            </g>
+
+            <text x="40" y="416" class="body-strong">No trusted decision</text>
+            <text x="40" y="444" class="body">arrives from guest web.</text>
+            <text x="352" y="608" class="body-strong">Every device write has one owner.</text>
+            <text x="352" y="636" class="body">Stop cannot recall I/O already issued to the device.</text>
+
+            <g data-legend="enforcement">
+              <line x1="40" y1="672" x2="1240" y2="672" class="rule"/>
+              <path d="M 40 696 H 80" class="edge" marker-end="url(#ctl-arrow)"/>
+              <text x="96" y="700" class="tech">Accepted operation</text>
+              <path d="M 352 696 H 392" class="edge deny" marker-end="url(#ctl-arrow)"/>
+              <text x="408" y="700" class="tech">Denied request</text>
+              <rect x="680" y="684" width="24" height="24" rx="4" fill="rgba(235,108,54,0.08)" stroke="#eb6c36"/>
+              <text x="720" y="700" class="tech">Authoritative policy / revocation</text>
+            </g>
+          </svg>
+        </div>
+        <figcaption>Stop uses the same single writer, ahead of pending motion. A detected physical-control change also latches a lockout: no restoration of prior settings, and no guest unlock. Explicit admin unlock leaves the device paused; rearming is separate.</figcaption>
+      </figure>
+    </section>
+
+    <aside class="constraints" aria-labelledby="constraints-heading">
+      <h2 id="constraints-heading">What these boundaries do &mdash; and do not &mdash; guarantee</h2>
+      <p><strong>No accounts.</strong> Local operator and guest access use separate temporary capabilities. Creating a session link does not approve a guest, arm the device or start motion.</p>
+      <p><strong>No direct guest control.</strong> Guest web cannot invoke admin-management methods or obtain device permissions. Admin still constrains input from a compromised guest process that possesses a valid guest capability.</p>
+      <p><strong>Physical overrides take precedence.</strong> Device parameter changes not explained by an owned command trigger lockout and Stop. Expected command readback is distinguished from external changes. The physical remote's detectability and stopping behavior must be demonstrated on the selected firmware.</p>
+      <p><strong>Physical release remains gated.</strong> Admin, OS or bridge failure can prevent a software Stop. Independent stopping on the selected hardware/firmware must be demonstrated; a completed write or readback is not physical stop confirmation.</p>
+    </aside>
+
+    <footer>
+      <p>Design proposal &middot; 13 September 2026 &middot; No implementation or hardware qualification claimed.</p>
+      <p>Source: <a href="../specs/README.md">architecture and requirements</a> &middot; <a href="../specs/device-control/spec.md">device-control contract</a> &middot; <a href="../specs/README.md#functionality-and-package-inventory">planned packages</a>.</p>
+      <p>Overview omits proxy/tunnel setup, OS-specific IPC details and native bridge provisioning. The bridge implementation remains subject to host-platform qualification. Fonts use local fallbacks when offline.</p>
+    </footer>
+  </main>
+</body>
+</html>

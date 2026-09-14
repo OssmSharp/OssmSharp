@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <RootNamespace>OSSMDotNet.Simulation.Tests</RootNamespace>
+        <IsTestProject>true</IsTestProject>
+        <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+    </PropertyGroup>
+    <ItemGroup>
+        <AssemblyMetadata Include="RepositoryRoot" Value="$(MSBuildProjectDirectory)\..\.." />
+        <ProjectReference Include="..\..\src\DeviceBridge\DeviceBridge.csproj" />
+        <PackageReference Include="xunit.v3.mtp-v2" Version="3.2.2" />
+        <PackageReference Include="Microsoft.Testing.Platform" Version="2.4.0" />
+        <Using Include="Xunit" />
+    </ItemGroup>
+</Project>

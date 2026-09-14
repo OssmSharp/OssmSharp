@@ -1,0 +1,100 @@
+@page "/"
+@rendermode InteractiveServer
+@implements IAsyncDisposable
+
+<PageTitle>OSSM operator</PageTitle>
+<header class="site-header">
+    <span class="brand">OSSM<span> // OPERATOR</span></span>
+    @if (_status?.IsSimulator == true) { <span class="badge">SIMULATOR</span> }
+</header>
+<main class="page-shell">
+    @if (_status is null)
+    {
+        <section class="panel error-card" role="alert">
+            <h1>@(_loaded ? "ACCESS EXPIRED." : "CONNECTING...")</h1>
+            @if (_loaded) { <p>Open your private operator link.</p> }
+        </section>
+    }
+    else
+    {
+        <h1 class="visually-hidden">Operator controls</h1>
+        @if (_message is not null)
+        {
+            <p class="notice @(_error ? "error" : "")" role="status">@_message</p>
+        }
+        <details class="feedback-disclosure">
+            <summary>Live feedback <span class="hint">@(_status.BridgeReady ? "Connected" : "No signal")</span></summary>
+            <MotionMonitor Position="@_status.Position" Velocity="@_status.Velocity"
+                           Moving="@_status.DeviceMoving" Enabled="@_status.DeviceEnabled"
+                           Fresh="@_status.BridgeReady" IsSimulator="@_status.IsSimulator" />
+        </details>
+        <section class="panel operator-status">
+            <div class="row">
+                <strong data-testid="controller-mode">@ModeLabel</strong>
+                <span class="session-state" data-testid="session-mode">@SessionLabel</span>
+            </div>
+            <div class="actions">
+                @if (_status.Mode == "Locked")
+                {
+                    <button class="primary" disabled="@(!CanReset)" @onclick="Unlock">Unlock</button>
+                }
+                else if (_status.Mode == "Faulted")
+                {
+                    <button class="primary" disabled="@(!CanReset)" @onclick="Reset">Reset connection</button>
+                }
+                else
+                {
+                    <button class="primary" disabled="@(!CanAllow)" @onclick="AllowControl">Allow control</button>
+                }
+                <button class="stop" @onclick="Stop">Stop</button>
+                <button class="quiet" disabled="@(_status.SessionMode is "None" or "Ended")" @onclick="End">End session</button>
+            </div>
+            @if (_status.Mode == "Locked") { <p class="hint">External changes detected. Unlock leaves control paused.</p> }
+            else if (!_status.BridgeReady) { <p class="hint">Waiting for device feedback.</p> }
+            else if (_status.OperationPending) { <p class="hint">Waiting for the device to settle.</p> }
+            else if (_status.Limits.SpeedCap <= 0 || _status.Limits.MaximumDepth <= 0) { <p class="hint needs-attention">Apply nonzero session limits to enable control.</p> }
+            else if (_status.SessionMode is "None" or "Invited" or "Ended") { <p class="hint">Waiting for a guest to join.</p> }
+        </section>
+        <div class="operator-grid">
+            <section class="panel">
+                <h2>Session limits</h2>
+                @if (_cap != _status.Limits.SpeedCap || _depth != _status.Limits.MaximumDepth)
+                {
+                    <p class="limits-status needs-attention">Not applied</p>
+                }
+                <div class="form-grid">
+                    <label>Speed cap (%)<input type="number" min="0" max="100" @bind="_cap" @bind:event="oninput" /></label>
+                    <label>Maximum depth (%)<input type="number" min="1" max="100" @bind="_depth" @bind:event="oninput" /></label>
+                </div>
+                <button disabled="@(!_status.BridgeReady || _status.Mode == "Locked" || _status.OperationPending)" @onclick="ApplyLimits">Apply limits</button>
+                <p class="hint">Applying limits pauses control.</p>
+                <p class="hint">Active: @_status.Limits.SpeedCap% speed / @_status.Limits.MaximumDepth% depth.</p>
+            </section>
+            <section class="panel">
+                <h2>Invite a guest</h2>
+                <button disabled="@(_busy || _status.SessionMode is "PendingApproval" or "Approved")" @onclick="Generate">Create invite</button>
+                @if (_invitation is not null)
+                {
+                    <div class="invite-row">
+                        <input type="text" aria-label="Guest invitation" data-testid="invitation-link" readonly value="@_invitation.Url" />
+                        <button @onclick="Copy">Copy</button>
+                    </div>
+                    <p class="hint">This computer only. Expires @_invitation.ExpiresAt.ToLocalTime().ToString("HH:mm").</p>
+                }
+            </section>
+        </div>
+        <section class="panel activity-panel" aria-labelledby="activity-heading">
+            <h2 id="activity-heading">Live log</h2>
+            <div class="live-log" @ref="_logElement" role="log" aria-live="polite" aria-relevant="additions" tabindex="0">
+                @if (_logs.Count == 0) { <p class="log-empty">Waiting for activity...</p> }
+                @foreach (var entry in _logs)
+                {
+                    <div @key="entry.Sequence" class="log-entry @LogClass(entry.Level)">
+                        <time>@entry.Timestamp.ToLocalTime().ToString("HH:mm:ss")</time>
+                        <span>@entry.Message</span>
+                    </div>
+                }
+            </div>
+        </section>
+    }
+</main>

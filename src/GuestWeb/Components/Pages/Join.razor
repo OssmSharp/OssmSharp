@@ -1,0 +1,46 @@
+@page "/join/{SessionId}"
+@implements IAsyncDisposable
+
+<PageTitle>OSSM guest</PageTitle>
+
+@if (_initialized && !Client.IsJoined && !_joining)
+{
+    <section class="panel error-card" role="alert">
+        <h1>@(_everJoined ? "SESSION ENDED." : "INVALID INVITE.")</h1>
+        <p>@(_everJoined ? "Ask the operator for a new invitation." : "This invitation is invalid or expired.")</p>
+    </section>
+}
+else if (!Client.IsJoined)
+{
+    <section class="panel" role="status"><h1>OPENING INVITE...</h1></section>
+}
+else
+{
+    <div @ref="_root" class="guest-session">
+        <h1 class="visually-hidden">Guest controls</h1>
+        <p class="notice" role="status">@SessionMessage</p>
+        <MotionMonitor Position="@_status?.Position" Velocity="@_status?.Velocity"
+                       Moving="@(_status?.DeviceMoving == true)" Enabled="@(_status?.DeviceEnabled == true)"
+                       Fresh="@(_status?.BridgeReady == true)" IsSimulator="@(_status?.IsSimulator == true)" />
+        <section class="panel" aria-label="Requested settings">
+            <div class="settings-legend">
+                <span><i class="key selected"></i>Selected</span>
+                <span><i class="key sent"></i>Sent</span>
+                <span><i class="key current"></i>Verified current</span>
+            </div>
+            <div class="slider-grid">
+                <VerticalSlider Name="speed" Label="Speed" Maximum="@SpeedCap" InitialValue="0" />
+                <VerticalSlider Name="stroke" Label="Stroke" Minimum="1" Maximum="@MaximumDepth" InitialValue="10" />
+                <VerticalSlider Name="depth" Label="Depth" Minimum="1" Maximum="@MaximumDepth" InitialValue="20" />
+            </div>
+            <div class="send-bar">
+                <label class="auto-send"><input type="checkbox" data-auto-send disabled="@(!Ready)" />Auto send</label>
+                <button type="button" class="primary" data-send-button disabled="@(!Ready)">Send</button>
+                <button type="button" class="stop" data-stop-button>Stop</button>
+            </div>
+            <p data-send-status class="send-status" role="status">Choose settings, then Send.</p>
+            <p data-browser-alert class="guest-error" role="alert" hidden></p>
+        </section>
+        <div class="actions"><button type="button" class="quiet" @onclick="LeaveAsync" disabled="@_leaving">Leave session</button></div>
+    </div>
+}

@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <AssemblyMetadata Include="RepositoryRoot" Value="$(MSBuildProjectDirectory)\..\.." />
+    <PackageReference Include="Aspire.Hosting.Testing" Version="13.5.3" />
+    <PackageReference Include="xunit.v3.mtp-v2" Version="3.2.2" />
+    <PackageReference Include="Microsoft.Testing.Platform" Version="2.4.0" />
+    <ProjectReference Include="..\..\src\AppHost\AppHost.csproj" />
+    <ProjectReference Include="..\..\src\GuestWeb\GuestWeb.csproj" />
+    <ProjectReference Include="..\..\src\HostRuntime\HostRuntime.csproj" />
+    <ProjectReference Include="..\..\src\ControlCore\ControlCore.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="System.Net" />
+    <Using Include="Microsoft.Extensions.DependencyInjection" />
+    <Using Include="Aspire.Hosting.ApplicationModel" />
+    <Using Include="Aspire.Hosting.Testing" />
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+</Project>
