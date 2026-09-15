@@ -163,6 +163,8 @@ public sealed class InvitationLifecycleTests
             rig.Engine.Submit(guest.SessionId, guest.GuestToken, guest.ConnectionId, oldInput)).Code);
     }
 
+    private static readonly string[] expected = new[] { "Write", "Stop" };
+
     [Fact]
     public async Task CycleWaitsForOutstandingWriteThenSerializesStopBeforeAnyNewAuthority()
     {
@@ -182,7 +184,7 @@ public sealed class InvitationLifecycleTests
         Assert.Throws<ControlRejectedException>(rig.Engine.Arm);
         rig.Bridge.CompleteNext();
         rig.Pump();
-        Assert.Equal(new[] { "Write", "Stop" }, rig.Bridge.Calls.Select(call => call.Kind));
+        Assert.Equal(expected, rig.Bridge.Calls.Select(call => call.Kind));
         Assert.Equal(1, rig.Bridge.MaxActive);
         rig.Bridge.CompleteNext();
         rig.Pump();

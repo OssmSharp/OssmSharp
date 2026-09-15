@@ -57,7 +57,7 @@ public sealed class LimitsEndpointTests
             Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
             Assert.Equal(new ControlLimits(50, 80), after.Limits);
             Assert.Equal(before.PolicyVersion + 1, after.PolicyVersion);
-            Assert.Equal("Session limits applied.", operations.ReadLog(0).Last().Message);
+            Assert.Equal("Session limits applied.", operations.ReadLog(0)[operations.ReadLog(0).Count - 1].Message);
         }
     }
 }

@@ -77,6 +77,8 @@ public sealed class LimitsPolicyTests
         Assert.Equal(old.Desired, Assert.Single(rig.Bridge.Calls).Desired);
     }
 
+    private static readonly string[] expected = new[] { "Write", "Stop" };
+
     [Fact]
     public async Task ApplyAndStatusDoNotRenewTheOriginalAcceptedLease()
     {
@@ -100,7 +102,7 @@ public sealed class LimitsPolicyTests
         Assert.Equal("grant-expired", rig.Engine.Snapshot.Reason);
         Assert.Null(rig.Engine.Snapshot.Grant);
         Assert.False(rig.Engine.Snapshot.DeviceEnabled);
-        Assert.Equal(new[] { "Write", "Stop" }, rig.Bridge.Calls.Select(call => call.Kind));
+        Assert.Equal(expected, rig.Bridge.Calls.Select(call => call.Kind));
     }
 
     [Fact]
@@ -287,6 +289,8 @@ public sealed class LimitsPolicyTests
         Assert.Equal(1, rig.Bridge.MaxActive);
     }
 
+    private static readonly string[] expected = new[] { "Write", "Write" };
+
     [Fact]
     public async Task CompatibleChangePreservesSerializedInFlightAndPendingWrites()
     {
@@ -315,9 +319,11 @@ public sealed class LimitsPolicyTests
         rig.Pump();
         Assert.Equal(second.Desired, rig.Engine.Snapshot.Current);
         Assert.Equal(2, rig.Engine.Snapshot.VerifiedSeq);
-        Assert.Equal(new[] { "Write", "Write" }, rig.Bridge.Calls.Select(call => call.Kind));
+        Assert.Equal(expected, rig.Bridge.Calls.Select(call => call.Kind));
         Assert.Equal(1, rig.Bridge.MaxActive);
     }
+
+    private static readonly string[] expected = new[] { "Stop", "Write", "Write" };
 
     [Fact]
     public async Task CompatibleChangeDuringZeroWriteKeepsTheStoppedEnvelopeTransition()
@@ -346,7 +352,7 @@ public sealed class LimitsPolicyTests
         rig.Pump();
         Assert.Equal(input.Desired, rig.Engine.Snapshot.Current);
         Assert.Equal("Ready", rig.Engine.Snapshot.Mode);
-        Assert.Equal(new[] { "Stop", "Write", "Write" }, rig.Bridge.Calls.Select(call => call.Kind));
+        Assert.Equal(expected, rig.Bridge.Calls.Select(call => call.Kind));
         Assert.Equal(1, rig.Bridge.MaxActive);
     }
 
@@ -379,6 +385,8 @@ public sealed class LimitsPolicyTests
         Assert.Empty(rig.Bridge.Calls);
     }
 
+    private static readonly string[] expected = new[] { "Write", "Stop" };
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -402,7 +410,7 @@ public sealed class LimitsPolicyTests
         Assert.Equal(before.Generation, rig.Engine.Snapshot.Generation);
         Assert.Equal(before.LockRevision, rig.Engine.Snapshot.LockRevision);
         Assert.Null(rig.Engine.Snapshot.Grant);
-        Assert.Equal(new[] { "Write", "Stop" }, rig.Bridge.Calls.Select(call => call.Kind));
+        Assert.Equal(expected, rig.Bridge.Calls.Select(call => call.Kind));
         Assert.Equal(1, rig.Bridge.MaxActive);
     }
 }

@@ -465,6 +465,8 @@ public sealed class PrototypeEngineTests
         Assert.Equal("Locked", rig.Engine.Snapshot.Mode);
     }
 
+    private static readonly string[] expected = new[] { "Stop", "Write", "Write" };
+
     [Fact]
     public async Task EnvelopeChangeStopsThenWritesZeroBeforeSpeedAndRechecksLeaseBetweenSteps()
     {
@@ -473,7 +475,7 @@ public sealed class PrototypeEngineTests
         var target = new DesiredState(0, 20, 15, 40, 50);
         rig.Submit(rig.Input(1, target));
         rig.Pump();
-        Assert.Equal(new[] { "Stop", "Write", "Write" }, rig.Bridge.Calls.Select(call => call.Kind));
+        Assert.Equal(expected, rig.Bridge.Calls.Select(call => call.Kind));
         Assert.Equal(target with { Speed = 0 }, rig.Bridge.Calls[1].Desired);
         Assert.Equal(target, rig.Bridge.Calls[2].Desired);
         Assert.Equal(1, rig.Bridge.MaxActive);

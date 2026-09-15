@@ -18,6 +18,8 @@ public sealed class GuestSessionClientTests
     private static readonly GuestInput Input = new(2, "epoch-one", 1, "grant-one", 1, true, new(0, 10, 25, 40, 50));
     private static CancellationToken Cancellation => TestContext.Current.CancellationToken;
 
+    private static readonly string[] expected = new[] { "join", "status", "input", "stop", "leave" };
+
     [Theory]
     [InlineData("guest-unauthorized")]
     [InlineData("session-expired")]
@@ -43,7 +45,7 @@ public sealed class GuestSessionClientTests
     }
 
     [Fact]
-    public async Task StatusBeforeExplicitJoin_DoesNotOpenPipe()
+    public async Task StatusBeforeExplicitJoinDoesNotOpenPipe()
     {
         var pipeName = NewPipeName();
         await using var server = NewServer(pipeName);
@@ -58,7 +60,7 @@ public sealed class GuestSessionClientTests
     }
 
     [Fact]
-    public async Task GuestLifecycle_OnlySendsScopedAllowedCalls_AndKeepsGuestTokenPrivate()
+    public async Task GuestLifecycleOnlySendsScopedAllowedCallsAndKeepsGuestTokenPrivate()
     {
         var calls = new List<GuestCall>();
         await using var host = new FakeAdminPipe(async (pipe, cancellationToken) =>
@@ -90,7 +92,7 @@ public sealed class GuestSessionClientTests
         Assert.True((await client.LeaveAsync(Cancellation)).Ok);
         await host.CompleteAsync();
 
-        Assert.Equal(new[] { "join", "status", "input", "stop", "leave" }, calls.Select(call => call.Op));
+        Assert.Equal(expected, calls.Select(call => call.Op));
         Assert.Equal(5, calls.Select(call => call.RequestId).Distinct().Count());
         Assert.Equal(Input, calls[2].Input);
         Assert.All(calls.Where(call => call.Op != "input"), call => Assert.Null(call.Input));
@@ -103,7 +105,7 @@ public sealed class GuestSessionClientTests
     }
 
     [Fact]
-    public async Task RejectedHandshake_ClosesWithoutSendingInvitation()
+    public async Task RejectedHandshakeClosesWithoutSendingInvitation()
     {
         await using var host = new FakeAdminPipe(async (pipe, cancellationToken) =>
         {
@@ -128,7 +130,7 @@ public sealed class GuestSessionClientTests
     [InlineData("wrong-session")]
     [InlineData("wrong-connection")]
     [InlineData("trailing-json")]
-    public async Task InvalidReply_ExpiresConnection_AndNeverReplaysJoin(string defect)
+    public async Task InvalidReplyExpiresConnectionAndNeverReplaysJoin(string defect)
     {
         await using var host = new FakeAdminPipe(async (pipe, cancellationToken) =>
         {
@@ -180,7 +182,7 @@ public sealed class GuestSessionClientTests
     }
 
     [Fact]
-    public async Task LostInputReply_ClosesPipe_AndDoesNotReconnectOrReplay()
+    public async Task LostInputReplyClosesPipeAndDoesNotReconnectOrReplay()
     {
         var received = new List<GuestCall>();
         await using var host = new FakeAdminPipe(async (pipe, cancellationToken) =>
@@ -203,7 +205,7 @@ public sealed class GuestSessionClientTests
     }
 
     [Fact]
-    public async Task StalledReply_HasTwoSecondDeadline_AndClosesPipe()
+    public async Task StalledReplyHasTwoSecondDeadlineAndClosesPipe()
     {
         await using var host = new FakeAdminPipe(async (pipe, cancellationToken) =>
         {
@@ -224,7 +226,7 @@ public sealed class GuestSessionClientTests
     }
 
     [Fact]
-    public async Task ConcurrentStatusAndInput_AreSerializedWithoutOverlappingFrames()
+    public async Task ConcurrentStatusAndInputAreSerializedWithoutOverlappingFrames()
     {
         var statusReceived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var inputStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -259,7 +261,7 @@ public sealed class GuestSessionClientTests
     }
 
     [Fact]
-    public async Task CancellationDuringCall_EndsConnectionInsteadOfResuming()
+    public async Task CancellationDuringCallEndsConnectionInsteadOfResuming()
     {
         var statusReceived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         await using var host = new FakeAdminPipe(async (pipe, cancellationToken) =>
@@ -284,7 +286,7 @@ public sealed class GuestSessionClientTests
     }
 
     [Fact]
-    public async Task DisposingJoinedClient_ClosesPipeAndInvalidatesLifecycle()
+    public async Task DisposingJoinedClientClosesPipeAndInvalidatesLifecycle()
     {
         await using var host = new FakeAdminPipe(async (pipe, cancellationToken) =>
         {
@@ -314,7 +316,7 @@ public sealed class GuestSessionClientTests
     [InlineData("sequence-too-large")]
     [InlineData("run-false")]
     [InlineData("desired-null")]
-    public async Task InvalidInput_IsRejectedBeforeWriting_AndStopRemainsAvailable(string defect)
+    public async Task InvalidInputIsRejectedBeforeWritingAndStopRemainsAvailable(string defect)
     {
         await using var host = new FakeAdminPipe(async (pipe, cancellationToken) =>
         {
@@ -354,7 +356,7 @@ public sealed class GuestSessionClientTests
     [InlineData("missing")]
     [InlineData("non-boolean")]
     [InlineData("unknown")]
-    public async Task InvalidWelcome_ClosesWithoutSendingInvitation(string defect)
+    public async Task InvalidWelcomeClosesWithoutSendingInvitation(string defect)
     {
         await using var host = new FakeAdminPipe(async (pipe, cancellationToken) =>
         {

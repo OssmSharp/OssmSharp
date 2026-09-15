@@ -15,13 +15,13 @@ public sealed class GuestApplicationTests
     [InlineData(0)]
     [InlineData(1023)]
     [InlineData(65536)]
-    public void BootstrapPort_RejectsOutsideUnprivilegedPortRange(int port)
+    public void BootstrapPortRejectsOutsideUnprivilegedPortRange(int port)
     {
         Assert.Throws<OptionsValidationException>(() => Build(port, "test-pipe"));
     }
 
     [Fact]
-    public async Task HealthAndStaticPages_AreGuestOnlyWithLocalAssetsAndStrictCsp()
+    public async Task HealthAndStaticPagesAreGuestOnlyWithLocalAssetsAndStrictCsp()
     {
         var port = AvailablePort();
         await using var app = Build(port, $"test-{Guid.NewGuid():N}");
@@ -67,7 +67,7 @@ public sealed class GuestApplicationTests
     }
 
     [Fact]
-    public async Task HttpBoundary_RejectsForeignHostAndMissingOrForeignPostOrigin()
+    public async Task HttpBoundaryRejectsForeignHostAndMissingOrForeignPostOrigin()
     {
         var port = AvailablePort();
         await using var app = Build(port, $"test-{Guid.NewGuid():N}");
@@ -96,7 +96,7 @@ public sealed class GuestApplicationTests
     }
 
     [Fact]
-    public async Task OpeningInvitationPage_PrerendersWithoutContactingPipe()
+    public async Task OpeningInvitationPagePrerendersWithoutContactingPipe()
     {
         var port = AvailablePort();
         var pipeName = $"test-{Guid.NewGuid():N}";
