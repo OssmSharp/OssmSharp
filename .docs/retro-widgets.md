@@ -1,0 +1,127 @@
+# Local Retro Web UI integration
+
+The application consumes the existing **`RetroWebUi.Blazor` 0.1.3 NuGet
+package**, not a fork or a copy of the widget implementation. It contains the
+Razor wrappers, JavaScript initializer, Web Components and theme stylesheet.
+Consumers need only .NET and the prebuilt package.
+
+## Private distribution
+
+- `NuGet.Config` maps this package ID exclusively to
+  `..\retro-webui\artifacts\packages`. Other dependencies use nuget.org.
+- `SharedUi.csproj` pins version `0.1.3` and checks the package's SHA-256:
+  `E38BECE52DC36156F8AB6ABEEE7B22481AF87A0D72712EDB0CB34D7C0F615304`.
+- This private widget update adds shared page/notification layout, consistent
+  control heights, semantic button states, reduced-motion-safe attention and the
+  native Razor `RwRange` applied-value marker.
+- The authorized widget changes are in `..\retro-webui`. Native `dotnet pack`
+  links its canonical theme CSS; no Node tooling was run. All 18 JavaScript
+  files and 17 declaration files match the reviewed `0.1.0` artifact, so Shadow
+  DOM style hashes remain unchanged. Canonical theme CSS SHA-256 is
+  `2A248C615D622528205F75FDA855064721438D3FB37E3BF5C86FF3ECB0A2372F`.
+- Restores use the repository-local `.artifacts\nuget-packages` cache so an
+  older cached artifact with the same development version cannot mask the
+  update.
+- Keep the `.nupkg` in the local folder or an access-controlled internal feed.
+  Do not commit the binary here or push/publish it to a public registry.
+- NuGet metadata commands can query all configured sources despite source
+  mapping. Use the local source explicitly when inspecting this private package.
+
+If the artifact is missing, obtain the approved prebuilt package for the local
+feed. Do not replace an existing version with different content: use a new
+private version, review it, and update the pin/checksum together.
+
+## Browser integration
+
+The root documents load the package theme and select its `neon` preset. Blazor
+discovers the package's initializer; no second registration script is installed.
+Typed wrappers own Blazor actions. The JS-owned guest toggle and native
+`.rw-slider` inputs retain their browser-side send/lease state. Both hosts
+consume `ControlLayout` and static `ConnectionNotice` from SharedUi. The package
+owns their common styles; reconnect and fatal notices take priority over
+ordinary operation notices. Native Blazor reconnect states drive the display
+without moving or replacing interactive DOM.
+
+The library inserts constant styles into Shadow DOM. `RetroWidgetAssets`
+contains the exact style hashes for this pinned package. The HTTP boundary
+allows only those hashes, keeping arbitrary inline styles and scripts blocked.
+
+Package updates require reviewing the package/checksum/style hashes together. No
+widget build tooling is included in this repository.
+
+### Inspect package style hashes
+
+Use the Python inspector with an approved local `.nupkg`; it does not restore,
+download, publish, extract, or install the package:
+
+```powershell
+python tools\retro-widgets\style_hashes.py .artifacts\nuget-packages\retrowebui.blazor\0.1.3\retrowebui.blazor.0.1.3.nupkg
+```
+
+The package in the private source feed can also be inspected directly:
+
+```powershell
+python tools\retro-widgets\style_hashes.py ..\retro-webui\artifacts\packages\RetroWebUi.Blazor.0.1.3.nupkg
+```
+
+Prerequisites are Python with the Playwright version pinned in
+`tests/browser/requirements.txt` (currently 1.61.0), and an existing browser.
+The default uses installed Microsoft Edge. Use `--browser chromium` for an
+existing Playwright Chromium installation or `--browser firefox` for an existing
+Playwright Firefox installation. The tool installs nothing.
+
+The inspector serves only the archive's `staticwebassets/widgets` assets through
+intercepted synthetic-origin routes; external requests are blocked. It observes
+`customElements.define` while importing `index.js`, creates each discovered
+element, and reads open Shadow DOM `<style>` `textContent` after two animation
+frames. Python hashes the exact UTF-8 text, without trimming or newline
+normalization. JavaScript templates are executed by the browser, not parsed or
+evaluated in Python. Only run it against approved packages: this is a widget
+inspection tool, not a sandbox for untrusted code.
+
+Successful stdout is JSON containing `packageSha256` (hex), `elements` (names
+and their `styleHashes`), and `styleHashes` (sorted unique base64 SHA-256
+digests across all elements). Failure produces a diagnostic on stderr and a
+nonzero exit code, with no partial JSON. The results describe settled,
+default-state widgets, not every attribute/interaction state or transient DOM
+mutation. Closed or missing Shadow DOM is an inspection error.
+
+Review the package checksum, element list, and style values together before
+manually updating any approved package/CSP pins. For a reviewed style digest,
+the CSP source-expression form is `'sha256-<base64 digest>'`. An observed empty
+style is reported as `47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=`; its
+presence is evidence to investigate, not automatic permission to add it. The
+tool neither authorizes scripts nor changes application files or CSP.
+
+Run the focused regression checks with:
+
+```powershell
+python -m unittest discover -s tests/browser -p test_style_hashes.py
+```
+
+These checks use Edge for synthetic packages and compare Edge with Firefox for
+the installed local package. The package comparison is explicitly skipped when
+that package is absent; missing required browsers are failures.
+
+Blazor owns all rendered guest text. Browser input handling reports display
+state through the existing interop reference; it never adds, removes or replaces
+children in the interactive render tree. The startup script and controller
+imports use the same fingerprinted asset version.
+
+### Troubleshoot CSP console warnings
+
+A source such as `moz-extension://.../inject/index.js` belongs to a browser
+extension, not the application. Disable the extension for the loopback site and
+retry in a clean browser profile. Do not copy extension-related
+console-suggested hashes into the application's CSP.
+
+The `47DE...` digest above hashes the empty string; it alone does not indicate
+widget style drift. The application CSP correctly blocks an injected empty
+`<style>` and an unapproved inline script. Clean Edge and Firefox checks of the
+operator and invalid-invitation pages produced no `securitypolicyviolation`
+events, with the widget Shadow DOM stylesheets attached. Recalculate the hashes
+when the approved package changes; console suggestions alone are not evidence of
+a package update.
+
+Sources: the widget checkout's `docs/blazor.md` and `docs/themes.md`;
+[NuGet source-mapping rules](https://learn.microsoft.com/nuget/consume-packages/package-source-mapping).

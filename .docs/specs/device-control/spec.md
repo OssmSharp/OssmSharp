@@ -40,7 +40,7 @@ guest-side validation, but does not itself prove physical safety.
 | Decision | Selected approach and reason |
 | --- | --- |
 | Application stack | Two .NET 10 processes: restricted ASP.NET Core/Blazor guest web, and private admin management/session/policy services with the device-control hosted service. Both can run on one computer. |
-| Access model | Accountless operator and guest capabilities validated by the service; no registration, login, user database or identity provider. Local one-box mode uses the same enforcement path. |
+| Access model | Unauthenticated local operator UI/API bound only to `127.0.0.1`, with Host/Origin protection and no access timeout. Guest forwarding/session capabilities remain validated by admin; no registration, login, user database or identity provider. |
 | Licensing | Plan Apache-2.0 licensing for original application code. Existing web projects are behavior/protocol references, not source imports or mechanical ports. No third-party branding/assets or licence files are installed by this document. |
 | Device bridge | Map the pinned stock protocol in a server-side .NET bridge behind a narrow C# interface. Native BLE is the initial transport direction; the actual home-server OS and service-account Bluetooth access must be verified before selecting its implementation. No browser BLE or JavaScript device bridge. |
 | Initial device target | Qualify stock firmware `1.0.34` at `4871a84c54ae0734b1f8bc3d02fcc0098f12fbad`, on an operator-identified OSSM configuration. This selects a test target, not support for all units reporting that version. |
@@ -62,24 +62,31 @@ Only admin loads the bridge and owns its native permissions.
 Support [local one-box operation](../README.md#dep-01-local-one-box-operation):
 both services, bridge and browser can share one supported computer without
 cloud infrastructure. The same server checks apply locally and remotely.
-Capability-authorized operator management runs in private admin; local
-access alone never confers an owner role.
+Unauthenticated operator management runs only in loopback admin, with
+Host/Origin protection. It is not a security boundary against local processes.
 
 The session module owns [one-click session links](../README.md#session-01-one-click-session-link-generation).
-Creating an invitation is an admin operation unavailable to guest web, not device initialization,
+Retrieving the automatically available invitation is an admin operation unavailable to guest web, not device initialization,
 guest approval or arming. It must issue no bridge writes and must not
 alter an active controller's generation or motion state.
+The invitation has no expiry and can admit a new pending guest after the previous
+session ends; guest/session leases still expire. **Cycle link** is a separate
+admin operation: revoke old link/proof/connection/grants, clear pending input and
+request serialized Stop. The replacement is available immediately, but does not
+clear an external lock, approve a guest or arm/resume control.
+The operator's **Stop and end session** action uses this same atomic cycle.
+Guest leave, transport loss and guest/session expiry retain the invitation.
 
 The [accountless access contract](../README.md#session-02-accountless-access)
-defines operator and guest capabilities. Authentication means validating
-temporary authority, not signing into an account. The controller receives
+defines unauthenticated local operator access and scoped guest capabilities.
+Guest authentication validates temporary authority, not an account. The controller receives
 only trusted scope/session context; no guest token becomes an execution
 guard by itself.
 
 | Boundary | Owns and enforces | Must not do |
 | --- | --- | --- |
 | Guest browser | Displays three vertical sliders, explicit/automatic Send, current feedback and Stop | Authorize itself, select devices, raise limits, connect to the bridge or emit raw device commands |
-| Guest web process | Rendering, bounded parsing/quotas and forwarding Join, scoped input/Stop/leave and status over private IPC | Generate invitations, approve, arm, change policy, hold operator secrets or open the bridge |
+| Guest web process | Rendering, bounded parsing/quotas and forwarding Join, scoped input/Stop/leave and status over private IPC | Generate invitations, approve, arm, change policy or open the bridge |
 | Admin session boundary | Independently validates guest capability and session, atomically handles invitations/admission, issues grants and owns expiry | Trust guest web's allow/deny result or a client-claimed role |
 | `host-authority` inside admin | Operator permissions, arming, configured limits, valid tuples, grant/sequence checks and revocation | Delegate final policy to guest web |
 | `device-control` hosted in admin | Single writer, current generation, execution-time policy checks, device readiness, deadlines and Stop ordering | Create a writer in guest web or per HTTP request/socket/circuit |
@@ -95,7 +102,7 @@ The public guest contract terminates at guest web and is forwarded through
 a versioned, independently validated guest-to-admin contract. Transport may
 use Blazor/SignalR events or explicit API messages, but admin permission and
 freshness checks do not depend on which UI transport delivered them.
-There is no host browser, operator secret in guest web or guest-to-device
+There is no host browser, operator credential or guest-to-device
 peer channel. An authenticated session still cannot call arbitrary bridge
 methods or address devices by client-supplied identifiers.
 
@@ -108,9 +115,9 @@ unsent selections never enter that run lease. Visibility JavaScript stops sendin
 no browser code is trusted to enforce access or safety policy.
 
 Operator approval, configuration and rearming are trusted server operations,
-separate from guest requests. The operator interaction remains to be
-specified without assuming another browser. Until that path is configured,
-admission stays paused and the speed cap stays zero. Device pairing and
+separate from guest requests. The prototype starts disarmed with 100% limits;
+the explicit Allow control action prepares and arms the stopped session.
+Device pairing and
 calibration are operator setup actions, never guest browser prompts.
 
 Admin's watchdog runs even when the guest browser or guest web is closed or frozen.
@@ -238,8 +245,9 @@ scope explicitly; do not keep increasing timeouts until arming succeeds.
 
 For the Simple Stroke profile, the desired tuple uses integer firmware
 percentages in `[0, 100]`, pattern `0` and fixed sensation `50`. Nonzero
-speed requires positive stroke. The initial software speed cap is zero
-until the local operator selects a limit for a qualified setup.
+speed requires positive stroke. The simulator prototype defaults to a 100%
+software speed cap and maximum depth; operators may lower either limit.
+Physical-device operation remains blocked until separately qualified.
 
 [Simple Stroke][firmware-patterns] targets depth and depth minus stroke.
 However, the [mode mapping][firmware-mode] scales percentages against
@@ -418,6 +426,17 @@ is pending. Revocation latches Stop without waiting for another input,
 while the service can execute. Request completion does not extend
 or detach motion authority; this is not a guarantee of physical stopping.
 
+Applying compatible operator limits does not revoke this accepted guard or
+pause control. Preserve Ready, generation, epoch, sequence, approved session
+and serialized I/O when the accepted tuple, active observed tuple and issued
+work fit the proposed bounds. A successful changed policy increments its
+version and immediately publishes a grant with that version and the same
+epoch; old grants cannot authorize new input. Retain the accepted guard's
+original deadline, not the new grant's deadline. Only explicit fresh guest
+input can renew the accepted lease. Applying identical limits is a no-op.
+Paused, initializing, locked and faulted states never arm from policy edits;
+Stop and expired authority remain dominant.
+
 ### DC-03: Capability and value contract
 
 Capability information identifies the adapter contract and verified
@@ -442,6 +461,13 @@ the user's permitted envelope. Both constraints apply at execution.
 Simple Stroke is the sole candidate pattern. The physical qualified
 allowlist remains empty until evidence is recorded; simulator support
 must not populate it.
+
+Reject a proposed limit change as `limits-conflict` before any mutation if
+accepted, active, pending or in-flight motion exceeds it. Include zero-speed
+envelope writes and completed commands whose feedback has not yet arrived;
+write completion does not erase possible active motion. Conflict rejection
+preserves the old limits/version, authority, desired tuple and writer. Do not
+silently pause, clamp, accept a forbidden transient or re-arm to apply limits.
 
 ### DC-04: One writer and bounded pending work
 
@@ -548,8 +574,10 @@ which callback the scheduler delivers first.
 
 Guest/device/IPC disconnect, disposal and faults cancel pending work.
 No browser reload, circuit reconnection, bridge reconnect or service restart
-restores authority or replays desired state. New sessions need a new
-invitation and trusted owner approval/rearming. Internal end/revocation
+restores authority or replays desired state. New guest sessions may reuse the
+current invitation but need fresh proof and trusted owner approval/rearming.
+Admin restart, Cycle or operator Stop and end session invalidates the previous
+invitation. Internal end/revocation
 does not wait for an acknowledgement from the guest.
 
 On graceful service shutdown, reject new motion, invalidate grants, request
@@ -626,8 +654,8 @@ Uncertain feedback cannot authorize further motion or reset the baseline.
 
 #### Explicit unlock, with no motion resumption
 
-The operator must invoke **Unlock** with a valid admin capability against
-the current lock revision. Admin requires all issued I/O to have settled,
+The operator must invoke **Unlock** on the local admin surface against the
+current lock revision. Admin requires all issued I/O to have settled,
 old queued work to be cancelled, a known stopped device, fresh valid state,
 a qualified profile and an envelope within current policy before clearing
 the latch. Failure or another
@@ -688,17 +716,18 @@ of inventing a failing test.
 | Cancellation | Inject Stop, fault, disposal, device loss and guard revocation before/after every asynchronous boundary; no later motion write from the old generation. Revoke the applied guard with no pending input and observe the Stop path. |
 | Timeout | Hold a transport promise past its deadline; controller reports unknown state, does not start a concurrent write and cannot resume on late completion |
 | Validation | Boundary and generated tuples prove invalid values, unsupported patterns and unsafe intermediate geometry never write |
+| Live limits | Compatible changes preserve Ready/epoch/sequence and original lease deadlines; stale policy/grants reject; conflicting accepted, observed, pending, in-flight and unconfirmed writes reject the whole policy atomically; edits never bypass Stop, faults or external locks |
 | Feedback | Malformed, stale, cached, missing and mismatched-connection feedback cannot confirm readiness or stopped state |
 | External-control lockout | Inject an unexplained change to each supported parameter or operating mode, including zero-speed/knob changes, at rest and at every asynchronous transition; observe locked status, invalidated grants, cleared pending state and no stale motion write |
 | Readback attribution | Own echoes, qualified intermediate values and normal position/time telemetry do not falsely lock; unrelated changes, even to a value in a previous/future desired tuple, are not hidden by pending work or broad numeric tolerances |
 | Physical override precedence | After observed physical zero, moving the physical control back or delivering a late guest request never restores motion; the explicit Stop write is not skipped because feedback is zero |
-| Admin unlock | Guest token/IPC credential, regular resume, new link, reconnect and fault recovery cannot clear lockout; successful explicit admin unlock remains paused; failure, stale lock revision or concurrent external change keeps it locked |
+| Admin unlock | Guest routes/IPC, regular resume, new link, reconnect and fault recovery cannot clear lockout; successful explicit local admin unlock remains paused; failure, stale lock revision or concurrent external change keeps it locked |
 | Cleanup | Repeated connect/dispose and partial setup leave no owned listeners, timers or notifications; the discarded application's range widget is not imported |
 | Guest UI wiring | One Chrome browser talks only to the real ASP.NET Core service using a fake bridge; no Bluetooth API, second browser or device credential is required |
-| One-box operation | Browser, both services and fake bridge work on one computer with external networking blocked, local capability access and unchanged policy/expiry rules |
-| Invitation isolation | One-click link creation, duplicate creation and creation failure produce no device writes, motion authority or changes to an active controller |
-| Accountless access | Local bootstrap and guest invitation require no user records or login; wrong-role, expired and revoked capabilities cannot reach privileged controller operations |
-| Process separation | Guest web has no admin routes, operator capability, bridge references or device permissions; its forwarding credential cannot call create/approve/arm/configure/unlock operations |
+| One-box operation | Browser, both services and fake bridge work on one computer with external networking blocked, unauthenticated local operator access and unchanged guest capability, policy and expiry rules |
+| Invitation isolation | Automatic reusable-link retrieval and retries produce no device writes, motion authority or changes to an active controller; Cycle and operator Stop and end session atomically rotate the link, revoke guest authority, clear input and request serialized Stop without automatic rearming; guest leave/disconnect/expiry retain the link |
+| Accountless access | Local operator access requires no token and has no access expiry; guest invitations require no user records or login; wrong-role, expired and revoked guest capabilities are rejected |
+| Process separation | Guest web has no admin routes, bridge references or device permissions; its forwarding protocol cannot call create/approve/arm/configure/unlock operations. The unauthenticated loopback admin listener does not isolate compromised local processes. |
 | IPC validation | Admin rejects malformed, wrong-role, expired, cross-session and replayed forwarded messages even when guest web claims acceptance; peer loss/restart enters Stop/teardown |
 | Two-process one-box | Both services run on one computer without cloud dependencies; generated links target guest web, not admin; guest failure never starts a fallback writer |
 | Server enforcement | Bypass the rendered controls with malformed, expired, wrong-role and over-limit requests; no forbidden operation reaches the bridge through UI, API or socket entry points |
@@ -791,7 +820,7 @@ by copying another project's constants:
 | Physical override detection | Verify physical remote/knob changes trigger DC-09 lockout without the service restoring prior motion; record detection latency and actual stop behavior on each supported profile | No claim that the physical remote is an effective hard stop through this feature until demonstrated |
 | Independent stopping and acceptable bound | Maintainer and hardware operator agree an application-specific maximum stopping time/distance before loaded use, then collect unloaded fault evidence from fault onset through actual stopping | No physical-use release; the source's one-second delay plus two-second ramp is not accepted as a safe bound |
 | Bridge deployment | Establish actual home-service OS, native BLE/bridge hardware, service identity, permissions and pairing/provisioning procedure | Simulator bridge only; no invented platform-specific adapter or untested container Bluetooth |
-| Operator actions | Define trusted service-side approval, device setup and rearming without a second browser; ordinary guest requests cannot perform them | Sessions paused and speed cap zero until this path exists |
+| Operator actions | Define trusted service-side approval, device setup and rearming without a second browser; ordinary guest requests cannot perform them | Sessions remain disarmed until explicitly allowed |
 | Service integration | Verify authorization across all entry points, single hosted-controller lifetime, native I/O cancellation and guest-loss expiry | No claim that rendered UI restrictions or a C# fake prove the enforcement boundary |
 | Build and dependencies | Implementation work pins a serviced .NET 10 SDK, compatible NuGet/workload versions and a reviewed restore after installation approval | No claim of build reproducibility, dependency safety or passing regression tests |
 
