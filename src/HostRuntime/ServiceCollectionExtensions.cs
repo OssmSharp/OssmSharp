@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using System.Text.Json.Serialization;
@@ -13,6 +15,10 @@ public static class ServiceCollectionExtensions
         services.AddOptions<AdminOptions>()
             .BindConfiguration("OSSM", options => options.ErrorOnUnknownConfiguration = true)
             .ValidateDataAnnotations()
+            .Validate<IConfiguration>((_, configuration) =>
+                !configuration.GetSection("Kestrel:Endpoints").Exists() &&
+                !configuration.GetValue<bool>(WebHostDefaults.PreferHostingUrlsKey),
+                "Admin listener overrides are not supported. Use OSSM:AdminPort for the 127.0.0.1 listener.")
             .ValidateOnStart();
         return services;
     }

@@ -1,8 +1,4 @@
-using System.Net.Http.Headers;
 using System.Net.Http.Json;
-using System.Diagnostics;
-using System.Reflection;
-using System.Text.Json;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using OSSMDotNet.Web.ControlCore;
@@ -13,11 +9,13 @@ namespace OSSMDotNet.Web.AppHost.Tests;
 
 public sealed class LocalApplicationTests
 {
-    [Fact]
-    public async Task AspireStartsIsolatedServicesAndTheRealSimulatorSupportsTheOperatorJourney()
+    [Theory]
+    [InlineData("edge")]
+    [InlineData("firefox")]
+    public async Task AspireStartsIsolatedServicesAndTheRealSimulatorSupportsTheOperatorJourney(string browser)
     {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
-        deadline.CancelAfter(TimeSpan.FromSeconds(60));
+        deadline.CancelAfter(TimeSpan.FromSeconds(120));
         var cancellation = deadline.Token;
         await using var builder = await DistributedApplicationTestingBuilder.CreateAsync<Projects.AppHost>(cancellation);
         await using var app = await builder.BuildAsync(cancellation);
@@ -36,9 +34,6 @@ public sealed class LocalApplicationTests
         using var forbidden = await guest.GetAsync("/api/v1/admin/status", cancellation);
         Assert.Equal(HttpStatusCode.NotFound, forbidden.StatusCode);
 
-        var operatorParameter = builder.Resources.OfType<ParameterResource>().Single(resource => resource.Name == "operator-token");
-        var operatorToken = await operatorParameter.GetValueAsync(cancellation);
-        admin.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", operatorToken);
         var adminResource = builder.Resources.OfType<ProjectResource>().Single(resource => resource.Name == "admin");
         var execution = await ExecutionConfigurationBuilder.Create(adminResource).WithEnvironmentVariablesConfig()
             .BuildAsync(builder.ExecutionContext, NullLogger.Instance, cancellation);
@@ -50,21 +45,28 @@ public sealed class LocalApplicationTests
             GuestServiceToken = environment["OSSM__GuestServiceToken"]
         }), NullLogger<GuestSessionClient>.Instance);
 
-        await WaitUntil(admin, state => state.BridgeReady && !state.DeviceMoving, cancellation);
+        var initial = await WaitUntil(admin, state => state.BridgeReady && !state.DeviceMoving, cancellation);
+        Assert.False(initial.DeviceEnabled);
+        Assert.Null(initial.Grant);
         await Post(admin, "recover", null, cancellation);
         await Post(admin, "limits", new { speedCap = 20, maximumDepth = 60 }, cancellation);
         await WaitUntil(admin, state => !state.DeviceMoving && !state.OperationPending, cancellation);
-        var attemptId = Guid.NewGuid();
-        using var created = await admin.PostAsJsonAsync("/api/v1/admin/invitation", new { attemptId }, cancellation);
+        using var created = await admin.GetAsync("/api/v1/admin/invitation", cancellation);
         created.EnsureSuccessStatusCode();
         var invitation = await created.Content.ReadFromJsonAsync<Invitation>(cancellationToken: cancellation);
         Assert.NotNull(invitation);
+        Assert.Null(invitation.ExpiresAt);
         Assert.StartsWith(guest.BaseAddress.GetLeftPart(UriPartial.Authority) + "/join/", invitation.Url);
         var secret = new Uri(invitation.Url).Fragment["#invite=".Length..];
         var joined = await client.JoinAsync(invitation.SessionId, secret, cancellation);
         Assert.True(joined.Ok, joined.Code);
         var pending = await WaitUntil(admin, state => state.SessionMode == "PendingApproval" && state.ConnectionId is not null, cancellation);
+        Assert.Null(pending.Grant);
+        Assert.False(pending.DeviceEnabled);
         await Post(admin, "approve", new { connectionId = pending.ConnectionId }, cancellation);
+        var approved = await WaitUntil(admin, state => state.SessionMode == "Approved", cancellation);
+        Assert.Null(approved.Grant);
+        Assert.False(approved.DeviceEnabled);
         await Post(admin, "arm", null, cancellation);
         var armed = await WaitUntil(admin, state => state.Mode == "Ready" && state.Grant is not null, cancellation);
         var grant = armed.Grant!;
@@ -80,44 +82,7 @@ public sealed class LocalApplicationTests
         Assert.Equal(0, paused.Desired.Speed);
         await Post(admin, "end", null, cancellation);
         await client.DisposeAsync();
-        await BrowserJourney(admin.BaseAddress, operatorToken!, guest.BaseAddress, cancellation);
-    }
-
-    private static async Task BrowserJourney(Uri admin, string operatorToken, Uri guest, CancellationToken cancellationToken)
-    {
-        var root = Path.GetFullPath(typeof(LocalApplicationTests).Assembly
-            .GetCustomAttributes<AssemblyMetadataAttribute>().Single(attribute => attribute.Key == "RepositoryRoot").Value!);
-        var start = new ProcessStartInfo("python")
-        {
-            UseShellExecute = false,
-            RedirectStandardInput = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            WorkingDirectory = root
-        };
-        start.ArgumentList.Add(Path.Combine(root, "tests", "browser", "prototype_smoke.py"));
-        using var process = Process.Start(start) ?? throw new InvalidOperationException("Unable to start browser verification.");
-        var output = process.StandardOutput.ReadToEndAsync(cancellationToken);
-        var errors = process.StandardError.ReadToEndAsync(cancellationToken);
-        try
-        {
-            await process.StandardInput.WriteLineAsync(JsonSerializer.Serialize(new
-            {
-                adminUrl = $"{admin.GetLeftPart(UriPartial.Authority)}/#operator={operatorToken}",
-                guestOrigin = guest.GetLeftPart(UriPartial.Authority)
-            }));
-            process.StandardInput.Close();
-            await process.WaitForExitAsync(cancellationToken);
-            Assert.True(process.ExitCode == 0, $"Browser verification failed: {await output} {await errors}");
-        }
-        finally
-        {
-            if (!process.HasExited)
-            {
-                process.Kill(entireProcessTree: true);
-                await process.WaitForExitAsync(CancellationToken.None);
-            }
-        }
+        await BrowserJourney.RunAsync(admin.BaseAddress, guest.BaseAddress, browser, cancellation);
     }
 
     private static async Task Post(HttpClient client, string operation, object? body, CancellationToken cancellationToken)

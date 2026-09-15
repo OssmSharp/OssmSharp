@@ -6,34 +6,42 @@ using Microsoft.Extensions.Options;
 namespace OSSMDotNet.Web.AdminService;
 
 public sealed class AdminOperations(
-    OperatorCapability capability,
     PrototypeEngine engine,
     SimulatorProcessBridge bridge,
     IOptions<AdminOptions> options,
     OperatorLogProvider activity,
     ILogger<AdminOperations> logger)
 {
-    public ControlSnapshot Read(string token) { capability.Demand(token); return engine.Snapshot; }
-    public IReadOnlyList<OperatorLogEntry> ReadLog(string token, long after) { capability.Demand(token); return activity.ReadAfter(after); }
-    public Invitation Generate(string token, Guid attempt)
+    public ControlSnapshot Read() => engine.Snapshot;
+    public IReadOnlyList<OperatorLogEntry> ReadLog(long after) => activity.ReadAfter(after);
+    public Invitation ReadInvitation() => engine.GetInvitation(new Uri(options.Value.GuestOrigin));
+    public Invitation CycleInvitation()
     {
-        capability.Demand(token);
-        var invitation = engine.CreateInvitation(attempt, new Uri(options.Value.GuestOrigin), capability.ScopeId);
+        var invitation = engine.CycleInvitation(new Uri(options.Value.GuestOrigin));
+        Log("Invitation cycled; guest revoked and Stop requested");
+        return invitation;
+    }
+    public Invitation Generate(Guid attempt)
+    {
+        var invitation = engine.CreateInvitation(attempt, new Uri(options.Value.GuestOrigin), options.Value.PipeName);
         Log("Invitation ready");
         return invitation;
     }
-    public void Approve(string token, string connection) { capability.Demand(token); engine.Approve(connection); Log("Guest approved"); }
-    public void Limits(string token, int cap, int depth) { capability.Demand(token); engine.SetLimits(new(cap, depth)); Log("Session limits applied; control paused"); }
-    public void Recover(string token) { capability.Demand(token); engine.Recover(); Log("Connection ready; control paused"); }
-    public void Arm(string token) { capability.Demand(token); engine.Arm(); Log("Control enabled"); }
-    public void Stop(string token) { capability.Demand(token); engine.Pause(); Log("Stop requested"); }
-    public void End(string token) { capability.Demand(token); engine.EndSession(); Log("Session ended"); }
-    public void Unlock(string token, long revision) { capability.Demand(token); engine.Unlock(revision); Log("Unlocked; control remains paused"); }
+    public void Approve(string connection) { engine.Approve(connection); Log("Guest approved"); }
+    public void Limits(int cap, int depth) { engine.SetLimits(new(cap, depth)); Log("Session limits applied"); }
+    public void Recover() { engine.Recover(); Log("Connection ready; control paused"); }
+    public void Arm() { engine.Arm(); Log("Control enabled"); }
+    public void Stop() { engine.Pause(); Log("Stop requested"); }
+    public void End()
+    {
+        engine.CycleInvitation(new Uri(options.Value.GuestOrigin));
+        Log("Stop requested; session ended and invitation rotated");
+    }
+    public void Unlock(long revision) { engine.Unlock(revision); Log("Unlocked; control remains paused"); }
 
     private void Log(string action) => logger.LogInformation(new EventId(200, "OperatorActivity"), "{Action}.", action);
-    public Task Fault(string token, string kind)
+    public Task Fault(string kind)
     {
-        capability.Demand(token);
         return kind switch
         {
             "external-zero" => bridge.InjectAsync("external", engine.Snapshot.Desired with { Speed = 0 }),

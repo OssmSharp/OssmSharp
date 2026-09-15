@@ -8,6 +8,22 @@ namespace OSSMDotNet.Web.ControlCore.Tests;
 public sealed class PrototypeEngineTests
 {
     [Fact]
+    public async Task DefaultLimitsAllowExplicitControlWithoutASeparateLimitsStep()
+    {
+        await using var rig = new Rig();
+        Assert.Equal(new ControlLimits(100, 100), rig.Engine.Snapshot.Limits);
+        Assert.Equal("Initializing", rig.Engine.Snapshot.Mode);
+        Assert.Null(rig.Engine.Snapshot.Grant);
+        Assert.Equal(0, rig.Engine.Snapshot.Desired.Speed);
+        rig.Engine.Recover();
+        rig.ConnectGuest();
+        rig.Engine.Approve(rig.Guest.ConnectionId);
+        rig.Engine.Arm();
+        Assert.Equal("Ready", rig.Engine.Snapshot.Mode);
+        Assert.NotNull(rig.Engine.Snapshot.Grant);
+    }
+
+    [Fact]
     public async Task AcceptedInputIsNotVerifiedUntilTheDeviceConfirmsItsSettings()
     {
         await using var rig = new Rig();
@@ -68,7 +84,7 @@ public sealed class PrototypeEngineTests
     }
 
     [Fact]
-    public async Task InvitationsValidateFullOriginAndAreBoundToOneAttemptAndOperator()
+    public async Task InvitationCompatibilityRetriesValidateOriginAndBindAttemptScopeUntilCycle()
     {
         await using var rig = new Rig();
         foreach (var origin in new[]
@@ -91,12 +107,16 @@ public sealed class PrototypeEngineTests
         Assert.Equal(43, Secret(invitation).Length);
         Assert.False(invitation.LocalOnly);
         Rejected(() => rig.Engine.CreateInvitation(attempt, new Uri("https://example.com:8443"), "other-operator"));
-        Rejected(() => rig.Engine.CreateInvitation(Guid.NewGuid(), new Uri("https://example.com"), "operator"));
+        Assert.Equal(invitation, rig.Engine.CreateInvitation(Guid.NewGuid(), new Uri("https://example.com"), "operator"));
+        Assert.Null(invitation.ExpiresAt);
 
         rig.Engine.Join(invitation.SessionId, Secret(invitation), "connection");
-        Rejected(() => rig.Engine.CreateInvitation(attempt, new Uri("https://example.com:8443"), "operator"));
+        Assert.Equal(invitation, rig.Engine.CreateInvitation(attempt, new Uri("https://example.com:8443"), "operator"));
         rig.Engine.EndSession();
-        Rejected(() => rig.Engine.CreateInvitation(attempt, new Uri("https://example.com:8443"), "operator"));
+        Assert.Equal(invitation, rig.Engine.CreateInvitation(attempt, new Uri("https://example.com:8443"), "operator"));
+        var replacement = rig.Engine.CycleInvitation(new Uri("https://example.com:8443"));
+        Rejected(() => rig.Engine.CreateInvitation(attempt, new Uri("https://example.com:8443"), "operator"), "attempt-consumed");
+        Assert.Equal(replacement, rig.Engine.GetInvitation(new Uri("https://example.com:8443")));
     }
 
     [Fact]
@@ -166,15 +186,12 @@ public sealed class PrototypeEngineTests
     }
 
     [Fact]
-    public async Task InvitationAndPendingApprovalExpireAtTheirExactDeadlines()
+    public async Task InvitationDoesNotExpireButPendingApprovalStillExpiresAtItsExactDeadline()
     {
         await using var rig = new Rig();
         var invitation = rig.Invite();
         rig.Time.Advance(TimeSpan.FromMinutes(5));
-        Rejected(() => rig.Engine.Join(invitation.SessionId, Secret(invitation), "late"));
-        rig.Engine.Tick();
-        var next = rig.Invite();
-        rig.Engine.Join(next.SessionId, Secret(next), "pending");
+        rig.Engine.Join(invitation.SessionId, Secret(invitation), "pending");
         rig.Time.Advance(TimeSpan.FromSeconds(60));
         Rejected(() => rig.Engine.Approve("pending"));
         Assert.NotEqual("Approved", rig.Engine.Snapshot.SessionMode);
@@ -187,13 +204,16 @@ public sealed class PrototypeEngineTests
         Assert.Equal("Initializing", rig.Engine.Snapshot.Mode);
         rig.Engine.Recover();
         Assert.Equal("Paused", rig.Engine.Snapshot.Mode);
-        Assert.Equal(0, rig.Engine.Snapshot.Limits.SpeedCap);
+        Assert.Equal(100, rig.Engine.Snapshot.Limits.SpeedCap);
         Rejected(rig.Engine.Arm);
         rig.ConnectGuest();
         Rejected(rig.Engine.Arm);
-        rig.Engine.SetLimits(new(50, 100));
+        rig.Engine.SetLimits(new(0, 100));
         rig.Pump();
         rig.Engine.Approve(rig.Guest.ConnectionId);
+        Rejected(rig.Engine.Arm, "limits-not-configured");
+        rig.Engine.SetLimits(new(50, 100));
+        rig.Pump();
         rig.Engine.Arm();
         Assert.Equal("Ready", rig.Engine.Snapshot.Mode);
         Assert.Equal(0, rig.Engine.Snapshot.Desired.Speed);
@@ -260,20 +280,20 @@ public sealed class PrototypeEngineTests
     }
 
     [Fact]
-    public async Task PolicyChangePausesBeforeChangingPolicyAndKillsOldEpoch()
+    public async Task PolicyChangePreservesReadyAndEpochButRejectsTheOldPolicy()
     {
         await using var rig = new Rig();
         rig.Arm();
         var old = rig.Input(1);
         var generation = rig.Engine.Snapshot.Generation;
         rig.Engine.SetLimits(new(25, 80));
-        Assert.Equal("Paused", rig.Engine.Snapshot.Mode);
-        Assert.True(rig.Engine.Snapshot.Generation > generation);
-        Assert.Null(rig.Engine.Snapshot.Grant);
+        Assert.Equal("Ready", rig.Engine.Snapshot.Mode);
+        Assert.Equal(generation, rig.Engine.Snapshot.Generation);
+        Assert.Equal(old.Epoch, rig.Engine.Snapshot.Grant!.Epoch);
+        Assert.Equal(old.PolicyVersion + 1, rig.Engine.Snapshot.PolicyVersion);
         rig.Pump();
-        rig.Engine.Arm();
-        Rejected(() => rig.Submit(old));
-        Assert.NotEqual(old.Epoch, rig.Engine.Snapshot.Grant!.Epoch);
+        Rejected(() => rig.Submit(old), "policy-invalid");
+        Assert.Empty(rig.Bridge.Calls);
     }
 
     [Fact]
@@ -630,7 +650,7 @@ public sealed class PrototypeEngineTests
         await using var rig = new Rig();
         var invitation = rig.Invite();
         await rig.Engine.DisposeAsync();
-        Assert.Equal("Ended", rig.Engine.Snapshot.SessionMode);
+        Assert.Equal("None", rig.Engine.Snapshot.SessionMode);
         Assert.Null(rig.Engine.Snapshot.Grant);
         Rejected(() => rig.Engine.Join(invitation.SessionId, Secret(invitation), "after-dispose"), "engine-disposed");
     }

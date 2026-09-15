@@ -11,7 +11,7 @@ public static class AdminCommand
         {
             Required = true,
             Recursive = true,
-            Description = "Admin loopback origin from the Aspire dashboard, without its credential fragment.",
+            Description = "Admin loopback origin from the Aspire dashboard.",
             CustomParser = result =>
             {
                 if (result.Tokens.Count != 1 || !Uri.TryCreate(result.Tokens[0].Value, UriKind.Absolute, out var uri) ||
@@ -25,10 +25,10 @@ public static class AdminCommand
             }
         };
         root.Options.Add(origin);
-        var status = new Command("status", "Read controller status. Supply the operator capability on stdin.");
+        var status = new Command("status", "Read controller status from the local unauthenticated admin service.");
         status.SetAction(async (parse, cancellationToken) =>
             await AdminClient.SendAsync(parse.GetValue(origin)!, "status", HttpMethod.Get, cancellationToken));
-        var stop = new Command("stop", "Request a serialized Stop. Supply the operator capability on stdin.");
+        var stop = new Command("stop", "Request a serialized Stop from the local unauthenticated admin service.");
         stop.SetAction(async (parse, cancellationToken) =>
             await AdminClient.SendAsync(parse.GetValue(origin)!, "stop", HttpMethod.Post, cancellationToken));
         root.Subcommands.Add(status);

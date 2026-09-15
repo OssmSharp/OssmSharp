@@ -35,8 +35,10 @@ class Controls {
         this.inputs = Object.fromEntries(this.names.map(name => [name, root.querySelector(`[data-input="${name}"]`)]));
         this.sendButton = root.querySelector("[data-send-button]");
         this.auto = root.querySelector("[data-auto-send]");
-        this.status = root.querySelector("[data-send-status]");
-        this.alert = root.querySelector("[data-browser-alert]");
+        this.error = null;
+        this.lastDisplay = null;
+        this.pendingDisplay = null;
+        this.displayInFlight = false;
         this.ready = false;
         this.joined = false;
         this.active = false;
@@ -99,7 +101,7 @@ class Controls {
         this.pending = this.selected();
         this.userSend = true;
         this.active = true;
-        this.alert.hidden = true;
+        this.error = null;
         this.render();
     }
     disarm() {
@@ -174,14 +176,14 @@ class Controls {
                 v: 2, epoch: this.grant.epoch, policyVersion: this.grant.policyVersion,
                 grantId: this.grant.id, seq: sequence, run: true, desired
             });
-            if (!reply?.ok) {
+            if (!reply?.ok && reply?.code !== "policy-invalid") {
                 this.showError("Settings were rejected. Check the limits and try again.");
                 this.requestStop();
             }
         } catch {
             this.disarm();
             this.ready = false;
-            this.showError("Connection lost. Open a new invitation.");
+            this.showError("Connection lost.");
         } finally {
             this.inFlight = false;
             this.flushStop();
@@ -215,33 +217,60 @@ class Controls {
         marker.setAttribute("y2", y);
     }
     render() {
+        if (this.destroyed) return;
         const selected = this.selected();
         for (const name of this.names) {
             const current = this.current?.[name];
             const sent = this.sent?.[name];
-            this.root.querySelector(`[data-value="${name}"]`).textContent = selected[name];
-            this.root.querySelector(`[data-sent="${name}"]`).textContent = sent ?? "--";
             this.marker(name, "current", current);
             this.marker(name, "sent", sent);
-            const unsent = sent === undefined || selected[name] !== sent;
-            const verified = !unsent && this.confirmed && current === sent;
-            this.root.querySelector(`[data-slider="${name}"]`).dataset.state = verified ? "verified" : unsent ? "unsent" : "pending";
             this.inputs[name].setAttribute("aria-valuetext",
                 `Selected ${selected[name]}, sent ${sent ?? "none"}, current ${current ?? "unavailable"}`);
         }
         this.sendButton.disabled = !this.canSend();
         this.auto.disabled = !this.canSend();
-        this.status.textContent = !this.ready ? "Sending disabled by the operator."
+        const status = !this.ready ? "Sending disabled by the operator."
             : this.active ? this.confirmed ? "Last sent settings verified. Stop ends control." : "Sent. Waiting for device feedback."
             : "Choose settings, then Send.";
+        const display = { selected, sent: this.sent, confirmed: this.confirmed, status, error: this.error };
+        const serialized = JSON.stringify(display);
+        if (serialized !== this.lastDisplay) {
+            this.lastDisplay = serialized;
+            this.pendingDisplay = display;
+            void this.flushDisplay();
+        }
     }
-    showError(message) { this.alert.textContent = message; this.alert.hidden = false; }
+    async flushDisplay() {
+        if (this.displayInFlight || this.destroyed) return;
+        this.displayInFlight = true;
+        try {
+            while (this.pendingDisplay && !this.destroyed) {
+                const display = this.pendingDisplay;
+                this.pendingDisplay = null;
+                await this.reference.invokeMethodAsync("UpdateDisplay", display);
+            }
+        } catch {
+            this.disarm();
+            this.ready = false;
+            this.sendButton.disabled = true;
+            this.auto.disabled = true;
+            console.error("Guest display connection failed; sending is disabled.");
+        } finally {
+            this.displayInFlight = false;
+        }
+    }
+    showError(message) { this.error = message; this.render(); }
     destroy() {
         if (this.destroyed) return;
-        this.requestStop();
+        // A lost transport cannot carry Stop; admin revocation and its watchdog own stopping.
+        if (disconnected) this.disarm();
+        else this.requestStop();
         this.destroyed = true;
         clearInterval(this.interval);
         this.listeners.abort();
         this.observer.disconnect();
+        this.pendingDisplay = null;
+        this.sendButton.disabled = true;
+        this.auto.disabled = true;
     }
 }

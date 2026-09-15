@@ -1,33 +1,15 @@
-const bootStatus = document.getElementById("guest-boot-status");
-let guest;
-let disconnected = false;
+import { initialize } from "./_content/SharedUi/connection-ui.js";
 
-function connectionLost() {
-    disconnected = true;
-    guest?.disconnect();
-    bootStatus.textContent = "Connection lost. Open a new invitation.";
-    bootStatus.hidden = false;
-}
+let guest;
+const connection = initialize(() => guest?.disconnect());
 
 try {
     // Capture and scrub the fragment before Blazor sends its initial navigation URI to the circuit.
-    guest = await import("./guest-session.js");
-    await Blazor.start({
-        circuit: {
-            reconnectionHandler: {
-                onConnectionDown: connectionLost,
-                onConnectionUp: () => {
-                    if (!disconnected) {
-                        bootStatus.hidden = true;
-                    }
-                }
-            }
-        }
-    });
-    if (!disconnected) {
-        bootStatus.hidden = true;
-    }
+    const controller = document.getElementById("guest-start").dataset.controller;
+    guest = await import(new URL(controller, document.baseURI).href);
+    await Blazor.start({ circuit: connection.circuit });
+    connection.ready();
 } catch {
-    connectionLost();
-    bootStatus.textContent = "Could not connect. Open a new invitation.";
+    guest?.disconnect();
+    connection.failed();
 }

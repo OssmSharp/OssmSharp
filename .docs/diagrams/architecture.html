@@ -127,7 +127,7 @@
         <div class="viewport" role="region" tabindex="0" aria-label="Deployment diagram. Scroll horizontally on narrow screens.">
           <svg viewBox="0 0 1280 720" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="dep-title dep-desc">
             <title id="dep-title">OSSM deployment: restricted guest web and private admin</title>
-            <desc id="dep-desc">A guest browser connects to guest web over HTTPS and WSS. Guest web and admin are separate .NET 10 processes on one service host, connected by guest-scoped authenticated IPC. A local operator uses the private admin UI or CLI with an operator capability to generate links, approve sessions and set limits. Only admin's private .NET bridge reaches OSSM over BLE. Local one-box mode places the same guest browser on the service host, without changing privileges.</desc>
+            <desc id="dep-desc">A guest browser connects to guest web over HTTPS and WSS. Guest web and admin are separate .NET 10 processes on one service host, connected by guest-scoped authenticated IPC. A local operator uses the unauthenticated admin UI or CLI bound to 127.0.0.1 with Host/Origin protection to generate links, approve sessions and set limits. Only admin's private .NET bridge reaches OSSM over BLE. Local one-box mode places the same guest browser on the service host, without changing guest authorization.</desc>
             <defs>
               <marker id="dep-arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M 0 0 L 8 4 L 0 8 Z" fill="#4f5d75"/></marker>
               <marker id="dep-arrow-accent" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M 0 0 L 8 4 L 0 8 Z" fill="#eb6c36"/></marker>
@@ -171,7 +171,7 @@
             </g>
             <g data-label="dep-local-admin">
               <rect x="888" y="272" width="136" height="24" class="mask"/>
-              <text x="896" y="288" class="tech">Operator token</text>
+              <text x="896" y="288" class="tech">Local only</text>
             </g>
             <g data-label="dep-ble">
               <rect x="1008" y="376" width="88" height="24" class="mask"/>
@@ -239,7 +239,7 @@
             </g>
           </svg>
         </div>
-        <figcaption>One-box means one computer, not one process. The guest web service has neither an operator capability nor device permissions. A local operator can generate a session link in one click; that link points to guest web, never admin.</figcaption>
+        <figcaption>One-box means one computer, not one process. Guest routes and IPC expose no operator operations or device access. The local operator surface is unauthenticated and does not isolate compromised local processes. A local operator can generate a session link in one click; that link points to guest web, never admin.</figcaption>
       </figure>
     </section>
 

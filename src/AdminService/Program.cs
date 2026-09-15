@@ -1,20 +1,13 @@
-using System.Net;
-using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.Options;
 using OSSMDotNet.Web.AdminService;
 using OSSMDotNet.Web.AdminService.Components;
 using OSSMDotNet.Web.HostRuntime;
 using OSSMDotNet.Web.ServiceDefaults;
+using OSSMDotNet.Web.SharedUi;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
-builder.Services.AddAdminConfiguration().AddLocalBlazor().AddAdminControl();
-builder.Services.AddOptions<KestrelServerOptions>()
-    .Configure<IOptions<AdminOptions>>((server, options) =>
-    {
-        server.Listen(IPAddress.Loopback, options.Value.AdminPort);
-        server.Limits.MaxRequestBodySize = 16_384;
-    });
+builder.Services.AddAdminConfiguration().AddLocalBlazor().AddAdminControl().AddAdminListener();
 builder.Services.AddHostedService<DeviceLoop>();
 builder.Services.AddHostedService<GuestPipeServer>();
 
@@ -26,7 +19,7 @@ if (!ownsDevice)
     return 2;
 }
 app.UseWebSockets();
-app.UseLocalBoundary(app.Services.GetRequiredService<IOptions<AdminOptions>>().Value.AdminPort);
+app.UseLocalBoundary(app.Services.GetRequiredService<IOptions<AdminOptions>>().Value.AdminPort, RetroWidgetAssets.InlineStyleHashes);
 app.UseStaticFiles();
 app.UseAntiforgery();
 app.MapStaticAssets();

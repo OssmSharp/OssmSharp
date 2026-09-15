@@ -26,6 +26,7 @@ public partial class Join
     private bool _attached;
     private bool _leaving;
     private bool _disposed;
+    private GuestDisplayState _display = new(new(0, 0, 10, 20, 50), null, false, "Choose settings, then Send.", null);
 
     private bool Ready => !_disposed && !_leaving && Client.IsJoined &&
         _status is { BridgeReady: true, Grant.ValidForMs: > 0, Mode: "Ready" };
@@ -54,7 +55,7 @@ public partial class Join
         {
             if (firstRender)
             {
-                _module = await JavaScript.InvokeAsync<IJSObjectReference>("import", _lifetime.Token, "/guest-session.js");
+                _module = await JavaScript.InvokeAsync<IJSObjectReference>("import", _lifetime.Token, "/" + Assets["guest-session.js"]);
                 var invitation = await _module.InvokeAsync<string?>("takeInvitation", _lifetime.Token);
                 _initialized = true;
                 if (!GuestProtocol.ValidText(SessionId, 64) || !GuestProtocol.ValidText(invitation, 128))
@@ -105,16 +106,34 @@ public partial class Join
     }
 
     [JSInvokable]
+    public Task UpdateDisplay(GuestDisplayState display)
+    {
+        if (_disposed) return Task.CompletedTask;
+        if (display.Selected is null || display.Status is not { Length: <= 200 } || display.Error?.Length > 200)
+            throw new ArgumentException("Invalid guest display state.", nameof(display));
+        _display = display;
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    [JSInvokable]
     public async Task<BrowserReply> SubmitRun(GuestInput input)
     {
         if (!Ready || input is not { V: 2, Run: true, Desired: { } desired } ||
-            input.Epoch != _status!.Grant!.Epoch || input.PolicyVersion != _status.PolicyVersion)
+            input.Epoch != _status!.Grant!.Epoch)
             return new(false, "not-ready");
+        if (input.PolicyVersion != _status.PolicyVersion)
+        {
+            await PushAuthorityAsync();
+            return new(false, "policy-invalid");
+        }
         if (desired.Pattern != 0 || desired.Sensation != 50 || desired.Speed < 0 || desired.Speed > SpeedCap ||
             desired.Stroke < 1 || desired.Stroke > desired.Depth || desired.Depth < 1 || desired.Depth > MaximumDepth)
             return new(false, "invalid-input");
         var reply = await Client.SubmitInputAsync(input, _lifetime.Token);
         await ApplyReplyAsync(reply);
+        if (!reply.Ok && reply.Code == "policy-invalid")
+            await ApplyReplyAsync(await Client.StatusAsync(_lifetime.Token));
         return new(reply.Ok, reply.Code);
     }
 

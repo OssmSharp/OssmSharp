@@ -1,11 +1,10 @@
 using System.Net;
-using System.Net.Http.Headers;
 using System.Net.Sockets;
 using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
+using OSSMDotNet.DeviceControl;
 using OSSMDotNet.Web.AdminService;
 using OSSMDotNet.Web.HostRuntime;
 
@@ -16,11 +15,12 @@ internal sealed class AdminEndpointFixture : IAsyncDisposable
     private readonly WebApplication _app;
     public HttpClient Client { get; }
     public FakeTimeProvider Time { get; } = new();
-    public string Token { get; } = CapabilityTokens.NewToken();
     public string ForwardingToken { get; } = CapabilityTokens.NewToken();
     public IServiceProvider Services => _app.Services;
+    public ICollection<string> Addresses => _app.Urls;
 
-    public AdminEndpointFixture()
+    public AdminEndpointFixture(IReadOnlyList<string>? styleHashes = null,
+        IReadOnlyDictionary<string, string?>? configuration = null, IDeviceBridge? bridge = null)
     {
         using var socket = new TcpListener(IPAddress.Loopback, 0);
         socket.Start();
@@ -32,21 +32,21 @@ internal sealed class AdminEndpointFixture : IAsyncDisposable
             EnvironmentName = "Development",
             ApplicationName = typeof(AdminEndpoints).Assembly.GetName().Name
         });
-        builder.WebHost.ConfigureKestrel(server => server.Listen(IPAddress.Loopback, port));
         builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
         {
             ["OSSM:AdminPort"] = port.ToString(System.Globalization.CultureInfo.InvariantCulture),
             ["OSSM:GuestOrigin"] = $"http://127.0.0.1:{(port == 5182 ? 5183 : 5182)}",
             ["OSSM:PipeName"] = $"test-{Guid.NewGuid():N}",
-            ["OSSM:OperatorToken"] = Token,
             ["OSSM:GuestServiceToken"] = ForwardingToken,
             ["OSSM:SimulatorPath"] = "unused-in-endpoint-tests"
         });
+        if (configuration is not null) builder.Configuration.AddInMemoryCollection(configuration);
         builder.Services.AddSingleton<TimeProvider>(Time);
-        builder.Services.AddAdminConfiguration().AddLocalBlazor().AddAdminControl();
+        builder.Services.AddAdminConfiguration().AddLocalBlazor().AddAdminControl().AddAdminListener();
+        if (bridge is not null) builder.Services.AddSingleton(bridge);
         _app = builder.Build();
         _app.UseWebSockets();
-        _app.UseLocalBoundary(port);
+        _app.UseLocalBoundary(port, styleHashes);
         _app.MapAdminEndpoints();
         Client = new HttpClient(new HttpClientHandler { UseProxy = false })
         {
@@ -57,9 +57,6 @@ internal sealed class AdminEndpointFixture : IAsyncDisposable
     }
 
     public Task StartAsync() => _app.StartAsync(TestContext.Current.CancellationToken);
-
-    public void Authorize(string? token = null) =>
-        Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token ?? Token);
 
     public async ValueTask DisposeAsync()
     {

@@ -13,8 +13,10 @@ public sealed class PrototypeEngine : IAsyncDisposable
     private readonly object _gate = new();
     private readonly IDeviceBridge _bridge;
     private readonly TimeProvider _time;
-    private readonly Dictionary<Guid, byte[]> _attempts = [];
+    private readonly Dictionary<Guid, (byte[] ScopeHash, string InvitationId)> _attempts = [];
     private readonly List<IssuedGrant> _grants = [];
+    private Invitation? _invitation;
+    private byte[]? _invitationHash;
     private Session? _session;
     private DeviceSample? _observed;
     private long _sampleTimestamp;
@@ -26,7 +28,7 @@ public sealed class PrototypeEngine : IAsyncDisposable
     private bool _locked;
     private long _lockRevision;
     private long _generation;
-    private ControlLimits _limits = new(0, 100);
+    private ControlLimits _limits = new(100, 100);
     private long _policyVersion = 1;
     private string? _epoch;
     private long _lastSequence;
@@ -43,6 +45,8 @@ public sealed class PrototypeEngine : IAsyncDisposable
     private StopFeedback? _stopFeedback;
     private Operation? _operation;
     private OwnCommand? _lastOwnCommand;
+    private int _unobservedCommandSpeed;
+    private int _unobservedCommandDepth;
     private long _commandId;
     private Task? _disposeTask;
 
@@ -62,33 +66,54 @@ public sealed class PrototypeEngine : IAsyncDisposable
         }
     }
 
-    public Invitation CreateInvitation(Guid attemptId, Uri guestOrigin, string operatorCapabilityId)
+    public Invitation GetInvitation(Uri guestOrigin)
     {
         lock (_gate)
         {
             CheckAvailable();
-            Require(attemptId != Guid.Empty && ValidIdentifier(operatorCapabilityId), "invalid-attempt");
             var (origin, local) = ValidateOrigin(guestOrigin);
-            var now = _time.GetTimestamp();
-            ExpireSession(now);
-            var operatorHash = Hash(operatorCapabilityId);
+            return _invitation ?? NewInvitation(origin, local);
+        }
+    }
+
+    public Invitation CycleInvitation(Uri guestOrigin)
+    {
+        lock (_gate)
+        {
+            CheckAvailable();
+            var (origin, local) = ValidateOrigin(guestOrigin);
+            EndSessionCore("invitation-cycled");
+            return NewInvitation(origin, local);
+        }
+    }
+
+    private Invitation NewInvitation(string origin, bool local)
+    {
+        var id = RandomToken(16);
+        var secret = RandomToken(32);
+        _invitationHash = Hash(secret);
+        return _invitation = new(id, $"{origin}/join/{id}#invite={secret}", null, local);
+    }
+
+    public Invitation CreateInvitation(Guid attemptId, Uri guestOrigin, string creationScope)
+    {
+        lock (_gate)
+        {
+            CheckAvailable();
+            Require(attemptId != Guid.Empty && ValidIdentifier(creationScope), "invalid-attempt");
+            var (origin, local) = ValidateOrigin(guestOrigin);
+            var scopeHash = Hash(creationScope);
             if (_attempts.TryGetValue(attemptId, out var owner))
             {
-                Require(CryptographicOperations.FixedTimeEquals(owner, operatorHash), "attempt-conflict");
-                Require(_session?.AttemptId == attemptId && _session.Mode == "Invited" &&
-                    _session.CreationResult is not null, "attempt-consumed");
-                return _session!.CreationResult!;
+                Require(CryptographicOperations.FixedTimeEquals(owner.ScopeHash, scopeHash), "attempt-conflict");
+                Require(_invitation?.SessionId == owner.InvitationId, "attempt-consumed");
+                return _invitation!;
             }
 
-            Require(_session is null || _session.Mode == "Ended", "session-conflict");
-            // Do not evict burned attempts and silently make a retry redeemable again.
+            // Compatibility retries never rotate a link or resurrect one invalidated by Cycle.
             Require(_attempts.Count < 4096, "attempt-capacity");
-            var id = RandomToken(16);
-            var secret = RandomToken(32);
-            var result = new Invitation(id, $"{origin}/join/{id}#invite={secret}",
-                _time.GetUtcNow().AddMinutes(5), local);
-            _attempts.Add(attemptId, operatorHash);
-            _session = new Session(attemptId, id, now, Hash(secret), result);
+            var result = _invitation ?? NewInvitation(origin, local);
+            _attempts.Add(attemptId, (scopeHash, result.SessionId));
             return result;
         }
     }
@@ -99,22 +124,14 @@ public sealed class PrototypeEngine : IAsyncDisposable
         {
             CheckAvailable();
             Require(ValidIdentifier(connectionId), "invalid-connection");
-            Require(_session?.Mode == "Invited" && _session.Id == sessionId &&
-                Matches(invitationSecret, _session.InvitationHash), "invitation-invalid");
+            Require(_invitation?.SessionId == sessionId &&
+                Matches(invitationSecret, _invitationHash), "invitation-invalid");
             var now = _time.GetTimestamp();
-            if (Elapsed(_session!.StartedAt, now) >= TimeSpan.FromMinutes(5))
-            {
-                EndSessionCore("invitation-expired");
-                throw Rejection("invitation-expired");
-            }
+            ExpireSession(now);
+            Require(_session is null || _session.Mode == "Ended", "session-conflict");
 
             var token = RandomToken(32);
-            _session.Mode = "PendingApproval";
-            _session.ConnectionId = connectionId;
-            _session.GuestHash = Hash(token);
-            _session.StartedAt = now;
-            _session.InvitationHash = null;
-            _session.CreationResult = null;
+            _session = new Session(sessionId, now, connectionId, Hash(token));
             return new(sessionId, connectionId, token);
         }
     }
@@ -144,10 +161,41 @@ public sealed class PrototypeEngine : IAsyncDisposable
             CheckAvailable();
             Require(limits is not null && limits.SpeedCap is >= 0 and <= 100 &&
                 limits.MaximumDepth is >= 0 and <= 100, "invalid-limits");
-            PauseCore("policy-changed");
+            if (limits == _limits)
+                return;
+
+            // Validate before any mutation: even revoked I/O owns the writer until it
+            // settles, and an accepted replacement does not erase the active tuple.
+            Require(FitsProposedLimits(limits!), "limits-conflict");
+            var now = _time.GetTimestamp();
+            ExpireSession(now);
+            if (_mode == "Ready" && _authority is not null &&
+                Elapsed(_authority.IssuedAt, now) >= GrantLifetime)
+                PauseCore("grant-expired");
+
             _limits = limits!;
             _policyVersion++;
+            _grants.Clear();
+            if (_mode == "Ready")
+                IssueGrant(now);
+            // Keep the accepted authority's original issuance deadline. Publishing a
+            // new-policy grant is not guest input and must not renew that lease.
         }
+    }
+
+    private bool FitsProposedLimits(ControlLimits limits)
+    {
+        if (_unobservedCommandSpeed > limits.SpeedCap || _unobservedCommandDepth > limits.MaximumDepth)
+            return false;
+        if ((_authority is not null || _hasDesired) && !ValidDesired(_desired, limits))
+            return false;
+        if (_observed is { } observed &&
+            (observed.Enabled || observed.Moving || observed.Desired.Speed > 0) &&
+            !ValidDesired(observed.Desired, limits))
+            return false;
+        if (_operation is { Kind: not OperationKind.Stop } operation && !ValidDesired(operation.Desired, limits))
+            return false;
+        return _zeroAwaitingEcho is null || ValidDesired(_zeroAwaitingEcho, limits);
     }
 
     public void Arm()
@@ -347,7 +395,6 @@ public sealed class PrototypeEngine : IAsyncDisposable
             return;
         var lifetime = _session.Mode switch
         {
-            "Invited" => TimeSpan.FromMinutes(5),
             "PendingApproval" => TimeSpan.FromSeconds(60),
             _ => TimeSpan.FromMinutes(30)
         };
@@ -360,8 +407,6 @@ public sealed class PrototypeEngine : IAsyncDisposable
         if (_session is not null)
         {
             _session.Mode = "Ended";
-            _session.CreationResult = null;
-            _session.InvitationHash = null;
             _session.GuestHash = null;
             _session.ConnectionId = null;
         }
@@ -457,6 +502,11 @@ public sealed class PrototypeEngine : IAsyncDisposable
             _hasSample = true;
             _sampleTimestamp = now;
             _observed = sample;
+            if (OwnedEcho(sample))
+            {
+                _unobservedCommandSpeed = 0;
+                _unobservedCommandDepth = 0;
+            }
             var parametersChanged = previous is not null &&
                 (previous.Desired != sample.Desired || (!reconnecting && sample.ChangeRevision > previous.ChangeRevision));
             if (parametersChanged && !OwnedEcho(sample))
@@ -605,6 +655,13 @@ public sealed class PrototypeEngine : IAsyncDisposable
             _observed?.SampleSequence ?? -1, _connection, forEnvelope);
         _operation = operation;
         _lastOwnCommand = new(operation.Id, desired, _connection);
+        if (kind != OperationKind.Stop)
+        {
+            // Completion need not include feedback. Retain bounded maxima until an
+            // owned echo establishes the current tuple, even across replacement I/O.
+            _unobservedCommandSpeed = Math.Max(_unobservedCommandSpeed, desired.Speed);
+            _unobservedCommandDepth = Math.Max(_unobservedCommandDepth, desired.Depth);
+        }
         try
         {
             operation.Task = kind == OperationKind.Stop
@@ -674,10 +731,12 @@ public sealed class PrototypeEngine : IAsyncDisposable
     private bool NoOutstandingIo() => _operation is null && !_stopQueued && _stopFeedback is null;
     private bool PolicyAllowsArming() => _limits.SpeedCap is > 0 and <= 100 && _limits.MaximumDepth is > 0 and <= 100;
 
-    private bool ValidDesired(DesiredState? desired) =>
+    private bool ValidDesired(DesiredState? desired) => ValidDesired(desired, _limits);
+
+    private static bool ValidDesired(DesiredState? desired, ControlLimits limits) =>
         desired is { Pattern: 0, Sensation: 50, Speed: >= 0 and <= 100, Stroke: >= 0 and <= 100, Depth: >= 0 and <= 100 } &&
-        desired.Stroke <= desired.Depth && desired.Depth <= _limits.MaximumDepth &&
-        desired.Speed <= _limits.SpeedCap && (desired.Speed == 0 || desired.Stroke > 0);
+        desired.Stroke <= desired.Depth && desired.Depth <= limits.MaximumDepth &&
+        desired.Speed <= limits.SpeedCap && (desired.Speed == 0 || desired.Stroke > 0);
 
     private static bool SameEnvelope(DesiredState first, DesiredState second) =>
         first.Pattern == second.Pattern && first.Stroke == second.Stroke &&
@@ -766,6 +825,8 @@ public sealed class PrototypeEngine : IAsyncDisposable
             if (_disposeTask is not null)
                 return new(_disposeTask);
             EndSessionCore("disposed");
+            _invitation = null;
+            _invitationHash = null;
             _bridge.SampleReceived -= OnSample;
             completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
             _disposeTask = completion.Task;

@@ -27,7 +27,6 @@ public sealed class StartupOptionsTests
     [InlineData("GuestOrigin", "http://127.0.0.1:5182/#fragment")]
     [InlineData("PipeName", @"bad\pipe")]
     [InlineData("PipeName", "anonymous")]
-    [InlineData("OperatorToken", "not-a-token")]
     [InlineData("GuestServiceToken", "not-a-token")]
     [InlineData("SimulatorPath", "")]
     public void NativeOptionsRejectInvalidPropertiesWithoutDisclosingSecrets(string key, string value)
@@ -38,7 +37,6 @@ public sealed class StartupOptionsTests
 
         var error = Assert.Throws<OptionsValidationException>(() => services.GetRequiredService<IOptions<AdminOptions>>().Value);
 
-        Assert.DoesNotContain(values["OSSM:OperatorToken"]!, error.Message);
         Assert.DoesNotContain(values["OSSM:GuestServiceToken"]!, error.Message);
     }
 
@@ -55,14 +53,49 @@ public sealed class StartupOptionsTests
     }
 
     [Fact]
-    public void GuestRejectsAccidentallyProvisionedOperatorConfiguration()
+    public void AdminConfigurationDoesNotRequireAnOperatorCredential()
+    {
+        var values = ValidAdminConfiguration();
+        using var services = AdminServices(values);
+
+        var options = services.GetRequiredService<IOptions<AdminOptions>>().Value;
+
+        Assert.Equal(5181, options.AdminPort);
+        Assert.Equal(values["OSSM:GuestServiceToken"], options.GuestServiceToken);
+    }
+
+    [Theory]
+    [InlineData("Kestrel:Endpoints:Remote:Url", "http://0.0.0.0:5184")]
+    [InlineData("Kestrel:Endpoints:Remote:Url", "http://[::]:5184")]
+    [InlineData("Kestrel:Endpoints:Remote:Url", "http://192.0.2.1:5184")]
+    [InlineData("Kestrel:Endpoints:Remote:Url", "http://localhost:5184")]
+    [InlineData("preferHostingUrls", "true")]
+    public async Task AdminRejectsListenerOverridesBeforeStarting(string key, string value)
+    {
+        var values = ValidAdminConfiguration();
+        values[key] = value;
+        values["urls"] = "http://0.0.0.0:5184";
+        var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { DisableDefaults = true });
+        builder.Configuration.AddInMemoryCollection(values);
+        builder.Services.AddAdminConfiguration();
+        using var host = builder.Build();
+
+        var error = await Assert.ThrowsAsync<OptionsValidationException>(
+            () => host.StartAsync(TestContext.Current.CancellationToken));
+
+        Assert.Contains("listener", error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(values["OSSM:GuestServiceToken"]!, error.Message);
+    }
+
+    [Fact]
+    public void GuestRejectsAccidentallyProvisionedDeviceConfiguration()
     {
         var values = new Dictionary<string, string?>
         {
             ["OSSM:GuestPort"] = "5182",
             ["OSSM:PipeName"] = "test-pipe",
             ["OSSM:GuestServiceToken"] = new string('b', 43),
-            ["OSSM:OperatorToken"] = new string('a', 43)
+            ["OSSM:SimulatorPath"] = "private-simulator-path"
         };
         var services = new ServiceCollection();
         services.AddSingleton<IConfiguration>(new ConfigurationBuilder().AddInMemoryCollection(values).Build());
@@ -71,7 +104,7 @@ public sealed class StartupOptionsTests
 
         var error = Assert.Throws<InvalidOperationException>(() => provider.GetRequiredService<IOptions<GuestOptions>>().Value);
 
-        Assert.DoesNotContain(values["OSSM:OperatorToken"]!, error.Message);
+        Assert.DoesNotContain(values["OSSM:SimulatorPath"]!, error.Message);
     }
 
     private static ServiceProvider AdminServices(Dictionary<string, string?> values)
@@ -87,7 +120,6 @@ public sealed class StartupOptionsTests
         ["OSSM:AdminPort"] = "5181",
         ["OSSM:GuestOrigin"] = "http://127.0.0.1:5182",
         ["OSSM:PipeName"] = "test-pipe",
-        ["OSSM:OperatorToken"] = new string('a', 43),
         ["OSSM:GuestServiceToken"] = new string('b', 43),
         ["OSSM:SimulatorPath"] = @"D:\simulator\ossm-sim-bridge.exe"
     };

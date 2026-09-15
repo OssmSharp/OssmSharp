@@ -16,9 +16,6 @@ public sealed class AdminOptions : IValidatableObject
     [Required, RegularExpression(@"\A[A-Za-z0-9_-]{43}\z")]
     public string GuestServiceToken { get; set; } = "";
 
-    [Required, RegularExpression(@"\A[A-Za-z0-9_-]{43}\z")]
-    public string OperatorToken { get; set; } = "";
-
     [Required]
     public string SimulatorPath { get; set; } = "";
 
@@ -30,7 +27,5 @@ public sealed class AdminOptions : IValidatableObject
             origin.UserInfo.Length != 0 || origin.AbsolutePath != "/" ||
             origin.Query.Length != 0 || origin.Fragment.Length != 0)
             yield return new("GuestOrigin must be a separate loopback HTTP origin without a path, credentials, query or fragment.", [nameof(GuestOrigin)]);
-        if (OperatorToken == GuestServiceToken)
-            yield return new("Operator and forwarding credentials must be distinct.", [nameof(OperatorToken), nameof(GuestServiceToken)]);
     }
 }

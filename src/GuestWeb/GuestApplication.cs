@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using OSSMDotNet.Web.GuestWeb.Components;
 using OSSMDotNet.Web.HostRuntime;
 using OSSMDotNet.Web.ServiceDefaults;
+using OSSMDotNet.Web.SharedUi;
 
 namespace OSSMDotNet.Web.GuestWeb;
 
@@ -23,7 +24,7 @@ public static class GuestApplication
 
         var app = builder.Build();
         app.UseWebSockets();
-        app.UseLocalBoundary(app.Services.GetRequiredService<IOptions<GuestOptions>>().Value.GuestPort);
+        app.UseLocalBoundary(app.Services.GetRequiredService<IOptions<GuestOptions>>().Value.GuestPort, RetroWidgetAssets.InlineStyleHashes);
         app.UseStaticFiles();
         app.UseAntiforgery();
         app.MapStaticAssets();

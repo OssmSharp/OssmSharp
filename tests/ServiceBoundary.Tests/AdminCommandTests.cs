@@ -21,7 +21,7 @@ public sealed class AdminCommandTests
     [InlineData("http://127.0.0.1:80")]
     [InlineData("http://127.0.0.1:5181/path")]
     [InlineData("http://127.0.0.1:5181/?secret=token")]
-    [InlineData("http://127.0.0.1:5181/#operator=secret")]
+    [InlineData("http://127.0.0.1:5181/#fragment")]
     [InlineData("http://user@127.0.0.1:5181")]
     public void InvalidOriginReportsAParseErrorInsteadOfCrashing(string origin)
     {

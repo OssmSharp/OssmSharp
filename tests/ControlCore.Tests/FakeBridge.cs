@@ -21,6 +21,7 @@ internal sealed class FakeBridge : IDeviceBridge
     }
 
     public bool AutoComplete { get; set; } = true;
+    public bool PublishOnCompletion { get; set; } = true;
     public bool RetractOnStop { get; set; }
     public bool Connected { get; set; } = true;
     public string Profile { get; set; } = "ossm-rs-sim-v1";
@@ -68,7 +69,7 @@ internal sealed class FakeBridge : IDeviceBridge
         _command = call.CommandId;
         _enabled = desired.Speed != 0;
         _moving = _enabled || (call.Kind == "Stop" && RetractOnStop);
-        Publish();
+        if (PublishOnCompletion) Publish();
         _active--;
         call.Completion.SetResult();
     }

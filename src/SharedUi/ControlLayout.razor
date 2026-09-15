@@ -1,0 +1,13 @@
+@if (Header is not null)
+{
+    <header class="rw-page-header">@Header</header>
+}
+<main class="rw-page" tabindex="-1" aria-label="@Label">
+    @ChildContent
+</main>
+
+@code {
+    [Parameter] public string Label { get; set; } = "Controls";
+    [Parameter] public RenderFragment? Header { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

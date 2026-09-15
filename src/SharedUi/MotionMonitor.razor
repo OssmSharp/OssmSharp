@@ -1,7 +1,7 @@
-<section class="motion-monitor @(Fresh ? "" : "offline")" aria-label="Live device feedback">
-    <div class="monitor-heading">
-        <span class="eyebrow">Live feedback</span>
-        <span class="connection"><span class="signal-dot"></span>@(Fresh ? "Connected" : "No signal")</span>
+<RwCard class="@(Fresh ? "motion-monitor" : "motion-monitor offline")" role="region" aria-label="Live device feedback">
+    <div slot="heading" class="monitor-heading">
+        <span>Live feedback</span>
+        <RwBadge Variant="@(Fresh ? "success" : "warning")">@(Fresh ? "Connected" : "No signal")</RwBadge>
     </div>
     <div class="motion-reading">
         <h2 class="@(Fresh && (Enabled || Moving) ? "moving" : "")" role="status">@(Fresh ? Enabled || Moving ? "RUNNING" : "IDLE" : "OFFLINE")</h2>
@@ -15,11 +15,11 @@
             <rect class="carriage" x="@MarkerX" y="8" width="8" height="20" />
         }
     </svg>
-    <div class="monitor-footer">
+    <div slot="footer" class="monitor-footer">
         <span>@(IsSimulator ? "Position from the simulator" : "Position")</span>
         <span><strong data-testid="live-velocity">@Number(Velocity)</strong> mm/s</span>
     </div>
-</section>
+</RwCard>
 
 @code {
     [Parameter] public double? Position { get; set; }

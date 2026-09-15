@@ -11,8 +11,6 @@ var simulatorPath = Path.Combine(simulatorDirectory, "target", "release",
     OperatingSystem.IsWindows() ? "ossm-sim-bridge.exe" : "ossm-sim-bridge");
 var simulatorBuild = builder.AddExecutable("simulator-build", "cargo", simulatorDirectory, "build", "--release", "--locked");
 
-var operatorValue = NewToken();
-var operatorToken = builder.AddParameter("operator-token", operatorValue, secret: true);
 var forwardingToken = builder.AddParameter("guest-forwarding-token", NewToken(), secret: true);
 var pipeName = $"ossm-{Guid.NewGuid():N}";
 var guest = builder.AddProject<Projects.GuestWeb>("guest")
@@ -37,7 +35,6 @@ var admin = builder.AddProject<Projects.AdminService>("admin")
     .WithEnvironment("OSSM__GuestOrigin", ReferenceExpression.Create($"http://127.0.0.1:{guest.GetEndpoint("http").Property(EndpointProperty.Port)}"))
     .WithEnvironment("OSSM__PipeName", pipeName)
     .WithEnvironment("OSSM__GuestServiceToken", forwardingToken)
-    .WithEnvironment("OSSM__OperatorToken", operatorToken)
     .WithEnvironment("OSSM__SimulatorPath", simulatorPath)
     .WaitForCompletion(simulatorBuild)
     .WithUrls(context =>
@@ -46,8 +43,8 @@ var admin = builder.AddProject<Projects.AdminService>("admin")
         context.Urls.Clear();
         context.Urls.Add(new ResourceUrlAnnotation
         {
-            Url = $"{origin}/#operator={operatorValue}",
-            DisplayText = "Private operator (credential link)"
+            Url = origin,
+            DisplayText = "Operator (local only)"
         });
     });
 

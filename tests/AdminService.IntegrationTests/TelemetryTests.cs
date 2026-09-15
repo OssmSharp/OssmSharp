@@ -28,7 +28,6 @@ public sealed class TelemetryTests
             ["OSSM:GuestOrigin"] = "http://127.0.0.1:5182",
             ["OSSM:PipeName"] = pipeName,
             ["OSSM:GuestServiceToken"] = token,
-            ["OSSM:OperatorToken"] = CapabilityTokens.NewToken(),
             ["OSSM:SimulatorPath"] = "unused"
         });
         var bridge = new FakeBridge { Position = 73.5, Velocity = -6.25 };

@@ -35,16 +35,25 @@ public sealed class GuestApplicationTests
         using var home = await client.GetAsync("", Cancellation);
         Assert.Equal(HttpStatusCode.OK, home.StatusCode);
         var html = await home.Content.ReadAsStringAsync(Cancellation);
-        Assert.Contains("INVITE REQUIRED.", html);
+        Assert.Contains("Open a valid invitation from the operator.", html);
+        Assert.DoesNotContain("INVITE REQUIRED.", html);
+        Assert.Contains("rw-notice rw-operation-notice", html);
+        Assert.Contains("<rw-alert", html);
+        Assert.Contains("rw-theme", html);
+        Assert.Contains("_content/RetroWebUi.Blazor/widgets/theme.", html);
         Assert.DoesNotContain("data-input", html);
         Assert.Contains("_framework/blazor.web.js", html);
-        Assert.Contains("guest-start.js", html);
+        Assert.Contains("id=\"guest-start\"", html);
+        Assert.Matches("src=\"guest-start\\.[^\"]+\\.js\"", html);
+        Assert.Matches("data-controller=\"guest-session\\.[^\"]+\\.js\"", html);
         var csp = string.Join("; ", home.Headers.GetValues("Content-Security-Policy"));
         Assert.Contains("script-src 'self'", csp);
         Assert.DoesNotContain("unsafe-inline", csp);
         Assert.Equal("no-referrer", Assert.Single(home.Headers.GetValues("Referrer-Policy")));
 
-        foreach (var asset in new[] { "guest.css", "guest-start.js", "guest-session.js", "_content/SharedUi/controls.css", "_framework/blazor.web.js" })
+        foreach (var asset in new[] { "guest.css", "guest-start.js", "guest-session.js", "_content/SharedUi/controls.css",
+            "_content/SharedUi/connection-ui.js",
+            "_content/RetroWebUi.Blazor/widgets/theme.css", "_content/RetroWebUi.Blazor/widgets/index.js", "_framework/blazor.web.js" })
         {
             using var response = await client.GetAsync(asset, Cancellation);
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -102,7 +111,10 @@ public sealed class GuestApplicationTests
 
         Assert.Equal(HttpStatusCode.OK, page.StatusCode);
         var html = await page.Content.ReadAsStringAsync(Cancellation);
-        Assert.Contains("OPENING INVITE...", html);
+        Assert.Contains("Opening invite...", html);
+        Assert.Contains("rw-notice rw-operation-notice", html);
+        Assert.Contains("components-reconnect-modal", html);
+        Assert.DoesNotContain("Connection lost. Open the invitation link again.", html);
         Assert.DoesNotContain("Join simulator session", html);
         Assert.DoesNotContain("data-input", html);
         Assert.False(pipe.IsConnected);

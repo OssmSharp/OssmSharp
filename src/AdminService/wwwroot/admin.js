@@ -1,9 +1,3 @@
-export function takeOperatorToken() {
-    const value = new URLSearchParams(location.hash.slice(1)).get("operator") ?? "";
-    history.replaceState(null, "", location.pathname);
-    return value;
-}
-
 export async function copy(text) {
     try {
         await navigator.clipboard.writeText(text);

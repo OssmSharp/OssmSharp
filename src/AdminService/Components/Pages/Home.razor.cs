@@ -10,15 +10,12 @@ public partial class Home
     [Inject] private IJSRuntime Js { get; set; } = null!;
     [Inject] private TimeProvider Time { get; set; } = null!;
     [Inject] private ILogger<Home> Logger { get; set; } = null!;
-    private string _token = "";
-    private string? _message;
-    private bool _error;
+    private OperatorNoticeState _notice = null!;
     private bool _loaded;
     private ControlSnapshot? _status;
     private Invitation? _invitation;
-    private Guid _attempt = Guid.NewGuid();
-    private int _cap = 20;
-    private int _depth = 60;
+    private int _cap = 100;
+    private int _depth = 100;
     private bool _busy;
     private IJSObjectReference? _module;
     private readonly CancellationTokenSource _lifetime = new();
@@ -29,10 +26,12 @@ public partial class Home
     private bool _logAttached;
     private bool _logScrollFailed;
 
-    private bool CanReset => _status is { BridgeReady: true, DeviceMoving: false, OperationPending: false };
+    protected override void OnInitialized() => _notice = new(Time);
+
+    private bool CanReset => _status is { BridgeReady: true, DeviceEnabled: false, DeviceMoving: false, OperationPending: false };
     private bool CanAllow => CanReset && _status is
     {
-        Mode: "Paused", SessionMode: "PendingApproval" or "Approved",
+        Mode: "Initializing" or "Paused", SessionMode: "PendingApproval" or "Approved",
         Limits.SpeedCap: > 0, Limits.MaximumDepth: > 0
     };
     private string ModeLabel => _status?.Mode switch
@@ -40,15 +39,21 @@ public partial class Home
         "Ready" => "Control enabled",
         "Locked" => "Controls locked",
         "Faulted" => "Connection needs attention",
-        "Initializing" => "Apply limits to prepare",
+        "Initializing" => _status.BridgeReady ? "Ready" : "Connecting",
         _ => "Paused"
     };
     private string SessionLabel => _status?.SessionMode switch
     {
-        "Invited" => "Invite ready",
         "PendingApproval" => "Guest waiting",
         "Approved" => "Guest connected",
         _ => "No guest"
+    };
+    private bool GuestWaiting => _status?.SessionMode == "PendingApproval";
+    private string SessionVariant => _status?.SessionMode switch
+    {
+        "PendingApproval" => "warning",
+        "Approved" => "success",
+        _ => "neutral"
     };
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -80,17 +85,11 @@ public partial class Home
         try
         {
             _module = await Js.InvokeAsync<IJSObjectReference>("import", "./admin.js");
-            _token = await _module.InvokeAsync<string>("takeOperatorToken");
-            _status = Admin.Read(_token);
+            ReadStatus();
+            _invitation = Admin.ReadInvitation();
             RefreshLog();
-            if (_status.Limits.SpeedCap > 0)
-            {
-                _cap = _status.Limits.SpeedCap;
-                _depth = _status.Limits.MaximumDepth;
-            }
             _poll = PollAsync();
         }
-        catch (ControlRejectedException) { _status = null; }
         catch (JSException)
         {
             Logger.LogWarning("Operator browser initialization failed.");
@@ -105,60 +104,56 @@ public partial class Home
         try
         {
             action();
-            _status = Admin.Read(_token);
-            _message = message;
-            _error = false;
+            ReadStatus();
+            _notice.Show(message);
         }
         catch (ControlRejectedException error)
         {
             Logger.LogWarning(new EventId(200, "OperatorActivity"), "Operator action was not accepted.");
-            _error = true;
-            _message = error.Code switch
+            _notice.Show(error.Code switch
             {
                 "invalid-limits" => "Use a speed cap of 0-100 and a depth of 1-100.",
                 "operation-pending" or "device-not-stopped" => "Wait for the device to stop, then try again.",
-                "limits-not-configured" => "Apply nonzero session limits first.",
+                "limits-not-configured" => "Control is disabled by the current limits.",
+                "limits-conflict" => "The current or pending settings exceed these limits. Lower the guest settings or stop the session first.",
                 "external-lock" => "Unlock the controller before continuing.",
                 _ => "That action is unavailable. Check the connection and session state."
-            };
+            }, true);
         }
     }
 
     private void ApplyLimits() => Run(() =>
     {
-        if (_status?.Mode == "Initializing") Admin.Recover(_token);
-        Admin.Limits(_token, _cap, _depth);
-    }, "Limits applied. Control is paused.");
+        Admin.Limits(_cap, _depth);
+    }, "Limits applied.");
 
     private void AllowControl() => Run(() =>
     {
+        if (_status?.Mode == "Initializing") Admin.Recover();
         if (_status?.SessionMode == "PendingApproval")
-            Admin.Approve(_token, _status.ConnectionId!);
-        Admin.Arm(_token);
+            Admin.Approve(_status.ConnectionId!);
+        Admin.Arm();
     });
-    private void Stop() => Run(() => Admin.Stop(_token));
-    private void Unlock() => Run(() => Admin.Unlock(_token, _status!.LockRevision), "Unlocked. Allow control separately when ready.");
-    private void Reset() => Run(() => Admin.Recover(_token));
+    private void Unlock() => Run(() => Admin.Unlock(_status!.LockRevision), "Unlocked. Allow control separately when ready.");
+    private void Reset() => Run(() => Admin.Recover());
     private void End() => Run(() =>
     {
-        Admin.End(_token);
-        _invitation = null;
-        _attempt = Guid.NewGuid();
-    });
-    private void Generate()
+        Admin.End();
+        _invitation = Admin.ReadInvitation();
+    }, "Session ended. Invitation link replaced.");
+    private void Cycle()
     {
         if (_busy) return;
         _busy = true;
-        Run(() => _invitation = Admin.Generate(_token, _attempt));
+        Run(() => _invitation = Admin.CycleInvitation(),
+            "Link replaced. Previous guest revoked and Stop requested. Allow control separately when ready.");
         _busy = false;
     }
 
     private async Task Copy()
     {
         if (_module is null || _invitation is null) return;
-        _message = await _module.InvokeAsync<bool>("copy", _invitation.Url)
-            ? "Copied." : "Select the link and copy it manually.";
-        _error = false;
+        _notice.CopyCompleted(await _module.InvokeAsync<bool>("copy", _invitation.Url));
     }
 
     private async Task PollAsync()
@@ -169,13 +164,9 @@ public partial class Home
             while (await timer.WaitForNextTickAsync(_lifetime.Token))
                 await InvokeAsync(() =>
                 {
-                    try
-                    {
-                        _status = Admin.Read(_token);
-                        RefreshLog();
-                        if (_invitation?.ExpiresAt <= Time.GetUtcNow()) _invitation = null;
-                    }
-                    catch (ControlRejectedException) { _status = null; _logs.Clear(); }
+                    ReadStatus();
+                    _invitation = Admin.ReadInvitation();
+                    RefreshLog();
                     StateHasChanged();
                 });
         }
@@ -183,9 +174,17 @@ public partial class Home
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
     }
 
+    private void ReadStatus()
+    {
+        var next = Admin.Read();
+        if (_status is null || _cap == _status.Limits.SpeedCap) _cap = next.Limits.SpeedCap;
+        if (_status is null || _depth == _status.Limits.MaximumDepth) _depth = next.Limits.MaximumDepth;
+        _status = next;
+    }
+
     private void RefreshLog()
     {
-        var added = Admin.ReadLog(_token, _lastLogSequence);
+        var added = Admin.ReadLog(_lastLogSequence);
         if (added.Count == 0) return;
         _lastLogSequence = added[^1].Sequence;
         _logs.AddRange(added);
@@ -216,7 +215,6 @@ public partial class Home
                 Logger.LogWarning("Operator activity view cleanup did not complete.");
             }
         }
-        _token = "";
         _lifetime.Dispose();
     }
 }

@@ -17,7 +17,6 @@ public sealed class AspireConfigurationTests
         Assert.Equal(5181, configuration.AdminPort);
         Assert.Equal("http://127.0.0.1:5182", configuration.GuestOrigin);
         Assert.Equal(values["OSSM:PipeName"], configuration.PipeName);
-        Assert.Equal(values["OSSM:OperatorToken"], configuration.OperatorToken);
         Assert.Equal(values["OSSM:GuestServiceToken"], configuration.GuestServiceToken);
         Assert.Equal(values["OSSM:SimulatorPath"], configuration.SimulatorPath);
     }
@@ -44,8 +43,6 @@ public sealed class AspireConfigurationTests
     [InlineData("OSSM:GuestOrigin", "http://127.0.0.1:5182/?secret=hidden")]
     [InlineData("OSSM:GuestOrigin", "http://user@127.0.0.1:5182")]
     [InlineData("OSSM:GuestOrigin", "http://127.0.0.1:5182/#fragment")]
-    [InlineData("OSSM:OperatorToken", "")]
-    [InlineData("OSSM:OperatorToken", "short")]
     [InlineData("OSSM:GuestServiceToken", "short")]
     [InlineData("OSSM:PipeName", @"directory\pipe")]
     [InlineData("OSSM:PipeName", "anonymous")]
@@ -60,8 +57,6 @@ public sealed class AspireConfigurationTests
         else
         {
             var error = Assert.Throws<OptionsValidationException>(() => ReadAdmin(values));
-            if (!string.IsNullOrEmpty(values["OSSM:OperatorToken"]))
-                Assert.DoesNotContain(values["OSSM:OperatorToken"]!, error.Message);
             Assert.DoesNotContain(values["OSSM:GuestServiceToken"]!, error.Message);
         }
     }
@@ -74,13 +69,13 @@ public sealed class AspireConfigurationTests
     }
 
     [Fact]
-    public void GuestRejectsAccidentallyProvisionedOperatorAuthority()
+    public void GuestRejectsAccidentallyProvisionedDeviceConfiguration()
     {
         var values = GuestValues();
-        values["OSSM:OperatorToken"] = new string('a', 43);
+        values["OSSM:SimulatorPath"] = "private-simulator-path";
 
         var error = Assert.Throws<InvalidOperationException>(() => ReadGuest(values));
-        Assert.DoesNotContain(values["OSSM:OperatorToken"]!, error.Message);
+        Assert.DoesNotContain(values["OSSM:SimulatorPath"]!, error.Message);
     }
 
     private static AdminOptions ReadAdmin(Dictionary<string, string?> values)
@@ -106,7 +101,6 @@ public sealed class AspireConfigurationTests
         ["OSSM:AdminPort"] = "5181",
         ["OSSM:GuestOrigin"] = "http://127.0.0.1:5182",
         ["OSSM:PipeName"] = "ossm-test-bootstrap",
-        ["OSSM:OperatorToken"] = new string('a', 43),
         ["OSSM:GuestServiceToken"] = new string('b', 43),
         ["OSSM:SimulatorPath"] = @"D:\simulator\ossm-sim-bridge.exe"
     };
