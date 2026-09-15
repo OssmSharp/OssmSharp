@@ -11,7 +11,8 @@
 - No Node.js tooling or scripts.
 - Python with Playwright is permitted for browser regression checks and private
   widget CSP hash calculation. Keep application builds and orchestration native
-  to .NET/Aspire.
+  to .NET/Aspire. It must be managed using `uv`. `python -m pip install` is
+  strictly forbidden.
 - Update `.docs\diagrams\architecture.html` with changes to project structure.
   Typically, each folder under `src` will have one box in the diagram, except
   for pure libraries that may have zero.
@@ -46,9 +47,6 @@
   and models without concrete implementations, per the .NET convention.
 - Public interfaces and methods in .cs files must be annotated with xmldoc-valid
   comments.
-- Tests should use FastMoq when the test class can extend `MockerTestBase<T>`
-  where `T` is the SUT. Use InternalsVisibleTo if required. Model/record types
-  are typically excluded.
 - All application CLIs use **`System.CommandLine`**.
 
 ## Logging
@@ -128,11 +126,13 @@
 
 ## Tests
 
+- Tests should use FastMoq when the test class can extend `MockerTestBase<T>`
+  where `T` is the SUT. Use InternalsVisibleTo if required. Model/record types
+  are typically excluded.
 - **FastMoq.Core** where useful; retain direct value tests and deterministic
   I/O/clock fakes using System.TimeProvider
 - Tests before behavior; prove regressions fail before fixing.
-- Run focused `dotnet test --project <project>` with
-  `TESTINGPLATFORM_TELEMETRY_OPTOUT=1`.
+- Run focused `dotnet test --project <project>`
 - Never remove failing tests or claim unrun checks passed.
 - Separate test projects into unit tests and integration tests, with shared test
   helpers. Integration test projects must be named with the assembly they're
