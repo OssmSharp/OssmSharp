@@ -2,19 +2,19 @@
 
 Status: The user's clarification on 13 September 2026 establishes one guest
 browser and two separately running .NET 10 services: a restricted guest web
-service and a private admin service. Local one-box operation, one-click session
-links and accountless access remain required. The admin service owns session
+service and a private admin service. Local one-box operation, automatic reusable
+invitations and accountless access remain required. The admin service owns session
 authority, policy and device execution through a bridge. This supersedes the
 earlier single-process design. Existing module IDs and replaceability
 requirements are retained; module specifications and implementation still have
 their own approval gates.
 
-On 14 September 2026 the user approved the simulator-first prototype plan and
+On 14 September 2026 the user approved the simulator-first ControlCore plan and
 dependency additions. The implementation scope is the local, two-process
 operator/guest flow, using the existing OSSM-RS simulator engine. Native
 hardware control and physical qualification remain excluded.
 
-See [prototype contract and delivery scope](prototype.md) and
+See [ControlCore contract and delivery scope](control-core.md) and
 [repository instructions](../../AGENTS.md) for the current implementation
 requirements, including xUnit v3, MTP v2, FastMoq and memory ownership.
 
@@ -47,9 +47,9 @@ rendering. A separate .NET 10 admin host provides local management, session
 authority, policy and the device-control hosted service. Chrome is the first UI
 target, not a Bluetooth runtime. The revised
 [device-control specification](device-control/spec.md) records this change, the
-comparison with other projects and its trade-offs. The local prototype now uses
-Aspire AppHost/ServiceDefaults, Blazor and minimal APIs. Hardware behavior and
-physical safety remain unqualified.
+comparison with other projects and its trade-offs. The local ControlCore
+implementation now uses Aspire AppHost/ServiceDefaults, Blazor and minimal APIs.
+Hardware behavior and physical safety remain unqualified.
 
 Reference application, not an import baseline:
 [`e65032ba2ed9c5709d91e5afd4f7034d7965fa32`](https://github.com/ReadieFur/OSSM-Web-Control/tree/e65032ba2ed9c5709d91e5afd4f7034d7965fa32),
@@ -62,7 +62,7 @@ Neither this TypeScript library nor its generated bundle is selected for runtime
 reuse or mechanical translation. Implement stock protocol mapping and bridge
 access in C#, using the pinned firmware sources as evidence. The new application
 remains planned as Apache-2.0; no third-party application code or product assets
-are selected for import. Prototype dependencies were subsequently approved;
+are selected for import. ControlCore dependencies were subsequently approved;
 unrelated additions remain gated.
 
 The six earlier controller findings in handoff section 2 have corresponding
@@ -147,12 +147,41 @@ and guest-forwarding API use separate allowlists; only guest forwarding requires
 a service credential. Local admin is unauthenticated and must not be reachable
 from a remote guest origin.
 
-Do not mint fresh guest intent from a server-side held value. Admin issues grant
-deadlines on its own monotonic clock and rejects delayed/replayed forwarded
-requests. Closing the IPC connection or losing guest web invokes admin's
+#### Guest input and grant freshness
+
+Every version-2 run input carries the guest proof, the current
+connection-bound session identifier, control epoch, policy version, grant
+identifier, grant sequence, strictly increasing positive input sequence,
+`run = true`, and one complete desired tuple. AdminService alone binds the
+connection identity during the IPC handshake and validates every one of these
+fields against its own state. It rejects an input whose sequence is less than
+or equal to the last accepted sequence for that connection and epoch, an
+expired or superseded grant, a cross-session/epoch grant, or a replay. Guest
+timestamps, SignalR delivery, browser visibility and retained Blazor state are
+not freshness evidence.
+
+AdminService issues a grant every 250 ms while an epoch is armed. Each grant
+records its session, connection, epoch, policy version, strictly increasing
+grant sequence, issuance timestamp and expiry exactly 750 ms after issuance.
+The controller creates a motion lease only when it accepts a fresh run input
+under one of these grants, and keeps that input's original grant deadline and
+sequence. Publishing or issuing a later grant cannot extend an existing motion
+lease, restore prior desired state or dispatch a write without a newly accepted
+input.
+
+AdminService enforces the input rate before the controller: at most ten
+authenticated run-input attempts may be accepted in every rolling one-second
+window per connection and control epoch, measured on its monotonic clock.
+Inputs over that limit are rejected without advancing the accepted sequence,
+refreshing a grant, replacing pending work or reaching the controller. Client
+side Auto send may coalesce input but cannot relax this service limit.
+
+Do not mint fresh guest intent or renew a motion lease from a server-side held
+value, timer, heartbeat, transport ping/pong, status refresh or circuit
+reconnect. Closing the IPC connection or losing guest web invokes admin's
 Stop/teardown path; if closure is not observed, guest-grant expiry still
-applies. Admin restart invalidates all sessions and capabilities; guest web
-cannot restore them from cached UI state.
+applies. Admin restart invalidates all sessions, capabilities, sequences and
+grants; guest web cannot restore them from cached UI state.
 
 A compromised guest service may forge input within a guest capability it
 possesses. Admin bounds forwarded input by session policy and fresh grants. The
@@ -186,17 +215,17 @@ requirements, not assumptions about the stock firmware.
 
 ## Functionality and package inventory
 
-These are the prototype's providers. Project files contain the selected package
+These are ControlCore's providers. Project files contain the selected package
 versions; the native hardware adapter remains unimplemented.
 
 The proposed servicing target was .NET SDK **10.0.401** and runtime **10.0.12**,
 from the
 [official .NET 10 release metadata](https://builds.dotnet.microsoft.com/dotnet/release-metadata/10.0/releases.json).
-The local prototype uses the installed **10.0.303** SDK and **10.0.11** runtime
-rather than installing another SDK implicitly. `global.json` records that build
-baseline. Keep servicing updates deliberate. Framework APIs below ship with .NET
-or the ASP.NET Core shared framework; do not add redundant PackageReferences
-just because a namespace has the same name.
+The local ControlCore implementation uses the installed **10.0.303** SDK and
+**10.0.11** runtime rather than installing another SDK implicitly. `global.json`
+records that build baseline. Keep servicing updates deliberate. Framework APIs
+below ship with .NET or the ASP.NET Core shared framework; do not add redundant
+PackageReferences just because a namespace has the same name.
 
 | Functionality                                                 | Provider and version                                                                                                                        | Where / limits                                                                                                                                |
 | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -218,7 +247,6 @@ just because a namespace has the same name.
 | Test runner                                                   | [`Microsoft.Testing.Platform` `2.4.0`](https://www.nuget.org/packages/Microsoft.Testing.Platform/2.4.0)                                     | `global.json` selects MTP; no MSTest or VSTest runner                                                                                         |
 | Test construction and collaborators                           | [`FastMoq.Core` `4.5.0`](https://www.nuget.org/packages/FastMoq.Core/4.5.0)                                                                 | FastMoq's core provider-neutral functionality where useful; retain deterministic I/O fakes for timing and fault behavior                      |
 | Deterministic clock tests                                     | [`Microsoft.Extensions.TimeProvider.Testing` `10.0.0`](https://www.nuget.org/packages/Microsoft.Extensions.TimeProvider.Testing/10.0.0)     | Test-only `FakeTimeProvider`; no wall-clock sleeps for expiry proofs                                                                          |
-| HTTP/process integration                                      | `Aspire.Hosting.Testing` `13.5.3`, native Kestrel fixtures                                                                                  | Aspire owns test application startup and cleanup; real simulator/IPC checks                                                                   |
 | Logging test fixtures                                         | `Microsoft.Extensions.Diagnostics.Testing` `10.0.0`                                                                                         | Native `FakeLogger<T>` verifies lifecycle logging without credentials                                                                         |
 | Simulator motion engine                                       | [`ossm-rs/ossm-rs` `ossm-motion`](https://github.com/ossm-rs/ossm-rs/tree/578161b2e78d8ca70f8909f0ec34b8ae6014cfda/ossm-motion), Apache-2.0 | Reuse the local sibling checkout through `tools\ossm-sim-bridge`; native headless test process, no hardware I/O                               |
 | Native OSSM bridge                                            | No third-party package selected yet                                                                                                         | Resolve against actual host OS, BLE hardware, permissions and service-mode support; simulator until verified                                  |
@@ -232,7 +260,7 @@ privilege. The local admin CLI uses admin's existing token-free command path and
 supplies the matching Origin; no credential input is required. Guest credentials
 must not be command-line arguments or diagnostic output. Root/subcommand help,
 invalid-input exit codes, redirected output and cancellation get dedicated
-tests. CLI setup must not turn one-click browser link generation into a
+tests. CLI setup must not turn automatic invitation availability into a
 multi-command per-session flow.
 
 No EF Core/database, ASP.NET Core Identity, browser Bluetooth package,
@@ -275,7 +303,7 @@ exercise the control flow against a simulator without operator credentials.
 Wrong Host or missing/foreign mutation Origin requests are denied. Hardware
 operation additionally needs the qualified native bridge.
 
-### SESSION-01: One-click session-link generation
+### SESSION-01: Automatic reusable invitation
 
 The 15 September 2026 user request supersedes the original single-use,
 five-minute invitation. In the local unauthenticated admin surface, with the
@@ -299,10 +327,19 @@ or approved guest leases. The operator's **Stop and end session** action instead
 atomically rotates the invitation while revoking the guest and requesting
 serialized Stop.
 
-Build links from the configured advertised guest origin, never the admin origin
-or an untrusted request Host header. A remote link requires an already
-configured reachable HTTPS address. A loopback link is labelled **Local only -
-this computer**; do not present it as remotely shareable. If remote exposure is
+Validate the configured advertised guest origin with startup options validation,
+not a request Host header. It is one canonical absolute origin containing only
+scheme, host and port; user information, path, query and fragment are invalid.
+Only the literal loopback hosts `localhost`, `127.0.0.1` and `[::1]` may use
+`http`; every other host requires `https`. Admin must not make an invitation
+available until the configured origin is valid and matches the guest listener's
+advertised origin. A mismatch or unavailable remote HTTPS configuration exposes
+an explicit unavailable state, never a guessed or fallback link.
+
+Build links only from this validated guest origin, never the admin origin or an
+untrusted request Host header. A remote link requires an already configured
+reachable HTTPS address. A loopback link is labelled **Local only - this
+computer**; do not present it as remotely shareable. If remote exposure is
 absent, explain the missing setup rather than generating a misleading localhost
 invitation. This prerequisite does not require a wizard on each use.
 
@@ -311,6 +348,26 @@ restart changes it. Ordinary reads and reloads return the same link without
 device writes or changes to an active controller. Compatibility creation retries
 remain scoped and idempotent, but cannot resurrect a link invalidated by Cycle
 or operator Stop and end session.
+
+Admin owns one serialized invitation/session slot. Its state contains the
+current invitation generation and at most one guest lease in `vacant`,
+`pending` or `approved` state. Startup creates the initial generation only
+after advertised-origin validation succeeds. Invitation retrieval is a
+side-effect-free snapshot. Join atomically verifies the current invitation
+generation and proof before changing a vacant slot to pending; concurrent
+Join requests therefore admit exactly one guest. Leave, guest transport loss and
+guest-session expiry revoke only the lease and return the slot to vacant, so the
+same invitation remains usable.
+
+Cycle and operator Stop and end session atomically advance the invitation
+generation, invalidate the old invitation/proof/lease/grants and clear pending
+input before requesting Stop. Every guest operation is bound to the invitation
+generation, session instance and connection proof that admitted it, so a late
+operation cannot apply to a replacement guest. The compatibility attempt ledger
+maps an attempt identifier to the invitation generation that it retrieved; it
+never creates or replaces an invitation. It returns the current immutable
+snapshot while that generation remains current and rejects attempts invalidated
+by Cycle, operator end or restart.
 
 Provide a distinct **Cycle link** action. Cycling atomically invalidates the
 previous link and guest proof/connection/grants, clears pending input and
@@ -511,14 +568,14 @@ Approval, device selection and limits are trusted operator/service actions, not
 permissions granted to the remote guest. Unauthenticated local management
 controls exist only in the loopback admin service; no second browser runtime is
 required. The policy spec must define the operator interaction; admission stays
-paused until explicitly allowed. Prototype limits default to 100%, with optional
-operator adjustments. **Apply limits** does not pause or arm control. Compatible
-changes retain the current Ready epoch, sequence and accepted motion lease;
-changes conflicting with accepted, active or issued motion reject atomically as
-`limits-conflict`. Updated grants require the new policy version but do not
-extend already accepted motion without fresh guest input. Stop, lock, faults and
-expiry remain dominant. Do not reinterpret invitation redemption or a guest Send
-action as owner approval.
+paused until explicitly allowed. ControlCore limits default to 100%, with
+optional operator adjustments. **Apply limits** does not pause or arm control.
+Compatible changes retain the current Ready epoch, sequence and accepted motion
+lease; changes conflicting with accepted, active or issued motion reject
+atomically as `limits-conflict`. Updated grants require the new policy version
+but do not extend already accepted motion without fresh guest input. Stop, lock,
+faults and expiry remain dominant. Do not reinterpret invitation redemption or a
+guest Send action as owner approval.
 
 SESSION-02 supersedes the earlier identity-proxy/Cloudflare Access login
 proposal. The application authenticates temporary guest capabilities, not
