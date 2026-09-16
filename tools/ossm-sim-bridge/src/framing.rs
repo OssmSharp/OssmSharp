@@ -25,7 +25,7 @@ impl Framer {
         if byte == b'\n' {
             return Some(self.take_frame());
         }
-        // One extra byte allows a trailing CR without reducing the JSON limit.
+        // An extra byte permits a trailing CR without reducing the JSON limit.
         if self.bytes.len() < MAX_FRAME_BYTES + 1 {
             self.bytes.push(byte);
         } else {

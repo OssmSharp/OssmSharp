@@ -16,7 +16,6 @@ do not add VSTest adapters or replace the runner. Follow
 From the repository root:
 
 ```powershell
-$env:TESTINGPLATFORM_TELEMETRY_OPTOUT = '1'
 dotnet test --project tests\ControlCore.Tests
 ```
 
@@ -145,9 +144,9 @@ service types and lifetimes matter; never return one object for every service.
 
 ## DbContext (optional database package)
 
-`GetMockDbContext<T>()` is the Moq-backed mocked-sets convenience path. Seed
-through `GetRequiredObject<T>()`; retrieve its tracked handle only after helper
-creation. For a real EF in-memory context:
+`GetMockDbContext<T>()` provides a Moq-backed convenience path for mocked sets.
+Seed through `GetRequiredObject<T>()`; retrieve its tracked handle only after
+helper creation. For a real EF in-memory context:
 
 ```csharp
 var db = mocks.GetDbContextHandle<AppDbContext>(new DbContextHandleOptions<AppDbContext>
@@ -162,9 +161,8 @@ afterward. In-memory tests do not prove relational SQL or transaction behavior.
 
 ## Controllers and request context (optional web package)
 
-Import `FastMoq.Web.Extensions`. This standalone arrangement belongs inside a
-plain `[Fact]`, rather than creating an extra controller in a base-class setup
-hook:
+Import `FastMoq.Web.Extensions`. Use this standalone arrangement in a plain
+`[Fact]`, rather than creating an extra controller in a base-class setup hook:
 
 ```csharp
 var mocks = new Mocker();
@@ -201,10 +199,10 @@ mocks.AddKnownType<Microsoft.AspNetCore.Http.HttpContext>(
 
 ## Providers and migration
 
-Resolution: async-scoped `Push` override, explicit default, one discoverable
-non-reflection provider, otherwise `reflection`. Reflection verification is
-best-effort and only compares direct constant arguments with `Equals`; do not
-use it to prove captured-variable or rich matcher predicates.
+Provider resolution uses an async-scoped `Push` override, an explicit default,
+a single discoverable non-reflection provider, or `reflection`. Reflection
+verification is best-effort and compares only direct constant arguments with
+`Equals`; do not use it to prove captured-variable or rich matcher predicates.
 
 Moq-fluent `.Setup(...)` needs `FastMoq.Provider.Moq` and
 `using FastMoq.Providers.MoqProvider;`. Select it once in the xUnit test

@@ -56,7 +56,7 @@ impl Transport {
             return Err("output_too_large");
         }
         bytes.push(b'\n');
-        // Never stall the native engine waiting for a non-reading client.
+        // Do not stall the native engine while waiting for a non-reading client.
         match self.outgoing.try_send(bytes) {
             Ok(()) => Ok(()),
             Err(TrySendError::Full(_)) => Err("stdout_backpressure"),
@@ -83,9 +83,9 @@ impl Transport {
             thread::sleep(Duration::from_millis(5));
         }
         self.writer.join().map_err(|_| "stdout_task_failed")??;
-        // Stdin cannot portably be interrupted while the parent keeps its pipe
-        // open. It is a process-lifetime OS thread, not a Tokio blocking task;
-        // thus shutdown never waits indefinitely for stdin/runtime destruction.
+        // The OS cannot portably interrupt stdin while the parent keeps its
+        // pipe open. It is a process-lifetime OS thread, not a Tokio blocking
+        // task, so shutdown never waits indefinitely for it or the runtime.
         if self.reader.is_finished() {
             self.reader.join().map_err(|_| "stdin_task_failed")?;
         }

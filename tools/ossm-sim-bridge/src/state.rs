@@ -93,8 +93,8 @@ impl Model {
         if pending.disconnected || !self.controls.connected {
             return Some(Self::reject(pending.request.id, "disconnected"));
         }
-        // External changes do not cancel an already issued write. A stop has
-        // no desired payload, so it preserves the controls at completion.
+        // External changes do not cancel an issued write. Because stop has no
+        // desired payload, it preserves the controls present at completion.
         Some(self.apply_request(pending.request))
     }
 
@@ -154,7 +154,7 @@ impl Model {
                 self.controls.connected = false;
                 self.command_id = None;
                 if let Some(pending) = &mut self.pending {
-                    // A reconnect cannot revive I/O issued on the old connection.
+                    // A reconnect cannot revive I/O issued through an earlier connection.
                     pending.disconnected = true;
                 }
             }

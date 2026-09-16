@@ -9,8 +9,8 @@ checkbox. Hold-to-run is removed. Valid browser invitations join automatically
 on opening; invalid or cycled invitations display only an error. Operator
 **Allow control** explicitly approves the pending guest and arms the session.
 Default speed/depth limits are 100%; applying limits is optional. Opening the
-application still cannot arm motion. The initial stopped controller is prepared
-as part of the explicit Allow control action.
+application still cannot arm motion. The explicit Allow control action prepares
+the initially stopped controller.
 
 ## ControlCore requirements
 

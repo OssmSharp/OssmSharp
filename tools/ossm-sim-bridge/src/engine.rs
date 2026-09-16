@@ -59,8 +59,8 @@ impl Engine {
         if current.velocity != desired.speed {
             motion_state::set_motion_velocity_pct(desired.speed);
         }
-        // This runs without an await on the same Tokio thread as run_motion.
-        // The native task never observes half-applied control fields.
+        // This runs without awaiting on the same Tokio thread as run_motion.
+        // The native task therefore never observes partially applied controls.
         motion_state::set_motion_enabled(controls.enabled);
     }
 
@@ -112,7 +112,7 @@ impl Motor for SimMotor {
         Ok(())
     }
 
-    // Like ossm-sim's dummy motor, this never sleeps or accesses a device.
+    // This simulator motor never sleeps or accesses hardware.
     fn delay(&mut self, _duration: TimerDuration) {}
 }
 

@@ -61,7 +61,7 @@ async fn run_adapter(transport: &Transport) -> Result<(), &'static str> {
     motion.abort();
     match motion.await {
         Err(error) if error.is_cancelled() => result,
-        // run_motion is perpetual; both a panic and an unexpected return fail.
+        // run_motion is perpetual; both a panic and an unexpected return are failures.
         _ => Err("motion_task_failed"),
     }
 }
@@ -76,8 +76,8 @@ async fn protocol_loop(
         MOTION_CONTROL_LOOP_UPDATE_INTERVAL_MS,
     ));
     engine.update()?;
-    // A first request may enable stale mode, so seed its frozen sample before
-    // admitting input. This is actual DebugOut/motion-state sampling, not a pose.
+    // A first request can enable stale mode, so sample the motion state before
+    // accepting input. The sample comes from DebugOut and motion state, not a pose.
     model.sample(|| engine.observe())?;
     let mut next_event = Instant::now() + SAMPLE_INTERVAL;
 
@@ -88,8 +88,8 @@ async fn protocol_loop(
         transport.check_writer()?;
         engine.update()?;
 
-        // Bound work per tick and keep fault/status handling live while a
-        // delayed ordinary command owns the single pending slot.
+        // Bound work per tick so fault and status handling stay live while a
+        // delayed ordinary command owns the one pending slot.
         for _ in 0..INPUT_CAPACITY {
             let frame = match transport.incoming.try_recv() {
                 Ok(Incoming::Frame(frame)) => frame,
@@ -142,7 +142,7 @@ async fn protocol_loop(
 fn next_event_deadline(previous: Instant, now: Instant) -> Instant {
     let next = previous + SAMPLE_INTERVAL;
     if next <= now {
-        // Drop missed periods instead of flooding stdout after a long stall.
+        // Skip missed periods to avoid flooding stdout after a prolonged stall.
         now + SAMPLE_INTERVAL
     } else {
         next
@@ -185,8 +185,8 @@ impl log::Log for BoundedLog {
                 (count < 4).then_some(count + 1)
             }).is_ok()
         {
-            // Upstream diagnostics can be repetitive and contain arbitrary
-            // formatting. Do not echo them or request payloads on either stream.
+            // Upstream diagnostics can repeat and include arbitrary formatting.
+            // Do not echo them or request payloads on either stream.
             eprintln!("ossm-sim-bridge: upstream_error");
         }
     }

@@ -28,3 +28,12 @@ target
 .artifacts/
 .prototype/
 artifacts/
+
+# Python and uv local environments and generated caches
+__pycache__/
+*.py[cod]
+.venv/
+.uv/
+.uv-cache/
+.pytest_cache/
+*.egg-info/

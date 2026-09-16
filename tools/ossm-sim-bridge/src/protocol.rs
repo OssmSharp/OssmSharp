@@ -101,7 +101,7 @@ struct WireRequest {
     value: Option<u64>,
 }
 
-// Absent optional payloads are permitted; explicitly supplied null is not.
+// Optional payloads may be absent but cannot be explicitly null.
 fn present<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
     deserializer: D,
 ) -> Result<Option<T>, D::Error> {

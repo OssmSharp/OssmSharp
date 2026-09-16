@@ -79,7 +79,6 @@ repository's MTP-only contract.
 Run from the repository root in PowerShell, replacing the project as needed:
 
 ```powershell
-$env:TESTINGPLATFORM_TELEMETRY_OPTOUT = '1'
 dotnet test --project tests\ControlCore.Tests
 ```
 
