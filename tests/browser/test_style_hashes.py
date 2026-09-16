@@ -17,7 +17,7 @@ from zipfile import ZipFile
 
 ROOT = Path(__file__).resolve().parents[2]
 TOOL = ROOT / "tools/retro-widgets/style_hashes.py"
-VERSION = ET.parse(ROOT / "src/SharedUi/SharedUi.csproj").find(".//PackageReference[@Include='RetroWebUi.Blazor']").attrib["Version"].strip("[]")
+VERSION = ET.parse(ROOT / "Directory.Packages.props").find(".//PackageVersion[@Include='RetroWebUi.Blazor']").attrib["Version"].strip("[]")
 PACKAGE = ROOT / f".artifacts/nuget-packages/retrowebui.blazor/{VERSION}/retrowebui.blazor.{VERSION}.nupkg"
 
 

@@ -1,24 +1,22 @@
 <Solution>
   <Folder Name="/src/">
-    <Project Path="src/AdminService/AdminService.csproj" />
-    <Project Path="src/AppHost/AppHost.csproj" />
-    <Project Path="src/ControlCore/ControlCore.csproj" />
-    <Project Path="src/DeviceBridge/DeviceBridge.csproj" />
-    <Project Path="src/GuestWeb/GuestWeb.csproj" />
-    <Project Path="src/HostRuntime/HostRuntime.csproj" />
-    <Project Path="src/PrototypeCli/PrototypeCli.csproj" />
-    <Project Path="src/ServiceDefaults/ServiceDefaults.csproj" />
-    <Project Path="src/SessionContracts/SessionContracts.csproj" />
-    <Project Path="src/SharedUi/SharedUi.csproj" />
+    <Project Path="src/OSSMDotNet.AdminService/AdminService.csproj" />
+    <Project Path="src/OSSMDotNet.AppHost/AppHost.csproj" />
+    <Project Path="src/OSSMDotNet.ControlCore/ControlCore.csproj" />
+    <Project Path="src/OSSMDotNet.DeviceBridge/DeviceBridge.csproj" />
+    <Project Path="src/OSSMDotNet.GuestWeb/GuestWeb.csproj" />
+    <Project Path="src/OSSMDotNet.Models/OSSMDotNet.Models.csproj" />
+    <Project Path="src/OSSMDotNet.Cli/Cli.csproj" />
+    <Project Path="src/OSSMDotNet.ServiceDefaults/ServiceDefaults.csproj" />
+    <Project Path="src/OSSMDotNet.WebCommon/SharedUi.csproj" />
   </Folder>
   <Folder Name="/tests/">
-    <Project Path="tests/AdminService.Tests/AdminService.Tests.csproj" />
-    <Project Path="tests/AdminService.IntegrationTests/AdminService.IntegrationTests.csproj" />
-    <Project Path="tests/AppHost.Tests/AppHost.Tests.csproj" />
-    <Project Path="tests/ControlCore.Tests/ControlCore.Tests.csproj" />
-    <Project Path="tests/DeviceBridge.Tests/DeviceBridge.Tests.csproj" />
-    <Project Path="tests/GuestWeb.Tests/GuestWeb.Tests.csproj" />
-    <Project Path="tests/ServiceBoundary.Tests/ServiceBoundary.Tests.csproj" />
-    <Project Path="tests/SharedUi.Tests/SharedUi.Tests.csproj" />
+    <Project Path="tests/OSSMDotNet.AdminService.Tests/AdminService.Tests.csproj" />
+    <Project Path="tests/OSSMDotNet.AdminService.IntegrationTests/AdminService.IntegrationTests.csproj" />
+    <Project Path="tests/OSSMDotNet.ControlCore.Tests/ControlCore.Tests.csproj" />
+    <Project Path="tests/OSSMDotNet.DeviceBridge.Tests/DeviceBridge.Tests.csproj" />
+    <Project Path="tests/OSSMDotNet.GuestWeb.Tests/GuestWeb.Tests.csproj" />
+    <Project Path="tests/OSSMDotNet.ServiceBoundary.Tests/ServiceBoundary.Tests.csproj" />
+    <Project Path="tests/OSSMDotNet.WebCommon.Tests/SharedUi.Tests.csproj" />
   </Folder>
 </Solution>

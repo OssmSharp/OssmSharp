@@ -24,14 +24,8 @@ stays after the interactive `HeadOutlet` to provide a stable insertion sibling.
 Requires Python (verified with 3.14), installed Microsoft Edge, and Playwright:
 
 ```powershell
-python -m pip install -r tests\browser\requirements.txt
-python -m playwright install firefox
-$env:TESTINGPLATFORM_TELEMETRY_OPTOUT = '1'
-dotnet test --project tests\AppHost.Tests\AppHost.Tests.csproj --filter-method '*AspireStartsIsolatedServicesAndTheRealSimulatorSupportsTheOperatorJourney' '-bl:artifacts\browser-{}.binlog'
+uv run --with-requirements tests\browser\requirements.txt python -m playwright install firefox
 ```
-
-The test starts and stops its own Aspire application and simulator. It does not
-connect to physical hardware or interact with an existing user browser.
 
 The smaller browser-module tests use a fake interop boundary and Playwright's
 clock, not an application server or simulator. They cover a policy refresh
@@ -39,7 +33,7 @@ between Send and acceptance, retaining only explicitly sent values, and
 fail-closed disconnection:
 
 ```powershell
-python -m unittest discover -s tests\browser -p test_guest_controls.py
+uv run --with-requirements tests\browser\requirements.txt python -m unittest discover -s tests\browser -p test_guest_controls.py
 ```
 
 To check an already running simulator application, supply its local endpoints
@@ -51,5 +45,15 @@ instance:
     adminUrl = 'http://127.0.0.1:<admin-port>'
     guestOrigin = 'http://127.0.0.1:<guest-port>'
     browser = 'firefox' # or 'edge'
-} | ConvertTo-Json -Compress | python tests\browser\prototype_smoke.py
+} | ConvertTo-Json -Compress | uv run --with-requirements tests\browser\requirements.txt python tests\browser\prototype_smoke.py
+```
+
+For fast iteration on the operator layout contract, run only that browser scope.
+It does not create a guest session:
+
+```powershell
+@{
+    adminUrl = 'http://127.0.0.1:<admin-port>'
+    scope = 'operator-layout'
+} | ConvertTo-Json -Compress | uv run --with-requirements tests\browser\requirements.txt python tests\browser\prototype_smoke.py
 ```

@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<ItemGroup>
+		<ProjectReference Include="..\OSSMDotNet.Models\OSSMDotNet.Models.csproj" />
+	</ItemGroup>
+</Project>

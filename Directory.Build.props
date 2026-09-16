@@ -4,7 +4,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <Deterministic>true</Deterministic>
-    <RootNamespace>OSSMDotNet.Web.$(MSBuildProjectName)</RootNamespace>
+    <RootNamespace>OSSMDotNet.$(MSBuildProjectName)</RootNamespace>
     <RunAnalyzersDuringBuild>true</RunAnalyzersDuringBuild>
     <AnalysisMode>latest-All</AnalysisMode>
     <LanguageVersion>latest</LanguageVersion>

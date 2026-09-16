@@ -9,8 +9,11 @@ checkbox. Hold-to-run is removed. Valid browser invitations join automatically
 on opening; invalid or cycled invitations display only an error. Operator
 **Allow control** explicitly approves the pending guest and arms the session.
 Default speed/depth limits are 100%; applying limits is optional. Opening the
-application still cannot arm motion. The initial stopped controller is prepared
-as part of the explicit Allow control action.
+application still cannot arm motion. The explicit Allow control action prepares
+the initially stopped controller.
+
+The guest page has no persistent **Guest controls** heading. Invalid or cycled
+invitations use the standard error alert without a redundant error heading.
 
 ## ControlCore requirements
 
@@ -32,8 +35,8 @@ qualify physical-device safety or production deployment.
 | CC-10 | The control authority shall latch an external-control lock when fresh device feedback reports an unowned change to a controlled setting. Locking shall revoke authority, clear pending input, request Stop, and remain in effect until an explicit operator unlock using the current lock revision; unlock shall leave the controller paused.                                                              | Unowned changes during rest or in-flight writes lock control; stale unlock revisions fail; reconnect, invitation reuse, policy edits, recovery, and late input cannot clear the lock or restore motion.              |
 | CC-11 | The control authority shall fail closed on device-operation timeout, bridge failure, unsupported feedback, or disposal. It shall retain exclusive ownership until outstanding I/O settles, request Stop where possible, and expose a non-ready state without invitation secrets.                                                                                                                           | Late completion cannot revive motion; failed bridge work latches a safe reason and only Stop is queued; disposal revokes the invitation and unsubscribes device feedback.                                            |
 
-Detailed invitation, policy, transport, and safety behavior follows in the
-sections below; they refine these requirements and remain the source for
+The sections below detail invitation, policy, transport, and safety behavior.
+They refine these requirements and remain the source for
 endpoint and protocol specifics.
 
 ## Live operator limits
@@ -61,6 +64,35 @@ new tuple. The local limits endpoint remains `POST /api/v1/admin/limits`,
 returning 204 on success or 409 with the rejection `code`. Initializing, paused,
 locked and faulted controllers never arm from Apply. Stop, external lock,
 session expiry and existing faults keep precedence.
+
+## Operator presentation requirements
+
+These presentation requirements make the operator's local state and policy
+controls easier to scan. They do not change the admin service's ownership,
+authorization, or safety checks.
+
+| ID | Requirement | Acceptance evidence |
+| --- | --- | --- |
+| OUI-01 | The collapsed feedback control shall be labelled **Live feedback** without a redundant connection-state word. The operator action card shall have the stable heading **Controls**, rather than presenting a transient readiness state as its heading. | Before a guest joins, the page shows the Controls heading and the waiting guidance without a Connected label beside Live feedback. |
+| OUI-02 | At widths above the narrow layout breakpoint, the Controls and **Invite a guest** cards shall be adjacent, equal-width cards in the same grid row and shall stretch to the same height. At narrower widths they shall retain that source and keyboard order while stacking without horizontal overflow. The page heading shall align with the widgets' left edge. | Browser checks confirm the desktop card geometry and title alignment, and narrow layouts have no horizontal scroll. |
+| OUI-03 | The simulator and guest-session indicators shall be a right-aligned status group in the Controls heading. When the simulator indicator is present, it shall immediately precede the guest-session indicator. | The SIMULATOR and No guest indicators occupy the same right-aligned group, in that order. |
+| OUI-04 | The **Session limits** card shall span the operator grid. Its visual heading shall be one level smaller than the Controls and Invite headings without changing its semantic heading level. Its dirty status shall remain at the top right. | The limits landmark remains an h2, renders with a smaller heading size, and spans the combined width of the two cards above it. |
+| OUI-05 | The speed and depth ranges shall share one right-aligned **Apply limits** action in their control row. Applying remains one atomic speed-and-depth policy operation. The ranges shall not render their redundant selected/applied text rows. While a selected value differs from the confirmed policy, its range shall show only the applied-value track marker; the marker shall disappear once successful application makes the values equal. | Changing one range shows its applied marker and the not-applied state without changing policy. A successful compatible Apply clears the dirty state and both markers without pausing or rearming control. |
+
+## Project structure
+
+| ID | Requirement | Acceptance evidence |
+| -- | ----------- | ------------------- |
+| PST-01 | Local projects and their matching test projects shall not use the erroneous `OSSMDotNet.Web.*` namespace segment. The admin service, guest web service, service-boundary tests, and their corresponding test projects shall use `OSSMDotNet.AdminService`, `OSSMDotNet.GuestWeb`, and `OSSMDotNet.ServiceBoundary` respectively. The shared web component project shall use `OSSMDotNet.WebCommon`. External package namespaces remain unchanged. | The solution, project references, local C# and Razor namespaces resolve without `OSSMDotNet.Web.*` project names; the external `OSSMDotNet.Web.RetroWebUi` import remains intact. |
+| PST-02 | Host configuration, local HTTP boundary protection, and capability-token helpers shall be owned by `OSSMDotNet.ServiceDefaults`. The separate HostRuntime project shall not remain. | All consumers compile against ServiceDefaults, no HostRuntime project is present in the solution, and the existing local-boundary tests pass. |
+| PST-03 | The command-line project shall be named `OSSMDotNet.Cli`. Session wire contracts shall be owned by the pure `OSSMDotNet.Models` project rather than a separate SessionContracts project. The Aspire host shall be named `OSSMDotNet.AppHost`. | The solution has no PrototypeCli, SessionContracts, or unqualified AppHost project entry; direct consumers compile through Cli, Models, and AppHost respectively. |
+
+## Guest presentation requirements
+
+| ID | Requirement | Acceptance evidence |
+| -- | ----------- | ------------------- |
+| GUI-01 | The shared page layout shall not leave an initial visible focus outline around its `main` region. The guest status card shall be headed **Live Status**, show the simulator indicator in its right-aligned heading status group when applicable, and omit numeric position, velocity, and source-caption rows. | On initial guest-page load, main has no visible focus outline; Live Status contains the SIMULATOR badge and state badge, while position, velocity, and simulator-source text are absent. |
+| GUI-02 | The guest action row shall keep **Auto send** immediately before the green **Send** action. It shall not duplicate the paused guidance with a separate operator-disabled message. A terminated session shall instruct the guest: **Session ended. Open the invite link again to rejoin.** | The enabled and disabled guest actions retain semantic button names and styling; a waiting guest sees one paused/waiting status; an ended session shows the exact rejoin message. |
 
 ## Existing simulator, not a second motion engine
 

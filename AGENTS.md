@@ -11,13 +11,13 @@
 - No Node.js tooling or scripts.
 - Python with Playwright is permitted for browser regression checks and private
   widget CSP hash calculation. Keep application builds and orchestration native
-  to .NET/Aspire. It must be managed using `uv`. `python -m pip install` is
-  strictly forbidden.
+  to .NET/Aspire. Manage it with `uv`. `python -m pip install` is strictly
+  forbidden.
 - Update `.docs\diagrams\architecture.html` with changes to project structure.
   Typically, each folder under `src` will have one box in the diagram, except
   for pure libraries that may have zero.
 - Update `.docs/specs` at the start of making durable changes to requirements.
-  Double check before proceeding that the user's intent is honoured, and the
+  Double-check before proceeding that the user's intent is honoured and the
   change does not mask or enshrine the wrong behaviour.
 
 ## Structure and configuration
@@ -25,7 +25,8 @@
 - **One class per file**; also separate records, interfaces, enums and test
   helpers. Match filenames to types. Exclude generated code; allow Razor
   partials.
-- Reusable namespaces: `OSSMDotNet.*`. Web-specific: `OSSMDotNet.Web.*`.
+- Reusable namespaces: `OSSMDotNet.*`. Web-specific: `OSSMDotNet.AdminService`,
+  `OSSMDotNet.GuestWeb`, and `OSSMDotNet.WebCommon`.
 - Register multi-consumer components through **`IServiceCollection` extensions**
   owned by the component. Centralize lifetimes; avoid speculative abstractions.
 - Use **`Microsoft.Extensions.Options`** and typed DI configuration.
@@ -45,8 +46,8 @@
   in `OSSMDotNet.ServiceDefaults`.
 - Consider using the suffix ".Abstractions" for projects that provide interfaces
   and models without concrete implementations, per the .NET convention.
-- Public interfaces and methods in .cs files must be annotated with xmldoc-valid
-  comments.
+- Domain-specific public classes, records, interfaces and methods in .cs files
+  must be annotated with xmldoc-valid comments.
 - All application CLIs use **`System.CommandLine`**.
 
 ## Logging
@@ -65,6 +66,10 @@
 - Put connection, reconnection, operation and error notices at the top right,
   outside normal layout flow. Connection failures take precedence over other
   notices. Keep framework-managed connection UI outside interactive route DOM.
+- On guest connection loss, show
+  `Connection lost. Open the invitation link again.` as a standard danger
+  `RwAlert` above live feedback; grayscale the remaining guest interface and
+  hide the paused status message.
 - Make shared widget styling changes in **RetroWebUi**, then consume the
   reviewed private package version here. Update its package checksum and verify
   CSP style hashes together. Do not patch copied assets or introduce
@@ -133,6 +138,17 @@
   I/O/clock fakes using System.TimeProvider
 - Tests before behavior; prove regressions fail before fixing.
 - Run focused `dotnet test --project <project>`
+- For browser-affecting changes, prefer the fastest applicable focused browser
+  check before broader validation. Browser checks are suggested for high-value,
+  user-visible integration behavior; prove lower-level details with component
+  or unit tests.
+- MTP v2 commands:
+  ```powershell
+  dotnet test OssmWebControls.slnx
+  dotnet test --project tests\OSSMDotNet.ControlCore.Tests\ControlCore.Tests.csproj
+  dotnet test --project tests\OSSMDotNet.ControlCore.Tests\ControlCore.Tests.csproj --filter-method '*MethodName'
+  dotnet test --project tests\OSSMDotNet.ControlCore.Tests\ControlCore.Tests.csproj --list-tests
+  ```
 - Never remove failing tests or claim unrun checks passed.
 - Separate test projects into unit tests and integration tests, with shared test
   helpers. Integration test projects must be named with the assembly they're
@@ -144,6 +160,8 @@
   isolate browser state and control clocks/external boundaries when needed.
 - Assert markup, CSS classes, and pixel geometry only when they are an explicit
   component or visual contract.
+- Do not write tests that predominantly validate behaviour in dependencies,
+  including Aspire AppHosts.
 
 ## Boundaries
 

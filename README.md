@@ -3,7 +3,7 @@
 Control the OSSM-RS simulator from a browser. **Local only: no physical device
 or remote access.** Use admin and guest tabs on the same computer.
 
-## Start
+## Quick start
 
 Requires .NET 10, Rust/Cargo, and the `ossm-rs` checkout beside this repository
 at `..\ossm-rs`. The sibling `..\retro-webui` checkout must also contain its
@@ -13,7 +13,7 @@ See [local widget setup](.docs/retro-widgets.md) if it is missing.
 Run from this repository:
 
 ```powershell
-dnx Aspire.Cli@13.5.3 -- run --project src\AppHost\AppHost.csproj
+dnx Aspire.Cli@13.5.3 -- run --project src\OSSMDotNet.AppHost\AppHost.csproj
 ```
 
 Keep the terminal open. Aspire builds and starts the application.
@@ -34,14 +34,15 @@ Keep the terminal open. Aspire builds and starts the application.
 Session limits default to **100%** and do not need a setup step. Lower them and
 click **Apply limits** if needed. Applying compatible limits keeps control
 running without pausing or re-arming. If the new bounds conflict with current or
-pending motion, the entire change is rejected. Explicitly Stop and wait for
+pending motion, the entire change is rejected. Explicitly **Stop** and wait for
 stopped feedback before retrying those bounds. Applying limits never extends the
 guest's motion lease.
 
 Purple is selected, amber is sent, and green is the verified current setting.
 The live display shows actual simulator position and velocity. On the operator
-page, expand **Live feedback** to see it. **Live log** shows recent activity
-from the bottom and follows new entries; scroll up to read earlier entries.
+page, expand **Live feedback** to see it. **Live log** lists recent activity
+with the newest entries at the bottom and follows new entries; scroll up to
+read earlier entries.
 
 Settings keep running until **Stop**. Switching tabs, losing focus or losing the
 connection also stops control and turns Auto send off. Admin must **Allow

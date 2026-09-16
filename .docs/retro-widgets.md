@@ -5,15 +5,16 @@ package**, not a fork or a copy of the widget implementation. It contains the
 Razor wrappers, JavaScript initializer, Web Components and theme stylesheet.
 Consumers need only .NET and the prebuilt package.
 
-## Private distribution
+## Private package distribution
 
 - `NuGet.Config` maps this package ID exclusively to
   `..\retro-webui\artifacts\packages`. Other dependencies use nuget.org.
 - `SharedUi.csproj` pins version `0.1.3` and checks the package's SHA-256:
-  `E38BECE52DC36156F8AB6ABEEE7B22481AF87A0D72712EDB0CB34D7C0F615304`.
+  `12CAFF03D59B6648038679687FAD4C76C5A5163D08C7509FEE3C4ED390936ABB`.
 - This private widget update adds shared page/notification layout, consistent
   control heights, semantic button states, reduced-motion-safe attention and the
-  native Razor `RwRange` applied-value marker.
+  native Razor `RwRange` applied-value marker without a redundant visible
+  selected/applied text row.
 - The authorized widget changes are in `..\retro-webui`. Native `dotnet pack`
   links its canonical theme CSS; no Node tooling was run. All 18 JavaScript
   files and 17 declaration files match the reviewed `0.1.0` artifact, so Shadow
@@ -55,20 +56,21 @@ Use the Python inspector with an approved local `.nupkg`; it does not restore,
 download, publish, extract, or install the package:
 
 ```powershell
-python tools\retro-widgets\style_hashes.py .artifacts\nuget-packages\retrowebui.blazor\0.1.3\retrowebui.blazor.0.1.3.nupkg
+uv run --with-requirements tests\browser\requirements.txt python tools\retro-widgets\style_hashes.py .artifacts\nuget-packages\retrowebui.blazor\0.1.3\retrowebui.blazor.0.1.3.nupkg
 ```
 
 The package in the private source feed can also be inspected directly:
 
 ```powershell
-python tools\retro-widgets\style_hashes.py ..\retro-webui\artifacts\packages\RetroWebUi.Blazor.0.1.3.nupkg
+uv run --with-requirements tests\browser\requirements.txt python tools\retro-widgets\style_hashes.py ..\retro-webui\artifacts\packages\RetroWebUi.Blazor.0.1.3.nupkg
 ```
 
-Prerequisites are Python with the Playwright version pinned in
+Prerequisites are `uv`, Python with the Playwright version pinned in
 `tests/browser/requirements.txt` (currently 1.61.0), and an existing browser.
-The default uses installed Microsoft Edge. Use `--browser chromium` for an
-existing Playwright Chromium installation or `--browser firefox` for an existing
-Playwright Firefox installation. The tool installs nothing.
+By default, the inspector uses the installed Microsoft Edge. Use `--browser
+chromium` for an existing Playwright Chromium installation or `--browser
+firefox` for an existing Playwright Firefox installation. The tool installs
+nothing.
 
 The inspector serves only the archive's `staticwebassets/widgets` assets through
 intercepted synthetic-origin routes; external requests are blocked. It observes
@@ -96,7 +98,7 @@ tool neither authorizes scripts nor changes application files or CSP.
 Run the focused regression checks with:
 
 ```powershell
-python -m unittest discover -s tests/browser -p test_style_hashes.py
+uv run --with-requirements tests\browser\requirements.txt python -m unittest discover -s tests/browser -p test_style_hashes.py
 ```
 
 These checks use Edge for synthetic packages and compare Edge with Firefox for
@@ -117,11 +119,11 @@ console-suggested hashes into the application's CSP.
 
 The `47DE...` digest above hashes the empty string; it alone does not indicate
 widget style drift. The application CSP correctly blocks an injected empty
-`<style>` and an unapproved inline script. Clean Edge and Firefox checks of the
-operator and invalid-invitation pages produced no `securitypolicyviolation`
-events, with the widget Shadow DOM stylesheets attached. Recalculate the hashes
-when the approved package changes; console suggestions alone are not evidence of
-a package update.
+`<style>` and an unapproved inline script. Checks in clean Edge and Firefox
+profiles of the operator and invalid-invitation pages produced no
+`securitypolicyviolation` events, with the widget Shadow DOM stylesheets
+attached. Recalculate the hashes when the approved package changes; console
+suggestions alone are not evidence of a package update.
 
 Sources: the widget checkout's `docs/blazor.md` and `docs/themes.md`;
 [NuGet source-mapping rules](https://learn.microsoft.com/nuget/consume-packages/package-source-mapping).
