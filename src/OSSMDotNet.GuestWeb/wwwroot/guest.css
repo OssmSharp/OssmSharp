@@ -42,10 +42,6 @@
 .vertical-slider[data-state="verified"] .slider-heading output { color: var(--rw-success); }
 .vertical-slider[data-state="pending"] .slider-heading output { color: var(--rw-warning); }
 main:focus { outline: none; }
-.guest-message-layout {
-    width: min(calc(100% - 2rem), 900px);
-    margin: 1.25rem auto 2rem;
-}
 
 .send-bar { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: .8rem; }
 .auto-send { flex: 0 0 auto; white-space: nowrap; }

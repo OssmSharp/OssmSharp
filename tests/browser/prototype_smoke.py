@@ -32,11 +32,18 @@ def install_transient_head_mutation(page):
 
 
 def assert_button_accessibility(page):
-    for button in page.get_by_role("button").all():
-        assert button.get_attribute("aria-label") or button.inner_text().strip(), "button-accessible-name"
-        assert button.get_attribute("title"), "button-tooltip"
-        if button.is_disabled():
-            assert button.evaluate("element => getComputedStyle(element).filter") == "grayscale(1)"
+    buttons = page.get_by_role("button").evaluate_all("""elements => elements.map(element => ({
+        ariaLabel: element.getAttribute("aria-label"),
+        text: element.innerText.trim(),
+        title: element.getAttribute("title"),
+        disabled: element.disabled,
+        filter: getComputedStyle(element).filter
+    }))""")
+    for button in buttons:
+        assert button["ariaLabel"] or button["text"], "button-accessible-name"
+        assert button["title"], "button-tooltip"
+        if button["disabled"]:
+            assert button["filter"] == "grayscale(1)"
 
 
 def assert_top_right(page, notice):
@@ -44,6 +51,23 @@ def assert_top_right(page, notice):
     box = notice.bounding_box()
     assert box and abs(box["y"] - 16) < 1
     assert abs(page.viewport_size["width"] - box["x"] - box["width"] - 16) < 1
+
+
+def assert_inline_notification(page, notification):
+    expect(notification).to_be_visible()
+    notification_bounds = notification.bounding_box()
+    main = page.locator("main")
+    main_bounds = main.bounding_box()
+    padding = main.evaluate("""element => {
+        const style = getComputedStyle(element);
+        return { left: parseFloat(style.paddingLeft), right: parseFloat(style.paddingRight) };
+    }""")
+    assert notification_bounds and main_bounds
+    assert abs(notification_bounds["x"] - main_bounds["x"] - padding["left"]) < 1
+    assert abs(notification_bounds["width"] - main_bounds["width"] + padding["left"] + padding["right"]) < 1
+    assert notification.evaluate("element => getComputedStyle(element).position") == "static"
+    assert notification.evaluate("element => getComputedStyle(element).borderTopWidth") == "0px"
+    expect(notification).to_have_class(re.compile(r"\brw-inline-notification\b"))
 
 
 def assert_connection_notices(page):
@@ -128,10 +152,6 @@ def assert_operator_layout(page):
     expect(page.locator(".rw-range-values")).to_have_count(0)
 
 
-def assert_no_page_header(page):
-    expect(page.locator(".rw-page-header")).to_have_count(0)
-
-
 def assert_transport_loss(page, guest):
     assert page.evaluate("window.__testSocket?.readyState") == 1
     page.evaluate("window.__testSocket.close()")
@@ -141,6 +161,7 @@ def assert_transport_loss(page, guest):
         disconnected = page.get_by_test_id("guest-disconnected")
         expect(disconnected).to_contain_text("Connection lost. Open the invitation link again.")
         expect(disconnected).to_have_attribute("variant", "danger")
+        assert_inline_notification(page, disconnected)
         expect(page.locator(".guest-session-message")).to_be_hidden()
         guest_interface = page.locator(".guest-interface")
         if guest_interface.count():
@@ -226,7 +247,7 @@ def main():
                 pending_notice = admin.get_by_test_id("pending-guest-notice")
                 expect(pending_notice).to_contain_text("A guest is waiting. Click Allow control to enable control.")
                 expect(pending_notice).to_have_attribute("variant", "warning")
-                assert_top_right(admin, pending_notice)
+                assert_inline_notification(admin, pending_notice)
 
                 allow = admin.get_by_role("button", name="Allow control", exact=True)
                 expect(allow.locator("..")).to_have_attribute("variant", "success")
@@ -247,23 +268,68 @@ def main():
                 print("Guest approval notice checks passed.")
                 return 0
 
+            if settings.get("scope") == "shared-notification-template":
+                stage = "invite-required-notification"
+                guest.goto(settings["guestOrigin"] + "/join/invalid")
+                expect(guest.get_by_test_id("guest-invalid")).to_contain_text("This invitation is invalid")
+                assert_page_title_layout(guest, "Guest controls")
+                assert_inline_notification(guest, guest.get_by_test_id("guest-invalid"))
+
+                stage = "operator-pending-notification"
+                admin.goto(settings["adminUrl"])
+                assert_page_title_layout(admin, "Operator controls")
+                invitation = admin.get_by_test_id("invitation-link").input_value()
+                guest.goto(invitation)
+                expect(guest.locator(".guest-session-message")).to_contain_text("Waiting for the operator.")
+                assert_inline_notification(guest, guest.locator(".guest-session-message"))
+                expect(admin.get_by_test_id("session-mode")).to_have_text("Guest waiting")
+                pending_notice = admin.get_by_test_id("pending-guest-notice")
+                expect(pending_notice).to_contain_text("A guest is waiting. Click Allow control to enable control.")
+                assert_inline_notification(admin, pending_notice)
+
+                allow = admin.get_by_role("button", name="Allow control", exact=True)
+                expect(allow).to_be_enabled()
+                expect(allow).to_have_class(re.compile(r"\brw-attention\b"))
+                assert allow.evaluate("element => getComputedStyle(element).animationName") != "none"
+                assert "linear-gradient" in allow.evaluate("element => getComputedStyle(element).backgroundImage")
+                admin.emulate_media(reduced_motion="reduce")
+                assert admin.get_by_role("button", name="Allow control", exact=True).evaluate(
+                    "element => getComputedStyle(element).animationName") == "none"
+                admin.emulate_media(reduced_motion="no-preference")
+
+                stage = "guest-session-ended-notification"
+                allow.click()
+                expect(guest.get_by_role("button", name="Send", exact=True)).to_be_enabled()
+                guest.get_by_role("button", name="Leave session", exact=True).click()
+                ended = guest.get_by_test_id("guest-ended")
+                expect(ended).to_contain_text("Session ended. Open the invite link again to rejoin.")
+                assert_page_title_layout(guest, "Guest controls")
+                assert_inline_notification(guest, ended)
+                assert not errors, "browser-error"
+                assert not csp_violations, "content-security-policy-violation"
+                browser.close()
+                print("Shared notification template checks passed.")
+                return 0
+
             stage = "head-mutation-during-invite-render"
             install_transient_head_mutation(guest)
             guest.goto(settings["guestOrigin"] + "/join/invalid")
             expect(guest.locator("html")).to_have_attribute("data-head-mutation", "complete")
             expect(guest.get_by_test_id("guest-invalid")).to_contain_text("This invitation is invalid")
             expect(guest.get_by_role("heading", name="INVALID INVITE.")).to_have_count(0)
-            assert_no_page_header(guest)
+            assert_page_title_layout(guest, "Guest controls")
             expect(guest.get_by_text("Connection lost. Open the invitation link again.", exact=True)).to_have_count(0)
             expect(guest.locator("[data-input]")).to_have_count(0)
             expect(guest).to_have_title("Guest controls")
             expect(guest.locator("head title")).to_have_count(1)
-            assert_top_right(guest, guest.get_by_test_id("guest-invalid"))
+            assert_inline_notification(guest, guest.get_by_test_id("guest-invalid"))
             assert_connection_notices(guest)
             assert_mobile_layout(guest)
             stage = "interactive-title-after-head-mutation"
             guest.evaluate("Blazor.navigateTo('/')")
-            expect(guest.locator(".rw-operation-notice")).to_contain_text("Open a valid invitation from the operator.")
+            invite_required = guest.locator(".rw-inline-notification")
+            expect(invite_required).to_contain_text("Open a valid invitation from the operator.")
+            assert_inline_notification(guest, invite_required)
             expect(guest).to_have_title("Invite required")
             expect(guest.locator("head title")).to_have_count(1)
             assert guest.evaluate("window.__headMutation.removed && window.__headMutation.restored")
@@ -351,7 +417,7 @@ def main():
             pending_notice = admin.get_by_test_id("pending-guest-notice")
             expect(pending_notice).to_contain_text("A guest is waiting. Click Allow control to enable control.")
             expect(pending_notice).to_have_attribute("variant", "warning")
-            assert_top_right(admin, pending_notice)
+            assert_inline_notification(admin, pending_notice)
             monitor = guest.locator(".motion-monitor")
             expect(monitor.get_by_text("Live Status", exact=True)).to_be_visible()
             expect(monitor.get_by_text("Live feedback", exact=True)).to_have_count(0)
@@ -416,8 +482,6 @@ def main():
             stage = "limits-without-pausing"
             cap.fill("90")
             admin.get_by_role("button", name="Apply limits", exact=True).click()
-            expect(admin.locator(".rw-operation-notice")).to_have_attribute("variant", "success")
-            expect(admin.locator(".rw-operation-notice")).to_have_attribute("role", "status")
             expect(admin.get_by_test_id("limits-dirty")).to_have_count(0)
             expect(admin.get_by_test_id("controller-mode")).to_have_text("Controls")
             assert cap.locator("..").get_attribute("data-applied-value") is None
@@ -443,12 +507,13 @@ def main():
             stage = "stop"
             guest.get_by_role("button", name="Stop", exact=True).click()
             expect(guest.locator(".guest-session-message")).to_contain_text("Paused. Waiting for the operator.")
-            expect(guest.locator(".guest-session-message")).to_have_attribute("variant", "info")
+            expect(guest.locator(".guest-session-message")).to_have_attribute("variant", "warning")
             expect(guest.get_by_role("button", name="Send", exact=True)).to_be_disabled()
             expect(guest.locator("[data-send-status]")).to_have_count(0)
             stage = "guest-leave"
             guest.get_by_role("button", name="Leave session", exact=True).click()
             expect(guest.get_by_test_id("guest-ended")).to_contain_text("Session ended. Open the invite link again to rejoin.")
+            assert_inline_notification(guest, guest.get_by_test_id("guest-ended"))
             stage = "same-link-after-guest-leaves"
             expect(link).to_have_value(invitation)
             guest.close()

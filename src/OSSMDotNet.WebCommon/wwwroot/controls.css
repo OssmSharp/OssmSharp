@@ -28,6 +28,7 @@ a:focus-visible { outline: 2px solid var(--rw-focus); outline-offset: 3px; }
 
 .rw-page-header { margin-block: 1.5rem 0; }
 .rw-page { margin-block: 1.25rem 2rem; }
+.rw-inline-notification { inline-size: 100%; }
 
 .visually-hidden {
     position: absolute;

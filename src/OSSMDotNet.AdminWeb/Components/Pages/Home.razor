@@ -4,31 +4,26 @@
 
 <PageTitle>Operator controls</PageTitle>
 <ControlLayout Label="Operator controls">
-    <Header>
-        <span class="site-label">Operator controls</span>
-    </Header>
     <ChildContent>
     @if (_status is null)
     {
-        <RwAlert Variant="@(_loaded ? "danger" : "info")" class="rw-notice rw-operation-notice" role="alert">
-            @(_loaded ? "Unable to connect to the operator service. Reload the page." : "Connecting...")
-        </RwAlert>
+        <InlineNotification Variant="@(_loaded ? "danger" : "info")" Role="@(_loaded ? "alert" : "status")">
+            @(_notice.Message ?? (_loaded ? "Unable to connect to the operator service. Reload the page." : "Connecting..."))
+        </InlineNotification>
     }
     else
     {
         <h1 class="visually-hidden">Operator controls</h1>
-        <div class="rw-notice-stack" data-testid="operator-notices">
-            @if (_notice.Message is { } message)
-            {
-                <RwAlert class="rw-notice rw-operation-notice" Variant="@(_notice.IsError ? "danger" : "success")"
-                         role="@(_notice.IsError ? "alert" : "status")">@message</RwAlert>
-            }
-            @if (GuestApprovalActionAvailable)
-            {
-                <RwAlert class="rw-notice rw-operation-notice" Variant="warning" role="status"
-                         data-testid="pending-guest-notice">A guest is waiting. Click Allow control to enable control.</RwAlert>
-            }
-        </div>
+        @if (_notice.Message is { } message)
+        {
+            <InlineNotification Variant="@(_notice.IsError ? "danger" : "success")"
+                                Role="@(_notice.IsError ? "alert" : "status")">@message</InlineNotification>
+        }
+        @if (GuestApprovalActionAvailable)
+        {
+            <InlineNotification Variant="warning" Role="status"
+                                data-testid="pending-guest-notice">A guest is waiting. Click Allow control to enable control.</InlineNotification>
+        }
         <details class="feedback-disclosure">
             <summary data-testid="live-feedback">Live feedback</summary>
             <MotionMonitor ShowHeading="false" Position="@_status.Position" Velocity="@_status.Velocity"

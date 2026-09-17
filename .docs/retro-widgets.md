@@ -1,6 +1,6 @@
 # Local Retro Web UI integration
 
-The application consumes the existing **`RetroWebUi.Blazor` 0.1.4 NuGet
+The application consumes the existing **`RetroWebUi.Blazor` 0.1.5 NuGet
 package**, not a fork or a copy of the widget implementation. It contains the
 Razor wrappers, JavaScript initializer, Web Components and theme stylesheet.
 Consumers need only .NET and the prebuilt package.
@@ -9,16 +9,15 @@ Consumers need only .NET and the prebuilt package.
 
 - `NuGet.Config` maps this package ID exclusively to
   `..\retro-webui\artifacts\packages`. Other dependencies use nuget.org.
-- `SharedUi.csproj` pins version `0.1.4` and checks the package's SHA-256:
-  `211B8292AA4FD67D06262F565F039C72007C311B7F6E0E16B5A212A4FF3F3296`.
+- `SharedUi.csproj` pins version `0.1.5` and checks the package's SHA-256:
+  `41B03D19F84BDC2332FBAEFEC7CDEE48A2D5948904F172DCE4F27D54195B75E8`.
 - This private widget update adds a prominent tone-matched `rw-attention` glow
-  with a moving gradient, reduced-motion and forced-colors-safe presentation,
-  and `rw-notice-stack` for non-overlapping top-right notices.
+  with a moving gradient and reduced-motion and forced-colors-safe presentation.
 - The authorized widget changes are in `..\retro-webui`. Native `dotnet pack`
   links its canonical theme CSS; no Node tooling was run. All 18 JavaScript
   files and 17 declaration files match the reviewed `0.1.0` artifact, so Shadow
   DOM style hashes remain unchanged. Canonical theme CSS SHA-256 is
-  `6141F597E01F6AE466BC1D97F025509A115A5D21D0CF69B583507804C785B6EF`.
+  `863091EAEA992E861F5A65BB7A2129E97B42A63F552A5CAF8FCA65964031CA87`.
 - Restores use the repository-local `.artifacts\nuget-packages` cache so an
   older cached artifact with the same development version cannot mask the
   update.
@@ -55,13 +54,13 @@ Use the Python inspector with an approved local `.nupkg`; it does not restore,
 download, publish, extract, or install the package:
 
 ```powershell
-uv run --with-requirements tests\browser\requirements.txt python tools\retro-widgets\style_hashes.py .artifacts\nuget-packages\retrowebui.blazor\0.1.4\retrowebui.blazor.0.1.4.nupkg
+uv run --with-requirements tests\browser\requirements.txt python tools\retro-widgets\style_hashes.py .artifacts\nuget-packages\retrowebui.blazor\0.1.5\retrowebui.blazor.0.1.5.nupkg
 ```
 
 The package in the private source feed can also be inspected directly:
 
 ```powershell
-uv run --with-requirements tests\browser\requirements.txt python tools\retro-widgets\style_hashes.py ..\retro-webui\artifacts\packages\RetroWebUi.Blazor.0.1.4.nupkg
+uv run --with-requirements tests\browser\requirements.txt python tools\retro-widgets\style_hashes.py ..\retro-webui\artifacts\packages\RetroWebUi.Blazor.0.1.5.nupkg
 ```
 
 Prerequisites are `uv`, Python with the Playwright version pinned in

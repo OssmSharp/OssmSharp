@@ -29,6 +29,8 @@ public sealed class HomePageBehaviorTests
         Assert.Contains("A guest is waiting. Click Allow control to enable control.", renderer.GetTextContent(componentId));
         Assert.Equal("warning", renderer.GetElementAttributeValue(
             componentId, "rw-alert", "data-testid", "pending-guest-notice", "variant"));
+        Assert.True(renderer.HasAttributeValueContaining(componentId, "class", "rw-inline-notification"));
+        Assert.False(renderer.HasAttributeValueContaining(componentId, "class", "rw-notice"));
         Assert.True(renderer.HasAttributeValueContaining(componentId, "class", "rw-attention"));
 
         var renderCount = renderer.RenderCount;
@@ -146,7 +148,12 @@ public sealed class HomePageBehaviorTests
         await renderer.WaitForRenderCountAsync(renderCount + 1, cancellationSource.Token);
 
         Assert.Equal(["SubscribeOperator", "SetLimits"], fixture.Invocations.Select(invocation => invocation.Method));
-        Assert.Contains("That action is unavailable. Check the connection and session state.", renderer.GetTextContent(componentId));
+        await renderer.WaitForTextContentAsync(
+            componentId,
+            "The control state changed. Wait for the latest update, then try again.",
+            cancellationSource.Token);
+        Assert.Contains("The control state changed. Wait for the latest update, then try again.",
+            renderer.GetTextContent(componentId));
         Assert.DoesNotContain("Limits applied.", renderer.GetTextContent(componentId));
     }
 
@@ -244,7 +251,12 @@ public sealed class HomePageBehaviorTests
         await fixture.SendResyncAsync("fixture-loss", cancellationSource.Token);
         await module.WaitForInvocationCountAsync("detachLog", 1, cancellationSource.Token);
 
-        Assert.Contains("Unable to connect to the operator service. Reload the page.", renderer.GetTextContent(componentId));
+        await renderer.WaitForTextContentAsync(
+            componentId,
+            "The control-service connection closed. Reload the operator page.",
+            cancellationSource.Token);
+        Assert.Contains("The control-service connection closed. Reload the operator page.",
+            renderer.GetTextContent(componentId));
         Assert.DoesNotContain("Operator actions", renderer.GetTextContent(componentId), StringComparison.Ordinal);
         Assert.Equal(["SubscribeOperator"], fixture.Invocations.Select(invocation => invocation.Method));
     }

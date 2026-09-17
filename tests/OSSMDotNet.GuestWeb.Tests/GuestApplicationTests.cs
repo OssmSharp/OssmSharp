@@ -38,9 +38,10 @@ public sealed class GuestApplicationTests
         Assert.Contains("Open a valid invitation from the operator.", html);
         Assert.DoesNotContain("INVITE REQUIRED.", html);
         Assert.DoesNotContain("rw-notice rw-operation-notice", html);
-        Assert.Contains("<rw-alert", html);
-        Assert.Contains("<main class=\"guest-message-layout\"", html);
-        Assert.DoesNotContain("<main class=\"rw-page\"", html);
+        Assert.Contains("rw-inline-notification", html);
+        Assert.Contains("rw-page-header", html);
+        Assert.Contains("<main class=\"rw-page\"", html);
+        Assert.DoesNotContain("guest-message-layout", html);
         Assert.Contains("rw-theme", html);
         Assert.Contains("_content/RetroWebUi.Blazor/widgets/theme.", html);
         Assert.DoesNotContain("data-input", html);
@@ -117,7 +118,8 @@ public sealed class GuestApplicationTests
         Assert.Equal(HttpStatusCode.OK, page.StatusCode);
         var html = await page.Content.ReadAsStringAsync(Cancellation);
         Assert.Contains("Opening invite...", html);
-        Assert.Contains("rw-notice rw-operation-notice", html);
+        Assert.Contains("rw-inline-notification", html);
+        Assert.DoesNotContain("rw-notice rw-operation-notice", html);
         Assert.Contains("components-reconnect-modal", html);
         Assert.DoesNotContain("Connection lost. Open the invitation link again.", html);
         Assert.DoesNotContain("Join simulator session", html);

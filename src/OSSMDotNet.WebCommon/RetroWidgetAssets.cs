@@ -3,7 +3,7 @@ namespace OSSMDotNet.WebCommon;
 /// <summary>Provides CSP hashes for reviewed inline styles emitted by the shared widget package.</summary>
 public static class RetroWidgetAssets
 {
-    // Exact static Shadow DOM styles from the checksum-pinned private RetroWebUi.Blazor 0.1.4 package.
+    // Exact static Shadow DOM styles from the checksum-pinned private RetroWebUi.Blazor 0.1.5 package.
     /// <summary>Gets the reviewed inline style hashes required by the widget package.</summary>
     public static IReadOnlyList<string> InlineStyleHashes { get; } = Array.AsReadOnly<string>(
     [

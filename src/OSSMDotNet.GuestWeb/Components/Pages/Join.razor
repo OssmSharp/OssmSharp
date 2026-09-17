@@ -5,26 +5,25 @@
 
 @if (_initialized && !_joined && !_joining)
 {
-    <RwAlert Variant="danger" class="rw-notice rw-operation-notice" role="alert"
-             data-testid="@(_everJoined ? "guest-ended" : "guest-invalid")">
+    <InlineNotification Variant="danger" Role="alert" data-testid="@(_everJoined ? "guest-ended" : "guest-invalid")">
         @(_everJoined ? "Session ended. Open the invite link again to rejoin." : "This invitation is invalid or has been replaced.")
-    </RwAlert>
+    </InlineNotification>
 }
 else if (!_joined)
 {
-    <RwAlert Variant="info" class="rw-notice rw-operation-notice" role="status">Opening invite...</RwAlert>
+    <InlineNotification Variant="info" Role="status">Opening invite...</InlineNotification>
 }
 else
 {
     <div @ref="_root" class="guest-session rw-stack">
-        <RwAlert Variant="danger" data-testid="guest-disconnected" role="alert" hidden>
+        <InlineNotification Variant="danger" Role="alert" data-testid="guest-disconnected" hidden>
             Connection lost. Open the invitation link again.
-        </RwAlert>
-        <RwAlert Variant="danger" class="rw-notice rw-operation-notice" data-browser-alert role="alert" hidden="@(_display.Error is null)">
+        </InlineNotification>
+        <InlineNotification Variant="danger" Role="alert" data-browser-alert hidden="@(_display.Error is null)">
             @_display.Error
-        </RwAlert>
+        </InlineNotification>
         <div class="guest-interface rw-stack">
-        <RwAlert Variant="@SessionMessageVariant" class="guest-session-message" role="status">@SessionMessage</RwAlert>
+        <InlineNotification Variant="@SessionMessageVariant" CssClass="guest-session-message" Role="status">@SessionMessage</InlineNotification>
         <MotionMonitor Position="@_status?.Position" Velocity="@_status?.Velocity"
                        Moving="@(_status?.DeviceMoving == true)" Enabled="@(_status?.DeviceEnabled == true)"
                        Fresh="@(_status?.BridgeReady == true)" IsSimulator="@(_status?.IsSimulator == true)"
