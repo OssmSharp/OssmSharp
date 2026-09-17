@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <IsTestProject>true</IsTestProject>
+        <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+    </PropertyGroup>
+    <ItemGroup>
+        <AssemblyMetadata Include="RepositoryRoot" Value="$(MSBuildProjectDirectory)\..\.." />
+        <ProjectReference Include="..\..\src\OSSMDotNet.ControlService\ControlService.csproj" />
+        <ProjectReference Include="..\..\src\OSSMDotNet.ControlCore\ControlCore.csproj" />
+        <Compile Include="..\OSSMDotNet.ControlCore.Tests\FakeBridge.cs" Link="Helpers\FakeBridge.cs" />
+        <Compile Include="..\OSSMDotNet.ControlCore.Tests\BridgeCall.cs" Link="Helpers\BridgeCall.cs" />
+        <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" />
+        <PackageReference Include="xunit.v3.mtp-v2" />
+        <PackageReference Include="Microsoft.Testing.Platform" />
+        <Using Include="Xunit" />
+    </ItemGroup>
+</Project>

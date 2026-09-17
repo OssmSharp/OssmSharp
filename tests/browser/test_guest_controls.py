@@ -12,8 +12,8 @@ class GuestControlTests(unittest.TestCase):
         self.page.clock.install()
         root = Path(__file__).resolve().parents[2]
         modules = {
-            "guest-session.js": (root / "src" / "GuestWeb" / "wwwroot" / "guest-session.js").read_text(),
-            "connection-ui.js": (root / "src" / "SharedUi" / "wwwroot" / "connection-ui.js").read_text(),
+            "guest-session.js": (root / "src" / "OSSMDotNet.GuestWeb" / "wwwroot" / "guest-session.js").read_text(),
+            "connection-ui.js": (root / "src" / "OSSMDotNet.WebCommon" / "wwwroot" / "connection-ui.js").read_text(),
         }
         controls = "".join(
             f'<input data-input="{name}" min="0" max="100" value="{value}">'

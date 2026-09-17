@@ -17,14 +17,14 @@ public sealed class GuestApplicationTests
     [InlineData(65536)]
     public void BootstrapPortRejectsOutsideUnprivilegedPortRange(int port)
     {
-        Assert.Throws<OptionsValidationException>(() => Build(port, "test-pipe"));
+        Assert.Throws<OptionsValidationException>(() => Build(port));
     }
 
     [Fact]
     public async Task HealthAndStaticPagesAreGuestOnlyWithLocalAssetsAndStrictCsp()
     {
         var port = AvailablePort();
-        await using var app = Build(port, $"test-{Guid.NewGuid():N}");
+        await using var app = Build(port);
         await app.StartAsync(Cancellation);
         using var client = LocalClient(port);
 
@@ -70,7 +70,7 @@ public sealed class GuestApplicationTests
     public async Task HttpBoundaryRejectsForeignHostAndMissingOrForeignPostOrigin()
     {
         var port = AvailablePort();
-        await using var app = Build(port, $"test-{Guid.NewGuid():N}");
+        await using var app = Build(port);
         await app.StartAsync(Cancellation);
         using var client = LocalClient(port);
         using var wrongHost = new HttpRequestMessage(HttpMethod.Get, "health");
@@ -78,7 +78,8 @@ public sealed class GuestApplicationTests
         using var hostResponse = await client.SendAsync(wrongHost, Cancellation);
         Assert.Equal(HttpStatusCode.BadRequest, hostResponse.StatusCode);
 
-        using var missingOrigin = await client.PostAsync("health", new StringContent(""), Cancellation);
+        using var content = new StringContent("");
+        using var missingOrigin = await client.PostAsync("health", content, Cancellation);
         Assert.Equal(HttpStatusCode.Forbidden, missingOrigin.StatusCode);
         using var wrongOrigin = new HttpRequestMessage(HttpMethod.Post, "health");
         wrongOrigin.Headers.Add("Origin", "https://example.invalid");
@@ -96,14 +97,10 @@ public sealed class GuestApplicationTests
     }
 
     [Fact]
-    public async Task OpeningInvitationPagePrerendersWithoutContactingPipe()
+    public async Task OpeningInvitationPagePrerendersWithoutContactingTheControlService()
     {
         var port = AvailablePort();
-        var pipeName = $"test-{Guid.NewGuid():N}";
-        await using var pipe = new System.IO.Pipes.NamedPipeServerStream(pipeName,
-            System.IO.Pipes.PipeDirection.InOut, 1, System.IO.Pipes.PipeTransmissionMode.Byte,
-            System.IO.Pipes.PipeOptions.Asynchronous);
-        await using var app = Build(port, pipeName);
+        await using var app = Build(port);
         await app.StartAsync(Cancellation);
         using var client = LocalClient(port);
 
@@ -117,11 +114,10 @@ public sealed class GuestApplicationTests
         Assert.DoesNotContain("Connection lost. Open the invitation link again.", html);
         Assert.DoesNotContain("Join simulator session", html);
         Assert.DoesNotContain("data-input", html);
-        Assert.False(pipe.IsConnected);
         await app.StopAsync(Cancellation);
     }
 
-    private static WebApplication Build(int port, string pipeName)
+    private static WebApplication Build(int port)
     {
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions
         {
@@ -132,9 +128,9 @@ public sealed class GuestApplicationTests
         });
         builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
         {
-            ["OSSM:GuestPort"] = port.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            ["OSSM:PipeName"] = pipeName,
-            ["OSSM:GuestServiceToken"] = new string('a', 43)
+            ["OSSM:Guest:GuestPort"] = port.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["OSSM:ControlClient:ControlOrigin"] = "http://127.0.0.1:5181",
+            ["OSSM:ControlClient:ServiceKey"] = new string('a', 42) + "A"
         });
         return GuestApplication.Build(builder);
     }
@@ -146,10 +142,81 @@ public sealed class GuestApplicationTests
         return ((IPEndPoint)socket.LocalEndpoint).Port;
     }
 
-    private static HttpClient LocalClient(int port) =>
-        new(new HttpClientHandler { UseProxy = false })
+    private static LocalHttpClient LocalClient(int port) => new(port);
+
+    private sealed class LocalHttpClient : IDisposable
+    {
+        private readonly HttpClientHandler _handler = new() { UseProxy = false };
+        private readonly HttpClient _client;
+
+        internal LocalHttpClient(int port)
         {
-            BaseAddress = new Uri($"http://127.0.0.1:{port}/"),
-            Timeout = TimeSpan.FromSeconds(5)
-        };
+            _client = new HttpClient(_handler, disposeHandler: false)
+            {
+                BaseAddress = new Uri($"http://127.0.0.1:{port}/"),
+                Timeout = TimeSpan.FromSeconds(5)
+            };
+        }
+
+        internal Task<HttpResponseMessage> GetAsync(string? requestUri, CancellationToken cancellationToken) =>
+            _client.GetAsync(requestUri, cancellationToken);
+
+        internal Task<HttpResponseMessage> PostAsync(
+            string? requestUri,
+            HttpContent? content,
+            CancellationToken cancellationToken) =>
+            _client.PostAsync(requestUri, content, cancellationToken);
+
+        internal Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken) =>
+            _client.SendAsync(request, cancellationToken);
+
+        public void Dispose()
+        {
+            _client.Dispose();
+            _handler.Dispose();
+        }
+    }
+
+    [Theory]
+    [InlineData(1024)]
+    [InlineData(65535)]
+    public async Task ExactGuestPortBoundsServeHealthThroughTheLocalSecurityBoundary(int port)
+    {
+        await using var app = Build(port);
+        await app.StartAsync(Cancellation);
+        using var client = LocalClient(port);
+
+        using var response = await client.GetAsync("health", Cancellation);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("Healthy", await response.Content.ReadAsStringAsync(Cancellation));
+        Assert.Equal("no-referrer", Assert.Single(response.Headers.GetValues("Referrer-Policy")));
+        Assert.Equal("DENY", Assert.Single(response.Headers.GetValues("X-Frame-Options")));
+        var csp = Assert.Single(response.Headers.GetValues("Content-Security-Policy"));
+        Assert.Contains($"connect-src 'self' ws://127.0.0.1:{port}", csp, StringComparison.Ordinal);
+        await app.StopAsync(Cancellation);
+    }
+
+    [Fact]
+    public async Task AllowedLocalOriginCanLoadGuestAssetsWithTheCurrentBoundaryHeaders()
+    {
+        var port = AvailablePort();
+        await using var app = Build(port);
+        await app.StartAsync(Cancellation);
+        using var client = LocalClient(port);
+        using var request = new HttpRequestMessage(HttpMethod.Get, "guest.css");
+        request.Headers.Add("Origin", $"http://127.0.0.1:{port}");
+
+        using var response = await client.SendAsync(request, Cancellation);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains("no-store", Assert.Single(response.Headers.GetValues("Cache-Control")), StringComparison.Ordinal);
+        Assert.Equal("nosniff", Assert.Single(response.Headers.GetValues("X-Content-Type-Options")));
+        var csp = Assert.Single(response.Headers.GetValues("Content-Security-Policy"));
+        Assert.Contains("default-src 'self'", csp, StringComparison.Ordinal);
+        Assert.DoesNotContain("unsafe-inline", csp, StringComparison.Ordinal);
+        await app.StopAsync(Cancellation);
+    }
 }

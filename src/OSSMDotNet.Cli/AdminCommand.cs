@@ -2,37 +2,37 @@ using System.CommandLine;
 
 namespace OSSMDotNet.Cli;
 
-/// <summary>Defines the local command-line interface for unauthenticated administration.</summary>
+/// <summary>Defines the operator command-line client for the authenticated control service.</summary>
 public static class AdminCommand
 {
-    /// <summary>Creates the root command and restricted operator subcommands.</summary>
+    /// <summary>Creates the root command and its operator subcommands.</summary>
     public static RootCommand Create()
     {
-        var root = new RootCommand("Local OSSM admin client. Start the application with 'aspire run'.");
-        var origin = new Option<Uri>("--admin-origin")
+        var root = new RootCommand("OSSM operator client. Configure OSSM_CONTROL_CLIENT_SERVICE_KEY before connecting.");
+        var origin = new Option<Uri>("--control-origin")
         {
             Required = true,
             Recursive = true,
-            Description = "Loopback admin origin shown in the Aspire dashboard.",
+            Description = "Control-service origin. Use loopback HTTP for local development or HTTPS for a remote service.",
             CustomParser = result =>
             {
                 if (result.Tokens.Count != 1 || !Uri.TryCreate(result.Tokens[0].Value, UriKind.Absolute, out var uri) ||
-                    uri.Scheme != "http" || uri.Host != "127.0.0.1" || uri.Port is < 1024 or > 65535 ||
-                    uri.UserInfo.Length != 0 || uri.AbsolutePath != "/" || uri.Query.Length != 0 || uri.Fragment.Length != 0)
+                    uri.UserInfo.Length != 0 || uri.AbsolutePath != "/" || uri.Query.Length != 0 || uri.Fragment.Length != 0 ||
+                    (uri.IsLoopback ? uri.Scheme != "http" : uri.Scheme != "https") || uri.Port is < 1 or > 65535)
                 {
-                    result.AddError("Provide an HTTP 127.0.0.1 origin on an unprivileged port, without a path, query, fragment, or credentials.");
+                    result.AddError("Provide a path-free loopback HTTP or remote HTTPS control-service origin without credentials.");
                     return null;
                 }
                 return uri;
             }
         };
         root.Options.Add(origin);
-        var status = new Command("status", "Show controller status from the local, unauthenticated admin service.");
+        var status = new Command("status", "Show the latest authorized control-service state.");
         status.SetAction(async (parse, cancellationToken) =>
-            await AdminClient.SendAsync(parse.GetValue(origin)!, "status", HttpMethod.Get, cancellationToken));
-        var stop = new Command("stop", "Stop the controller through the local, unauthenticated admin service.");
+            await AdminClient.SendAsync(parse.GetValue(origin)!, "status", cancellationToken));
+        var stop = new Command("stop", "Request a control-service Stop without treating acceptance as device verification.");
         stop.SetAction(async (parse, cancellationToken) =>
-            await AdminClient.SendAsync(parse.GetValue(origin)!, "stop", HttpMethod.Post, cancellationToken));
+            await AdminClient.SendAsync(parse.GetValue(origin)!, "stop", cancellationToken));
         root.Subcommands.Add(status);
         root.Subcommands.Add(stop);
         return root;

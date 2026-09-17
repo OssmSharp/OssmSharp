@@ -1,35 +1,57 @@
+using System.ComponentModel.DataAnnotations;
+using System.Text.Json;
+using Microsoft.Extensions.Options;
+using OSSMDotNet.ControlClient;
+using OSSMDotNet.Models;
+
 namespace OSSMDotNet.Cli;
 
 internal static class AdminClient
 {
-    /// <summary>Sends a local admin operation and returns its process exit code.</summary>
-    public static async Task<int> SendAsync(Uri origin, string operation, HttpMethod method, CancellationToken cancellationToken)
+    internal static async Task<int> SendAsync(Uri origin, string operation, CancellationToken cancellationToken)
     {
-        using var handler = new HttpClientHandler { AllowAutoRedirect = false, UseProxy = false };
-        using var client = new HttpClient(handler) { BaseAddress = origin, Timeout = TimeSpan.FromSeconds(3) };
-        using var request = new HttpRequestMessage(method, $"/api/v1/admin/{operation}");
-        request.Headers.Add("Origin", origin.GetLeftPart(UriPartial.Authority));
+        var key = Environment.GetEnvironmentVariable("OSSM_CONTROL_CLIENT_SERVICE_KEY");
+        var options = new ControlClientOptions { ControlOrigin = origin.GetLeftPart(UriPartial.Authority), ServiceKey = key ?? "" };
+        if (!Validator.TryValidateObject(options, new(options), [], validateAllProperties: true))
+        {
+            await Console.Error.WriteLineAsync("Set OSSM_CONTROL_CLIENT_SERVICE_KEY to the configured AdminWeb service key.");
+            return 1;
+        }
+
+        await using var client = new OperatorControlClient(new(Options.Create(options)), Options.Create(options));
+        var state = new TaskCompletionSource<OperatorLiveControlStatus>(TaskCreationOptions.RunContinuationsAsynchronously);
         try
         {
-            using var response = await client.SendAsync(request, cancellationToken);
-            if (!response.IsSuccessStatusCode)
+            await client.SubscribeAsync(new(value =>
+                {
+                    state.TrySetResult(value);
+                    return Task.CompletedTask;
+                }, static _ => Task.CompletedTask,
+                resync => Task.FromException(new ControlClientException(resync.Code))), 0, cancellationToken);
+            var current = await state.Task.WaitAsync(cancellationToken);
+            if (operation == "status")
             {
-                Console.Error.WriteLine($"Admin request rejected (HTTP {(int)response.StatusCode}).");
-                return 1;
+                await Console.Out.WriteLineAsync(JsonSerializer.Serialize(current));
+                return 0;
             }
-            Console.WriteLine(method == HttpMethod.Get
-                ? await response.Content.ReadAsStringAsync(cancellationToken)
-                : "Stop request accepted. Run 'status' to check the simulator.");
+
+            await client.StopAsync(cancellationToken);
+            await Console.Out.WriteLineAsync("Stop request accepted. Wait for status feedback before treating motion as stopped.");
             return 0;
         }
-        catch (HttpRequestException)
+        catch (ControlClientUnknownOutcomeException)
         {
-            Console.Error.WriteLine("Admin is unavailable. Start the local application with 'aspire run'.");
+            await Console.Error.WriteLineAsync("The command outcome is unknown. Do not resend it automatically.");
+            return 1;
+        }
+        catch (ControlClientException error)
+        {
+            await Console.Error.WriteLineAsync($"Control request rejected: {error.Code}.");
             return 1;
         }
         catch (OperationCanceledException)
         {
-            Console.Error.WriteLine("Admin request was cancelled or timed out. Its outcome is unknown.");
+            await Console.Error.WriteLineAsync("Control request was cancelled before a confirmed result.");
             return 1;
         }
     }

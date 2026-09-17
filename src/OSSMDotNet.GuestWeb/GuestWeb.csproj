@@ -3,6 +3,7 @@
     <RootNamespace>OSSMDotNet.GuestWeb</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="..\OSSMDotNet.ControlClient\ControlClient.csproj" />
     <ProjectReference Include="..\OSSMDotNet.Models\OSSMDotNet.Models.csproj" />
     <ProjectReference Include="..\OSSMDotNet.ServiceDefaults\ServiceDefaults.csproj" />
     <ProjectReference Include="..\OSSMDotNet.WebCommon\SharedUi.csproj" />

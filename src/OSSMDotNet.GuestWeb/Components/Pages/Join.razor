@@ -3,14 +3,14 @@
 
 <PageTitle>Guest controls</PageTitle>
 
-@if (_initialized && !Client.IsJoined && !_joining)
+@if (_initialized && !_joined && !_joining)
 {
     <RwAlert Variant="danger" class="rw-notice rw-operation-notice" role="alert"
              data-testid="@(_everJoined ? "guest-ended" : "guest-invalid")">
         @(_everJoined ? "Session ended. Open the invite link again to rejoin." : "This invitation is invalid or has been replaced.")
     </RwAlert>
 }
-else if (!Client.IsJoined)
+else if (!_joined)
 {
     <RwAlert Variant="info" class="rw-notice rw-operation-notice" role="status">Opening invite...</RwAlert>
 }

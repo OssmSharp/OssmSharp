@@ -9,7 +9,7 @@ using OSSMDotNet.Models;
 namespace OSSMDotNet.DeviceBridge;
 
 /// <summary>Runs the simulator adapter and serializes its bounded device command protocol.</summary>
-public sealed class SimulatorProcessBridge(ILogger<SimulatorProcessBridge> logger) : IDeviceBridge
+public sealed partial class SimulatorProcessBridge(ILogger<SimulatorProcessBridge> logger) : IDeviceBridge
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {
@@ -53,7 +53,7 @@ public sealed class SimulatorProcessBridge(ILogger<SimulatorProcessBridge> logge
         };
         if (!_process.Start())
             throw new IOException("simulator-start-failed");
-        logger.LogInformation(new EventId(100, "DeviceActivity"), "Simulator started.");
+        LogSimulatorStarted(logger);
         _reader = ReadAsync(_process.StandardOutput.BaseStream, _lifetime.Token);
         _diagnostics = DrainDiagnosticsAsync(_process.StandardError, _lifetime.Token);
     }
@@ -140,7 +140,7 @@ public sealed class SimulatorProcessBridge(ILogger<SimulatorProcessBridge> logge
         catch (Exception error) when (error is IOException or JsonException or InvalidDataException)
         {
             Failure = "simulator-connection-failed";
-            logger.LogError(new EventId(101, "DeviceActivity"), error, "Device connection lost; feedback is unavailable.");
+            LogDeviceConnectionLost(logger, error);
             foreach (var pair in _pending)
                 if (_pending.TryRemove(pair.Key, out var request))
                     request.TrySetException(new IOException(Failure));
@@ -157,7 +157,7 @@ public sealed class SimulatorProcessBridge(ILogger<SimulatorProcessBridge> logge
             var line = buffer.Slice(consumed, offset);
             if (!line.IsEmpty && line[^1] == '\r')
                 line = line[..^1];
-            var reply = JsonSerializer.Deserialize<SimulatorReply>(line, Json) ?? throw new InvalidDataException("simulator-empty-reply");
+            var reply = JsonSerializer.Deserialize<SimulatorReply?>(line, Json) ?? throw new InvalidDataException("simulator-empty-reply");
             if (reply.V != 1 || (reply.Event != "state" && reply.Id is null))
                 throw new InvalidDataException("simulator-invalid-envelope");
             if (reply.State is { } state)
@@ -165,10 +165,9 @@ public sealed class SimulatorProcessBridge(ILogger<SimulatorProcessBridge> logge
                 if (_lastSample is { } previous && state.SampleSequence >= previous.SampleSequence)
                 {
                     if ((state.Enabled || state.Moving) != (previous.Enabled || previous.Moving))
-                        logger.LogInformation(new EventId(102, "DeviceActivity"), "Device {MotionState}.",
-                            state.Enabled || state.Moving ? "running" : "stopped");
+                        LogDeviceMotionState(logger, state.Enabled || state.Moving ? "running" : "stopped");
                     if (state.Desired != previous.Desired)
-                        logger.LogInformation(new EventId(103, "DeviceActivity"), "Device settings updated.");
+                        LogDeviceSettingsUpdated(logger);
                 }
                 _lastSample = state;
                 SampleReceived?.Invoke(state);
@@ -188,7 +187,7 @@ public sealed class SimulatorProcessBridge(ILogger<SimulatorProcessBridge> logge
             while (await reader.ReadAsync(owner.Memory, cancellationToken) > 0)
             {
                 if (!HasDiagnostics)
-                    logger.LogWarning(new EventId(104, "DeviceActivity"), "Device diagnostics are available.");
+                    LogDeviceDiagnosticsAvailable(logger);
                 HasDiagnostics = true;
             }
         }
@@ -196,36 +195,75 @@ public sealed class SimulatorProcessBridge(ILogger<SimulatorProcessBridge> logge
         catch (IOException error)
         {
             Failure ??= "simulator-diagnostic-stream-failed";
-            logger.LogError(new EventId(105, "DeviceActivity"), error, "Device diagnostics disconnected.");
+            LogDeviceDiagnosticsDisconnected(logger, error);
         }
     }
+
+    [LoggerMessage(EventId = 100, EventName = "SimulatorStarted", Level = LogLevel.Information, Message = "Simulator started.")]
+    private static partial void LogSimulatorStarted(ILogger logger);
+
+    [LoggerMessage(EventId = 101, EventName = "DeviceConnectionLost", Level = LogLevel.Error,
+        Message = "Device connection lost; feedback is unavailable.")]
+    private static partial void LogDeviceConnectionLost(ILogger logger, Exception exception);
+
+    [LoggerMessage(EventId = 102, EventName = "DeviceMotionState", Level = LogLevel.Information, Message = "Device {MotionState}.")]
+    private static partial void LogDeviceMotionState(ILogger logger, string motionState);
+
+    [LoggerMessage(EventId = 103, EventName = "DeviceSettingsUpdated", Level = LogLevel.Information, Message = "Device settings updated.")]
+    private static partial void LogDeviceSettingsUpdated(ILogger logger);
+
+    [LoggerMessage(EventId = 104, EventName = "DeviceDiagnosticsAvailable", Level = LogLevel.Warning, Message = "Device diagnostics are available.")]
+    private static partial void LogDeviceDiagnosticsAvailable(ILogger logger);
+
+    [LoggerMessage(EventId = 105, EventName = "DeviceDiagnosticsDisconnected", Level = LogLevel.Error, Message = "Device diagnostics disconnected.")]
+    private static partial void LogDeviceDiagnosticsDisconnected(ILogger logger, Exception exception);
+
+    [LoggerMessage(EventId = 106, EventName = "SimulatorShutdownTimedOut", Level = LogLevel.Warning,
+        Message = "Simulator shutdown timed out; stopping it.")]
+    private static partial void LogSimulatorShutdownTimedOut(ILogger logger);
+
+    [LoggerMessage(EventId = 107, EventName = "SimulatorStopped", Level = LogLevel.Information, Message = "Simulator stopped.")]
+    private static partial void LogSimulatorStopped(ILogger logger);
 
     /// <summary>Stops the adapter process and releases pending command resources.</summary>
     public async ValueTask DisposeAsync()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
-        _lifetime.Cancel();
-        if (_process is { } process)
+        try
         {
-            process.StandardInput.Close();
-            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-            try { await process.WaitForExitAsync(timeout.Token); }
-            catch (OperationCanceledException)
+            await _lifetime.CancelAsync();
+            if (_process is { } process)
             {
-                logger.LogWarning(new EventId(106, "DeviceActivity"), "Simulator shutdown timed out; stopping it.");
-                if (!process.HasExited) process.Kill(entireProcessTree: true);
-                await process.WaitForExitAsync();
+                try
+                {
+                    process.StandardInput.Close();
+                    using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+                    try { await process.WaitForExitAsync(timeout.Token); }
+                    catch (OperationCanceledException)
+                    {
+                        LogSimulatorShutdownTimedOut(logger);
+                        if (!process.HasExited) process.Kill(entireProcessTree: true);
+                        await process.WaitForExitAsync();
+                    }
+                    if (_reader is not null) await _reader;
+                    if (_diagnostics is not null) await _diagnostics;
+                    LogSimulatorStopped(logger);
+                }
+                finally
+                {
+                    _process?.Dispose();
+                    _process = null;
+                }
             }
-            if (_reader is not null) await _reader;
-            if (_diagnostics is not null) await _diagnostics;
-            logger.LogInformation(new EventId(107, "DeviceActivity"), "Simulator stopped.");
-            process.Dispose();
         }
-        foreach (var pair in _pending)
-            if (_pending.TryRemove(pair.Key, out var pending))
-                pending.TrySetException(new ObjectDisposedException(nameof(SimulatorProcessBridge)));
-        _lifetime.Dispose();
-        _inputLock.Dispose();
+        finally
+        {
+            foreach (var pair in _pending)
+                if (_pending.TryRemove(pair.Key, out var pending))
+                    pending.TrySetException(new ObjectDisposedException(nameof(SimulatorProcessBridge)));
+            _lifetime.Dispose();
+            _inputLock.Dispose();
+        }
     }
 }

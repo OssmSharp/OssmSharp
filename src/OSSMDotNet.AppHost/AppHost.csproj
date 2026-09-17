@@ -10,7 +10,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\OSSMDotNet.AdminService\AdminService.csproj" />
+    <ProjectReference Include="..\OSSMDotNet.AdminWeb\AdminWeb.csproj" />
+    <ProjectReference Include="..\OSSMDotNet.ControlService\ControlService.csproj" />
     <ProjectReference Include="..\OSSMDotNet.GuestWeb\GuestWeb.csproj" />
   </ItemGroup>
 

@@ -1,9 +1,12 @@
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
+using System.Net;
 using System.Text.Json.Serialization;
 
 namespace OSSMDotNet.ServiceDefaults;
@@ -11,16 +14,16 @@ namespace OSSMDotNet.ServiceDefaults;
 /// <summary>Registers validated local host configuration and shared Blazor hosting services.</summary>
 public static class ServiceCollectionExtensions
 {
-    /// <summary>Registers and validates the local admin service configuration.</summary>
+    /// <summary>Registers and validates the loopback-only AdminWeb configuration.</summary>
     public static IServiceCollection AddAdminConfiguration(this IServiceCollection services)
     {
         services.AddOptions<AdminOptions>()
-            .BindConfiguration("OSSM", options => options.ErrorOnUnknownConfiguration = true)
+            .BindConfiguration("OSSM:Admin", options => options.ErrorOnUnknownConfiguration = true)
             .ValidateDataAnnotations()
             .Validate<IConfiguration>((_, configuration) =>
                 !configuration.GetSection("Kestrel").Exists() &&
                 !configuration.GetValue<bool>(WebHostDefaults.PreferHostingUrlsKey),
-                "Admin listener overrides are not supported. Use OSSM:AdminPort for the 127.0.0.1 listener.")
+                "Admin listener overrides are not supported. Use OSSM:Admin:AdminPort for the 127.0.0.1 listener.")
             .ValidateOnStart();
         return services;
     }
@@ -29,9 +32,21 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddGuestConfiguration(this IServiceCollection services)
     {
         services.AddOptions<GuestOptions>()
-            .BindConfiguration("OSSM", options => options.ErrorOnUnknownConfiguration = true)
+            .BindConfiguration("OSSM:Guest", options => options.ErrorOnUnknownConfiguration = true)
             .ValidateDataAnnotations()
             .ValidateOnStart();
+        return services;
+    }
+
+    /// <summary>Registers the fixed loopback listener for the unauthenticated admin web host.</summary>
+    public static IServiceCollection AddAdminListener(this IServiceCollection services)
+    {
+        services.AddOptions<KestrelServerOptions>()
+            .Configure<IOptions<AdminOptions>>((server, options) =>
+            {
+                server.Listen(IPAddress.Loopback, options.Value.AdminPort);
+                server.Limits.MaxRequestBodySize = 16_384;
+            });
         return services;
     }
 

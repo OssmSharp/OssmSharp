@@ -108,7 +108,7 @@
     <header>
       <p class="eyebrow">Architecture proposal / .NET 10</p>
       <h1>OSSM system architecture</h1>
-      <p class="lead">Guest access and device authority are separate processes. The guest web service handles the UI; the private admin service owns sessions, safety policy and every device write.</p>
+      <p class="lead">AdminWeb and GuestWeb are server-side Blazor hosts. One SignalR ControlService owns sessions, safety policy, ControlCore and every device write.</p>
       <nav aria-label="Architecture views">
         <a href="#deployment">01 &nbsp; Deployment &amp; connections</a>
         <a href="#enforcement">02 &nbsp; Control enforcement</a>
@@ -120,14 +120,14 @@
         <span class="view-number" aria-hidden="true">01</span>
         <div>
           <h2 id="deployment-heading">Deployment &amp; connections</h2>
-          <p>Two independently running services on one computer. Remote access ends at guest web; local administration has its own private entry point.</p>
+          <p>Separately hostable web hosts call one ControlService. Remote access ends at GuestWeb; AdminWeb is deliberately unauthenticated and loopback-only.</p>
         </div>
       </div>
       <figure>
         <div class="viewport" role="region" tabindex="0" aria-label="Deployment diagram. Scroll horizontally on narrow screens.">
           <svg viewBox="0 0 1280 720" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="dep-title dep-desc">
-            <title id="dep-title">OSSM deployment: restricted guest web and private admin</title>
-            <desc id="dep-desc">A guest browser connects to guest web over HTTPS and WSS. Guest web and admin are separate .NET 10 processes on one service host, connected by guest-scoped authenticated IPC and a shared models library. The source projects are AdminService, OSSMDotNet.AppHost, ControlCore, DeviceBridge, GuestWeb, OSSMDotNet.Models, Cli, ServiceDefaults, and WebCommon. A local operator uses the unauthenticated admin UI or CLI bound to 127.0.0.1 with Host/Origin protection to generate links, approve sessions and set limits. Only admin's private .NET bridge reaches OSSM over BLE. Local one-box mode places the same guest browser on the service host, without changing guest authorization.</desc>
+            <title id="dep-title">OSSM deployment: web hosts and ControlService</title>
+            <desc id="dep-desc">A guest browser connects to GuestWeb over HTTPS and WSS. GuestWeb and AdminWeb are server-side Blazor hosts that call ControlService through the SignalR endpoint /hubs/control/v1 over HTTPS and WSS. AdminWeb and GuestWeb use separately generated service keys; those keys authenticate the hosts, while ControlService independently validates invitation and session capabilities for guest operations. AdminWeb is unauthenticated for its local human operator and bound to 127.0.0.1 with Host/Origin protection. The CLI also calls ControlService. Only ControlService's private .NET bridge reaches OSSM over BLE. Local one-box mode places the same browser and all hosts on one computer without changing guest authorization. No named-pipe or REST control surface exists.</desc>
             <defs>
               <marker id="dep-arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M 0 0 L 8 4 L 0 8 Z" fill="#4f5d75"/></marker>
               <marker id="dep-arrow-accent" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M 0 0 L 8 4 L 0 8 Z" fill="#eb6c36"/></marker>
@@ -139,15 +139,15 @@
               <rect x="368" y="52" width="352" height="24" class="mask"/>
               <text x="376" y="68" class="boundary-name">SERVICE HOST / ONE COMPUTER</text>
             </g>
-            <text x="376" y="120" class="body-strong">Separate processes. Separate privileges.</text>
-            <text x="376" y="200" class="body">Only guest web may be exposed.</text>
-            <text x="376" y="224" class="body">Admin stays local.</text>
-            <text x="376" y="256" class="tech">No public proxy route to admin.</text>
+            <text x="376" y="120" class="body-strong">Separately hostable processes.</text>
+            <text x="376" y="200" class="body">Only GuestWeb may be exposed.</text>
+            <text x="376" y="224" class="body">AdminWeb stays loopback-only.</text>
+            <text x="376" y="256" class="tech">No public proxy route to AdminWeb.</text>
 
             <g data-edge="dep-public" data-from="dep-guest" data-to="dep-web">
               <path d="M 248 408 H 392" class="edge network" marker-end="url(#dep-arrow-link)"/>
             </g>
-            <g data-edge="dep-ipc" data-from="dep-web" data-to="dep-admin">
+            <g data-edge="dep-control" data-from="dep-web" data-to="dep-admin">
               <path d="M 616 408 H 760" class="edge" marker-end="url(#dep-arrow)"/>
             </g>
             <g data-edge="dep-local-admin" data-from="dep-operator" data-to="dep-admin">
@@ -161,17 +161,17 @@
               <rect x="256" y="376" width="128" height="24" class="mask"/>
               <text x="320" y="392" text-anchor="middle" class="tech">HTTPS / WSS</text>
             </g>
-            <g data-label="dep-ipc">
+            <g data-label="dep-control">
               <rect x="624" y="376" width="128" height="24" class="mask"/>
-              <text x="688" y="392" text-anchor="middle" class="tech">PRIVATE IPC</text>
+              <text x="688" y="392" text-anchor="middle" class="tech">HTTPS / WSS</text>
             </g>
-            <g data-label="dep-ipc-scope">
+            <g data-label="dep-control-key">
               <rect x="624" y="424" width="128" height="24" class="mask"/>
-              <text x="688" y="440" text-anchor="middle" class="tech">Guest-scoped only</text>
+              <text x="688" y="440" text-anchor="middle" class="tech">GuestWeb service key</text>
             </g>
             <g data-label="dep-local-admin">
               <rect x="888" y="272" width="136" height="24" class="mask"/>
-              <text x="896" y="288" class="tech">Local only</text>
+              <text x="896" y="288" class="tech">Loopback + AdminWeb key</text>
             </g>
             <g data-label="dep-ble">
               <rect x="1008" y="376" width="88" height="24" class="mask"/>
@@ -191,27 +191,27 @@
               <rect x="392" y="320" width="224" height="208" rx="8" class="node-bg"/>
               <rect x="392" y="320" width="224" height="208" rx="8" class="node"/>
               <text x="416" y="352" class="tech">PROCESS 01</text>
-              <text x="416" y="388" class="name">Guest web</text>
+              <text x="416" y="388" class="name">GuestWeb</text>
               <text x="416" y="420" class="tech">ASP.NET Core 10</text>
               <text x="416" y="456" class="body">Blazor server UI</text>
-              <text x="416" y="484" class="body">Guest operations only</text>
+              <text x="416" y="484" class="body">Guest hub operations only</text>
               <text x="416" y="508" class="tech">No admin or device I/O</text>
             </g>
             <g data-node="dep-admin">
               <rect x="760" y="320" width="240" height="208" rx="8" class="node-bg"/>
               <rect x="760" y="320" width="240" height="208" rx="8" class="node focal"/>
-              <text x="784" y="352" class="tech">PROCESS 02 / PRIVATE</text>
-              <text x="784" y="388" class="name">Admin service</text>
-              <text x="784" y="420" class="tech">.NET 10 hosted worker</text>
-              <text x="784" y="456" class="body">Sessions + policy</text>
+              <text x="784" y="352" class="tech">PROCESS 02 / SERVICE</text>
+              <text x="784" y="388" class="name">ControlService</text>
+              <text x="784" y="420" class="tech">.NET 10 / SIGNALR</text>
+              <text x="784" y="456" class="body">Sessions + policy + ControlCore</text>
               <text x="784" y="484" class="body">Single device owner</text>
               <text x="784" y="508" class="tech">Includes .NET bridge</text>
             </g>
             <g data-node="dep-operator">
               <rect x="712" y="160" width="288" height="88" rx="8" class="node-bg"/>
               <rect x="712" y="160" width="288" height="88" rx="8" class="node client"/>
-              <text x="736" y="184" class="tech">LOCAL OPERATOR</text>
-              <text x="736" y="216" class="name-small">Admin UI or CLI</text>
+              <text x="736" y="184" class="tech">LOOPBACK ADMINWEB / CLI</text>
+              <text x="736" y="216" class="name-small">Unauthenticated operator</text>
             </g>
             <g data-node="dep-device">
               <rect x="1104" y="352" width="136" height="152" rx="8" class="node hardware"/>
@@ -239,7 +239,7 @@
             </g>
           </svg>
         </div>
-        <figcaption>One-box means one computer, not one process. Guest routes and IPC expose no operator operations or device access. Both processes consume shared DTOs from the models library; this is not a runtime communication path. AdminService, OSSMDotNet.AppHost and GuestWeb host runtime processes; Cli, ControlCore, DeviceBridge, ServiceDefaults and WebCommon provide their named responsibilities; OSSMDotNet.Models is the shared models and session-protocol library. The local operator surface is unauthenticated and does not isolate compromised local processes. A local operator can generate a session link in one click; that link points to guest web, never admin.</figcaption>
+        <figcaption>One-box means one computer, not one process. GuestWeb exposes no operator operation or device access. AdminWeb and GuestWeb authenticate to ControlService with distinct generated keys over HTTPS/WSS; ControlService independently validates the guest invitation/session capability. The keys are host credentials, not human authentication. AdminWeb, GuestWeb and ControlService may be separate processes; AdminWeb remains unauthenticated and loopback-only, which does not isolate compromised code running as the same user. A local operator can generate a session link in one click; that link points to GuestWeb, never ControlService.</figcaption>
       </figure>
     </section>
 
@@ -248,14 +248,14 @@
         <span class="view-number" aria-hidden="true">02</span>
         <div>
           <h2 id="enforcement-heading">Control enforcement</h2>
-          <p>Guest web filters input early. Admin independently decides whether each request can reach the device; its controller checks again at execution.</p>
+          <p>ControlService independently decides whether each hub command can reach the device; its controller checks again at execution.</p>
         </div>
       </div>
       <figure>
         <div class="viewport" role="region" tabindex="0" aria-label="Enforcement diagram. Scroll horizontally on narrow screens.">
           <svg viewBox="0 0 1280 720" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="ctl-title ctl-desc">
-            <title id="ctl-title">Admin-side authorization, execution and priority Stop</title>
-            <desc id="ctl-desc">A request forwarded by guest web enters the private admin service. Admin validates the capability, session, allowed operation, schema and sequence, then checks arming, lockout, grant freshness, configured limits and the complete tuple. The single-writer controller rechecks current authority before calling the private device bridge. Failed checks reject the input without a motion write. Stop, expiry, connection loss and detected external parameter changes revoke authority. External changes additionally latch a lock that only explicit admin unlock can clear; unlock leaves the device paused.</desc>
+            <title id="ctl-title">ControlService authorization, execution and priority Stop</title>
+            <desc id="ctl-desc">A hub command at /hubs/control/v1 enters ControlService. ControlService validates the calling host key, guest capability where required, session, allowed operation, schema and sequence, then checks arming, lockout, grant freshness, configured limits and the complete tuple. Ordinary command replies acknowledge acceptance or rejection only; state is sent over one ordered push path. The single-writer controller rechecks current authority before calling the private device bridge. Stop, expiry, transport loss and detected external parameter changes revoke authority. Stop advances authority revision so a stale authority-restoring operator request fails. External changes additionally latch a lock that only explicit AdminWeb operator unlock can clear; unlock leaves the device paused. No reconnect, replay or rearm path exists.</desc>
             <defs>
               <marker id="ctl-arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M 0 0 L 8 4 L 0 8 Z" fill="#4f5d75"/></marker>
               <marker id="ctl-arrow-accent" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M 0 0 L 8 4 L 0 8 Z" fill="#eb6c36"/></marker>
@@ -265,7 +265,7 @@
             <g data-boundary="admin-process">
               <rect x="312" y="56" width="928" height="512" rx="8" class="boundary"/>
               <rect x="328" y="44" width="456" height="24" class="mask"/>
-              <text x="336" y="60" class="boundary-name">PRIVATE ADMIN SERVICE / AUTHORITATIVE ENFORCEMENT</text>
+              <text x="336" y="60" class="boundary-name">CONTROLSERVICE / AUTHORITATIVE ENFORCEMENT</text>
             </g>
 
             <g data-edge="ctl-input" data-from="ctl-request" data-to="ctl-access">
@@ -298,7 +298,7 @@
 
             <g data-label="ctl-input">
               <rect x="272" y="256" width="72" height="24" class="mask"/>
-              <text x="308" y="272" text-anchor="middle" class="tech">IPC</text>
+              <text x="308" y="272" text-anchor="middle" class="tech">SIGNALR</text>
             </g>
             <g data-label="ctl-access-pass">
               <rect x="592" y="256" width="64" height="24" class="mask"/>
@@ -336,16 +336,16 @@
             <g data-node="ctl-request">
               <rect x="40" y="208" width="224" height="160" rx="8" class="node-bg"/>
               <rect x="40" y="208" width="224" height="160" rx="8" class="node client"/>
-              <text x="64" y="240" class="tech">GUEST WEB PROCESS</text>
-              <text x="64" y="276" class="name-small">Guest request</text>
-              <text x="64" y="316" class="body">Forwarded capability</text>
+              <text x="64" y="240" class="tech">GUESTWEB / HUB CLIENT</text>
+              <text x="64" y="276" class="name-small">Hub command</text>
+              <text x="64" y="316" class="body">Service key + capability</text>
               <text x="64" y="344" class="body">and current input</text>
             </g>
             <g data-node="ctl-stop">
               <rect x="352" y="96" width="544" height="72" rx="8" class="node-bg"/>
               <rect x="352" y="96" width="544" height="72" rx="8" class="node focal"/>
-              <text x="376" y="124" class="name-small">Authenticated Stop / override / expiry / loss</text>
-              <text x="376" y="152" class="body">External override latches LOCKED. Admin unlock only.</text>
+              <text x="376" y="124" class="name-small">Stop / override / expiry / transport loss</text>
+              <text x="376" y="152" class="body">Stop advances revision. External override latches LOCKED.</text>
             </g>
             <g data-node="ctl-access">
               <rect x="352" y="208" width="232" height="160" rx="8" class="node-bg"/>
@@ -408,22 +408,22 @@
             </g>
           </svg>
         </div>
-        <figcaption>Stop uses the same single writer, ahead of pending motion. A detected physical-control change also latches a lockout: no restoration of prior settings, and no guest unlock. Explicit admin unlock leaves the device paused; rearming is separate.</figcaption>
+        <figcaption>Hub command replies are acknowledgement-only; initial and live state use one ordered push path, including bounded cursor-log batches. Stop uses the same single writer, ahead of pending motion, and invalidates stale authority-restoring operator actions by advancing authority revision. A detected physical-control change also latches a lockout: no restoration of prior settings, and no guest unlock. Explicit AdminWeb operator unlock leaves the device paused; rearming is separate.</figcaption>
       </figure>
     </section>
 
     <aside class="constraints" aria-labelledby="constraints-heading">
       <h2 id="constraints-heading">What these boundaries do &mdash; and do not &mdash; guarantee</h2>
-      <p><strong>No accounts.</strong> Local operator and guest access use separate temporary capabilities. Creating a session link does not approve a guest, arm the device or start motion.</p>
-      <p><strong>No direct guest control.</strong> Guest web cannot invoke admin-management methods or obtain device permissions. Admin still constrains input from a compromised guest process that possesses a valid guest capability.</p>
+      <p><strong>No accounts.</strong> AdminWeb is deliberately unauthenticated on loopback; AdminWeb/GuestWeb host keys and guest invitation/session capabilities are separate credentials. Creating a session link does not approve a guest, arm the device or start motion.</p>
+      <p><strong>No direct guest control.</strong> GuestWeb cannot invoke operator methods or obtain device permissions. ControlService still constrains input from a compromised guest host that possesses a valid guest capability.</p>
       <p><strong>Physical overrides take precedence.</strong> Device parameter changes not explained by an owned command trigger lockout and Stop. Expected command readback is distinguished from external changes. The physical remote's detectability and stopping behavior must be demonstrated on the selected firmware.</p>
-      <p><strong>Physical release remains gated.</strong> Admin, OS or bridge failure can prevent a software Stop. Independent stopping on the selected hardware/firmware must be demonstrated; a completed write or readback is not physical stop confirmation.</p>
+      <p><strong>Physical release remains gated.</strong> ControlService, OS or bridge failure can prevent a software Stop. Independent stopping on the selected hardware/firmware must be demonstrated; a completed write or readback is not physical stop confirmation. The 750 ms grant and tunable 1 s/3 s loss detection are not hardware qualification or real-time safety guarantees.</p>
     </aside>
 
     <footer>
-      <p>Design proposal &middot; 13 September 2026 &middot; No implementation or hardware qualification claimed.</p>
+      <p>Design proposal &middot; updated 16 September 2026 &middot; No implementation or hardware qualification claimed.</p>
       <p>Source: <a href="../specs/README.md">architecture and requirements</a> &middot; <a href="../specs/device-control/spec.md">device-control contract</a> &middot; <a href="../specs/README.md#functionality-and-package-inventory">planned packages</a>.</p>
-      <p>Overview omits proxy/tunnel setup, OS-specific IPC details and native bridge provisioning. The bridge implementation remains subject to host-platform qualification. Fonts use local fallbacks when offline.</p>
+      <p>Overview omits proxy/tunnel setup, service-key provisioning and native bridge provisioning. ControlService's hub is <code>/hubs/control/v1</code>; there is no named-pipe or REST control surface. The bridge implementation remains subject to host-platform qualification. Fonts use local fallbacks when offline.</p>
     </footer>
   </main>
 </body>

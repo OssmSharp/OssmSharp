@@ -1,14 +1,14 @@
 using Microsoft.AspNetCore.Components;
 using Microsoft.JSInterop;
+using OSSMDotNet.ControlClient;
 using OSSMDotNet.Models;
-using OSSMDotNet.GuestWeb.Services;
 
 namespace OSSMDotNet.GuestWeb.Components.Pages;
 
-/// <summary>Renders and manages the guest control session for one invitation.</summary>
+/// <summary>Renders and manages one guest control session for an invitation.</summary>
 public partial class Join
 {
-    [Inject] private GuestSessionClient Client { get; set; } = null!;
+    [Inject] private GuestControlClient Client { get; set; } = null!;
     [Inject] private IJSRuntime JavaScript { get; set; } = null!;
     [Inject] private ILogger<Join> Logger { get; set; } = null!;
     [Parameter] public string SessionId { get; set; } = "";
@@ -17,19 +17,19 @@ public partial class Join
     private ElementReference _root;
     private IJSObjectReference? _module;
     private DotNetObjectReference<Join>? _reference;
-    private Task? _pollTask;
     private string? _boundSessionId;
     private GuestStatus? _status;
-    private long _lastRevision;
+    private long _lastRevision = -1;
     private bool _initialized;
     private bool _joining;
+    private bool _joined;
     private bool _everJoined;
     private bool _attached;
     private bool _leaving;
     private bool _disposed;
     private GuestDisplayState _display = new(new(0, 0, 10, 20, 50), null, false, "Choose settings, then Send.", null);
 
-    private bool Ready => !_disposed && !_leaving && Client.IsJoined &&
+    private bool Ready => !_disposed && !_leaving && _joined &&
         _status is { BridgeReady: true, Grant.ValidForMs: > 0, Mode: "Ready" };
     private int SpeedCap => Math.Clamp(_status?.Limits.SpeedCap ?? 0, 0, 100);
     private int MaximumDepth => Math.Clamp(_status?.Limits.MaximumDepth ?? 1, 1, 100);
@@ -48,6 +48,7 @@ public partial class Join
         { Mode: "Ready" } => "success",
         _ => "info"
     };
+
     protected override async Task OnParametersSetAsync()
     {
         if (_boundSessionId is not null && _boundSessionId != SessionId)
@@ -57,7 +58,8 @@ public partial class Join
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (_disposed) return;
+        if (_disposed)
+            return;
         try
         {
             if (firstRender)
@@ -65,19 +67,22 @@ public partial class Join
                 _module = await JavaScript.InvokeAsync<IJSObjectReference>("import", _lifetime.Token, "/" + Assets["guest-session.js"]);
                 var invitation = await _module.InvokeAsync<string?>("takeInvitation", _lifetime.Token);
                 _initialized = true;
-                if (!GuestProtocol.ValidText(SessionId, 64) || !GuestProtocol.ValidText(invitation, 128))
+                if (!ControlProtocol.ValidText(SessionId, 64) || !ControlProtocol.ValidText(invitation, 128))
                 {
                     StateHasChanged();
                     return;
                 }
+
                 _joining = true;
-                var reply = await Client.JoinAsync(SessionId, invitation!, _lifetime.Token);
+                await Client.JoinAsync(new(ReceiveStatusAsync, ReceiveResyncAsync),
+                    new(NewCorrelation(), SessionId, invitation!), _lifetime.Token);
                 _joining = false;
-                _everJoined = Client.IsJoined;
-                await ApplyReplyAsync(reply);
-                if (Client.IsJoined) _pollTask = PollStatusAsync();
+                _joined = true;
+                _everJoined = true;
+                await PushAuthorityAsync();
+                StateHasChanged();
             }
-            else if (Client.IsJoined && !_attached && _module is not null)
+            else if (_joined && !_attached && _module is not null)
             {
                 _attached = true;
                 _reference = DotNetObjectReference.Create(this);
@@ -85,30 +90,24 @@ public partial class Join
                 await PushAuthorityAsync();
             }
         }
+        catch (ControlClientException)
+        {
+            await HandleConnectionLossAsync();
+        }
+        catch (ControlClientUnknownOutcomeException)
+        {
+            await HandleConnectionLossAsync();
+        }
         catch (Exception exception) when (exception is JSException or OperationCanceledException)
         {
-            Logger.LogWarning("Guest control initialization failed; closing the connection.");
-            await EndUiSessionAsync();
-            if (!_disposed) StateHasChanged();
+            LogGuestControlInitializationFailed(Logger);
+            await HandleConnectionLossAsync();
         }
-    }
-
-    private async Task PollStatusAsync()
-    {
-        try
+        finally
         {
-            while (!_disposed && !_leaving && Client.IsJoined)
-            {
-                await Task.Delay(TimeSpan.FromMilliseconds(150), _lifetime.Token);
-                var reply = await Client.StatusAsync(_lifetime.Token);
-                await InvokeAsync(() => ApplyReplyAsync(reply));
-            }
-        }
-        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
-        catch (InvalidOperationException)
-        {
-            Logger.LogWarning("Guest status update could not be applied; closing the connection.");
-            await EndUiSessionAsync();
+            _joining = false;
+            if (!_disposed)
+                StateHasChanged();
         }
     }
 
@@ -116,7 +115,8 @@ public partial class Join
     [JSInvokable]
     public Task UpdateDisplay(GuestDisplayState display)
     {
-        if (_disposed) return Task.CompletedTask;
+        if (_disposed)
+            return Task.CompletedTask;
         if (display.Selected is null || display.Status is not { Length: <= 200 } || display.Error?.Length > 200)
             throw new ArgumentException("Invalid guest display state.", nameof(display));
         _display = display;
@@ -130,60 +130,105 @@ public partial class Join
     {
         if (!Ready || input is not { V: 2, Run: true, Desired: { } desired } ||
             input.Epoch != _status!.Grant!.Epoch)
+        {
             return new(false, "not-ready");
+        }
         if (input.PolicyVersion != _status.PolicyVersion)
         {
-            await PushAuthorityAsync();
             return new(false, "policy-invalid");
         }
         if (desired.Pattern != 0 || desired.Sensation != 50 || desired.Speed < 0 || desired.Speed > SpeedCap ||
             desired.Stroke < 1 || desired.Stroke > desired.Depth || desired.Depth < 1 || desired.Depth > MaximumDepth)
+        {
             return new(false, "invalid-input");
-        var reply = await Client.SubmitInputAsync(input, _lifetime.Token);
-        await ApplyReplyAsync(reply);
-        if (!reply.Ok && reply.Code == "policy-invalid")
-            await ApplyReplyAsync(await Client.StatusAsync(_lifetime.Token));
-        return new(reply.Ok, reply.Code);
+        }
+
+        try
+        {
+            var reply = await Client.SubmitAsync(new(NewCorrelation(), input), _lifetime.Token);
+            return new(true, reply.Code);
+        }
+        catch (ControlClientUnknownOutcomeException)
+        {
+            return new(false, "outcome-unknown");
+        }
+        catch (ControlClientException error)
+        {
+            return new(false, error.Code);
+        }
     }
 
-    /// <summary>Stops guest motion and updates the browser-visible status.</summary>
+    /// <summary>Stops guest motion without treating command acceptance as device verification.</summary>
     [JSInvokable]
     public async Task<BrowserReply> StopRun()
     {
-        if (_disposed || !Client.IsJoined) return new(false, "not-joined");
-        var reply = await Client.StopAsync(_lifetime.Token);
-        await ApplyReplyAsync(reply);
-        return new(reply.Ok, reply.Code);
+        if (_disposed || !_joined)
+            return new(false, "not-joined");
+        try
+        {
+            var reply = await Client.StopAsync(_lifetime.Token);
+            return new(true, reply.Code);
+        }
+        catch (ControlClientUnknownOutcomeException)
+        {
+            return new(false, "outcome-unknown");
+        }
+        catch (ControlClientException error)
+        {
+            return new(false, error.Code);
+        }
     }
 
     private async Task LeaveAsync()
     {
-        if (_leaving || _disposed || !Client.IsJoined) return;
+        if (_leaving || _disposed || !_joined)
+            return;
         _leaving = true;
         await BrowserCallAsync("disarm");
-        await Client.LeaveAsync(_lifetime.Token);
+        try
+        {
+            await Client.LeaveAsync(_lifetime.Token);
+        }
+        catch (ControlClientUnknownOutcomeException)
+        {
+            LogGuestLeaveOutcomeUnknown(Logger);
+        }
+        catch (ControlClientException error)
+        {
+            LogGuestLeaveRejected(Logger, error.Code);
+        }
         await EndUiSessionAsync();
     }
 
-    private async Task ApplyReplyAsync(GuestResult reply)
+    private Task ReceiveStatusAsync(GuestStatus status) => InvokeAsync(async () =>
     {
-        if (_disposed) return;
-        if (reply.Revision > _lastRevision)
-        {
-            _lastRevision = reply.Revision;
-            if (reply.State is not null) _status = reply.State;
-        }
-        if (Client.IsExpired) _status = null;
+        if (status.SnapshotRevision <= _lastRevision || _disposed)
+            return;
+        _lastRevision = status.SnapshotRevision;
+        _status = status;
         await PushAuthorityAsync();
+        StateHasChanged();
+    });
+
+    private Task ReceiveResyncAsync(ControlResyncRequired resync) => InvokeAsync(HandleConnectionLossAsync);
+
+    private async Task HandleConnectionLossAsync()
+    {
+        if (_disposed)
+            return;
+        _status = null;
+        _joined = false;
+        _leaving = true;
+        await BrowserCallAsync("disconnect");
         StateHasChanged();
     }
 
     private Task PushAuthorityAsync() => BrowserCallAsync("updateAuthority", new
     {
-        joined = Client.IsJoined && !_disposed,
+        joined = _joined && !_disposed,
         ready = Ready,
         fresh = _status?.BridgeReady == true,
-        grant = Client.IsExpired ? null : _status?.Grant,
+        grant = !_disposed && _joined ? _status?.Grant : null,
         policyVersion = _status?.PolicyVersion ?? 0,
         ackSeq = _status?.AckSeq ?? 0,
         current = _status?.Current,
@@ -193,11 +238,12 @@ public partial class Join
 
     private async Task BrowserCallAsync(string methodIdentifier, params object?[] arguments)
     {
-        if (_module is null || _disposed) return;
+        if (_module is null || _disposed)
+            return;
         try { await _module.InvokeVoidAsync(methodIdentifier, arguments); }
         catch (Exception exception) when (exception is JSException or OperationCanceledException)
         {
-            Logger.LogWarning("Guest browser interop failed; closing the control session.");
+            LogGuestBrowserInteropFailed(Logger);
             await EndUiSessionAsync();
         }
     }
@@ -206,27 +252,46 @@ public partial class Join
     {
         _initialized = true;
         _joining = false;
+        _joined = false;
         _status = null;
         await _lifetime.CancelAsync();
         await Client.DisposeAsync();
     }
 
-    /// <summary>Releases the guest session, polling task, and browser interop resources.</summary>
+    private static string NewCorrelation() => Guid.NewGuid().ToString("N");
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Guest control initialization failed; closing the connection.")]
+    private static partial void LogGuestControlInitializationFailed(ILogger logger);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Guest leave outcome is unknown; closing the guest connection.")]
+    private static partial void LogGuestLeaveOutcomeUnknown(ILogger logger);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Guest leave was not accepted: {Code}.")]
+    private static partial void LogGuestLeaveRejected(ILogger logger, string code);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Guest browser interop failed; closing the control session.")]
+    private static partial void LogGuestBrowserInteropFailed(ILogger logger);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Guest browser cleanup did not complete; its control connection is closed.")]
+    private static partial void LogGuestBrowserCleanupIncomplete(ILogger logger);
+
+    /// <summary>Releases the guest session and browser interop resources.</summary>
     public async ValueTask DisposeAsync()
     {
-        if (_disposed) return;
+        if (_disposed)
+            return;
         _disposed = true;
         await _lifetime.CancelAsync();
         await Client.DisposeAsync();
         try
         {
-            if (_pollTask is not null) await _pollTask;
-            if (_module is not null) await _module.InvokeVoidAsync("dispose");
+            if (_module is not null)
+                await _module.InvokeVoidAsync("dispose");
         }
         catch (JSDisconnectedException) { }
         catch (Exception exception) when (exception is JSException or OperationCanceledException)
         {
-            Logger.LogWarning("Guest browser cleanup did not complete; its control connection is closed.");
+            LogGuestBrowserCleanupIncomplete(Logger);
         }
         finally
         {
@@ -237,6 +302,7 @@ public partial class Join
             }
             _reference?.Dispose();
             _lifetime.Dispose();
+            GC.SuppressFinalize(this);
         }
     }
 }

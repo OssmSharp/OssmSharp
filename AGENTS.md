@@ -25,8 +25,9 @@
 - **One class per file**; also separate records, interfaces, enums and test
   helpers. Match filenames to types. Exclude generated code; allow Razor
   partials.
-- Reusable namespaces: `OSSMDotNet.*`. Web-specific: `OSSMDotNet.AdminService`,
-  `OSSMDotNet.GuestWeb`, and `OSSMDotNet.WebCommon`.
+- Reusable namespaces: `OSSMDotNet.*`. Web-specific: `OSSMDotNet.AdminWeb`,
+  `OSSMDotNet.GuestWeb`, `OSSMDotNet.ControlService`, and
+  `OSSMDotNet.WebCommon`.
 - Register multi-consumer components through **`IServiceCollection` extensions**
   owned by the component. Centralize lifetimes; avoid speculative abstractions.
 - Use **`Microsoft.Extensions.Options`** and typed DI configuration.
@@ -97,16 +98,24 @@
 
 ## Authority and safety
 
-- Keep GuestWeb and AdminService as **separate processes**.
-- Only admin owns sessions, policy, timers, the single writer and device bridge.
-- Local operator UI/API is unauthenticated, always bound to `127.0.0.1`; retain
-  Host/Origin protection and never expose/proxy admin remotely.
-- Admin listener configuration must not add/replace endpoints through Kestrel,
-  hosting URL precedence or configuration reload; use `OSSM:AdminPort`.
-- Guest forwarding/session capabilities and expiry remain enforced; removing
-  operator authentication must not weaken guest authorization or arm motion.
-- Guest exposes only Join/input/Stop/leave/scoped status; no operator/device
-  access.
+- Keep GuestWeb, AdminWeb, and ControlService as **separate processes**.
+- Only ControlService owns sessions, policy, timers, the single writer and
+  device bridge. AdminWeb and GuestWeb call it through `/hubs/control/v1`.
+- AdminWeb is unauthenticated and always bound to `127.0.0.1`; retain
+  Host/Origin protection and never expose/proxy it remotely. It authenticates
+  server-to-server with its generated service key.
+- AdminWeb listener configuration must not add/replace endpoints through
+  Kestrel, hosting URL precedence or configuration reload; use
+  `OSSM:Admin:AdminPort`.
+- ControlService authenticates AdminWeb and GuestWeb with distinct generated
+  service keys. Guest invitation/session capabilities and expiry remain
+  independently enforced; service authentication must not weaken guest
+  authorization or arm motion.
+- GuestWeb exposes only Join/input/Stop/leave/scoped status; no operator/device
+  access. Browser and Blazor state never authorize motion.
+- ControlService supports an explicitly configured remote HTTPS/WSS endpoint;
+  do not bypass certificate validation, expose service credentials to browsers,
+  trust forwarded headers, or introduce a proxy by default.
 - Browser and Blazor state are untrusted; neither authorizes motion.
 - One-box, accountless capabilities, one-click invitations; no
   accounts/database/cloud.

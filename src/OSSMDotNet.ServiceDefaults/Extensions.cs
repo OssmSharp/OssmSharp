@@ -11,7 +11,7 @@ using OpenTelemetry.Trace;
 namespace OSSMDotNet.ServiceDefaults;
 
 /// <summary>Configures shared Aspire service defaults and development health endpoints.</summary>
-public static class Extensions
+public static class ServiceDefaultsExtensions
 {
     private const string HealthEndpointPath = "/health";
     private const string AlivenessEndpointPath = "/alive";

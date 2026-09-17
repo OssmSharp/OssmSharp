@@ -1,8 +1,10 @@
 <Solution>
   <Folder Name="/src/">
-    <Project Path="src/OSSMDotNet.AdminService/AdminService.csproj" />
+    <Project Path="src/OSSMDotNet.AdminWeb/AdminWeb.csproj" />
     <Project Path="src/OSSMDotNet.AppHost/AppHost.csproj" />
+    <Project Path="src/OSSMDotNet.ControlClient/ControlClient.csproj" />
     <Project Path="src/OSSMDotNet.ControlCore/ControlCore.csproj" />
+    <Project Path="src/OSSMDotNet.ControlService/ControlService.csproj" />
     <Project Path="src/OSSMDotNet.DeviceBridge/DeviceBridge.csproj" />
     <Project Path="src/OSSMDotNet.GuestWeb/GuestWeb.csproj" />
     <Project Path="src/OSSMDotNet.Models/OSSMDotNet.Models.csproj" />
@@ -11,12 +13,15 @@
     <Project Path="src/OSSMDotNet.WebCommon/SharedUi.csproj" />
   </Folder>
   <Folder Name="/tests/">
-    <Project Path="tests/OSSMDotNet.AdminService.Tests/AdminService.Tests.csproj" />
-    <Project Path="tests/OSSMDotNet.AdminService.IntegrationTests/AdminService.IntegrationTests.csproj" />
+    <Project Path="tests/OSSMDotNet.AdminWeb.Tests/AdminWeb.Tests.csproj" />
+    <Project Path="tests/OSSMDotNet.ControlClient.Tests/ControlClient.Tests.csproj" />
+    <Project Path="tests/OSSMDotNet.Cli.Tests/Cli.Tests.csproj" />
     <Project Path="tests/OSSMDotNet.ControlCore.Tests/ControlCore.Tests.csproj" />
-    <Project Path="tests/OSSMDotNet.DeviceBridge.Tests/DeviceBridge.Tests.csproj" />
+    <Project Path="tests/OSSMDotNet.ControlService.IntegrationTests/ControlService.IntegrationTests.csproj" />
+    <Project Path="tests/OSSMDotNet.ControlService.Tests/ControlService.Tests.csproj" />
+    <Project Path="tests/OSSMDotNet.DeviceBridge.IntegrationTests/DeviceBridge.IntegrationTests.csproj" />
     <Project Path="tests/OSSMDotNet.GuestWeb.Tests/GuestWeb.Tests.csproj" />
-    <Project Path="tests/OSSMDotNet.ServiceBoundary.Tests/ServiceBoundary.Tests.csproj" />
+    <Project Path="tests/OSSMDotNet.ServiceDefaults.Tests/ServiceDefaults.Tests.csproj" />
     <Project Path="tests/OSSMDotNet.WebCommon.Tests/SharedUi.Tests.csproj" />
   </Folder>
 </Solution>

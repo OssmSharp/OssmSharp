@@ -665,8 +665,8 @@ public sealed class PrototypeEngineTests
     [Fact]
     public async Task UnsupportedDeviceProfileNeverQualifiesAndDisposalUnsubscribes()
     {
-        var bridge = new FakeBridge { Profile = "native-device" };
-        var engine = new PrototypeEngine(bridge, new FakeTimeProvider());
+        await using var bridge = new FakeBridge { Profile = "native-device" };
+        await using var engine = new PrototypeEngine(bridge, new FakeTimeProvider());
         bridge.Publish();
         Rejected(engine.Recover);
         Assert.False(engine.Snapshot.BridgeReady);

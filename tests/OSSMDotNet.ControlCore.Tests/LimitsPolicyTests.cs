@@ -4,6 +4,9 @@ namespace OSSMDotNet.ControlCore.Tests;
 
 public sealed class LimitsPolicyTests
 {
+    private static readonly string[] StoppedEnvelopeCalls = ["Stop", "Write", "Write"];
+    private static readonly string[] SafeInFlightCalls = ["Write", "Stop"];
+
     [Fact]
     public async Task AuthenticatedRejectedInputsConsumeRateLimitTokens()
     {
@@ -98,6 +101,7 @@ public sealed class LimitsPolicyTests
     }
 
     private static readonly string[] expected = new[] { "Write", "Stop" };
+    private static readonly string[] expectedArray = new[] { "Write", "Write" };
 
     [Fact]
     public async Task ApplyAndStatusDoNotRenewTheOriginalAcceptedLease()
@@ -337,7 +341,7 @@ public sealed class LimitsPolicyTests
         rig.Pump();
         Assert.Equal(second.Desired, rig.Engine.Snapshot.Current);
         Assert.Equal(2, rig.Engine.Snapshot.VerifiedSeq);
-        Assert.Equal(new[] { "Write", "Write" }, rig.Bridge.Calls.Select(call => call.Kind));
+        Assert.Equal(expectedArray, rig.Bridge.Calls.Select(call => call.Kind));
         Assert.Equal(1, rig.Bridge.MaxActive);
     }
 
@@ -368,7 +372,7 @@ public sealed class LimitsPolicyTests
         rig.Pump();
         Assert.Equal(input.Desired, rig.Engine.Snapshot.Current);
         Assert.Equal("Ready", rig.Engine.Snapshot.Mode);
-        Assert.Equal(new[] { "Stop", "Write", "Write" }, rig.Bridge.Calls.Select(call => call.Kind));
+        Assert.Equal(StoppedEnvelopeCalls, rig.Bridge.Calls.Select(call => call.Kind));
         Assert.Equal(1, rig.Bridge.MaxActive);
     }
 
@@ -424,7 +428,7 @@ public sealed class LimitsPolicyTests
         Assert.Equal(before.Generation, rig.Engine.Snapshot.Generation);
         Assert.Equal(before.LockRevision, rig.Engine.Snapshot.LockRevision);
         Assert.Null(rig.Engine.Snapshot.Grant);
-        Assert.Equal(new[] { "Write", "Stop" }, rig.Bridge.Calls.Select(call => call.Kind));
+        Assert.Equal(SafeInFlightCalls, rig.Bridge.Calls.Select(call => call.Kind));
         Assert.Equal(1, rig.Bridge.MaxActive);
     }
 }

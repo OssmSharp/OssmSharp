@@ -713,22 +713,9 @@ public sealed class PrototypeEngine : IAsyncDisposable
 
     private ControlSnapshot MakeSnapshot(long now, bool guest)
     {
-        IssuedGrant? grant = null;
-        for (var index = _grants.Count - 1; index >= 0; index--)
-        {
-            if (Elapsed(_grants[index].IssuedAt, now) < GrantLifetime)
-            {
-                grant = _grants[index];
-                break;
-            }
-        }
-        var published = grant is null ? null : grant.Grant with
-        {
-            ValidForMs = Math.Max(0, (int)Math.Ceiling((GrantLifetime - Elapsed(grant.IssuedAt, now)).TotalMilliseconds))
-        };
         return new(_mode, _reason, _generation, _lockRevision, Fresh(now), _observed?.Moving ?? false,
             _desired, guest ? null : _observed, _limits, _policyVersion, _session?.Mode ?? "None",
-            _session?.Id, guest ? null : _session?.ConnectionId, _lastSequence, published)
+            _session?.Id, guest ? null : _session?.ConnectionId, _lastSequence, PublishedGrant(now))
         {
             OperationPending = !NoOutstandingIo(),
             DeviceEnabled = _observed?.Enabled == true,
@@ -739,6 +726,23 @@ public sealed class PrototypeEngine : IAsyncDisposable
             VerifiedSeq = Fresh(now) && _lastSequence > 0 && !_hasDesired && NoOutstandingIo() &&
                 _observed!.Desired == _desired && OwnedEcho(_observed) ? _lastSequence : 0
         };
+    }
+
+    private MotionGrant? PublishedGrant(long now)
+    {
+        for (var index = _grants.Count - 1; index >= 0; index--)
+        {
+            var grant = _grants[index];
+            if (Elapsed(grant.IssuedAt, now) < GrantLifetime)
+            {
+                return grant.Grant with
+                {
+                    ValidForMs = Math.Max(0, (int)Math.Ceiling((GrantLifetime - Elapsed(grant.IssuedAt, now)).TotalMilliseconds))
+                };
+            }
+        }
+
+        return null;
     }
 
     private bool Fresh(long now) => _hasSample && _connected && _observed?.ProfileId == SimulatorProfile &&
