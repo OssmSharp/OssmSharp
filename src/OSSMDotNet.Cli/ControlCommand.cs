@@ -2,13 +2,13 @@ using System.CommandLine;
 
 namespace OSSMDotNet.Cli;
 
-/// <summary>Defines the operator command-line client for the authenticated control service.</summary>
-public static class AdminCommand
+/// <summary>Defines the direct command-line client for the authenticated control service.</summary>
+public static class ControlCommand
 {
-    /// <summary>Creates the root command and its operator subcommands.</summary>
+    /// <summary>Creates the root command and its control subcommands.</summary>
     public static RootCommand Create()
     {
-        var root = new RootCommand("OSSM operator client. Configure OSSM_CONTROL_CLIENT_SERVICE_KEY before connecting.");
+        var root = new RootCommand("OSSM control CLI. Configure OSSM_CONTROL_CLIENT_SERVICE_KEY before connecting.");
         var origin = new Option<Uri>("--control-origin")
         {
             Required = true,
@@ -29,10 +29,10 @@ public static class AdminCommand
         root.Options.Add(origin);
         var status = new Command("status", "Show the latest authorized control-service state.");
         status.SetAction(async (parse, cancellationToken) =>
-            await AdminClient.SendAsync(parse.GetValue(origin)!, "status", cancellationToken));
+            await ControlServiceClient.SendAsync(parse.GetValue(origin)!, "status", cancellationToken));
         var stop = new Command("stop", "Request a control-service Stop without treating acceptance as device verification.");
         stop.SetAction(async (parse, cancellationToken) =>
-            await AdminClient.SendAsync(parse.GetValue(origin)!, "stop", cancellationToken));
+            await ControlServiceClient.SendAsync(parse.GetValue(origin)!, "stop", cancellationToken));
         root.Subcommands.Add(status);
         root.Subcommands.Add(stop);
         return root;

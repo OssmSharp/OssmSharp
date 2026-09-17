@@ -7,10 +7,10 @@
         <PackageReference Include="RetroWebUi.Blazor" GeneratePathProperty="true" />
     </ItemGroup>
     <Target Name="VerifyRetroWidgetPackage" BeforeTargets="PrepareForBuild" Condition="'$(DesignTimeBuild)' != 'true'">
-        <GetFileHash Files="$(PkgRetroWebUi_Blazor)\retrowebui.blazor.0.1.3.nupkg" Algorithm="SHA256">
+        <GetFileHash Files="$(PkgRetroWebUi_Blazor)\retrowebui.blazor.0.1.4.nupkg" Algorithm="SHA256">
             <Output TaskParameter="Items" ItemName="_RetroPackageHash" />
         </GetFileHash>
-        <Error Condition="'%(_RetroPackageHash.FileHash)' != '12CAFF03D59B6648038679687FAD4C76C5A5163D08C7509FEE3C4ED390936ABB'"
-               Text="The local RetroWebUi.Blazor package differs from the reviewed 0.1.3 artifact. Restore the documented artifact or review its widget styles and update the package/CSP hashes together." />
+        <Error Condition="'%(_RetroPackageHash.FileHash)' != '211B8292AA4FD67D06262F565F039C72007C311B7F6E0E16B5A212A4FF3F3296'"
+               Text="The local RetroWebUi.Blazor package differs from the reviewed 0.1.4 artifact. Restore the documented artifact or review its widget styles and update the package/CSP hashes together." />
     </Target>
 </Project>

@@ -1,3 +1,3 @@
 using OSSMDotNet.Cli;
 
-return await AdminCommand.Create().Parse(args).InvokeAsync();
+return await ControlCommand.Create().Parse(args).InvokeAsync();

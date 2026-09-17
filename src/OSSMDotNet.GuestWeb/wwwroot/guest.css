@@ -42,8 +42,13 @@
 .vertical-slider[data-state="verified"] .slider-heading output { color: var(--rw-success); }
 .vertical-slider[data-state="pending"] .slider-heading output { color: var(--rw-warning); }
 main:focus { outline: none; }
-.send-bar { display: flex; flex-wrap: wrap; align-items: center; gap: .8rem; }
-.send-bar [data-stop-button] { margin-inline-start: auto; }
+.guest-message-layout {
+    width: min(calc(100% - 2rem), 900px);
+    margin: 1.25rem auto 2rem;
+}
+
+.send-bar { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: .8rem; }
+.auto-send { flex: 0 0 auto; white-space: nowrap; }
 .send-status { color: var(--rw-muted); font-size: .8rem; }
 
 .guest-session[data-connection-lost] .guest-interface { filter: grayscale(1); }

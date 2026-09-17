@@ -4,7 +4,7 @@ using OSSMDotNet.ControlClient.Tests;
 
 namespace OSSMDotNet.Cli.Tests;
 
-public sealed class AdminClientTests
+public sealed class ControlServiceClientTests
 {
     private static readonly SemaphoreSlim ConsoleGate = new(1, 1);
 
@@ -55,7 +55,7 @@ public sealed class AdminClientTests
         Assert.Equal(1, invalid.ExitCode);
         Assert.Empty(missing.StandardOutput);
         Assert.Empty(invalid.StandardOutput);
-        Assert.Equal("Set OSSM_CONTROL_CLIENT_SERVICE_KEY to the configured AdminWeb service key." + Environment.NewLine,
+        Assert.Equal("Set OSSM_CONTROL_CLIENT_SERVICE_KEY to a ControlService-authorized service key." + Environment.NewLine,
             missing.StandardError);
         Assert.Equal(missing.StandardError, invalid.StandardError);
         Assert.Equal(0, fixture.ConnectionCount);
@@ -225,7 +225,7 @@ public sealed class AdminClientTests
             Environment.SetEnvironmentVariable("OSSM_CONTROL_CLIENT_SERVICE_KEY", serviceKey);
             Console.SetOut(standardOutput);
             Console.SetError(standardError);
-            var exitCode = await AdminCommand.Create()
+            var exitCode = await ControlCommand.Create()
                 .Parse(["--control-origin", fixture.ControlOrigin, operation])
                 .InvokeAsync(cancellationToken: cancellationToken);
             return new(exitCode, standardOutput.ToString(), standardError.ToString());

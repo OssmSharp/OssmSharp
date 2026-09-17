@@ -249,7 +249,7 @@ PackageReferences just because a namespace has the same name.
 | Orchestration, builds, health and local dashboard             | `Aspire.AppHost.Sdk` `13.5.3` and its CLI bundle                                                                                            | Separate guest/admin projects, Cargo build resource, local-only endpoints; no custom launcher                                                 |
 | Web hosting, server-rendered Blazor and SignalR               | `Microsoft.AspNetCore.App` shared framework, local runtime `10.0.11`                                                                        | AdminWeb, GuestWeb and ControlService; versioned hub only, no MVC controllers, REST control surface or WebAssembly controller                |
 | Background lifecycle, DI, configuration and options           | `Microsoft.Extensions.Hosting`, `DependencyInjection`, `Configuration`, `Options` from the shared framework                                 | ControlService's one hosted device controller; independently hostable web clients                                                            |
-| Admin CLI parsing, help and commands                          | [`System.CommandLine` `2.0.12`](https://www.nuget.org/packages/System.CommandLine/2.0.12)                                                   | Local CLI client; calls ControlService, never a parallel device writer                                                                       |
+| Control CLI parsing, help and commands                        | [`System.CommandLine` `2.0.12`](https://www.nuget.org/packages/System.CommandLine/2.0.12)                                                   | Direct CLI client; calls ControlService, never a parallel device writer                                                                      |
 | JSON serialization                                            | `System.Text.Json`, .NET 10                                                                                                                 | Explicit DTOs, closed parsing and bounded inputs; no CLR type-name dispatch                                                                   |
 | Closed, versioned JSON contracts                              | `System.Text.Json`, .NET 10                                                                                                                 | Native duplicate/unknown-field rejection, required constructor parameters, nullable annotations and bounded messages; no extra schema package |
 | Startup configuration validation                              | `Microsoft.Extensions.Options`, `System.ComponentModel.DataAnnotations`, shared framework                                                   | Typed options, `IValidatableObject`, `ValidateDataAnnotations` and `ValidateOnStart`                                                          |
@@ -273,8 +273,8 @@ Explicit policy code remains in admin. This replaces the earlier proposed
 `JsonSchema.Net` dependency; no remote schema fetching is used.
 
 `System.CommandLine` supplies parsing, help and async command dispatch, not
-privilege. The local admin CLI uses admin's existing token-free command path and
-supplies the matching Origin; no credential input is required. Guest credentials
+privilege. The local Control CLI uses the existing token-free control-service
+command path and supplies the matching Origin; no credential input is required. Guest credentials
 must not be command-line arguments or diagnostic output. Root/subcommand help,
 invalid-input exit codes, redirected output and cancellation get dedicated
 tests. CLI setup must not turn automatic invitation availability into a

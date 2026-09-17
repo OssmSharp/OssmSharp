@@ -46,7 +46,7 @@ public partial class Join
         { Mode: "Locked" } or { BridgeReady: false } => "danger",
         { SessionMode: "PendingApproval" } => "warning",
         { Mode: "Ready" } => "success",
-        _ => "info"
+        _ => "warning"
     };
 
     protected override async Task OnParametersSetAsync()

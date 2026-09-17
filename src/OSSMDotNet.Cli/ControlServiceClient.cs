@@ -6,7 +6,7 @@ using OSSMDotNet.Models;
 
 namespace OSSMDotNet.Cli;
 
-internal static class AdminClient
+internal static class ControlServiceClient
 {
     internal static async Task<int> SendAsync(Uri origin, string operation, CancellationToken cancellationToken)
     {
@@ -14,7 +14,7 @@ internal static class AdminClient
         var options = new ControlClientOptions { ControlOrigin = origin.GetLeftPart(UriPartial.Authority), ServiceKey = key ?? "" };
         if (!Validator.TryValidateObject(options, new(options), [], validateAllProperties: true))
         {
-            await Console.Error.WriteLineAsync("Set OSSM_CONTROL_CLIENT_SERVICE_KEY to the configured AdminWeb service key.");
+            await Console.Error.WriteLineAsync("Set OSSM_CONTROL_CLIENT_SERVICE_KEY to a ControlService-authorized service key.");
             return 1;
         }
 

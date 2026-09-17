@@ -27,6 +27,31 @@ public sealed class ControlServiceOptionsTests
             result => result.MemberNames.Contains(nameof(ControlServiceOptions.AdminWebServiceKey)));
     }
 
+    [Theory]
+    [InlineData('A')]
+    [InlineData('E')]
+    [InlineData('I')]
+    [InlineData('M')]
+    [InlineData('Q')]
+    [InlineData('U')]
+    [InlineData('Y')]
+    [InlineData('c')]
+    [InlineData('g')]
+    [InlineData('k')]
+    [InlineData('o')]
+    [InlineData('s')]
+    [InlineData('w')]
+    [InlineData('0')]
+    [InlineData('4')]
+    [InlineData('8')]
+    public void ServiceKeysAcceptEveryCanonicalBase64UrlFinalCharacter(char finalCharacter)
+    {
+        var options = CreateValidOptions();
+        options.AdminWebServiceKey = new string('a', 42) + finalCharacter;
+
+        Assert.Empty(ValidateValid(options));
+    }
+
     [Fact]
     public void DefaultsPreserveSecureLocalHostingAndFastHubLivenessDetection()
     {

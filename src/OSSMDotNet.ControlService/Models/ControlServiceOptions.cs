@@ -29,10 +29,10 @@ public sealed class ControlServiceOptions : IValidatableObject
     [Range(2, 600)]
     public int ClientTimeoutSeconds { get; set; } = 3;
 
-    [Required, RegularExpression(@"\A[A-Za-z0-9_-]{42}[AQgw]\z")]
+    [Required, RegularExpression(@"\A[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]\z")]
     public string AdminWebServiceKey { get; set; } = "";
 
-    [Required, RegularExpression(@"\A[A-Za-z0-9_-]{42}[AQgw]\z")]
+    [Required, RegularExpression(@"\A[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]\z")]
     public string GuestWebServiceKey { get; set; } = "";
 
     /// <summary>Validates direct-service endpoint, published guest origin, and SignalR liveness configuration.</summary>

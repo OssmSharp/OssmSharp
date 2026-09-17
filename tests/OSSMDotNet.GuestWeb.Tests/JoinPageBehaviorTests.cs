@@ -35,7 +35,8 @@ public sealed class JoinPageBehaviorTests
         Assert.Equal(0, fixture.ConnectionCount);
         Assert.Empty(fixture.Invocations);
         await renderer.WaitForTextContentAsync(componentId, "This invitation is invalid or has been replaced.", cancellationSource.Token);
-        Assert.Contains("This invitation is invalid or has been replaced.", renderer.GetTextContent(componentId));
+        var text = await GetTextContentAsync(renderer, componentId);
+        Assert.Contains("This invitation is invalid or has been replaced.", text);
         Assert.Equal(new BrowserReply(false, "not-joined"), await page.StopRun());
     }
 
@@ -55,11 +56,30 @@ public sealed class JoinPageBehaviorTests
         Assert.Equal(["SubscribeGuest", "Join"], fixture.Invocations.Select(invocation => invocation.Method));
         var request = Assert.IsType<GuestJoinRequest>(fixture.Invocations[1].Arguments[0]);
         Assert.Equal(("session-1", invitation), (request.SessionId, request.InvitationProof));
-        Assert.DoesNotContain(invitation, renderer.GetTextContent(componentId), StringComparison.Ordinal);
+        Assert.DoesNotContain(invitation, await GetTextContentAsync(renderer, componentId), StringComparison.Ordinal);
         Assert.DoesNotContain(invitation, module.Invocations
             .Where(invocation => invocation.Identifier != "takeInvitation")
             .SelectMany(invocation => invocation.Arguments)
             .OfType<string>());
+    }
+
+    [Fact]
+    public async Task PausedGuestUsesAWarningStatus()
+    {
+        using var cancellationSource = CreateTimeout();
+        await using var fixture = await PageControlHubFixture.StartAsync(cancellationSource.Token);
+        await using var module = new RecordedJsModule { Invitation = "proof" };
+        await using var services = CreateServices(module, fixture.CreateGuestClient());
+        await using var renderer = new ComponentRenderer(services, services.GetRequiredService<ILoggerFactory>());
+        var (_, componentId) = await renderer.RenderComponentAsync<Join>(Parameters("session-1"));
+        await fixture.WaitForInvocationAsync("Join", cancellationSource.Token);
+
+        await fixture.SendGuestStatusAsync(
+            PageControlHubFixture.ReadyGuestStatus(1) with { Mode = "Paused", SessionMode = "Approved" },
+            cancellationSource.Token);
+        await renderer.WaitForTextContentAsync(componentId, "Paused. Waiting for the operator.", cancellationSource.Token);
+
+        Assert.True(await HasAttributeValueContainingAsync(renderer, componentId, "variant", "warning"));
     }
 
     [Fact]
@@ -99,8 +119,9 @@ public sealed class JoinPageBehaviorTests
 
         await renderer.WaitForTextContentAsync(componentId, Assert.IsType<string>(display.Status), cancellationSource.Token);
         await renderer.WaitForTextContentAsync(componentId, Assert.IsType<string>(display.Error), cancellationSource.Token);
-        Assert.Contains(Assert.IsType<string>(display.Status), renderer.GetTextContent(componentId), StringComparison.Ordinal);
-        Assert.Contains(Assert.IsType<string>(display.Error), renderer.GetTextContent(componentId), StringComparison.Ordinal);
+        var text = await GetTextContentAsync(renderer, componentId);
+        Assert.Contains(Assert.IsType<string>(display.Status), text, StringComparison.Ordinal);
+        Assert.Contains(Assert.IsType<string>(display.Error), text, StringComparison.Ordinal);
         Assert.Equal(["SubscribeGuest", "Join"], fixture.Invocations.Select(invocation => invocation.Method));
     }
 
@@ -210,7 +231,7 @@ public sealed class JoinPageBehaviorTests
 
         Assert.Equal(updateCount + 1, module.InvocationCount("updateAuthority"));
         await renderer.WaitForTextContentAsync(componentId, "Locked by the operator. Sending is disabled.", cancellationSource.Token);
-        Assert.Contains("Locked by the operator. Sending is disabled.", renderer.GetTextContent(componentId));
+        Assert.Contains("Locked by the operator. Sending is disabled.", await GetTextContentAsync(renderer, componentId));
         Assert.Equal(["SubscribeGuest", "Join"], fixture.Invocations.Select(invocation => invocation.Method));
     }
 
@@ -240,7 +261,7 @@ public sealed class JoinPageBehaviorTests
         Assert.Equal(new BrowserReply(false, "not-joined"), stop);
         Assert.Equal(invocationCount, fixture.Invocations.Count);
         await renderer.WaitForTextContentAsync(componentId, "Session ended. Open the invite link again to rejoin.", cancellationSource.Token);
-        Assert.Contains("Session ended. Open the invite link again to rejoin.", renderer.GetTextContent(componentId));
+        Assert.Contains("Session ended. Open the invite link again to rejoin.", await GetTextContentAsync(renderer, componentId));
     }
 
     private static ServiceProvider CreateServices(RecordedJsModule module, GuestControlClient client) =>
@@ -256,6 +277,17 @@ public sealed class JoinPageBehaviorTests
         {
             [nameof(Join.SessionId)] = sessionId
         });
+
+    private static Task<string> GetTextContentAsync(ComponentRenderer renderer, int componentId) =>
+        renderer.Dispatcher.InvokeAsync(() => renderer.GetTextContent(componentId));
+
+    private static Task<bool> HasAttributeValueContainingAsync(
+        ComponentRenderer renderer,
+        int componentId,
+        string attributeName,
+        string value) =>
+        renderer.Dispatcher.InvokeAsync(() =>
+            renderer.HasAttributeValueContaining(componentId, attributeName, value));
 
     private static async Task PublishReadyStatusAsync(
         PageControlHubFixture fixture,

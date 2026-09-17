@@ -50,6 +50,9 @@
 - Domain-specific public classes, records, interfaces and methods in .cs files
   must be annotated with xmldoc-valid comments.
 - All application CLIs use **`System.CommandLine`**.
+- `OSSMDotNet.Cli` is a command-line tool that uses the control library. It is
+  otherwise unrelated to the guest and admin frontend system, and must not have
+  references to terms such as "admin".
 
 ## Logging
 
@@ -113,8 +116,8 @@
   authorization or arm motion.
 - GuestWeb exposes only Join/input/Stop/leave/scoped status; no operator/device
   access. Browser and Blazor state never authorize motion.
-- ControlService supports an explicitly configured remote HTTPS/WSS endpoint;
-  do not bypass certificate validation, expose service credentials to browsers,
+- ControlService supports an explicitly configured remote HTTPS/WSS endpoint; do
+  not bypass certificate validation, expose service credentials to browsers,
   trust forwarded headers, or introduce a proxy by default.
 - Browser and Blazor state are untrusted; neither authorizes motion.
 - One-box, accountless capabilities, one-click invitations; no
@@ -149,8 +152,8 @@
 - Run focused `dotnet test --project <project>`
 - For browser-affecting changes, prefer the fastest applicable focused browser
   check before broader validation. Browser checks are suggested for high-value,
-  user-visible integration behavior; prove lower-level details with component
-  or unit tests.
+  user-visible integration behavior; prove lower-level details with component or
+  unit tests.
 - MTP v2 commands:
   ```powershell
   dotnet test OssmWebControls.slnx

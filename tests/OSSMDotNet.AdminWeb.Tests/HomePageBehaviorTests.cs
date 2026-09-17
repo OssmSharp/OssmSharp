@@ -13,6 +13,70 @@ namespace OSSMDotNet.AdminWeb.Tests;
 public sealed class HomePageBehaviorTests
 {
     [Fact]
+    public async Task PendingGuestShowsTheWarningNoticeUntilTheSessionIsApproved()
+    {
+        using var cancellationSource = CreateTimeout();
+        await using var fixture = await PageControlHubFixture.StartAsync(cancellationSource.Token);
+        var pending = new AuthorityPrecondition("instance-1", 10, new GuestAdmission("session-1", "guest-1", "PendingApproval"));
+        fixture.OperatorStatus = PageControlHubFixture.OperatorStatusFor(pending);
+        await using var module = new RecordedJsModule();
+        await using var services = CreateServices(module, fixture.CreateOperatorClient());
+        await using var renderer = new ComponentRenderer(services, services.GetRequiredService<ILoggerFactory>());
+
+        var (_, componentId) = await renderer.RenderComponentAsync<Home>(ParameterView.Empty);
+        await module.WaitForInvocationCountAsync("attachLog", 1, cancellationSource.Token);
+
+        Assert.Contains("A guest is waiting. Click Allow control to enable control.", renderer.GetTextContent(componentId));
+        Assert.Equal("warning", renderer.GetElementAttributeValue(
+            componentId, "rw-alert", "data-testid", "pending-guest-notice", "variant"));
+        Assert.True(renderer.HasAttributeValueContaining(componentId, "class", "rw-attention"));
+
+        var renderCount = renderer.RenderCount;
+        await fixture.SendOperatorStateAsync(
+            PageControlHubFixture.OperatorStatusFor(
+                pending with
+                {
+                    AuthorityRevision = 11,
+                    GuestAdmission = pending.GuestAdmission with { SessionMode = "Approved" }
+                },
+                sessionMode: "Approved"),
+            cancellationSource.Token);
+        await renderer.WaitForRenderCountAsync(renderCount + 1, cancellationSource.Token);
+
+        Assert.DoesNotContain("A guest is waiting. Click Allow control to enable control.", renderer.GetTextContent(componentId));
+        Assert.Null(renderer.GetElementAttributeValue(
+            componentId, "rw-alert", "data-testid", "pending-guest-notice", "variant"));
+        Assert.False(renderer.HasAttributeValueContaining(componentId, "class", "rw-attention"));
+    }
+
+    [Fact]
+    public async Task PendingGuestDoesNotShowTheAllowControlNoticeWhenTheControllerIsLocked()
+    {
+        using var cancellationSource = CreateTimeout();
+        await using var fixture = await PageControlHubFixture.StartAsync(cancellationSource.Token);
+        var pending = new AuthorityPrecondition("instance-1", 10, new GuestAdmission("session-1", "guest-1", "PendingApproval"));
+        var status = PageControlHubFixture.OperatorStatusFor(pending);
+        fixture.OperatorStatus = status with
+        {
+            Authority = status.Authority with
+            {
+                Snapshot = status.Authority.Snapshot with { Mode = "Locked" }
+            }
+        };
+        await using var module = new RecordedJsModule();
+        await using var services = CreateServices(module, fixture.CreateOperatorClient());
+        await using var renderer = new ComponentRenderer(services, services.GetRequiredService<ILoggerFactory>());
+
+        var (_, componentId) = await renderer.RenderComponentAsync<Home>(ParameterView.Empty);
+        await module.WaitForInvocationCountAsync("attachLog", 1, cancellationSource.Token);
+
+        Assert.Contains("Guest waiting", renderer.GetTextContent(componentId));
+        Assert.Contains("Unlock", renderer.GetTextContent(componentId));
+        Assert.DoesNotContain("A guest is waiting. Click Allow control to enable control.", renderer.GetTextContent(componentId));
+        Assert.False(renderer.HasAttributeValueContaining(componentId, "class", "rw-attention"));
+    }
+
+    [Fact]
     public async Task InitialSubscriptionRendersThePendingGuestStateAndAttachesTheCurrentActivityLog()
     {
         using var cancellationSource = CreateTimeout();

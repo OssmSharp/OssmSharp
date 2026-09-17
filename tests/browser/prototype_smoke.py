@@ -215,6 +215,38 @@ def main():
                 print("Operator layout checks passed.")
                 return 0
 
+            if settings.get("scope") == "guest-approval-notice":
+                stage = "guest-approval-notice"
+                admin.goto(settings["adminUrl"])
+                invitation = admin.get_by_test_id("invitation-link").input_value()
+                guest.goto(invitation)
+                expect(guest.locator(".guest-session-message")).to_contain_text("Waiting for the operator.")
+                expect(admin.get_by_test_id("session-mode")).to_have_text("Guest waiting")
+
+                pending_notice = admin.get_by_test_id("pending-guest-notice")
+                expect(pending_notice).to_contain_text("A guest is waiting. Click Allow control to enable control.")
+                expect(pending_notice).to_have_attribute("variant", "warning")
+                assert_top_right(admin, pending_notice)
+
+                allow = admin.get_by_role("button", name="Allow control", exact=True)
+                expect(allow.locator("..")).to_have_attribute("variant", "success")
+                expect(allow).to_have_class(re.compile(r"\brw-attention\b"))
+                assert allow.evaluate("element => getComputedStyle(element).animationName") != "none"
+                assert "linear-gradient" in allow.evaluate("element => getComputedStyle(element).backgroundImage")
+                assert allow.evaluate("element => getComputedStyle(element).boxShadow") != "none"
+                admin.emulate_media(reduced_motion="reduce")
+                assert allow.evaluate("element => getComputedStyle(element).animationName") == "none"
+                admin.emulate_media(reduced_motion="no-preference")
+
+                allow.click()
+                expect(admin.get_by_test_id("session-mode")).to_have_text("Guest connected")
+                expect(admin.get_by_test_id("pending-guest-notice")).to_have_count(0)
+                assert not errors, "browser-error"
+                assert not csp_violations, "content-security-policy-violation"
+                browser.close()
+                print("Guest approval notice checks passed.")
+                return 0
+
             stage = "head-mutation-during-invite-render"
             install_transient_head_mutation(guest)
             guest.goto(settings["guestOrigin"] + "/join/invalid")
@@ -316,6 +348,10 @@ def main():
             expect(guest.locator(".guest-session-message")).to_have_attribute("variant", "warning")
             expect(admin.get_by_test_id("session-mode")).to_have_text("Guest waiting")
             expect(admin.get_by_test_id("session-mode")).to_have_attribute("variant", "warning")
+            pending_notice = admin.get_by_test_id("pending-guest-notice")
+            expect(pending_notice).to_contain_text("A guest is waiting. Click Allow control to enable control.")
+            expect(pending_notice).to_have_attribute("variant", "warning")
+            assert_top_right(admin, pending_notice)
             monitor = guest.locator(".motion-monitor")
             expect(monitor.get_by_text("Live Status", exact=True)).to_be_visible()
             expect(monitor.get_by_text("Live feedback", exact=True)).to_have_count(0)
@@ -347,6 +383,8 @@ def main():
             expect(allow.locator("..")).to_have_attribute("variant", "success")
             expect(allow).to_have_class(re.compile(r"\brw-attention\b"))
             assert allow.evaluate("element => getComputedStyle(element).animationName") != "none"
+            assert "linear-gradient" in allow.evaluate("element => getComputedStyle(element).backgroundImage")
+            assert allow.evaluate("element => getComputedStyle(element).boxShadow") != "none"
             admin.emulate_media(reduced_motion="reduce")
             assert allow.evaluate("element => getComputedStyle(element).animationName") == "none"
             admin.emulate_media(reduced_motion="no-preference")
@@ -372,6 +410,7 @@ def main():
             expect(guest.get_by_role("button", name="Send", exact=True)).to_be_enabled()
             expect(admin.get_by_test_id("session-mode")).to_have_text("Guest connected")
             expect(admin.get_by_test_id("session-mode")).to_have_attribute("variant", "success")
+            expect(admin.get_by_test_id("pending-guest-notice")).to_have_count(0)
             expect(guest.locator(".guest-session-message")).to_contain_text("Control enabled.")
             expect(guest.locator(".guest-session-message")).to_have_attribute("variant", "success")
             stage = "limits-without-pausing"

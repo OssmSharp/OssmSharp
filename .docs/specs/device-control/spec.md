@@ -322,7 +322,7 @@ guest-supplied timestamps.
 Use the
 [functionality/package inventory](../README.md#functionality-and-package-inventory)
 as the authoritative planned dependency list, including System.CommandLine for
-local admin CLI, schema validation and test providers. It distinguishes
+the local Control CLI, schema validation and test providers. It distinguishes
 framework APIs from NuGet references and pins the proposed SDK/runtime. The
 implementation plan must verify the resolved graph before installation; this
 spec installs no packages, SDK, browser driver or device adapter.
@@ -658,8 +658,8 @@ Guest web receives a locked status with an admin-unlock-required reason and
 rejects further control input. The status is not physical-stop confirmation.
 Admin independently rejects it even if guest web forwards it. Stop, leave and
 read-only status remain available. The guest, its session capability and
-ordinary session/arming APIs cannot unlock the controller. Both management UI
-and admin CLI use one explicit private unlock operation.
+ordinary session/arming APIs cannot unlock the controller. The management UI
+and Control CLI each use one explicit private unlock operation.
 
 #### Attribute readback without masking external control
 

@@ -7,7 +7,7 @@ or remote access.** Use admin and guest tabs on the same computer.
 
 Requires .NET 10, Rust/Cargo, and the `ossm-rs` checkout beside this repository
 at `..\ossm-rs`. The sibling `..\retro-webui` checkout must also contain its
-private widget package at `artifacts\packages\RetroWebUi.Blazor.0.1.0.nupkg`.
+private widget package at `artifacts\packages\RetroWebUi.Blazor.0.1.4.nupkg`.
 See [local widget setup](.docs/retro-widgets.md) if it is missing.
 
 Run from this repository:

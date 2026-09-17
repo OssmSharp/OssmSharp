@@ -17,11 +17,18 @@
     else
     {
         <h1 class="visually-hidden">Operator controls</h1>
-        @if (_notice.Message is { } message)
-        {
-            <RwAlert class="rw-notice rw-operation-notice" Variant="@(_notice.IsError ? "danger" : "success")"
-                     role="@(_notice.IsError ? "alert" : "status")">@message</RwAlert>
-        }
+        <div class="rw-notice-stack" data-testid="operator-notices">
+            @if (_notice.Message is { } message)
+            {
+                <RwAlert class="rw-notice rw-operation-notice" Variant="@(_notice.IsError ? "danger" : "success")"
+                         role="@(_notice.IsError ? "alert" : "status")">@message</RwAlert>
+            }
+            @if (GuestApprovalActionAvailable)
+            {
+                <RwAlert class="rw-notice rw-operation-notice" Variant="warning" role="status"
+                         data-testid="pending-guest-notice">A guest is waiting. Click Allow control to enable control.</RwAlert>
+            }
+        </div>
         <details class="feedback-disclosure">
             <summary data-testid="live-feedback">Live feedback</summary>
             <MotionMonitor ShowHeading="false" Position="@_status.Position" Velocity="@_status.Velocity"
@@ -51,7 +58,7 @@
                     else
                     {
                         <RwButton Type="button" Variant="@(GuestWaiting ? "success" : "primary")"
-                                  class="@(GuestWaiting && CanAllow ? "rw-attention" : null)" Disabled="@(!CanAllow)" OnClick="AllowControl"
+                                  class="@(GuestApprovalActionAvailable ? "rw-attention" : null)" Disabled="@(!CanAllow)" OnClick="AllowControl"
                                   aria-label="Allow control" title="Approve the guest and enable control">Allow control</RwButton>
                     }
                     <RwButton Type="button" Variant="warning" Disabled="@(_status.SessionMode is "None" or "Ended")" OnClick="End"

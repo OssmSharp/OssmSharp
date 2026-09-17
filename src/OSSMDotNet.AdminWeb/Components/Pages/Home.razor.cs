@@ -43,6 +43,7 @@ public partial class Home
         _ => "No guest"
     };
     private bool GuestWaiting => _status?.SessionMode == "PendingApproval";
+    private bool GuestApprovalActionAvailable => GuestWaiting && CanAllow;
     private string SessionVariant => _status?.SessionMode switch
     {
         "PendingApproval" => "warning",

@@ -37,8 +37,10 @@ public sealed class GuestApplicationTests
         var html = await home.Content.ReadAsStringAsync(Cancellation);
         Assert.Contains("Open a valid invitation from the operator.", html);
         Assert.DoesNotContain("INVITE REQUIRED.", html);
-        Assert.Contains("rw-notice rw-operation-notice", html);
+        Assert.DoesNotContain("rw-notice rw-operation-notice", html);
         Assert.Contains("<rw-alert", html);
+        Assert.Contains("<main class=\"guest-message-layout\"", html);
+        Assert.DoesNotContain("<main class=\"rw-page\"", html);
         Assert.Contains("rw-theme", html);
         Assert.Contains("_content/RetroWebUi.Blazor/widgets/theme.", html);
         Assert.DoesNotContain("data-input", html);
@@ -50,6 +52,12 @@ public sealed class GuestApplicationTests
         Assert.Contains("script-src 'self'", csp);
         Assert.DoesNotContain("unsafe-inline", csp);
         Assert.Equal("no-referrer", Assert.Single(home.Headers.GetValues("Referrer-Policy")));
+
+        using var guestStyles = await client.GetAsync("guest.css", Cancellation);
+        Assert.Equal(HttpStatusCode.OK, guestStyles.StatusCode);
+        var guestCss = await guestStyles.Content.ReadAsStringAsync(Cancellation);
+        Assert.Contains(".send-bar { display: flex; flex-wrap: wrap; justify-content: flex-end;", guestCss);
+        Assert.Contains(".auto-send { flex: 0 0 auto; white-space: nowrap; }", guestCss);
 
         foreach (var asset in new[] { "guest.css", "guest-start.js", "guest-session.js", "_content/SharedUi/controls.css",
             "_content/SharedUi/connection-ui.js",

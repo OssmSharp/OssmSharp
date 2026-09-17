@@ -11,8 +11,8 @@ var simulatorPath = Path.Combine(simulatorDirectory, "target", "release",
     OperatingSystem.IsWindows() ? "ossm-sim-bridge.exe" : "ossm-sim-bridge");
 var simulatorBuild = builder.AddExecutable("simulator-build", "cargo", simulatorDirectory, "build", "--release", "--locked");
 
-var adminServiceKey = builder.AddParameter("admin-web-service-key", NewToken(), secret: true);
-var guestServiceKey = builder.AddParameter("guest-web-service-key", NewToken(), secret: true);
+var adminServiceKey = builder.AddParameter("admin-web-service-key", NewToken, secret: true);
+var guestServiceKey = builder.AddParameter("guest-web-service-key", NewToken, secret: true);
 
 var control = builder.AddProject<Projects.ControlService>("control")
     .WithEnvironment("DOTNET_ENVIRONMENT", "Development")

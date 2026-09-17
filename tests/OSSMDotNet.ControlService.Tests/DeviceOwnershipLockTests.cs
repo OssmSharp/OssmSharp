@@ -11,4 +11,17 @@ public sealed class DeviceOwnershipLockTests
 
         Assert.Equal(expected, DeviceOwnershipLock.Name);
     }
+
+    [Fact]
+    public void SecondLeaseCannotBeAcquiredUntilTheFirstLeaseIsReleased()
+    {
+        using var first = DeviceOwnershipLock.TryAcquire();
+
+        Assert.NotNull(first);
+        Assert.Null(DeviceOwnershipLock.TryAcquire());
+
+        first.Dispose();
+        using var replacement = DeviceOwnershipLock.TryAcquire();
+        Assert.NotNull(replacement);
+    }
 }

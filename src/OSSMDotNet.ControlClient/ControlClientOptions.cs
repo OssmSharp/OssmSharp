@@ -8,7 +8,7 @@ public sealed class ControlClientOptions : IValidatableObject
     [Required]
     public string ControlOrigin { get; set; } = "";
 
-    [Required, RegularExpression(@"\A[A-Za-z0-9_-]{42}[AQgw]\z")]
+    [Required, RegularExpression(@"\A[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]\z")]
     public string ServiceKey { get; set; } = "";
 
     [Range(1, 300)]

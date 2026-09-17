@@ -1,0 +1,19 @@
+{
+  "folders": [
+    {
+      "path": ".",
+    },
+    {
+      "path": "../retro-webui",
+    },
+    {
+      "path": "../ossm-rs",
+    },
+  ],
+  "settings": {
+    "powershell.cwd": "ossm-web-controls",
+  },
+  "extensions": {
+    "recommendations": ["1yib.rust-bundle", "rust-lang.rust-analyzer"],
+  },
+}

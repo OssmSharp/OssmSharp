@@ -19,17 +19,21 @@ public sealed class DeviceLoop(
         bridge.Start(options.Value.SimulatorPath);
         using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(50), time);
         string? lastMode = null;
-        do
+        try
         {
-            authority.Tick();
-            dispatcher.Trigger();
-            var mode = authority.Read().Snapshot.Mode;
-            if (mode != lastMode && mode is "Locked" or "Faulted")
-                ControlServiceLog.DeviceSafetyState(logger,
-                    mode == "Locked" ? "External changes detected; controls locked" : "Control fault detected; device commands stopped");
-            lastMode = mode;
+            do
+            {
+                authority.Tick();
+                dispatcher.Trigger();
+                var mode = authority.Read().Snapshot.Mode;
+                if (mode != lastMode && mode is "Locked" or "Faulted")
+                    ControlServiceLog.DeviceSafetyState(logger,
+                        mode == "Locked" ? "External changes detected; controls locked" : "Control fault detected; device commands stopped");
+                lastMode = mode;
+            }
+            while (await timer.WaitForNextTickAsync(stoppingToken));
         }
-        while (await timer.WaitForNextTickAsync(stoppingToken));
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { }
     }
 
     /// <summary>Pauses control and stops the device bridge during host shutdown.</summary>

@@ -117,6 +117,7 @@ public static class ServiceCollectionExtensions
     /// <summary>Registers the hardened SignalR service transport.</summary>
     public static IServiceCollection AddControlServiceHub(this IServiceCollection services)
     {
+        services.AddProblemDetails();
         services.AddSignalR(options =>
         {
             options.EnableDetailedErrors = false;

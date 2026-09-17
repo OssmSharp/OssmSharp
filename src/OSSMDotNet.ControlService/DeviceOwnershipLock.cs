@@ -4,12 +4,12 @@ namespace OSSMDotNet.ControlService;
 internal sealed class DeviceOwnershipLock : IDisposable
 {
     private const string LocalName = "ossm-web-controls-prototype-device";
-    private readonly Mutex _mutex;
+    private readonly Semaphore _semaphore;
     private int _disposed;
 
-    private DeviceOwnershipLock(Mutex mutex) => _mutex = mutex;
+    private DeviceOwnershipLock(Semaphore semaphore) => _semaphore = semaphore;
 
-    /// <summary>Gets the OS-wide mutex name used for the current platform.</summary>
+    /// <summary>Gets the OS-wide semaphore name used for the current platform.</summary>
     internal static string Name => OperatingSystem.IsWindows() ? $@"Global\{LocalName}" : LocalName;
 
     /// <summary>Tries to acquire the single-writer lease without treating an existing owner as an exception.</summary>
@@ -17,24 +17,14 @@ internal sealed class DeviceOwnershipLock : IDisposable
     {
         try
         {
-            var mutex = new Mutex(initiallyOwned: true, Name, out var createdNew);
-            if (!createdNew)
+            var semaphore = new Semaphore(initialCount: 1, maximumCount: 1, Name, out _);
+            if (!semaphore.WaitOne(TimeSpan.Zero))
             {
-                try
-                {
-                    if (!mutex.WaitOne(TimeSpan.Zero))
-                    {
-                        mutex.Dispose();
-                        return null;
-                    }
-                }
-                catch (AbandonedMutexException)
-                {
-                    // The abandoned mutex is acquired, so a stale owner cannot block safe startup.
-                }
+                semaphore.Dispose();
+                return null;
             }
 
-            return new(mutex);
+            return new(semaphore);
         }
         catch (UnauthorizedAccessException)
         {
@@ -42,14 +32,14 @@ internal sealed class DeviceOwnershipLock : IDisposable
         }
     }
 
-    /// <summary>Releases the lease before closing its OS handle.</summary>
+    /// <summary>Releases the non-thread-affine lease before closing its OS handle.</summary>
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
 
-        try { _mutex.ReleaseMutex(); }
-        finally { _mutex.Dispose(); }
+        try { _semaphore.Release(); }
+        finally { _semaphore.Dispose(); }
         GC.SuppressFinalize(this);
     }
 }
