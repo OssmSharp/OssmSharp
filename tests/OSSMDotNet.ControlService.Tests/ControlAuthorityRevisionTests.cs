@@ -83,7 +83,7 @@ public sealed class ControlAuthorityRevisionTests
     }
 
     [Fact]
-    public async Task GuestLifecycleAndTickPublicationAdvanceOnlySnapshotRevision()
+    public async Task GuestLifecycleAdvancesPublicationButUnchangedTicksDoNot()
     {
         await using var fixture = await AuthorityFixture.CreateAsync();
         var initial = fixture.Authority.Read();
@@ -103,9 +103,9 @@ public sealed class ControlAuthorityRevisionTests
         Assert.Equal(initial.SnapshotRevision + 1, afterJoin.SnapshotRevision);
         Assert.Equal("PendingApproval", afterJoin.Snapshot.SessionMode);
         Assert.Equal(afterJoin.Precondition.AuthorityRevision, afterTick.Precondition.AuthorityRevision);
-        Assert.Equal(afterJoin.SnapshotRevision + 1, afterTick.SnapshotRevision);
+        Assert.Equal(afterJoin, afterTick);
         Assert.Equal(afterTick.Precondition.AuthorityRevision, afterLoss.Precondition.AuthorityRevision);
-        Assert.Equal(afterTick.SnapshotRevision + 1, afterLoss.SnapshotRevision);
+        Assert.Equal(afterJoin.SnapshotRevision + 1, afterLoss.SnapshotRevision);
         Assert.Equal("Ended", afterLoss.Snapshot.SessionMode);
         Assert.Empty(fixture.Bridge.Calls);
     }

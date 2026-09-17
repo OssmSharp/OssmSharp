@@ -41,8 +41,21 @@ public sealed class ControlHubConnectionRegistry
     internal QueueState QueueOperatorState(string connectionId, OperatorLiveControlStatus state) =>
         QueueStateCore(connectionId, "operatorState", state, state.Authority.SnapshotRevision,
             IsTerminal(state.Authority.Snapshot.Mode, state.Authority.Snapshot.SessionMode));
-    internal QueueState QueueGuestState(string connectionId, GuestStatus state) =>
-        QueueStateCore(connectionId, "guestState", state, state.SnapshotRevision, IsTerminal(state.Mode, state.SessionMode));
+    internal QueueState QueueGuestState(string connectionId, GuestStatus state)
+    {
+        lock (_gate)
+        {
+            if (!_subscriptions.TryGetValue(connectionId, out var subscription) ||
+                (subscription.LastQueuedGuestState is { } previous && SameGuestProjection(state, previous)))
+                return QueueState.Ignored;
+
+            var queued = QueueStateCore(connectionId, "guestState", state, state.SnapshotRevision,
+                IsTerminal(state.Mode, state.SessionMode));
+            if (queued == QueueState.Queued)
+                _subscriptions[connectionId] = _subscriptions[connectionId] with { LastQueuedGuestState = state };
+            return queued;
+        }
+    }
     internal void RequireResync(string connectionId) { lock (_gate) if (_subscriptions.TryGetValue(connectionId, out var subscription)) _subscriptions[connectionId] = subscription with { ResyncRequired = true }; }
     internal string[] TakeResyncConnections()
     {
@@ -116,6 +129,9 @@ public sealed class ControlHubConnectionRegistry
 
     private static bool IsTerminal(string mode, string sessionMode) =>
         mode is "Locked" or "Faulted" || sessionMode == "Ended";
+
+    private static bool SameGuestProjection(GuestStatus state, GuestStatus previous) =>
+        state with { SnapshotRevision = previous.SnapshotRevision } == previous;
 }
 
 internal enum HubSubscriptionRole { Operator, Guest }
@@ -126,5 +142,6 @@ internal sealed record HubSubscription(HubSubscriptionRole Role, long ActivityCu
     internal string ConnectionId { get; init; } = string.Empty;
     internal HubPendingPush? Latest { get; init; }
     internal HubPendingPush? Terminal { get; init; }
+    internal GuestStatus? LastQueuedGuestState { get; init; }
     internal bool ResyncRequired { get; init; }
 }

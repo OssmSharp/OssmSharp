@@ -152,8 +152,10 @@ public sealed class ControlAuthority(PrototypeEngine engine)
     {
         lock (_gate)
         {
+            var before = engine.Snapshot;
             engine.Tick();
-            _snapshotRevision++;
+            if (before != engine.Snapshot)
+                _snapshotRevision++;
         }
     }
 

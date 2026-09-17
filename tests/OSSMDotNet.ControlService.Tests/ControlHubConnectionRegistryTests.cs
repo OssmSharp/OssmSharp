@@ -61,6 +61,21 @@ public sealed class ControlHubConnectionRegistryTests
     }
 
     [Fact]
+    public void UnchangedGuestStateIsNotQueuedAgainForANewerPublicationRevision()
+    {
+        var registry = new ControlHubConnectionRegistry();
+        registry.SubscribeGuest("guest", -1);
+
+        Assert.Equal(QueueState.Queued, registry.QueueGuestState("guest", GuestState(1)));
+        Assert.True(registry.TryTakePending("guest", out var pending));
+        registry.MarkStateDelivered("guest", Assert.IsType<HubPendingPush>(pending).Version);
+
+        Assert.Equal(QueueState.Ignored, registry.QueueGuestState("guest", GuestState(2)));
+        Assert.False(registry.TryTakePending("guest", out _));
+        Assert.Equal(QueueState.Queued, registry.QueueGuestState("guest", GuestState(3, deviceMoving: true)));
+    }
+
+    [Fact]
     public void RemovingOneGuestClearsOnlyItsStageSubscriptionAndBoundSession()
     {
         var registry = new ControlHubConnectionRegistry();
@@ -116,4 +131,25 @@ public sealed class ControlHubConnectionRegistryTests
                 new AuthorityPrecondition("fixture", 0, new(null, null, sessionMode)),
                 snapshotRevision),
             new Invitation("fixture", "http://127.0.0.1:5182/join/fixture", null, true));
+
+    private static GuestStatus GuestState(long snapshotRevision, bool deviceMoving = false) =>
+        new(
+            "Paused",
+            "fixture",
+            1,
+            0,
+            true,
+            deviceMoving,
+            new(0, 0, 10, 20, 50),
+            0,
+            0,
+            new(100, 100),
+            1,
+            "Approved",
+            null,
+            0,
+            null)
+        {
+            SnapshotRevision = snapshotRevision
+        };
 }

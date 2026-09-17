@@ -247,7 +247,8 @@ ms**; unsent edits never enter that lease. At most one submission is
 outstanding; auto changes coalesce to the newest selection. Stop,
 focus/visibility loss, connection loss and new epochs disarm sending and clear
 Auto send. Server/circuit timers read status only; they never manufacture run
-input.
+input. A timer pass that leaves a guest-visible projection unchanged shall not
+advance its publication revision or queue another state delivery.
 
 Selected values, transmitted values and device-confirmed current values are
 distinct. A hub acknowledgement is not device verification. ControlService publishes
