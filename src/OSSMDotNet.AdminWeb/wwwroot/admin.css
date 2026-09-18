@@ -3,8 +3,9 @@
 .operator-grid > rw-card::part(card) { height: 100%; }
 .operator-status-heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: .4rem; }
 .operator-status-badges { display: flex; flex-wrap: nowrap; align-items: center; gap: .4rem; margin-left: auto; }
+.operator-page-header-status { display: flex; align-items: center; margin-inline-start: auto; }
+.operator-operation-status { color: var(--rw-danger); font-size: 1.7rem; line-height: 1; }
 .session-limits { grid-column: 1 / -1; }
-.limits-card-heading h2 { font-size: 1.17em; }
 .limits-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)) auto; align-items: end; gap: 1rem; }
 .limits-controls > rw-button { justify-self: end; padding-right: 0; }
 .limit-field { display: grid; gap: .4rem; min-width: 0; }
@@ -17,6 +18,7 @@
 .feedback-disclosure .motion-monitor { margin-top: .75rem; }
 .feedback-disclosure > summary:focus-visible, .live-log:focus-visible { outline: 2px solid var(--rw-focus); outline-offset: 3px; }
 .invite-row rw-input { flex: 1 1 12rem; min-width: 0; }
+.cycle-invitation-button svg { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 2; }
 
 .live-log {
     height: 220px;
@@ -44,4 +46,8 @@
     .operator-grid { grid-template-columns: 1fr; }
     .session-limits { grid-column: auto; }
     .limits-controls { grid-template-columns: 1fr; }
+}
+
+@media (forced-colors: active) {
+    .operator-operation-status { color: CanvasText; }
 }

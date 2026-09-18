@@ -18,6 +18,74 @@ public sealed class JoinPageBehaviorTests
     ];
 
     [Theory]
+    [InlineData("proof", false)]
+    [InlineData(null, false)]
+    [InlineData("proof", true)]
+    public async Task CompletedGuestLifecycleDoesNotScheduleMoreRenders(string? invitation, bool rejectJoin)
+    {
+        using var cancellationSource = CreateTimeout();
+        await using var fixture = await PageControlHubFixture.StartAsync(cancellationSource.Token);
+        if (rejectJoin)
+            fixture.Reject("Join", "invalid-invitation");
+        await using var module = new RecordedJsModule { Invitation = invitation };
+        await using var services = CreateServices(module, fixture.CreateGuestClient());
+        await using var renderer = new ComponentRenderer(services, services.GetRequiredService<ILoggerFactory>())
+        {
+            InvokeAfterRender = false
+        };
+        var (page, componentId) = await renderer.RenderComponentAsync<Join>(Parameters("session-1"));
+        var lifecycle = (IHandleAfterRender)page;
+
+        await renderer.Dispatcher.InvokeAsync(lifecycle.OnAfterRenderAsync);
+        await renderer.Dispatcher.InvokeAsync(lifecycle.OnAfterRenderAsync);
+        var renderCount = renderer.RenderCount;
+        await renderer.Dispatcher.InvokeAsync(lifecycle.OnAfterRenderAsync);
+        await renderer.Dispatcher.InvokeAsync(lifecycle.OnAfterRenderAsync);
+
+        Assert.Equal(renderCount, renderer.RenderCount);
+        Assert.Equal(1, module.InvocationCount("takeInvitation"));
+        Assert.Equal(invitation is not null && !rejectJoin ? 1 : 0, module.InvocationCount("attach"));
+        Assert.DoesNotContain(fixture.Invocations, invocation => invocation.Method is "Submit" or "GuestStop");
+        if (invitation is null || rejectJoin)
+        {
+            Assert.Contains("This invitation is invalid or has been replaced.", await GetTextContentAsync(renderer, componentId));
+            Assert.Equal(new BrowserReply(false, "not-joined"), await page.StopRun());
+        }
+    }
+
+    [Fact]
+    public async Task AuthorityIsSentOnlyAfterAttachmentAndUsesTheLatestStatus()
+    {
+        using var cancellationSource = CreateTimeout();
+        await using var fixture = await PageControlHubFixture.StartAsync(cancellationSource.Token);
+        await using var module = new RecordedJsModule { Invitation = "proof" };
+        await using var services = CreateServices(module, fixture.CreateGuestClient());
+        await using var renderer = new ComponentRenderer(services, services.GetRequiredService<ILoggerFactory>())
+        {
+            InvokeAfterRender = false
+        };
+        var (page, componentId) = await renderer.RenderComponentAsync<Join>(Parameters("session-1"));
+        var lifecycle = (IHandleAfterRender)page;
+        await renderer.Dispatcher.InvokeAsync(lifecycle.OnAfterRenderAsync);
+        await fixture.SendGuestStatusAsync(PageControlHubFixture.ReadyGuestStatus(1), cancellationSource.Token);
+        await renderer.WaitForTextContentAsync(componentId, "Control enabled.", cancellationSource.Token);
+        await fixture.SendGuestStatusAsync(PageControlHubFixture.LockedGuestStatus(2) with { Grant = null }, cancellationSource.Token);
+        await renderer.WaitForTextContentAsync(componentId, "Locked by the operator. Sending is disabled.", cancellationSource.Token);
+
+        Assert.Equal(0, module.InvocationCount("updateAuthority"));
+        await renderer.Dispatcher.InvokeAsync(lifecycle.OnAfterRenderAsync);
+
+        Assert.Equal(1, module.InvocationCount("attach"));
+        var update = Assert.Single(module.Invocations, invocation => invocation.Identifier == "updateAuthority");
+        var authority = System.Text.Json.JsonSerializer.SerializeToElement(Assert.Single(update.Arguments));
+        Assert.True(authority.GetProperty("joined").GetBoolean());
+        Assert.False(authority.GetProperty("ready").GetBoolean());
+        Assert.Equal(System.Text.Json.JsonValueKind.Null, authority.GetProperty("grant").ValueKind);
+        Assert.Equal(new BrowserReply(false, "not-ready"), await page.SubmitRun(ValidInput()));
+        Assert.Equal(["SubscribeGuest", "Join"], fixture.Invocations.Select(invocation => invocation.Method));
+    }
+
+    [Theory]
     [MemberData(nameof(InvalidInvitations))]
     public async Task MissingOrInvalidInvitationIsTakenOnceAndFailsClosedWithoutOpeningTheGuestHub(string? invitation)
     {
@@ -297,7 +365,7 @@ public sealed class JoinPageBehaviorTests
         long snapshotRevision = 1)
     {
         await module.WaitForInvocationCountAsync("attach", 1, cancellationToken);
-        await module.WaitForInvocationCountAsync("updateAuthority", 2, cancellationToken);
+        await module.WaitForInvocationCountAsync("updateAuthority", 1, cancellationToken);
         var expectedRenders = renderer.RenderCount + 1;
         var expectedUpdates = module.InvocationCount("updateAuthority") + 1;
         await fixture.SendGuestStatusAsync(

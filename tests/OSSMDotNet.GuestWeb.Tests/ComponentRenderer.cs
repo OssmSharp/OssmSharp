@@ -20,6 +20,8 @@ internal sealed class ComponentRenderer(IServiceProvider services, ILoggerFactor
 
     internal int RenderCount => Volatile.Read(ref _renderCount);
 
+    internal bool InvokeAfterRender { get; init; } = true;
+
     internal Task<(TComponent Component, int ComponentId)> RenderComponentAsync<TComponent>(
         ParameterView parameters)
         where TComponent : IComponent
@@ -205,7 +207,7 @@ internal sealed class ComponentRenderer(IServiceProvider services, ILoggerFactor
             }
         }
 
-        return CompleteAsynchronously();
+        return InvokeAfterRender ? CompleteAsynchronously() : Task.FromCanceled(new CancellationToken(true));
     }
 
     protected override void HandleException(Exception exception) =>

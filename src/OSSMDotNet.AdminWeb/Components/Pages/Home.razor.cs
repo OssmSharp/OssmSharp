@@ -8,6 +8,8 @@ namespace OSSMDotNet.AdminWeb.Components.Pages;
 /// <summary>Renders the loopback-only operator control page.</summary>
 public partial class Home
 {
+    private const string PendingOperationStatusText = "Waiting for the device to settle.";
+
     [Inject] private OperatorControlClient Control { get; set; } = null!;
     [Inject] private IJSRuntime Js { get; set; } = null!;
     [Inject] private TimeProvider Time { get; set; } = null!;
@@ -22,6 +24,7 @@ public partial class Home
     private bool _busy;
     private IJSObjectReference? _module;
     private readonly CancellationTokenSource _lifetime = new();
+    private readonly SnapshotRevisionTracker _statusRevisions = new();
     private readonly List<ControlActivityEntry> _logs = [];
     private long _lastLogSequence;
     private ElementReference _logElement;
@@ -44,6 +47,7 @@ public partial class Home
     };
     private bool GuestWaiting => _status?.SessionMode == "PendingApproval";
     private bool GuestApprovalActionAvailable => GuestWaiting && CanAllow;
+    private bool OperationPending => _status?.OperationPending == true;
     private string SessionVariant => _status?.SessionMode switch
     {
         "PendingApproval" => "warning",
@@ -196,6 +200,9 @@ public partial class Home
 
     private Task ReceiveStateAsync(OperatorLiveControlStatus status) => InvokeAsync(() =>
     {
+        if (!_statusRevisions.TryAccept(status.Authority.SnapshotRevision))
+            return;
+
         var next = status.Authority.Snapshot;
         if (_status is null || _speedCap == _status.Limits.SpeedCap)
             _speedCap = next.Limits.SpeedCap;

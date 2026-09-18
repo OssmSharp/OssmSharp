@@ -4,6 +4,14 @@
 
 <PageTitle>Operator controls</PageTitle>
 <ControlLayout Label="Operator controls">
+    <HeaderContent>
+        @if (_status?.IsSimulator == true)
+        {
+            <div class="operator-page-header-status" data-testid="operator-page-header-status">
+                <RwBadge Variant="info" data-testid="simulator-mode">SIMULATOR</RwBadge>
+            </div>
+        }
+    </HeaderContent>
     <ChildContent>
     @if (_status is null)
     {
@@ -35,7 +43,11 @@
                 <div slot="heading" class="rw-card-heading operator-status-heading">
                     <h2 data-testid="controller-mode">Controls</h2>
                     <div class="operator-status-badges" data-testid="operator-status-badges">
-                        @if (_status.IsSimulator) { <RwBadge Variant="info" data-testid="simulator-mode">SIMULATOR</RwBadge> }
+                        @if (OperationPending)
+                        {
+                            <span class="operator-operation-status" data-testid="operator-operation-status"
+                                  role="img" aria-label="@PendingOperationStatusText" title="@PendingOperationStatusText">●</span>
+                        }
                         <RwBadge Variant="@SessionVariant" data-testid="session-mode">@SessionLabel</RwBadge>
                     </div>
                 </div>
@@ -61,7 +73,6 @@
                 </div>
                 @if (_status.Mode == "Locked") { <p class="hint">External changes detected. Unlock leaves control paused.</p> }
                 else if (!_status.BridgeReady) { <p class="hint">Waiting for device feedback.</p> }
-                else if (_status.OperationPending) { <p class="hint">Waiting for the device to settle.</p> }
                 else if (_status.Limits.SpeedCap <= 0 || _status.Limits.MaximumDepth <= 0) { <p class="hint needs-attention">Control is disabled by the current limits.</p> }
                 else if (_status.SessionMode is "None" or "Ended") { <p class="hint">Waiting for a guest to join.</p> }
             </RwCard>
@@ -76,7 +87,7 @@
                         </rw-input>
                         <RwButton class="rw-feedback-button" Type="button" Variant="@(_notice.IsCopied ? "success" : "secondary")" OnClick="Copy"
                                   aria-label="@_notice.CopyLabel" title="@(_notice.IsCopied ? "Invitation link copied" : "Copy invitation link")">@_notice.CopyLabel</RwButton>
-                        <RwButton class="rw-icon-button" Type="button" Variant="secondary" Disabled="@_busy" OnClick="Cycle"
+                        <RwButton class="rw-icon-button cycle-invitation-button" Type="button" Variant="secondary" Disabled="@_busy" OnClick="Cycle"
                                   aria-label="Replace invitation link" title="Replace the invitation link, revoke the current guest, and request Stop"
                                   aria-describedby="cycle-help">
                             <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">

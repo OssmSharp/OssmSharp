@@ -101,6 +101,63 @@ public sealed class HomePageBehaviorTests
     }
 
     [Fact]
+    public async Task SimulatorIndicatorAppearsInThePageHeader()
+    {
+        using var cancellationSource = CreateTimeout();
+        await using var fixture = await PageControlHubFixture.StartAsync(cancellationSource.Token);
+        var expected = new AuthorityPrecondition("instance-1", 12, new GuestAdmission(null, null, "None"));
+        fixture.OperatorStatus = PageControlHubFixture.OperatorStatusFor(expected);
+        await using var module = new RecordedJsModule();
+        await using var services = CreateServices(module, fixture.CreateOperatorClient());
+        await using var renderer = new ComponentRenderer(services, services.GetRequiredService<ILoggerFactory>());
+
+        var (_, componentId) = await renderer.RenderComponentAsync<Home>(ParameterView.Empty);
+        await module.WaitForInvocationCountAsync("attachLog", 1, cancellationSource.Token);
+
+        Assert.Equal("operator-page-header-status", renderer.GetElementAttributeValue(
+            componentId, "div", "data-testid", "operator-page-header-status", "class"));
+        Assert.Equal("info", renderer.GetElementAttributeValue(
+            componentId, "rw-badge", "data-testid", "simulator-mode", "variant"));
+    }
+
+    [Fact]
+    public async Task PendingDeviceOperationUsesAnAccessibleStatusMarker()
+    {
+        using var cancellationSource = CreateTimeout();
+        await using var fixture = await PageControlHubFixture.StartAsync(cancellationSource.Token);
+        var expected = new AuthorityPrecondition("instance-1", 12, new GuestAdmission(null, null, "None"));
+        var initial = PageControlHubFixture.OperatorStatusFor(expected, snapshotRevision: 1);
+        fixture.OperatorStatus = initial;
+        await using var module = new RecordedJsModule();
+        await using var services = CreateServices(module, fixture.CreateOperatorClient());
+        await using var renderer = new ComponentRenderer(services, services.GetRequiredService<ILoggerFactory>());
+        var (_, componentId) = await renderer.RenderComponentAsync<Home>(ParameterView.Empty);
+        await module.WaitForInvocationCountAsync("attachLog", 1, cancellationSource.Token);
+
+        var pending = initial with
+        {
+            Authority = initial.Authority with
+            {
+                Snapshot = initial.Authority.Snapshot with { OperationPending = true },
+                SnapshotRevision = 2
+            }
+        };
+        var renderCount = renderer.RenderCount;
+        await fixture.SendOperatorStateAsync(pending, cancellationSource.Token);
+        await renderer.WaitForRenderCountAsync(renderCount + 1, cancellationSource.Token);
+
+        Assert.Equal("img", renderer.GetElementAttributeValue(
+            componentId, "span", "data-testid", "operator-operation-status", "role"));
+        Assert.Equal("Waiting for the device to settle.", renderer.GetElementAttributeValue(
+            componentId, "span", "data-testid", "operator-operation-status", "aria-label"));
+        Assert.Equal("Waiting for the device to settle.", renderer.GetElementAttributeValue(
+            componentId, "span", "data-testid", "operator-operation-status", "title"));
+        Assert.Equal("operator-operation-status", renderer.GetElementAttributeValue(
+            componentId, "span", "data-testid", "operator-operation-status", "class"));
+        Assert.DoesNotContain("Waiting for the device to settle.", renderer.GetTextContent(componentId));
+    }
+
+    [Fact]
     public async Task ApplyingLimitsUsesTheLatestAuthorityPreconditionAndReportsTheCurrentSuccess()
     {
         using var cancellationSource = CreateTimeout();

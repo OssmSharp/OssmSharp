@@ -14,12 +14,12 @@ public partial class Join
     [Parameter] public string SessionId { get; set; } = "";
 
     private readonly CancellationTokenSource _lifetime = new();
+    private readonly SnapshotRevisionTracker _statusRevisions = new();
     private ElementReference _root;
     private IJSObjectReference? _module;
     private DotNetObjectReference<Join>? _reference;
     private string? _boundSessionId;
     private GuestStatus? _status;
-    private long _lastRevision = -1;
     private bool _initialized;
     private bool _joining;
     private bool _joined;
@@ -58,7 +58,7 @@ public partial class Join
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (_disposed)
+        if (_disposed || (!firstRender && (!_joined || _attached || _module is null)))
             return;
         try
         {
@@ -68,10 +68,7 @@ public partial class Join
                 var invitation = await _module.InvokeAsync<string?>("takeInvitation", _lifetime.Token);
                 _initialized = true;
                 if (!ControlProtocol.ValidText(SessionId, 64) || !ControlProtocol.ValidText(invitation, 128))
-                {
-                    StateHasChanged();
                     return;
-                }
 
                 _joining = true;
                 await Client.JoinAsync(new(ReceiveStatusAsync, ReceiveResyncAsync),
@@ -79,8 +76,6 @@ public partial class Join
                 _joining = false;
                 _joined = true;
                 _everJoined = true;
-                await PushAuthorityAsync();
-                StateHasChanged();
             }
             else if (_joined && !_attached && _module is not null)
             {
@@ -202,9 +197,9 @@ public partial class Join
 
     private Task ReceiveStatusAsync(GuestStatus status) => InvokeAsync(async () =>
     {
-        if (status.SnapshotRevision <= _lastRevision || _disposed)
+        if (_disposed || !_statusRevisions.TryAccept(status.SnapshotRevision))
             return;
-        _lastRevision = status.SnapshotRevision;
+
         _status = status;
         await PushAuthorityAsync();
         StateHasChanged();
@@ -223,7 +218,7 @@ public partial class Join
         StateHasChanged();
     }
 
-    private Task PushAuthorityAsync() => BrowserCallAsync("updateAuthority", new
+    private Task PushAuthorityAsync() => !_attached ? Task.CompletedTask : BrowserCallAsync("updateAuthority", new
     {
         joined = _joined && !_disposed,
         ready = Ready,
