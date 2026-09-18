@@ -31,13 +31,16 @@ public sealed class ControlActivityProvider(TimeProvider time) : ILoggerProvider
     {
         ControlActivityEntry[] entries;
         long latest;
+        long retainedFirst;
         lock (_gate)
         {
             latest = _sequence;
-            entries = _disposed ? [] : _entries.ToArray();
+            retainedFirst = !_disposed && _entries.TryPeek(out var first) ? first.Sequence : latest + 1;
+            if (_disposed || sequence >= latest)
+                return new(retainedFirst, latest, 0, 0, null, sequence < retainedFirst - 1, []);
+            entries = _entries.ToArray();
         }
 
-        var retainedFirst = entries.Length == 0 ? latest + 1 : entries[0].Sequence;
         var gap = sequence < retainedFirst - 1;
         var cursor = Math.Max(sequence, retainedFirst - 1);
         var remaining = entries.Where(entry => entry.Sequence > cursor).ToArray();
