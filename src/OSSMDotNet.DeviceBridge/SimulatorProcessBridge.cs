@@ -19,6 +19,7 @@ public sealed partial class SimulatorProcessBridge(ILogger<SimulatorProcessBridg
         MaxDepth = 12
     };
     private readonly ConcurrentDictionary<long, TaskCompletionSource<SimulatorReply>> _pending = new();
+    private readonly Lock _admissionGate = new();
     private readonly SemaphoreSlim _inputLock = new(1, 1);
     private readonly CancellationTokenSource _lifetime = new();
     private Process? _process;
@@ -79,12 +80,17 @@ public sealed partial class SimulatorProcessBridge(ILogger<SimulatorProcessBridg
         ObjectDisposedException.ThrowIf(_disposed != 0, this);
         if (_process is null || Failure is not null)
             throw new IOException("simulator-unavailable");
-        if (_pending.Count >= 8)
-            throw new IOException("simulator-request-capacity");
-        var id = Interlocked.Increment(ref _requestId);
-        var completion = new TaskCompletionSource<SimulatorReply>(TaskCreationOptions.RunContinuationsAsynchronously);
-        if (!_pending.TryAdd(id, completion))
-            throw new InvalidOperationException("duplicate-simulator-request");
+        long id;
+        TaskCompletionSource<SimulatorReply> completion;
+        lock (_admissionGate)
+        {
+            if (_pending.Count >= 8)
+                throw new IOException("simulator-request-capacity");
+            id = Interlocked.Increment(ref _requestId);
+            completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            if (!_pending.TryAdd(id, completion))
+                throw new InvalidOperationException("duplicate-simulator-request");
+        }
         try
         {
             var buffer = new ArrayBufferWriter<byte>(256);
