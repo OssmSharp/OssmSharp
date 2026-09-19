@@ -1,6 +1,6 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Net;
 using System.Threading.Channels;
-using System.Diagnostics.CodeAnalysis;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Hosting.Server;
@@ -171,7 +171,7 @@ internal sealed partial class LocalControlServiceHubFixture : IAsyncDisposable
 
     internal void LockAndSettle()
     {
-        Bridge.External(DesiredState.Stopped with { Depth = 21 });
+        Bridge.External(MotionSettings.Stopped with { Depth = 21 });
         Engine.Tick();
         Engine.Tick();
         Bridge.Publish();

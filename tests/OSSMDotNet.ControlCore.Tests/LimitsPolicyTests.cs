@@ -194,7 +194,7 @@ public sealed class LimitsPolicyTests
     {
         await using var rig = new Rig();
         rig.Arm();
-        rig.Submit(rig.Input(1, DesiredState.Stopped with { Speed = 40 }));
+        rig.Submit(rig.Input(1, MotionSettings.Stopped with { Speed = 40 }));
         rig.Pump();
         rig.Submit(rig.Input(2));
         var before = rig.Engine.Snapshot;
@@ -215,7 +215,7 @@ public sealed class LimitsPolicyTests
         await using var rig = new Rig();
         rig.Arm();
         rig.Bridge.PublishOnCompletion = false;
-        var issued = rig.Input(1, DesiredState.Stopped with { Speed = 40 });
+        var issued = rig.Input(1, MotionSettings.Stopped with { Speed = 40 });
         rig.Submit(issued);
         rig.Pump();
         rig.Bridge.AutoComplete = false;
@@ -246,7 +246,7 @@ public sealed class LimitsPolicyTests
         await using var rig = new Rig();
         rig.Arm();
         rig.Bridge.PublishOnCompletion = false;
-        rig.Submit(rig.Input(1, DesiredState.Stopped with { Speed = 40 }));
+        rig.Submit(rig.Input(1, MotionSettings.Stopped with { Speed = 40 }));
         rig.Pump();
         if (stop) rig.Engine.Pause();
         else rig.Submit(rig.Input(2));
@@ -274,7 +274,7 @@ public sealed class LimitsPolicyTests
         await using var rig = new Rig();
         rig.Arm();
         rig.Bridge.AutoComplete = false;
-        rig.Submit(rig.Input(1, DesiredState.Stopped with { Speed = 40 }));
+        rig.Submit(rig.Input(1, MotionSettings.Stopped with { Speed = 40 }));
         rig.Pump();
         rig.Submit(rig.Input(2));
         if (stop) rig.Engine.Pause();
@@ -301,7 +301,7 @@ public sealed class LimitsPolicyTests
         rig.Pump();
         rig.Bridge.CompleteNext();
         rig.Pump();
-        Assert.Equal(new DesiredState(0, 0, 15, 60, 50), rig.Bridge.Calls[1].Desired);
+        Assert.Equal(new MotionSettings(0, 0, 15, 60, 50), rig.Bridge.Calls[1].Desired);
         rig.Submit(rig.Input(2, new(0, 10, 15, 40, 50)));
         var before = rig.Engine.Snapshot;
 
@@ -322,7 +322,7 @@ public sealed class LimitsPolicyTests
         var first = rig.Input(1);
         rig.Submit(first);
         rig.Pump();
-        var second = rig.Input(2, DesiredState.Stopped with { Speed = 15 });
+        var second = rig.Input(2, MotionSettings.Stopped with { Speed = 15 });
         rig.Submit(second);
         var generation = rig.Engine.Snapshot.Generation;
 
@@ -385,7 +385,7 @@ public sealed class LimitsPolicyTests
     {
         await using var rig = new Rig();
         if (mode == "Paused") rig.Engine.Recover();
-        if (mode == "Locked") rig.Bridge.External(DesiredState.Stopped with { Depth = 30 });
+        if (mode == "Locked") rig.Bridge.External(MotionSettings.Stopped with { Depth = 30 });
         if (mode == "Faulted")
         {
             rig.Bridge.Connected = false;
@@ -415,8 +415,8 @@ public sealed class LimitsPolicyTests
         rig.Bridge.AutoComplete = false;
         rig.Submit(rig.Input(1));
         rig.Pump();
-        rig.Submit(rig.Input(2, DesiredState.Stopped with { Speed = 15 }));
-        if (externalLock) rig.Bridge.External(DesiredState.Stopped with { Depth = 30 });
+        rig.Submit(rig.Input(2, MotionSettings.Stopped with { Speed = 15 }));
+        if (externalLock) rig.Bridge.External(MotionSettings.Stopped with { Depth = 30 });
         else rig.Engine.Pause();
         var before = rig.Engine.Snapshot;
 

@@ -4,7 +4,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
-using OSSMDotNet.Models;
+using OSSMDotNet.DeviceBridge.Models;
 
 namespace OSSMDotNet.DeviceBridge;
 
@@ -25,11 +25,11 @@ public sealed partial class SimulatorProcessBridge(ILogger<SimulatorProcessBridg
     private Process? _process;
     private Task? _reader;
     private Task? _diagnostics;
-    private DeviceSample? _lastSample;
+    private DeviceState? _lastSample;
     private long _requestId;
     private int _disposed;
 
-    public event Action<DeviceSample>? SampleReceived;
+    public event Action<DeviceState>? SampleReceived;
     public string? Failure { get; private set; }
     public bool HasDiagnostics { get; private set; }
 
@@ -60,7 +60,7 @@ public sealed partial class SimulatorProcessBridge(ILogger<SimulatorProcessBridg
     }
 
     /// <summary>Writes requested device settings through the simulator adapter.</summary>
-    public async Task WriteAsync(long commandId, DesiredState desired, CancellationToken cancellationToken) =>
+    public async Task SetMotionAsync(long commandId, MotionSettings desired, CancellationToken cancellationToken) =>
         await SendAsync(new SimulatorRequest(1, 0, "write", commandId, desired, null), cancellationToken);
 
     /// <summary>Requests a stop through the simulator adapter.</summary>
@@ -68,7 +68,7 @@ public sealed partial class SimulatorProcessBridge(ILogger<SimulatorProcessBridg
         await SendAsync(new SimulatorRequest(1, 0, "stop", commandId, null, null), cancellationToken);
 
     /// <summary>Injects a simulator-only test operation.</summary>
-    public Task InjectAsync(string operation, DesiredState? desired = null, int? value = null)
+    public Task InjectAsync(string operation, MotionSettings? desired = null, int? value = null)
     {
         if (operation is not ("external" or "delay" or "stale" or "disconnect" or "connect"))
             throw new ArgumentException("unknown-simulator-fault", nameof(operation));
@@ -151,7 +151,7 @@ public sealed partial class SimulatorProcessBridge(ILogger<SimulatorProcessBridg
                 if (_pending.TryRemove(pair.Key, out var request))
                     request.TrySetException(new IOException(Failure));
             if (_lastSample is { } sample)
-                SampleReceived?.Invoke(sample with { SampleSequence = sample.SampleSequence + 1, Connected = false });
+                SampleReceived?.Invoke(sample with { ObservationSequenceNumber = sample.ObservationSequenceNumber + 1, Connected = false });
         }
     }
 
@@ -168,7 +168,7 @@ public sealed partial class SimulatorProcessBridge(ILogger<SimulatorProcessBridg
                 throw new InvalidDataException("simulator-invalid-envelope");
             if (reply.State is { } state)
             {
-                if (_lastSample is { } previous && state.SampleSequence >= previous.SampleSequence)
+                if (_lastSample is { } previous && state.ObservationSequenceNumber >= previous.ObservationSequenceNumber)
                 {
                     if ((state.Enabled || state.Moving) != (previous.Enabled || previous.Moving))
                         LogDeviceMotionState(logger, state.Enabled || state.Moving ? "running" : "stopped");

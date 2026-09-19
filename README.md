@@ -18,6 +18,22 @@ dnx Aspire.Cli@13.5.3 -- run --project src\OSSMDotNet.AppHost\AppHost.csproj
 
 Keep the terminal open. Aspire builds and starts the application.
 
+## DeviceBridge library
+
+DeviceBridge is also an independently buildable and consumable .NET feature.
+`OSSMDotNet.DeviceBridge.Abstractions` contains the dependency-free
+`IDeviceBridge`, `DesiredState` and `DeviceSample` contract. The separate
+`OSSMDotNet.DeviceBridge` library contains the current simulator process
+implementation; it does not depend on ControlService, Aspire or either web host.
+
+The simulator implementation requires the separately built
+[`ossm-sim-bridge`](tools/ossm-sim-bridge/README.md) executable at runtime.
+ControlService owns one instance when running this application. This library
+boundary is not a published package, a separate network service, a native-device
+implementation or physical-device qualification. See the
+[device-control specification](.docs/specs/device-control/spec.md) for the
+contract and safety boundaries.
+
 ## Use it
 
 1. Open the **Dashboard** URL printed in the terminal. Use the complete link,
@@ -41,8 +57,8 @@ guest's motion lease.
 Purple is selected, amber is sent, and green is the verified current setting.
 The live display shows actual simulator position and velocity. On the operator
 page, expand **Live feedback** to see it. **Live log** lists recent activity
-with the newest entries at the bottom and follows new entries; scroll up to
-read earlier entries.
+with the newest entries at the bottom and follows new entries; scroll up to read
+earlier entries.
 
 Settings keep running until **Stop**. Switching tabs, losing focus or losing the
 connection also stops control and turns Auto send off. Admin must **Allow

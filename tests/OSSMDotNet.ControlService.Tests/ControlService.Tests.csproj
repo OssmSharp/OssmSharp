@@ -6,11 +6,14 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\OSSMDotNet.ControlService\ControlService.csproj" />
+    <ProjectReference
+      Include="..\..\src\OSSMDotNet.Abstractions\OSSMDotNet.Abstractions.csproj" />
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <Compile Include="..\OSSMDotNet.ControlCore.Tests\BridgeCall.cs" Link="Helpers\BridgeCall.cs" />
     <Compile Include="..\OSSMDotNet.ControlCore.Tests\FakeBridge.cs" Link="Helpers\FakeBridge.cs" />
     <PackageReference Include="xunit.v3.mtp-v2" />
     <PackageReference Include="Microsoft.Testing.Platform" />
+    <Using Include="OSSMDotNet.DeviceBridge.Abstractions" />
     <Using Include="Xunit" />
   </ItemGroup>
 </Project>

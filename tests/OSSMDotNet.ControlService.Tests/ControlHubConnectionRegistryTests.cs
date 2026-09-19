@@ -119,7 +119,7 @@ public sealed class ControlHubConnectionRegistryTests
                     0,
                     true,
                     false,
-                    DesiredState.Stopped,
+                    MotionSettings.Stopped,
                     null,
                     new ControlLimits(100, 100),
                     1,

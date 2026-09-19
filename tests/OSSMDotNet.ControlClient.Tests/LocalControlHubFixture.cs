@@ -1,5 +1,5 @@
-using System.Net;
 using System.Diagnostics.CodeAnalysis;
+using System.Net;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Hosting.Server;
@@ -293,7 +293,7 @@ public sealed class LocalControlHubFixture : IAsyncDisposable
                     0,
                     true,
                     false,
-                    DesiredState.Stopped,
+                    MotionSettings.Stopped,
                     null,
                     new ControlLimits(1, 1),
                     1,

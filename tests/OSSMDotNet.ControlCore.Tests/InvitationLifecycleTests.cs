@@ -106,7 +106,7 @@ public sealed class InvitationLifecycleTests
         await using var rig = new Rig();
         rig.Arm();
         var invitation = rig.Invite();
-        rig.Bridge.External(DesiredState.Stopped with { Depth = 99 });
+        rig.Bridge.External(MotionSettings.Stopped with { Depth = 99 });
         rig.Engine.EndSession();
         rig.Pump();
         var locked = rig.Engine.Snapshot;
@@ -174,7 +174,7 @@ public sealed class InvitationLifecycleTests
         rig.Submit(rig.Input(1));
         rig.Pump();
         Assert.Equal("Write", Assert.Single(rig.Bridge.Calls).Kind);
-        rig.Submit(rig.Input(2, DesiredState.Stopped with { Speed = 15 }));
+        rig.Submit(rig.Input(2, MotionSettings.Stopped with { Speed = 15 }));
 
         var invitation = rig.Engine.CycleInvitation(new Uri("http://localhost:8080"));
         rig.Engine.Join(invitation.SessionId, PrototypeEngineTests.Secret(invitation), "next");
@@ -200,7 +200,7 @@ public sealed class InvitationLifecycleTests
     {
         await using var rig = new Rig();
         rig.Arm();
-        rig.Bridge.External(DesiredState.Stopped with { Depth = 99 });
+        rig.Bridge.External(MotionSettings.Stopped with { Depth = 99 });
         rig.Pump();
         var locked = rig.Engine.Snapshot;
         var invitation = rig.Engine.CycleInvitation(new Uri("http://localhost:8080"));

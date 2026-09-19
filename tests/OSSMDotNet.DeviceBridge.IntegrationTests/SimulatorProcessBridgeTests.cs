@@ -1,8 +1,7 @@
-using System.Threading.Channels;
 using System.Reflection;
+using System.Threading.Channels;
 using Microsoft.Extensions.Logging.Abstractions;
 using OSSMDotNet.DeviceBridge;
-using OSSMDotNet.Models;
 
 namespace OSSMDotNet.DeviceBridge.IntegrationTests;
 
@@ -12,7 +11,7 @@ public sealed class SimulatorProcessBridgeTests
     public async Task RealRustBridgeReportsWritesExternalChangesAndSettledStop()
     {
         await using var bridge = new SimulatorProcessBridge(NullLogger<SimulatorProcessBridge>.Instance);
-        var samples = Channel.CreateBounded<DeviceSample>(new BoundedChannelOptions(128) { FullMode = BoundedChannelFullMode.DropOldest });
+        var samples = Channel.CreateBounded<DeviceState>(new BoundedChannelOptions(128) { FullMode = BoundedChannelFullMode.DropOldest });
         bridge.SampleReceived += sample => samples.Writer.TryWrite(sample);
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         deadline.CancelAfter(TimeSpan.FromSeconds(10));
@@ -20,9 +19,9 @@ public sealed class SimulatorProcessBridgeTests
         var initial = await ReadUntil(samples.Reader, sample => sample.Connected, deadline.Token);
         Assert.Equal("ossm-rs-sim-v1", initial.ProfileId);
         Assert.False(initial.Enabled);
-        var desired = new DesiredState(0, 12, 10, 20, 50);
+        var desired = new MotionSettings(0, 12, 10, 20, 50);
 
-        await bridge.WriteAsync(1, desired, deadline.Token);
+        await bridge.SetMotionAsync(1, desired, deadline.Token);
         var applied = await ReadUntil(samples.Reader, sample => sample.CommandId == 1 && sample.Desired == desired, deadline.Token);
         Assert.True(applied.Enabled);
         await bridge.InjectAsync("external", desired with { Speed = 0 });
@@ -44,7 +43,7 @@ public sealed class SimulatorProcessBridgeTests
         bridge.Start(SimulatorPath());
         await bridge.InjectAsync("delay", value: 300);
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
-        var write = bridge.WriteAsync(1, new(0, 12, 10, 20, 50), cancellation.Token);
+        var write = bridge.SetMotionAsync(1, new(0, 12, 10, 20, 50), cancellation.Token);
 
         // This response confirms the simulator received the earlier delayed write.
         await bridge.InjectAsync("external", new(0, 0, 10, 20, 50));
@@ -55,7 +54,7 @@ public sealed class SimulatorProcessBridgeTests
         await bridge.StopAsync(2, TestContext.Current.CancellationToken);
     }
 
-    private static async Task<DeviceSample> ReadUntil(ChannelReader<DeviceSample> reader, Func<DeviceSample, bool> predicate, CancellationToken cancellationToken)
+    private static async Task<DeviceState> ReadUntil(ChannelReader<DeviceState> reader, Func<DeviceState, bool> predicate, CancellationToken cancellationToken)
     {
         while (true)
         {

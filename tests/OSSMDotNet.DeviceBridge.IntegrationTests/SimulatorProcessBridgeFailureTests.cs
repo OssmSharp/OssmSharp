@@ -1,7 +1,6 @@
 using System.Reflection;
 using Microsoft.Extensions.Logging.Abstractions;
 using OSSMDotNet.DeviceBridge;
-using OSSMDotNet.Models;
 
 namespace OSSMDotNet.DeviceBridge.IntegrationTests;
 
@@ -29,7 +28,7 @@ public sealed class SimulatorProcessBridgeFailureTests
         await using var bridge = new SimulatorProcessBridge(NullLogger<SimulatorProcessBridge>.Instance);
 
         var exception = await Assert.ThrowsAsync<IOException>(() =>
-            bridge.WriteAsync(1, DesiredState.Stopped, TestContext.Current.CancellationToken));
+            bridge.SetMotionAsync(1, MotionSettings.Stopped, TestContext.Current.CancellationToken));
 
         Assert.Equal("simulator-unavailable", exception.Message);
         Assert.Null(bridge.Failure);
@@ -69,7 +68,7 @@ public sealed class SimulatorProcessBridgeFailureTests
         await using var bridge = new SimulatorProcessBridge(NullLogger<SimulatorProcessBridge>.Instance);
         bridge.Start(SimulatorPath());
         await bridge.InjectAsync("delay", value: 1800);
-        var delayedWrite = bridge.WriteAsync(10, new(0, 12, 10, 20, 50), TestContext.Current.CancellationToken);
+        var delayedWrite = bridge.SetMotionAsync(10, new(0, 12, 10, 20, 50), TestContext.Current.CancellationToken);
 
         var busy = await Assert.ThrowsAsync<IOException>(() =>
             bridge.StopAsync(11, TestContext.Current.CancellationToken));
@@ -153,7 +152,7 @@ public sealed class SimulatorProcessBridgeFailureTests
         {
             bridge.Start(SimulatorPath());
             await bridge.InjectAsync("delay", value: 1800);
-            var pendingWrite = bridge.WriteAsync(12, new(0, 12, 10, 20, 50), TestContext.Current.CancellationToken);
+            var pendingWrite = bridge.SetMotionAsync(12, new(0, 12, 10, 20, 50), TestContext.Current.CancellationToken);
             Assert.False(pendingWrite.IsCompleted);
 
             await bridge.DisposeAsync();

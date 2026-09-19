@@ -4,8 +4,11 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\OSSMDotNet.ControlCore\ControlCore.csproj" />
-    <ProjectReference Include="..\OSSMDotNet.DeviceBridge\DeviceBridge.csproj" />
+    <ProjectReference
+      Include="..\OSSMDotNet.Abstractions\OSSMDotNet.Abstractions.csproj" />
+    <ProjectReference Include="..\OSSMDotNet\OSSMDotNet.csproj" />
     <ProjectReference Include="..\OSSMDotNet.Models\OSSMDotNet.Models.csproj" />
     <ProjectReference Include="..\OSSMDotNet.ServiceDefaults\ServiceDefaults.csproj" />
+    <Using Include="OSSMDotNet.DeviceBridge.Abstractions" />
   </ItemGroup>
 </Project>

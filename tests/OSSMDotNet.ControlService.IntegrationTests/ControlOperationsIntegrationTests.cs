@@ -80,7 +80,7 @@ public sealed class ControlOperationsIntegrationTests
         await using var fixture = await LocalSimulatorControlFixture.StartAsync(timeout.Token);
 
         await fixture.Operations.InjectSimulatorFaultAsync(new("delay"));
-        var delayedWrite = fixture.Bridge.WriteAsync(41, new(0, 12, 10, 20, 50), timeout.Token);
+        var delayedWrite = fixture.Bridge.SetMotionAsync(41, new(0, 12, 10, 20, 50), timeout.Token);
 
         Assert.False(delayedWrite.IsCompleted);
         await delayedWrite.WaitAsync(TimeSpan.FromSeconds(5), timeout.Token);
@@ -99,7 +99,7 @@ public sealed class ControlOperationsIntegrationTests
         using var timeout = CreateTimeout();
         await using var fixture = await LocalSimulatorControlFixture.StartAsync(timeout.Token);
         fixture.DrainSamples();
-        var changed = DesiredState.Stopped with { Depth = 25 };
+        var changed = MotionSettings.Stopped with { Depth = 25 };
 
         await fixture.Operations.InjectSimulatorFaultAsync(new("stale"));
         fixture.DrainSamples();
@@ -108,12 +108,12 @@ public sealed class ControlOperationsIntegrationTests
 
         await fixture.Operations.InjectSimulatorFaultAsync(new("fresh"));
         var refreshed = await fixture.ReadUntilAsync(
-            sample => sample.SampleSequence > frozen.SampleSequence && sample.Desired == changed,
+            sample => sample.ObservationSequenceNumber > frozen.ObservationSequenceNumber && sample.Desired == changed,
             timeout.Token);
 
         Assert.NotEqual(changed, frozen.Desired);
         Assert.Equal(changed, refreshed.Desired);
-        Assert.True(refreshed.SampleSequence > frozen.SampleSequence);
+        Assert.True(refreshed.ObservationSequenceNumber > frozen.ObservationSequenceNumber);
         Assert.Null(refreshed.CommandId);
     }
 

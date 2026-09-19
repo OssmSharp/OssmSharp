@@ -37,17 +37,17 @@ guest-side validation, but does not itself prove physical safety.
 
 ## Resolved design decisions
 
-| Decision                | Selected approach and reason                                                                                                                                                                                                                                                                             |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Application stack       | ControlService plus separately hostable ASP.NET Core/Blazor AdminWeb and GuestWeb clients. ControlService owns the device-control hosted service. They can run on one computer.                                                                                                                           |
+| Decision                | Selected approach and reason                                                                                                                                                                                                                                                                                                                        |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Application stack       | ControlService plus separately hostable ASP.NET Core/Blazor AdminWeb and GuestWeb clients. ControlService owns the device-control hosted service. They can run on one computer.                                                                                                                                                                     |
 | Access model            | Deliberately unauthenticated AdminWeb bound only to `127.0.0.1`, with Host/Origin protection and no access timeout. Generated distinct AdminWeb/GuestWeb service keys authenticate hosts to ControlService; guest invitation/session capabilities remain independently validated there. No registration, login, user database or identity provider. |
-| Licensing               | Plan Apache-2.0 licensing for original application code. Existing web projects are behavior/protocol references, not source imports or mechanical ports. No third-party branding/assets or licence files are installed by this document.                                                                 |
-| Device bridge           | Map the pinned stock protocol in a server-side .NET bridge behind a narrow C# interface. Native BLE is the initial transport direction; the actual home-server OS and service-account Bluetooth access must be verified before selecting its implementation. No browser BLE or JavaScript device bridge. |
-| Initial device target   | Qualify stock firmware `1.0.34` at `4871a84c54ae0734b1f8bc3d02fcc0098f12fbad`, on an operator-identified OSSM configuration. This selects a test target, not support for all units reporting that version.                                                                                               |
-| Initial client platform | Current desktop Chrome over HTTPS, without device permission, extension or local installation. [Blazor supports Chrome][blazor-platforms]. Browser compatibility is independent of the home service's native BLE platform.                                                                               |
-| Initial motion profile  | Simple Stroke only: firmware pattern ID `0`, fixed sensation `50`, no inversion. Speed and travel controls remain subject to local limits and a qualified geometry mapping. Other reported patterns are visible as unsupported, not automatically enabled.                                               |
-| Test tooling            | xUnit v3 with Microsoft.Testing.Platform v2, FastMoq where appropriate, server-side `TimeProvider`/`FakeTimeProvider`, application-boundary integration tests and guest UI smoke. ControlCore dependencies are approved; no Node/Vitest toolchain is selected.                                           |
-| Physical release        | Keep physical remote input disabled until the release evidence below exists. Research cannot choose a safe stopping bound for an unspecified loaded machine. Software development proceeds against the simulator without treating a server timer as independent device protection.                       |
+| Licensing               | Plan Apache-2.0 licensing for original application code. Existing web projects are behavior/protocol references, not source imports or mechanical ports. No third-party branding/assets or licence files are installed by this document.                                                                                                            |
+| Device bridge           | Map the pinned stock protocol in a server-side .NET bridge behind a narrow C# interface. Native BLE is the initial transport direction; the actual home-server OS and service-account Bluetooth access must be verified before selecting its implementation. No browser BLE or JavaScript device bridge.                                            |
+| Initial device target   | Qualify stock firmware `1.0.34` at `4871a84c54ae0734b1f8bc3d02fcc0098f12fbad`, on an operator-identified OSSM configuration. This selects a test target, not support for all units reporting that version.                                                                                                                                          |
+| Initial client platform | Current desktop Chrome over HTTPS, without device permission, extension or local installation. [Blazor supports Chrome][blazor-platforms]. Browser compatibility is independent of the home service's native BLE platform.                                                                                                                          |
+| Initial motion profile  | Simple Stroke only: firmware pattern ID `0`, fixed sensation `50`, no inversion. Speed and travel controls remain subject to local limits and a qualified geometry mapping. Other reported patterns are visible as unsupported, not automatically enabled.                                                                                          |
+| Test tooling            | xUnit v3 with Microsoft.Testing.Platform v2, FastMoq where appropriate, server-side `TimeProvider`/`FakeTimeProvider`, application-boundary integration tests and guest UI smoke. ControlCore dependencies are approved; no Node/Vitest toolchain is selected.                                                                                      |
+| Physical release        | Keep physical remote input disabled until the release evidence below exists. Research cannot choose a safe stopping bound for an unspecified loaded machine. Software development proceeds against the simulator without treating a server timer as independent device protection.                                                                  |
 
 This retains .NET 10, stable module IDs and the stock-firmware constraint. It
 removes the extra host browser, WebAssembly controller, browser device adapter,
@@ -88,14 +88,14 @@ Guest authentication validates temporary authority, not an account. The
 controller receives only trusted scope/session context; no guest token becomes
 an execution guard by itself.
 
-| Boundary                         | Owns and enforces                                                                                                             | Must not do                                                                                       |
-| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| Guest browser                    | Displays three vertical sliders, explicit/automatic Send, current feedback and Stop                                           | Authorize itself, select devices, raise limits, connect to the bridge or emit raw device commands |
-| GuestWeb                         | Rendering, bounded parsing/quotas and guest hub commands; its generated service key proves the host only                    | Generate invitations, approve, arm, change policy or open the bridge                              |
-| ControlService session boundary  | Independently validates guest capability and session, atomically handles invitations/admission, issues grants and owns expiry | Trust GuestWeb's allow/deny result or a client-claimed role                                       |
-| `host-authority` in ControlService | Operator permissions, arming, configured limits, valid tuples, grant/sequence checks and revocation                         | Delegate final policy to GuestWeb                                                                  |
-| `device-control` in ControlService | Single writer, current generation, execution-time policy checks, device readiness, deadlines and Stop ordering              | Create a writer in a web host, CLI or per hub call                                                |
-| .NET bridge                      | Private device I/O, stock protocol mapping, bounded completion and device events                                              | Expose a guest endpoint, bypass the controller or retain a replay backlog                         |
+| Boundary                           | Owns and enforces                                                                                                             | Must not do                                                                                       |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Guest browser                      | Displays three vertical sliders, explicit/automatic Send, current feedback and Stop                                           | Authorize itself, select devices, raise limits, connect to the bridge or emit raw device commands |
+| GuestWeb                           | Rendering, bounded parsing/quotas and guest hub commands; its generated service key proves the host only                      | Generate invitations, approve, arm, change policy or open the bridge                              |
+| ControlService session boundary    | Independently validates guest capability and session, atomically handles invitations/admission, issues grants and owns expiry | Trust GuestWeb's allow/deny result or a client-claimed role                                       |
+| `host-authority` in ControlService | Operator permissions, arming, configured limits, valid tuples, grant/sequence checks and revocation                           | Delegate final policy to GuestWeb                                                                 |
+| `device-control` in ControlService | Single writer, current generation, execution-time policy checks, device readiness, deadlines and Stop ordering                | Create a writer in a web host, CLI or per hub call                                                |
+| .NET bridge                        | Private device I/O, stock protocol mapping, bounded completion and device events                                              | Expose a guest endpoint, bypass the controller or retain a replay backlog                         |
 
 Use server-side Blazor components in GuestWeb for rendering. Every guest entry
 point uses ControlService's limited SignalR contract, with both GuestWeb service
@@ -283,19 +283,32 @@ ControlService's SignalR endpoint `/hubs/control/v1`. No WebAssembly
 device-control runtime is required. Never host ControlService management in
 GuestWeb.
 
-Register one ControlService-owned controller/bridge instance for the device and manage
-its execution with [IHostedService/BackgroundService][hosted-service]. The
-ControlService hub validates guest requests and passes immutable
-capability context to that owner. Do not capture scoped connection services
-inside a singleton or treat a circuit-scoped controller as exclusive device
-ownership. Background timers must not depend on an active rendering circuit.
+Register one ControlService-owned controller/bridge instance for the device and
+manage its execution with [IHostedService/BackgroundService][hosted-service].
+The ControlService hub validates guest requests and passes immutable capability
+context to that owner. Do not capture scoped connection services inside a
+singleton or treat a circuit-scoped controller as exclusive device ownership.
+Background timers must not depend on an active rendering circuit.
 
-The bridge is a .NET adapter, initially in-process with ControlService only. Keep
-platform-specific BLE handles, OS APIs and protocol details behind it. For
-native BLE the ControlService host needs access to a Bluetooth adapter; hosting code
-alone does not provide that hardware. Select the OS adapter, service identity,
-permissions and provisioning flow against the actual home deployment, not the
-development machine.
+The bridge is a standalone .NET library feature with a dependency-free
+`OSSMDotNet.DeviceBridge.Abstractions` contract and a separate
+`OSSMDotNet.DeviceBridge` implementation. The contract project owns
+`IDeviceBridge`, `MotionSettings` and `DeviceState` directly in its root
+namespace; these three closely related public contract files are an explicit
+exception to the repository's usual `Models` folder convention. The
+implementation owns its private protocol records and can be built and consumed
+without ControlService, Aspire or the web hosts.
+
+ControlService composes and exclusively owns one bridge instance in this
+application. Standalone library delivery does not add another service, process
+endpoint, writer or public device API. The current simulator implementation
+requires the separately built `ossm-sim-bridge` executable at runtime; that
+executable and native hardware adapters are not embedded in the .NET library.
+Keep platform-specific BLE handles, OS APIs and protocol details behind the
+implementation. For native BLE the ControlService host needs access to a
+Bluetooth adapter; hosting code alone does not provide that hardware. Select the
+OS adapter, service identity, permissions and provisioning flow against the
+actual home deployment, not the development machine.
 
 AdminWeb and GuestWeb use generated distinct service keys over HTTPS/WSS to
 authenticate to ControlService. Those keys are distinct from operator authority
@@ -333,12 +346,12 @@ There is no local application manifest or runnable test suite yet. These are the
 selected command contracts to establish during implementation, not commands
 already present or verified in this checkout:
 
-| Command                                                                      | Status and purpose                                                                                                                |
-| ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `dotnet build`                                                               | Build ControlService, AdminWeb, GuestWeb, hub contract, controller and bridge with nullable checking and analyzers                |
-| `dotnet test --project tests\DeviceControl.Tests\DeviceControl.Tests.csproj` | Focused portable controller/protocol suite using the .NET 10 MTP runner; must discover a nonzero test set                         |
-| `dotnet run --project src\ControlService\ControlService.csproj`              | Run the SignalR owner of device-control; simulator bridge by default, no physical motion on startup                               |
-| `dotnet run --project src\AdminWeb\AdminWeb.csproj`                          | Run loopback-only, deliberately unauthenticated operator Blazor host; it calls ControlService                                    |
+| Command                                                                      | Status and purpose                                                                                                                               |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `dotnet build`                                                               | Build ControlService, AdminWeb, GuestWeb, hub contract, controller and bridge with nullable checking and analyzers                               |
+| `dotnet test --project tests\DeviceControl.Tests\DeviceControl.Tests.csproj` | Focused portable controller/protocol suite using the .NET 10 MTP runner; must discover a nonzero test set                                        |
+| `dotnet run --project src\ControlService\ControlService.csproj`              | Run the SignalR owner of device-control; simulator bridge by default, no physical motion on startup                                              |
+| `dotnet run --project src\AdminWeb\AdminWeb.csproj`                          | Run loopback-only, deliberately unauthenticated operator Blazor host; it calls ControlService                                                    |
 | `dotnet run --project src\GuestWeb\GuestWeb.csproj`                          | Run restricted Blazor guest host using ControlService's hub; unavailable service disables control and never falls back to local device execution |
 
 The implementation plan must make these commands real, select MTP in
@@ -348,25 +361,33 @@ the repository README; this table describes the broader feature contract.
 
 ## Project structure and ownership
 
-These are proposed placements, not separate packages:
+These are source placements, not published package claims:
 
-| Placement                      | Owns                                                                                                           |
-| ------------------------------ | -------------------------------------------------------------------------------------------------------------- |
-| `src\DeviceControl\`           | Portable C# contracts, lifecycle, desired-state scheduling and single-writer execution                         |
-| `src\DeviceBridge\`            | .NET bridge implementation and stock protocol mapping; native device I/O behind the controller-owned interface |
-| `src\ControlService\`          | SignalR hub, authoritative sessions/policy and hosted device-control composition                               |
-| `src\AdminWeb\`                | Loopback-only, deliberately unauthenticated server-side Blazor operator host                                   |
-| `src\GuestWeb\`                | Restricted server-side Blazor guest host; no management/controller/bridge reference                             |
-| `src\SessionContracts\`        | Closed versioned hub messages and explicit operation allowlists                                                 |
-| `tests\DeviceControl.Tests\`   | Portable controller/protocol contract tests with fake GATT boundary and FakeTimeProvider                       |
-| `tests\ServiceBoundary.Tests\` | Hub authentication, operation restrictions, ControlService lifecycle, transport loss and guest UI smoke        |
-| This specification             | Required behavior, source evidence and qualification gates                                                     |
+| Placement                                           | Owns                                                                                                                    |
+| --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `src\OSSMDotNet.DeviceBridge.Abstractions\`         | Dependency-free `IDeviceBridge`, `MotionSettings` and `DeviceState` public contract files in the project root namespace |
+| `src\OSSMDotNet.DeviceBridge\`                      | Reusable .NET bridge implementation and private simulator protocol records                                              |
+| `src\OSSMDotNet.ControlCore\`                       | Lifecycle, desired-state scheduling and single-writer execution against `IDeviceBridge`                                 |
+| `src\OSSMDotNet.ControlService\`                    | SignalR hub, authoritative sessions/policy and application-owned bridge composition                                     |
+| `src\OSSMDotNet.AdminWeb\`                          | Loopback-only, deliberately unauthenticated server-side Blazor operator host                                            |
+| `src\OSSMDotNet.GuestWeb\`                          | Restricted server-side Blazor guest host; no management/controller/bridge reference                                     |
+| `src\OSSMDotNet.Models\`                            | Closed versioned hub messages and shared application contracts, excluding the device bridge contract                    |
+| `tests\OSSMDotNet.ControlCore.Tests\`               | Portable controller contract tests with deterministic bridge and TimeProvider fakes                                     |
+| `tests\OSSMDotNet.DeviceBridge.IntegrationTests\`   | Direct .NET bridge tests against the external simulator executable                                                      |
+| `tests\OSSMDotNet.ControlService.IntegrationTests\` | Hub authentication, ControlService lifecycle and transport-loss integration                                             |
+| This specification                                  | Required behavior, source evidence and qualification gates                                                              |
 
-Only the bridge depends on native device handles/transport APIs. Controller
-contracts do not depend on ASP.NET Core, Blazor or WebSocket implementation
-types. Guest web references only the limited contract/client; it cannot resolve
-controller, management or bridge services through DI. A simulator implements the
-same device boundary without production simulation branches.
+The abstractions project has no project or package dependency. The
+implementation depends only on that contract and its implementation-specific
+libraries; only a native implementation may depend on native device handles or
+transport APIs. Controller contracts do not depend on ASP.NET Core, Blazor or
+WebSocket implementation types. Guest web references only the limited
+contract/client; it cannot resolve controller, management or bridge services
+through DI. The simulator implements the same device boundary without production
+simulation branches. Independent library builds and direct bridge integration
+tests establish the standalone boundary; they do not establish a published
+package, a self-contained simulator distribution or physical-device
+qualification.
 
 Do not publish raw `sendCommand`, `batchSet`, arbitrary method invocation,
 position streaming or firmware operations through the controller.
@@ -407,15 +428,15 @@ fresh, explicit local initialization at zero.
 The following operations define responsibilities; final language-level names and
 types belong in the approved technical plan.
 
-| Operation               | Contract                                                                                                                                                                      |
-| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Initialize device       | Hosted controller acquires the configured device through its .NET bridge after trusted operator setup; produce ready-at-zero or an explicit failure                           |
-| Submit desired state    | Accept a complete tuple and a required trusted in-process execution guard; return a request revision and eventual applied, superseded, rejected, cancelled or faulted outcome |
-| Request Stop            | Synchronously revoke pending motion and latch pause without clearing an existing lockout/fault; independently report the stop outcome                                         |
-| Resume/recover          | Require trusted owner action at the service boundary, never an ordinary guest request; preserve zero until a new valid request; full initialization after fault               |
+| Operation               | Contract                                                                                                                                                                                        |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Initialize device       | Hosted controller acquires the configured device through its .NET bridge after trusted operator setup; produce ready-at-zero or an explicit failure                                             |
+| Submit desired state    | Accept a complete tuple and a required trusted in-process execution guard; return a request revision and eventual applied, superseded, rejected, cancelled or faulted outcome                   |
+| Request Stop            | Synchronously revoke pending motion and latch pause without clearing an existing lockout/fault; independently report the stop outcome                                                           |
+| Resume/recover          | Require trusted owner action at the service boundary, never an ordinary guest request; preserve zero until a new valid request; full initialization after fault                                 |
 | Unlock external control | ControlService operator operation only; require the expected current authority revision, satisfy DC-09's recovery checks, clear the latch and remain paused at zero; never arm or resume motion |
-| Observe state           | Provide immutable state through the one ordered ControlService initial/live push path; distinguish requested, accepted and device-reported values                              |
-| Dispose                 | Revoke authority immediately, attempt bounded stop/cleanup, release ownership once and expose any unconfirmed stop outcome                                                    |
+| Observe state           | Provide immutable state through the one ordered ControlService initial/live push path; distinguish requested, accepted and device-reported values                                               |
+| Dispose                 | Revoke authority immediately, attempt bounded stop/cleanup, release ownership once and expose any unconfirmed stop outcome                                                                      |
 
 Request acceptance is not a completed transition. Transition completion is not a
 measured mechanical result. Hub command replies are acknowledgement-only; every
@@ -461,12 +482,24 @@ or unqualified capabilities cannot enable motion.
 `CausalParameterAttribution` is required before a profile may be qualified for
 physical remote control. For each parameter-setting observation, it supplies a
 connection-scoped monotonic sample identifier, monotonic observation time,
-freshness source (`notification`, explicitly correlated readback, cached read
-or command response), parameter representation and one attribution result:
+freshness source (`notification`, explicitly correlated readback, cached read or
+command response), parameter representation and one attribution result:
 `verified-owned-write`, `verified-external-change`, `ambiguous` or `not-fresh`.
-A `verified-owned-write` identifies the exact connection, controller
-generation, transition step and bridge write operation it confirms. Value
-equality, arrival time or a broad tolerance alone cannot create that result.
+A `verified-owned-write` identifies the exact connection, controller generation,
+transition step and bridge write operation it confirms. Value equality, arrival
+time or a broad tolerance alone cannot create that result.
+
+Each accepted bridge motion or stop operation receives a positive, monotonically
+increasing `SequenceNumber` generated by that bridge instance. The operation
+returns this value when its bridge work settles, and corresponding owned device
+state reports the same value. Callers may ignore the returned value when they do
+not need feedback correlation. `SequenceNumber` is distinct from the device
+state's connection-scoped `SampleSequence`, transport request identifiers and
+idempotency keys. Device state may arrive before the operation returns its
+sequence number, so a consumer that performs causal attribution must defer that
+decision without treating the early state as external. Operation completion and
+sequence equality alone do not prove fresh feedback or physical application; the
+observed settings must also match the issued operation.
 
 The profile represents raw requested BLE speed and effective knob-scaled speed
 separately, including units, resolution, mapping revision and whether each is
@@ -658,8 +691,8 @@ Guest web receives a locked status with an admin-unlock-required reason and
 rejects further control input. The status is not physical-stop confirmation.
 Admin independently rejects it even if guest web forwards it. Stop, leave and
 read-only status remain available. The guest, its session capability and
-ordinary session/arming APIs cannot unlock the controller. The management UI
-and Control CLI each use one explicit private unlock operation.
+ordinary session/arming APIs cannot unlock the controller. The management UI and
+Control CLI each use one explicit private unlock operation.
 
 #### Attribute readback without masking external control
 
@@ -694,19 +727,19 @@ The operator must invoke **Unlock** on the local admin surface with the current
 lock revision exposed by the immutable controller snapshot. The serialized
 controller owner treats Unlock as a compare-and-set: it first verifies that
 revision, retains the lock, invalidates the current generation and waits for
-every issued bridge operation, including logically timed-out work, to settle.
-If an operation cannot settle, Unlock fails with the existing unknown/fault
-outcome and no new connection or writer is created.
+every issued bridge operation, including logically timed-out work, to settle. If
+an operation cannot settle, Unlock fails with the existing unknown/fault outcome
+and no new connection or writer is created.
 
 After settlement, the controller requests the serialized Stop path and requires
 a new, fresh, qualified zero-output observation with a sample identifier later
 than the observation that triggered the lock. It validates the current policy
 envelope and profile attribution capability, then rechecks the same lock
-revision immediately before committing the zero baseline and clearing the
-latch. A fresh external, ambiguous or unattributable parameter change during
-recovery advances the revision, so the compare-and-set fails and the controller
-remains locked. Do not silently rebase tracking onto an external change to make
-Unlock succeed.
+revision immediately before committing the zero baseline and clearing the latch.
+A fresh external, ambiguous or unattributable parameter change during recovery
+advances the revision, so the compare-and-set fails and the controller remains
+locked. Do not silently rebase tracking onto an external change to make Unlock
+succeed.
 
 Successful unlock establishes a new baseline at zero and transitions to paused,
 not ready/armed. Separate explicit admin arming, a fresh epoch/grant and a new
@@ -751,38 +784,38 @@ fixing each retained defect, run its regression and record an intended failure;
 a source inspection is not that proof. If a baseline change removes a finding,
 retain evidence of non-applicability instead of inventing a failing test.
 
-| Criterion                    | Lowest useful boundary and acceptance evidence                                                                                                                                                                                                                                                                                             |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Initialization               | Controller tests reject every failing stage; ready is never emitted early; no subsequent nonzero writes, including late completions                                                                                                                                                                                                        |
-| Physical knob                | Adapter tests require configuration `true` and matching readback; hardware evidence covers zero/intermediate/maximum knob settings                                                                                                                                                                                                         |
-| Single writer                | Controllable fake GATT tracks in-flight operations; maximum is one under rapid mixed local inputs and Stop                                                                                                                                                                                                                                 |
-| Coalescing                   | Block one operation, submit many changes, and observe only one replaceable pending desired tuple; superseded requests settle explicitly                                                                                                                                                                                                    |
-| Cancellation                 | Inject Stop, fault, disposal, device loss and guard revocation before/after every asynchronous boundary; no later motion write from the old generation. Revoke the applied guard with no pending input and observe the Stop path.                                                                                                          |
-| Timeout                      | Hold a transport promise past its deadline; controller reports unknown state, does not start a concurrent write and cannot resume on late completion                                                                                                                                                                                       |
-| Validation                   | Boundary and generated tuples prove invalid values, unsupported patterns and unsafe intermediate geometry never write                                                                                                                                                                                                                      |
-| Live limits                  | Compatible changes preserve Ready/epoch/sequence and original lease deadlines; stale policy/grants reject; conflicting accepted, observed, pending, in-flight and unconfirmed writes reject the whole policy atomically; edits never bypass Stop, faults or external locks                                                                 |
-| Feedback                     | Malformed, stale, cached, missing and mismatched-connection feedback cannot confirm readiness or stopped state                                                                                                                                                                                                                             |
-| External-control lockout     | Inject an unexplained change to each supported parameter or operating mode, including zero-speed/knob changes, at rest and at every asynchronous transition; observe locked status, invalidated grants, cleared pending state and no stale motion write                                                                                    |
+| Criterion                    | Lowest useful boundary and acceptance evidence                                                                                                                                                                                                                                                                                                            |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Initialization               | Controller tests reject every failing stage; ready is never emitted early; no subsequent nonzero writes, including late completions                                                                                                                                                                                                                       |
+| Physical knob                | Adapter tests require configuration `true` and matching readback; hardware evidence covers zero/intermediate/maximum knob settings                                                                                                                                                                                                                        |
+| Single writer                | Controllable fake GATT tracks in-flight operations; maximum is one under rapid mixed local inputs and Stop                                                                                                                                                                                                                                                |
+| Coalescing                   | Block one operation, submit many changes, and observe only one replaceable pending desired tuple; superseded requests settle explicitly                                                                                                                                                                                                                   |
+| Cancellation                 | Inject Stop, fault, disposal, device loss and guard revocation before/after every asynchronous boundary; no later motion write from the old generation. Revoke the applied guard with no pending input and observe the Stop path.                                                                                                                         |
+| Timeout                      | Hold a transport promise past its deadline; controller reports unknown state, does not start a concurrent write and cannot resume on late completion                                                                                                                                                                                                      |
+| Validation                   | Boundary and generated tuples prove invalid values, unsupported patterns and unsafe intermediate geometry never write                                                                                                                                                                                                                                     |
+| Live limits                  | Compatible changes preserve Ready/epoch/sequence and original lease deadlines; stale policy/grants reject; conflicting accepted, observed, pending, in-flight and unconfirmed writes reject the whole policy atomically; edits never bypass Stop, faults or external locks                                                                                |
+| Feedback                     | Malformed, stale, cached, missing and mismatched-connection feedback cannot confirm readiness or stopped state                                                                                                                                                                                                                                            |
+| External-control lockout     | Inject an unexplained change to each supported parameter or operating mode, including zero-speed/knob changes, at rest and at every asynchronous transition; observe locked status, invalidated grants, cleared pending state and no stale motion write                                                                                                   |
 | Readback attribution         | Only bridge-correlated own write echoes with matching connection, generation, step and operation identifiers update the baseline; qualified intermediate values and normal position/time telemetry do not falsely lock; unrelated changes, even to a value in a previous/future desired tuple, are not hidden by pending work or broad numeric tolerances |
-| Ambiguous attribution        | Cached/command-response data never renews the baseline; an ambiguous, unexpected-representation or unattributable fresh parameter change latches DC-09 and requests Stop, including when its value equals an expected write                                                                                                               |
-| Physical override precedence | After observed physical zero, moving the physical control back or delivering a late guest request never restores motion; the explicit Stop write is not skipped because feedback is zero                                                                                                                                                   |
-| Admin unlock                 | Guest hub operations, regular resume, new link, reconnect and fault recovery cannot clear lockout; successful explicit AdminWeb operator unlock remains paused; stale lock revision, unsettled I/O, stale/nonzero feedback or concurrent external/ambiguous change keeps it locked                                                              |
-| Cleanup                      | Repeated connect/dispose and partial setup leave no owned listeners, timers or notifications; the discarded application's range widget is not imported                                                                                                                                                                                     |
-| Guest UI wiring              | One Chrome browser talks only to the real ASP.NET Core service using a fake bridge; no Bluetooth API, second browser or device credential is required                                                                                                                                                                                      |
-| One-box operation            | Browser, AdminWeb, GuestWeb, ControlService and fake bridge work on one computer with external networking blocked, unauthenticated loopback AdminWeb access and unchanged guest capability, policy and expiry rules                                                                                                                     |
-| Invitation isolation         | Automatic reusable-link retrieval and retries produce no device writes, motion authority or changes to an active controller; Cycle and operator Stop and end session atomically rotate the link, revoke guest authority, clear input and request serialized Stop without automatic rearming; guest leave/disconnect/expiry retain the link |
-| Accountless access           | Local operator access requires no token and has no access expiry; guest invitations require no user records or login; wrong-role, expired and revoked guest capabilities are rejected                                                                                                                                                      |
-| Process separation           | GuestWeb has no operator methods, bridge references or device permissions; its hub contract cannot call arbitrary device operations. The unauthenticated loopback AdminWeb listener does not isolate compromised local processes.                                                                                                          |
-| Hub validation               | ControlService rejects malformed, wrong-role, expired, cross-session, expired/superseded-grant and replayed hub messages even when GuestWeb claims acceptance; duplicate/out-of-order input sequences and the eleventh run input in a rolling second reject; transport loss/restart enters Stop/teardown                                      |
-| Two-process one-box          | Both services run on one computer without cloud dependencies; generated links target guest web, not admin; guest failure never starts a fallback writer                                                                                                                                                                                    |
-| Server enforcement           | Bypass the rendered controls with malformed, expired, wrong-role and over-limit requests; no forbidden operation reaches the bridge through UI, API or socket entry points                                                                                                                                                                 |
-| Guest loss                   | Close/freeze the browser while the service runs; server grant expiry latches Stop without a guest callback. Retained state/server timers cannot renew authority; reconnecting a circuit does not restore motion or replay input                                                                                                            |
-| Hosted lifetime              | Multiple requests/circuits share one device owner; scoped capability context is not captured globally; request cancellation cannot skip Stop or create a second writer                                                                                                                                                                     |
-| Replaceability               | Portable C# controller/protocol tests run without ASP.NET Core or BLE; native bridge tests verify mapping, error outcomes and physical-I/O lifetime                                                                                                                                                                                        |
-| Service races                | Concurrent endpoint/timer/bridge callbacks cannot issue a write after an earlier Stop latch or mutate a replacement connection                                                                                                                                                                                                             |
-| Speed semantics              | With knob zero or a request/effective-speed mismatch, Stop still writes zero and a changed BLE speed request is not skipped                                                                                                                                                                                                                |
-| Profile semantics            | Parse the selected firmware's full known state shape; stored reads/command responses do not masquerade as fresh telemetry or stopped evidence; interior values do not inherit an unverified minus-one correction                                                                                                                           |
-| Hardware qualification       | Separate guest loss (live server stops) from ControlService kill/freeze, host OS sleep, bridge/BLE loss, calibration/range transitions and competing device clients                                                                                                                                                                     |
+| Ambiguous attribution        | Cached/command-response data never renews the baseline; an ambiguous, unexpected-representation or unattributable fresh parameter change latches DC-09 and requests Stop, including when its value equals an expected write                                                                                                                               |
+| Physical override precedence | After observed physical zero, moving the physical control back or delivering a late guest request never restores motion; the explicit Stop write is not skipped because feedback is zero                                                                                                                                                                  |
+| Admin unlock                 | Guest hub operations, regular resume, new link, reconnect and fault recovery cannot clear lockout; successful explicit AdminWeb operator unlock remains paused; stale lock revision, unsettled I/O, stale/nonzero feedback or concurrent external/ambiguous change keeps it locked                                                                        |
+| Cleanup                      | Repeated connect/dispose and partial setup leave no owned listeners, timers or notifications; the discarded application's range widget is not imported                                                                                                                                                                                                    |
+| Guest UI wiring              | One Chrome browser talks only to the real ASP.NET Core service using a fake bridge; no Bluetooth API, second browser or device credential is required                                                                                                                                                                                                     |
+| One-box operation            | Browser, AdminWeb, GuestWeb, ControlService and fake bridge work on one computer with external networking blocked, unauthenticated loopback AdminWeb access and unchanged guest capability, policy and expiry rules                                                                                                                                       |
+| Invitation isolation         | Automatic reusable-link retrieval and retries produce no device writes, motion authority or changes to an active controller; Cycle and operator Stop and end session atomically rotate the link, revoke guest authority, clear input and request serialized Stop without automatic rearming; guest leave/disconnect/expiry retain the link                |
+| Accountless access           | Local operator access requires no token and has no access expiry; guest invitations require no user records or login; wrong-role, expired and revoked guest capabilities are rejected                                                                                                                                                                     |
+| Process separation           | GuestWeb has no operator methods, bridge references or device permissions; its hub contract cannot call arbitrary device operations. The unauthenticated loopback AdminWeb listener does not isolate compromised local processes.                                                                                                                         |
+| Hub validation               | ControlService rejects malformed, wrong-role, expired, cross-session, expired/superseded-grant and replayed hub messages even when GuestWeb claims acceptance; duplicate/out-of-order input sequences and the eleventh run input in a rolling second reject; transport loss/restart enters Stop/teardown                                                  |
+| Two-process one-box          | Both services run on one computer without cloud dependencies; generated links target guest web, not admin; guest failure never starts a fallback writer                                                                                                                                                                                                   |
+| Server enforcement           | Bypass the rendered controls with malformed, expired, wrong-role and over-limit requests; no forbidden operation reaches the bridge through UI, API or socket entry points                                                                                                                                                                                |
+| Guest loss                   | Close/freeze the browser while the service runs; server grant expiry latches Stop without a guest callback. Retained state/server timers cannot renew authority; reconnecting a circuit does not restore motion or replay input                                                                                                                           |
+| Hosted lifetime              | Multiple requests/circuits share one device owner; scoped capability context is not captured globally; request cancellation cannot skip Stop or create a second writer                                                                                                                                                                                    |
+| Replaceability               | Portable C# controller/protocol tests run without ASP.NET Core or BLE; native bridge tests verify mapping, error outcomes and physical-I/O lifetime                                                                                                                                                                                                       |
+| Service races                | Concurrent endpoint/timer/bridge callbacks cannot issue a write after an earlier Stop latch or mutate a replacement connection                                                                                                                                                                                                                            |
+| Speed semantics              | With knob zero or a request/effective-speed mismatch, Stop still writes zero and a changed BLE speed request is not skipped                                                                                                                                                                                                                               |
+| Profile semantics            | Parse the selected firmware's full known state shape; stored reads/command responses do not masquerade as fresh telemetry or stopped evidence; interior values do not inherit an unverified minus-one correction                                                                                                                                          |
+| Hardware qualification       | Separate guest loss (live server stops) from ControlService kill/freeze, host OS sleep, bridge/BLE loss, calibration/range transitions and competing device clients                                                                                                                                                                                       |
 
 Use a controllable clock and deferred operations, not real sleeps, for ordering
 and expiry tests. Test actual operation logs and observable outcomes, not
@@ -856,27 +889,27 @@ installation, commits, device operation or firmware updates.
 
 The current direction is ControlService with separately hostable .NET 10
 AdminWeb and GuestWeb clients, with one ControlService-owned controller and
-bridge. Review this revision before Plan.
-Candidate firmware/pattern, mapping ownership and deadline policies remain
-selected; SDK/NuGet installation approval is still required before execution.
+bridge. Review this revision before Plan. Candidate firmware/pattern, mapping
+ownership and deadline policies remain selected; SDK/NuGet installation approval
+is still required before execution.
 
 The following are evidence or acceptance gates, not questions to answer by
 copying another project's constants:
 
-| Gate                                      | Owner and required evidence                                                                                                                                                                    | Until satisfied                                                                                             |
-| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| Actual installation and travel            | Hardware operator supplies the exact installed stock build, hardware/calibration record and an unloaded setup; maintainer records the qualified profile                                        | Simulator/read-only identification only; no qualified physical motion profile                               |
-| Feedback and parameter conformance        | Maintainer and operator verify raw-versus-effective speed, direct parameter round trips, physical envelope mapping, genuinely fresh state, stopped feedback and connection-scoped causal attribution for every supported parameter/mode write | Required capabilities remain unavailable; physical remote arming disabled |
+| Gate                                      | Owner and required evidence                                                                                                                                                                                                                   | Until satisfied                                                                                             |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Actual installation and travel            | Hardware operator supplies the exact installed stock build, hardware/calibration record and an unloaded setup; maintainer records the qualified profile                                                                                       | Simulator/read-only identification only; no qualified physical motion profile                               |
+| Feedback and parameter conformance        | Maintainer and operator verify raw-versus-effective speed, direct parameter round trips, physical envelope mapping, genuinely fresh state, stopped feedback and connection-scoped causal attribution for every supported parameter/mode write | Required capabilities remain unavailable; physical remote arming disabled                                   |
 | Physical override detection               | Verify physical remote/knob changes trigger DC-09 lockout without the service restoring prior motion; distinguish qualified own echoes from external changes, and record detection latency and actual stop behavior on each supported profile | No claim that the physical remote is an effective hard stop through this feature until demonstrated         |
-| Independent stopping and acceptable bound | Maintainer and hardware operator agree an application-specific maximum stopping time/distance before loaded use, then collect unloaded fault evidence from fault onset through actual stopping | No physical-use release; the source's one-second delay plus two-second ramp is not accepted as a safe bound |
-| Bridge deployment                         | Establish actual home-service OS, native BLE/bridge hardware, service identity, permissions and pairing/provisioning procedure                                                                 | Simulator bridge only; no invented platform-specific adapter or untested container Bluetooth                |
-| Operator actions                          | Define trusted service-side approval, device setup and rearming without a second browser; ordinary guest requests cannot perform them                                                          | Sessions remain disarmed until explicitly allowed                                                           |
-| Service integration                       | Verify authorization across all entry points, single hosted-controller lifetime, native I/O cancellation and guest-loss expiry                                                                 | No claim that rendered UI restrictions or a C# fake prove the enforcement boundary                          |
-| Build and dependencies                    | Implementation work pins a serviced .NET 10 SDK, compatible NuGet/workload versions and a reviewed restore after installation approval                                                         | No claim of build reproducibility, dependency safety or passing regression tests                            |
+| Independent stopping and acceptable bound | Maintainer and hardware operator agree an application-specific maximum stopping time/distance before loaded use, then collect unloaded fault evidence from fault onset through actual stopping                                                | No physical-use release; the source's one-second delay plus two-second ramp is not accepted as a safe bound |
+| Bridge deployment                         | Establish actual home-service OS, native BLE/bridge hardware, service identity, permissions and pairing/provisioning procedure                                                                                                                | Simulator bridge only; no invented platform-specific adapter or untested container Bluetooth                |
+| Operator actions                          | Define trusted service-side approval, device setup and rearming without a second browser; ordinary guest requests cannot perform them                                                                                                         | Sessions remain disarmed until explicitly allowed                                                           |
+| Service integration                       | Verify authorization across all entry points, single hosted-controller lifetime, native I/O cancellation and guest-loss expiry                                                                                                                | No claim that rendered UI restrictions or a C# fake prove the enforcement boundary                          |
+| Build and dependencies                    | Implementation work pins a serviced .NET 10 SDK, compatible NuGet/workload versions and a reviewed restore after installation approval                                                                                                        | No claim of build reproducibility, dependency safety or passing regression tests                            |
 
-The independent-stop test includes ControlService process death/freeze with BLE still
-connected, host OS sleep, bridge loss and competing-client conditions. Guest web
-or Chrome death/freeze is separately handled by live ControlService. A
+The independent-stop test includes ControlService process death/freeze with BLE
+still connected, host OS sleep, bridge loss and competing-client conditions.
+Guest web or Chrome death/freeze is separately handled by live ControlService. A
 healthy BLE connection is not proof admin is executing. If unchanged firmware
 cannot meet that boundary, return for an explicit scope decision about an
 independent interlock or a different device adapter; do not substitute a manual

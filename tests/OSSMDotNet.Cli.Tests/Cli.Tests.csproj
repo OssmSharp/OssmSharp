@@ -6,12 +6,17 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\OSSMDotNet.Cli\Cli.csproj" />
+    <ProjectReference
+      Include="..\..\src\OSSMDotNet.Abstractions\OSSMDotNet.Abstractions.csproj" />
     <Compile Include="..\OSSMDotNet.ControlClient.Tests\HubInvocation.cs" Link="HubInvocation.cs" />
-    <Compile Include="..\OSSMDotNet.ControlClient.Tests\LocalControlHubFixture.cs" Link="LocalControlHubFixture.cs" />
-    <Compile Include="..\OSSMDotNet.ControlClient.Tests\LocalControlHub.cs" Link="LocalControlHub.cs" />
+    <Compile Include="..\OSSMDotNet.ControlClient.Tests\LocalControlHubFixture.cs"
+      Link="LocalControlHubFixture.cs" />
+    <Compile Include="..\OSSMDotNet.ControlClient.Tests\LocalControlHub.cs"
+      Link="LocalControlHub.cs" />
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <PackageReference Include="xunit.v3.mtp-v2" />
     <PackageReference Include="Microsoft.Testing.Platform" />
+    <Using Include="OSSMDotNet.DeviceBridge.Abstractions" />
     <Using Include="Xunit" />
   </ItemGroup>
 </Project>

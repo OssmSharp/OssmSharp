@@ -1,7 +1,7 @@
 using FastMoq;
 using Microsoft.Extensions.Time.Testing;
-using OSSMDotNet.Models;
 using OSSMDotNet.ControlCore;
+using OSSMDotNet.Models;
 
 namespace OSSMDotNet.ControlCore.Tests;
 
@@ -303,10 +303,10 @@ public sealed class PrototypeEngineTests
         rig.Arm();
         foreach (var invalid in new[]
         {
-            new DesiredState(1, 10, 10, 20, 50), new DesiredState(0, 10, 10, 20, 49),
-            new DesiredState(0, 51, 10, 20, 50), new DesiredState(0, 10, 0, 20, 50),
-            new DesiredState(0, 10, 21, 20, 50), new DesiredState(0, -1, 10, 20, 50),
-            new DesiredState(0, 10, 10, 101, 50)
+            new MotionSettings(1, 10, 10, 20, 50), new MotionSettings(0, 10, 10, 20, 49),
+            new MotionSettings(0, 51, 10, 20, 50), new MotionSettings(0, 10, 0, 20, 50),
+            new MotionSettings(0, 10, 21, 20, 50), new MotionSettings(0, -1, 10, 20, 50),
+            new MotionSettings(0, 10, 10, 101, 50)
         })
         {
             Rejected(() => rig.Submit(rig.Input(1, invalid)));
@@ -325,7 +325,7 @@ public sealed class PrototypeEngineTests
         rig.Submit(rig.Input(1));
         rig.Engine.Tick();
         Assert.Single(rig.Bridge.Calls);
-        rig.Submit(rig.Input(2, DesiredState.Stopped with { Speed = 20 }));
+        rig.Submit(rig.Input(2, MotionSettings.Stopped with { Speed = 20 }));
         rig.Engine.Pause();
         rig.Engine.Pause();
         rig.Engine.Tick();
@@ -370,7 +370,7 @@ public sealed class PrototypeEngineTests
         rig.Bridge.AutoComplete = false;
         rig.Submit(rig.Input(1));
         rig.Engine.Tick();
-        rig.Bridge.External(DesiredState.Stopped with { Depth = 30 });
+        rig.Bridge.External(MotionSettings.Stopped with { Depth = 30 });
         Assert.Equal("Locked", rig.Engine.Snapshot.Mode);
         Assert.Equal("external-parameter-change", rig.Engine.Snapshot.Reason);
         var revision = rig.Engine.Snapshot.LockRevision;
@@ -392,7 +392,7 @@ public sealed class PrototypeEngineTests
     {
         await using var rig = new Rig();
         rig.Arm();
-        rig.Bridge.External(DesiredState.Stopped with { Depth = 30 });
+        rig.Bridge.External(MotionSettings.Stopped with { Depth = 30 });
         rig.Pump();
         rig.Engine.SetLimits(new(0, 0));
 
@@ -422,7 +422,7 @@ public sealed class PrototypeEngineTests
     {
         await using var rig = new Rig();
         rig.Arm();
-        rig.Bridge.External(DesiredState.Stopped with { Depth = 30 });
+        rig.Bridge.External(MotionSettings.Stopped with { Depth = 30 });
         rig.Pump();
         var old = rig.Engine.Snapshot.LockRevision;
         using var released = new ManualResetEventSlim();
@@ -431,7 +431,7 @@ public sealed class PrototypeEngineTests
             released.Wait();
             return Rejected(() => rig.Engine.Unlock(old));
         });
-        rig.Bridge.External(DesiredState.Stopped with { Depth = 40 });
+        rig.Bridge.External(MotionSettings.Stopped with { Depth = 40 });
         released.Set();
         await unlock;
         Assert.True(rig.Engine.Snapshot.LockRevision > old);
@@ -443,7 +443,7 @@ public sealed class PrototypeEngineTests
     {
         await using var rig = new Rig();
         rig.Arm();
-        rig.Bridge.External(DesiredState.Stopped with { Depth = 30 });
+        rig.Bridge.External(MotionSettings.Stopped with { Depth = 30 });
         rig.Pump();
         rig.Engine.EndSession();
         rig.Invite();
@@ -491,7 +491,7 @@ public sealed class PrototypeEngineTests
         rig.Bridge.Velocity = 18;
         rig.Bridge.Publish();
         Assert.Equal("Ready", rig.Engine.Snapshot.Mode);
-        rig.Bridge.External(DesiredState.Stopped with { Depth = 21 });
+        rig.Bridge.External(MotionSettings.Stopped with { Depth = 21 });
         Assert.Equal("Locked", rig.Engine.Snapshot.Mode);
     }
 
@@ -502,7 +502,7 @@ public sealed class PrototypeEngineTests
     {
         await using var rig = new Rig();
         rig.Arm();
-        var target = new DesiredState(0, 20, 15, 40, 50);
+        var target = new MotionSettings(0, 20, 15, 40, 50);
         rig.Submit(rig.Input(1, target));
         rig.Pump();
         Assert.Equal(expected, rig.Bridge.Calls.Select(call => call.Kind));
@@ -517,7 +517,7 @@ public sealed class PrototypeEngineTests
         await using var rig = new Rig();
         rig.Arm();
         rig.Bridge.RetractOnStop = true;
-        rig.Submit(rig.Input(1, new DesiredState(0, 20, 15, 40, 50)));
+        rig.Submit(rig.Input(1, new MotionSettings(0, 20, 15, 40, 50)));
         rig.Engine.Tick();
         rig.Engine.Tick();
         Assert.True(rig.Engine.Snapshot.DeviceMoving);
@@ -602,7 +602,7 @@ public sealed class PrototypeEngineTests
         rig.Bridge.AutoComplete = false;
         rig.Submit(rig.Input(1));
         rig.Engine.Tick();
-        rig.Bridge.External(DesiredState.Stopped with { Depth = 22 }, rig.Bridge.Calls[0].CommandId);
+        rig.Bridge.External(MotionSettings.Stopped with { Depth = 22 }, rig.Bridge.Calls[0].CommandId);
         Assert.Equal("Locked", rig.Engine.Snapshot.Mode);
         Assert.Equal(1L, rig.Engine.Snapshot.LockRevision);
     }

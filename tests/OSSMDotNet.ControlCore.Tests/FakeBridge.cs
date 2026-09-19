@@ -5,16 +5,16 @@ namespace OSSMDotNet.ControlCore.Tests;
 internal sealed class FakeBridge : IDeviceBridge
 {
     private readonly List<BridgeCall> _calls = [];
-    private Action<DeviceSample>? _received;
+    private Action<DeviceState>? _received;
     private long _sequence;
     private long _revision;
     private long? _command;
     private int _active;
-    private DesiredState _desired = DesiredState.Stopped;
+    private MotionSettings _desired = MotionSettings.Stopped;
     private bool _enabled;
     private bool _moving;
 
-    public event Action<DeviceSample>? SampleReceived
+    public event Action<DeviceState>? SampleReceived
     {
         add { _received += value; SubscriberCount++; }
         remove { _received -= value; SubscriberCount--; }
@@ -31,12 +31,12 @@ internal sealed class FakeBridge : IDeviceBridge
     public int MaxActive { get; private set; }
     public IReadOnlyList<BridgeCall> Calls => _calls;
 
-    public Task WriteAsync(long commandId, DesiredState desired, CancellationToken cancellationToken) =>
+    public Task SetMotionAsync(long commandId, MotionSettings desired, CancellationToken cancellationToken) =>
         Start("Write", commandId, desired);
     public Task StopAsync(long commandId, CancellationToken cancellationToken) =>
         Start("Stop", commandId, null);
 
-    private Task Start(string kind, long commandId, DesiredState? desired)
+    private Task Start(string kind, long commandId, MotionSettings? desired)
     {
         var call = new BridgeCall(kind, commandId, desired);
         _calls.Add(call);
@@ -74,7 +74,7 @@ internal sealed class FakeBridge : IDeviceBridge
         call.Completion.SetResult();
     }
 
-    public void External(DesiredState desired, long? commandId = null)
+    public void External(MotionSettings desired, long? commandId = null)
     {
         if (_desired != desired) _revision++;
         _desired = desired;

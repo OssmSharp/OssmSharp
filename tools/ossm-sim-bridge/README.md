@@ -1,8 +1,10 @@
 # OSSM-RS headless simulation bridge
 
-`ossm-sim-bridge` is a bounded, native JSON-lines adapter for the **existing
-OSSM-RS motion engine**. It is for a local controller prototype, not hardware
-operation or stock-firmware qualification.
+`ossm-sim-bridge` is the external runtime used by the current standalone
+`OSSMDotNet.DeviceBridge` .NET library implementation. It is a bounded, native
+JSON-lines adapter for the **existing OSSM-RS motion engine**. The executable is
+built separately and supplied to the .NET library at runtime; it is for a local
+controller prototype, not hardware operation or stock-firmware qualification.
 
 It has no GUI, network endpoint, BLE, serial port, device I/O, homing procedure,
 or saved-state persistence. Its motor implementation is a no-op. Position and
@@ -10,7 +12,7 @@ velocity come from the upstream `DebugOut` callbacks, not a replacement motion
 model. Each process starts connected and stopped:
 
 ```json
-{"pattern":0,"speed":0,"stroke":10,"depth":20,"sensation":50}
+{ "pattern": 0, "speed": 0, "stroke": 10, "depth": 20, "sensation": 50 }
 ```
 
 ## Source provenance
@@ -24,10 +26,10 @@ model. Each process starts connected and stopped:
   `rsruckig` 2.1.3 at `d73e32f072aed81da3dba9b83b410062d27d9c6f`.
 
 The manifest records the supplied source revision. A Cargo path dependency is
-not an immutable Git dependency: it compiles the local files as they exist.
-No Git operation verifies or changes that checkout. Keep the intended local
-source revision available; rebuilding after local source edits can change the
-engine. The adapter does not read, replace, build, or run firmware binaries.
+not an immutable Git dependency: it compiles the local files as they exist. No
+Git operation verifies or changes that checkout. Keep the intended local source
+revision available; rebuilding after local source edits can change the engine.
+The adapter does not read, replace, build, or run firmware binaries.
 
 The integration follows the local simulator's `src/motion_control.rs`:
 `MotionControl::new_with_debug`, a dummy `Motor`, an Embassy-backed `Timer`, and
@@ -52,8 +54,8 @@ cargo build --release --manifest-path tools\ossm-sim-bridge\Cargo.toml
 Offline mode prevents registry access and Git fetching. An incomplete cache
 causes a build failure; these commands do not install an SDK or start the GUI.
 Incremental compilation is disabled here to avoid the existing Windows cache
-finalization access-denied issue. The upstream unused `Float` import warning
-is left untouched.
+finalization access-denied issue. The upstream unused `Float` import warning is
+left untouched.
 
 Executable:
 
@@ -76,31 +78,31 @@ arrive out of request order; correlate them by `id`, not by line position.
 ## Protocol v1
 
 UTF-8, one JSON **object** per line; LF and CRLF are accepted. The maximum JSON
-frame is 4096 bytes, excluding the line ending. A final nonempty frame at EOF
-is processed. Unknown, duplicate, missing, null, wrongly typed, or
-operation-inappropriate fields are rejected. JSON arrays are not substitutes
-for request or desired objects.
+frame is 4096 bytes, excluding the line ending. A final nonempty frame at EOF is
+processed. Unknown, duplicate, missing, null, wrongly typed, or
+operation-inappropriate fields are rejected. JSON arrays are not substitutes for
+request or desired objects.
 
 All requests require `v: 1`, a positive `u64` integer `id`, and `op`.
 `commandId`, when required, is also a positive `u64` integer. Optional fields
 must be omitted when not applicable; explicit null is invalid.
 
-| `op` | Additional fields | Effect |
-| --- | --- | --- |
-| `status` | None | Return the current published snapshot. |
-| `write` | `commandId`, `desired` | Apply desired controls; enable iff speed is nonzero. |
-| `stop` | `commandId` | Set speed to zero and disable; preserve the other current desired fields. |
-| `external` | `desired` | Inject controls into the same actual engine state; clear `commandId`. |
-| `delay` | `value`: integer 0–5000 | Set latency in milliseconds for the next accepted write or stop. |
-| `stale` | `value`: integer 0 or 1 | Unfreeze or freeze published samples, respectively. |
-| `disconnect` | None | Mark disconnected, zero speed, disable, clear `commandId`, invalidate pending I/O. |
-| `connect` | None | Mark connected, restore the stopped startup controls, clear `commandId`. |
-| `shutdown` | None | Disable, zero speed, reply, and exit without waiting for pending artificial latency. |
+| `op`         | Additional fields       | Effect                                                                               |
+| ------------ | ----------------------- | ------------------------------------------------------------------------------------ |
+| `status`     | None                    | Return the current published snapshot.                                               |
+| `write`      | `commandId`, `desired`  | Apply desired controls; enable iff speed is nonzero.                                 |
+| `stop`       | `commandId`             | Set speed to zero and disable; preserve the other current desired fields.            |
+| `external`   | `desired`               | Inject controls into the same actual engine state; clear `commandId`.                |
+| `delay`      | `value`: integer 0–5000 | Set latency in milliseconds for the next accepted write or stop.                     |
+| `stale`      | `value`: integer 0 or 1 | Unfreeze or freeze published samples, respectively.                                  |
+| `disconnect` | None                    | Mark disconnected, zero speed, disable, clear `commandId`, invalidate pending I/O.   |
+| `connect`    | None                    | Mark connected, restore the stopped startup controls, clear `commandId`.             |
+| `shutdown`   | None                    | Disable, zero speed, reply, and exit without waiting for pending artificial latency. |
 
 `desired` has exactly these integer fields:
 
 ```json
-{"pattern":0,"speed":30,"stroke":20,"depth":40,"sensation":50}
+{ "pattern": 0, "speed": 30, "stroke": 20, "depth": 40, "sensation": 50 }
 ```
 
 Only pattern 0 is supported. Percentages must be 0–100, stroke must not exceed
@@ -109,22 +111,66 @@ sensation 50. External injection permits sensation 0–100; the native Simple
 Stroke pattern does not use sensation to change its trajectory.
 
 Ordinary writes and stops require a connection. External injection is an
-out-of-band fault control and remains available while disconnected; it does
-not change the connection flag and can simulate externally enabled motion.
-A subsequent disconnect or connect disables it again.
+out-of-band fault control and remains available while disconnected; it does not
+change the connection flag and can simulate externally enabled motion. A
+subsequent disconnect or connect disables it again.
 
 ### Replies and events
 
 Success reply:
 
 ```json
-{"v":1,"id":1,"ok":true,"error":null,"state":{"sampleSequence":2,"changeRevision":0,"commandId":null,"desired":{"pattern":0,"speed":0,"stroke":10,"depth":20,"sensation":50},"enabled":false,"moving":false,"position":0.0,"velocity":0.0,"connected":true,"profileId":"ossm-rs-sim-v1"}}
+{
+  "v": 1,
+  "id": 1,
+  "ok": true,
+  "error": null,
+  "state": {
+    "sampleSequence": 2,
+    "changeRevision": 0,
+    "commandId": null,
+    "desired": {
+      "pattern": 0,
+      "speed": 0,
+      "stroke": 10,
+      "depth": 20,
+      "sensation": 50
+    },
+    "enabled": false,
+    "moving": false,
+    "position": 0.0,
+    "velocity": 0.0,
+    "connected": true,
+    "profileId": "ossm-rs-sim-v1"
+  }
+}
 ```
 
 Event, scheduled every 50 ms while not stale:
 
 ```json
-{"v":1,"event":"state","state":{"sampleSequence":3,"changeRevision":0,"commandId":null,"desired":{"pattern":0,"speed":0,"stroke":10,"depth":20,"sensation":50},"enabled":false,"moving":false,"position":0.0,"velocity":0.0,"connected":true,"profileId":"ossm-rs-sim-v1"}}
+{
+  "v": 1,
+  "event": "state",
+  "state": {
+    "sampleSequence": 3,
+    "changeRevision": 0,
+    "commandId": null,
+    "desired": {
+      "pattern": 0,
+      "speed": 0,
+      "stroke": 10,
+      "depth": 20,
+      "sensation": 50
+    },
+    "enabled": false,
+    "moving": false,
+    "position": 0.0,
+    "velocity": 0.0,
+    "connected": true,
+    "profileId": "ossm-rs-sim-v1"
+  }
+}
 ```
 
 `state` contains exactly the fields shown. `position` is simulated millimetres;
@@ -148,21 +194,21 @@ Validation failures omit `state`. Valid requests rejected as busy or
 disconnected include the current published sample. Error codes are fixed and
 never echo supplied content:
 
-| Code | Meaning |
-| --- | --- |
-| `invalid_request` | Invalid JSON/UTF-8, shape, field type, ID, operation, or payload. |
-| `unsupported_version` | A structurally valid request has a version other than 1. |
-| `invalid_desired` | Unsupported pattern, percentage/relationship violation, or ordinary-write sensation other than 50. |
-| `frame_too_large` | More than 4096 JSON bytes. |
-| `busy` | Another ordinary write/stop already owns the pending slot. |
-| `disconnected` | Ordinary command lacks a connection, or disconnect invalidated its pending completion. |
+| Code                  | Meaning                                                                                            |
+| --------------------- | -------------------------------------------------------------------------------------------------- |
+| `invalid_request`     | Invalid JSON/UTF-8, shape, field type, ID, operation, or payload.                                  |
+| `unsupported_version` | A structurally valid request has a version other than 1.                                           |
+| `invalid_desired`     | Unsupported pattern, percentage/relationship violation, or ordinary-write sensation other than 50. |
+| `frame_too_large`     | More than 4096 JSON bytes.                                                                         |
+| `busy`                | Another ordinary write/stop already owns the pending slot.                                         |
+| `disconnected`        | Ordinary command lacks a connection, or disconnect invalidated its pending completion.             |
 
 Replies preserve a valid recoverable request ID. Malformed JSON, invalid or
-duplicate IDs, non-object requests, and oversized frames use the reserved
-error ID `0`, since those inputs have no trustworthy request identity:
+duplicate IDs, non-object requests, and oversized frames use the reserved error
+ID `0`, since those inputs have no trustworthy request identity:
 
 ```json
-{"v":1,"id":0,"ok":false,"error":"frame_too_large"}
+{ "v": 1, "id": 0, "ok": false, "error": "frame_too_large" }
 ```
 
 ### Delayed I/O and stale observations
@@ -178,10 +224,10 @@ completion, except speed. **A controller that abandons a delayed write must
 handle its eventual completion and then issue a stop**; abandoning its local
 wait does not cancel the simulated I/O.
 
-A disconnect invalidates pending I/O even if connect occurs before its
-deadline. At the original deadline it replies `disconnected` without mutation.
-The pending slot remains occupied until then. EOF and shutdown end the process
-instead and discard pending completions.
+A disconnect invalidates pending I/O even if connect occurs before its deadline.
+At the original deadline it replies `disconnected` without mutation. The pending
+slot remains occupied until then. EOF and shutdown end the process instead and
+discard pending completions.
 
 Stale mode freezes the entire last published sample, including its sequence,
 revision, command ID, connection flag, and kinematics. It suppresses periodic
@@ -192,11 +238,11 @@ sample. Connect does not silently clear separately injected stale/delay faults.
 ## Native retract semantics and limits
 
 **This preserves OSSM-RS native retract-on-disable behavior. It is not a stock
-firmware stop guarantee.** Upstream
-`config::RETRACT_ON_MOTION_DISABLED` is true; `motion::run_motion` retracts to
-`MIN_MOVE_MM` (10 mm) after observing an enabled-to-disabled transition.
-A successful stop can therefore report speed 0, `enabled: false`, and
-`moving: true` together. There is no instantaneous standstill guarantee.
+firmware stop guarantee.** Upstream `config::RETRACT_ON_MOTION_DISABLED` is
+true; `motion::run_motion` retracts to `MIN_MOVE_MM` (10 mm) after observing an
+enabled-to-disabled transition. A successful stop can therefore report speed 0,
+`enabled: false`, and `moving: true` together. There is no instantaneous
+standstill guarantee.
 
 The adapter neither fabricates a home position nor forces the last debug
 velocity to zero. Upstream's initial debug position is 0.0 before a first move,
@@ -204,10 +250,10 @@ despite the nominal 10 mm minimum. Debug callbacks can retain the last
 trajectory values when a move finishes. These are simulation outputs, not
 encoder measurements or mechanical safety evidence.
 
-Scheduling is best-effort, not real time: nominal 10 ms engine updates and
-50 ms events are subject to Windows timer resolution and process scheduling.
-Missed event periods do not produce a catch-up flood. Artificial latency is a
-minimum deadline, not a hard real-time completion bound.
+Scheduling is best-effort, not real time: nominal 10 ms engine updates and 50 ms
+events are subject to Windows timer resolution and process scheduling. Missed
+event periods do not produce a catch-up flood. Artificial latency is a minimum
+deadline, not a hard real-time completion bound.
 
 ## Resource bounds and lifecycle
 
@@ -222,15 +268,15 @@ minimum deadline, not a hard real-time completion bound.
   output pipe produces a nonzero exit, not a false successful shutdown.
 - The blocking stdin OS thread is process-lifetime. It is not a Tokio blocking
   task, so shutdown exits even when the parent keeps stdin open.
-- Stderr uses fixed diagnostics: at most four upstream error notices, one
-  panic notice, and a terminal failure notice. No request or raw upstream error
-  text is echoed. Upstream recoverable error logs retain upstream continuation
+- Stderr uses fixed diagnostics: at most four upstream error notices, one panic
+  notice, and a terminal failure notice. No request or raw upstream error text
+  is echoed. Upstream recoverable error logs retain upstream continuation
   behavior; panics, task exit, non-finite observations, and transport failures
   fail the adapter.
 - Exit codes: 0 for shutdown/EOF, 1 for runtime/engine/transport failure, 2 for
   command-line arguments. Rejected JSON requests alone do not end the process.
 
 Unit tests exercise parsing, bounds, serialization, scheduling, and pure state
-transitions without constructing a global motion engine. Subprocess smoke
-checks exercise the real core separately. No hardware, stock-firmware
-compatibility, GUI behavior, or .NET controller integration is qualified here.
+transitions without constructing a global motion engine. Subprocess smoke checks
+exercise the real core separately. No hardware, stock-firmware compatibility,
+GUI behavior, or .NET controller integration is qualified here.

@@ -265,7 +265,7 @@ public sealed class PageControlHubFixture : IAsyncDisposable
                     0,
                     true,
                     false,
-                    DesiredState.Stopped,
+                    MotionSettings.Stopped,
                     null,
                     new ControlLimits(speedCap, maximumDepth),
                     7,

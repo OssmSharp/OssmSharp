@@ -159,7 +159,7 @@ public sealed class ControlAuthorityRevisionTests
 
         if (operation == "unlock")
         {
-            fixture.Bridge.External(DesiredState.Stopped with { Depth = 21 });
+            fixture.Bridge.External(MotionSettings.Stopped with { Depth = 21 });
             fixture.Engine.Tick();
             fixture.Engine.Tick();
             fixture.Bridge.Publish();

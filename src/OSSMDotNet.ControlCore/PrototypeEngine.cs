@@ -19,7 +19,7 @@ public sealed class PrototypeEngine : IAsyncDisposable
     private Invitation? _invitation;
     private byte[]? _invitationHash;
     private Session? _session;
-    private DeviceSample? _observed;
+    private DeviceState? _observed;
     private long _sampleTimestamp;
     private long _connection;
     private bool _connected;
@@ -37,10 +37,10 @@ public sealed class PrototypeEngine : IAsyncDisposable
     private IssuedGrant? _authority;
     private double _tokens = 20;
     private long _tokenTimestamp;
-    private DesiredState _desired = DesiredState.Stopped;
+    private MotionSettings _desired = MotionSettings.Stopped;
     private bool _hasDesired;
     private bool _envelopeStopped;
-    private DesiredState? _zeroAwaitingEcho;
+    private MotionSettings? _zeroAwaitingEcho;
     private bool _stopRequested;
     private bool _stopQueued;
     private StopFeedback? _stopFeedback;
@@ -455,7 +455,7 @@ public sealed class PrototypeEngine : IAsyncDisposable
         _hasDesired = false;
         _envelopeStopped = false;
         _zeroAwaitingEcho = null;
-        _desired = (_observed?.Desired ?? DesiredState.Stopped) with { Speed = 0 };
+        _desired = (_observed?.Desired ?? MotionSettings.Stopped) with { Speed = 0 };
     }
 
     private void RequestStop(bool force = false)
@@ -485,7 +485,7 @@ public sealed class PrototypeEngine : IAsyncDisposable
         RequestStop(force: true);
     }
 
-    private void OnSample(DeviceSample sample)
+    private void OnSample(DeviceState sample)
     {
         lock (_gate)
         {
@@ -503,9 +503,9 @@ public sealed class PrototypeEngine : IAsyncDisposable
             }
 
             var reconnecting = !_connected;
-            if (!reconnecting && _observed is not null && sample.SampleSequence <= _observed.SampleSequence)
+            if (!reconnecting && _observed is not null && sample.ObservationSequenceNumber <= _observed.ObservationSequenceNumber)
                 return;
-            if (sample.SampleSequence < 0 || sample.ChangeRevision < 0 || sample.Desired is null)
+            if (sample.ObservationSequenceNumber < 0 || sample.ChangeRevision < 0 || sample.Desired is null)
             {
                 Fault("invalid-feedback");
                 return;
@@ -539,7 +539,7 @@ public sealed class PrototypeEngine : IAsyncDisposable
         }
     }
 
-    private bool OwnedEcho(DeviceSample sample) =>
+    private bool OwnedEcho(DeviceState sample) =>
         _lastOwnedCommand is { } own && own.Connection == _connection &&
         sample.CommandId == own.Id && sample.Desired == own.Desired;
 
@@ -593,7 +593,7 @@ public sealed class PrototypeEngine : IAsyncDisposable
         if (_stopFeedback is not { } feedback)
             return;
         if (KnownStopped(now) && _connection == feedback.Connection &&
-            _observed!.SampleSequence > feedback.SampleSequence)
+            _observed!.ObservationSequenceNumber > feedback.SampleSequence)
         {
             _stopFeedback = null;
             if (feedback.ForEnvelope && feedback.Generation == _generation && _mode == "Ready")
@@ -614,7 +614,7 @@ public sealed class PrototypeEngine : IAsyncDisposable
         {
             _stopQueued = false;
             _stopFeedback = null;
-            Dispatch(OperationKind.Stop, (_observed?.Desired ?? DesiredState.Stopped) with { Speed = 0 }, now);
+            Dispatch(OperationKind.Stop, (_observed?.Desired ?? MotionSettings.Stopped) with { Speed = 0 }, now);
             return;
         }
         if (_stopFeedback is not null || _mode != "Ready" || !_hasDesired || !MotionAuthorized(now))
@@ -664,14 +664,14 @@ public sealed class PrototypeEngine : IAsyncDisposable
         return _session?.Mode == "Approved" && ValidDesired(_desired);
     }
 
-    private void Dispatch(OperationKind kind, DesiredState desired, long now, bool forEnvelope = false)
+    private void Dispatch(OperationKind kind, MotionSettings desired, long now, bool forEnvelope = false)
     {
         // Dispatch and the final authority check run under the same lock as Pause and Lock.
         // The bridge must return a Task promptly; that Task owns the writer until settlement.
         if (kind != OperationKind.Stop && !MotionAuthorized(now))
             return;
         var operation = new Operation(++_commandId, kind, desired, now, _generation,
-            _observed?.SampleSequence ?? -1, _connection, forEnvelope);
+            _observed?.ObservationSequenceNumber ?? -1, _connection, forEnvelope);
         _operation = operation;
         _lastOwnedCommand = new(operation.Id, desired, _connection);
         if (kind != OperationKind.Stop)
@@ -684,8 +684,8 @@ public sealed class PrototypeEngine : IAsyncDisposable
         try
         {
             operation.Task = kind == OperationKind.Stop
-                ? _bridge.StopAsync(operation.Id, CancellationToken.None)
-                : _bridge.WriteAsync(operation.Id, desired, CancellationToken.None);
+                ? _bridge.SetMotionAsync(operation.Id, MotionSettings.Stopped, CancellationToken.None)
+                : _bridge.SetMotionAsync(operation.Id, desired, CancellationToken.None);
         }
         catch (Exception error)
         {
@@ -754,14 +754,14 @@ public sealed class PrototypeEngine : IAsyncDisposable
     private bool NoOutstandingIo() => _operation is null && !_stopQueued && _stopFeedback is null;
     private bool PolicyAllowsArming() => _limits.SpeedCap is > 0 and <= 100 && _limits.MaximumDepth is > 0 and <= 100;
 
-    private bool ValidDesired(DesiredState? desired) => ValidDesired(desired, _limits);
+    private bool ValidDesired(MotionSettings? desired) => ValidDesired(desired, _limits);
 
-    private static bool ValidDesired(DesiredState? desired, ControlLimits limits) =>
+    private static bool ValidDesired(MotionSettings? desired, ControlLimits limits) =>
         desired is { Pattern: 0, Sensation: 50, Speed: >= 0 and <= 100, Stroke: >= 0 and <= 100, Depth: >= 0 and <= 100 } &&
         desired.Stroke <= desired.Depth && desired.Depth <= limits.MaximumDepth &&
         desired.Speed <= limits.SpeedCap && (desired.Speed == 0 || desired.Stroke > 0);
 
-    private static bool SameEnvelope(DesiredState first, DesiredState second) =>
+    private static bool SameEnvelope(MotionSettings first, MotionSettings second) =>
         first.Pattern == second.Pattern && first.Stroke == second.Stroke &&
         first.Depth == second.Depth && first.Sensation == second.Sensation;
 

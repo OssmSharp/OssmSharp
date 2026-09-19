@@ -4,12 +4,10 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <Deterministic>true</Deterministic>
-    <RootNamespace>OSSMDotNet.$(MSBuildProjectName)</RootNamespace>
     <RunAnalyzersDuringBuild>true</RunAnalyzersDuringBuild>
     <AnalysisMode>latest-All</AnalysisMode>
     <LanguageVersion>latest</LanguageVersion>
     <UseArtifactsOutput>true</UseArtifactsOutput>
     <ArtifactsPath>$(MSBuildThisFileDirectory).artifacts</ArtifactsPath>
-    <RestorePackagesPath>$(MSBuildThisFileDirectory).artifacts/nuget-packages/</RestorePackagesPath>
   </PropertyGroup>
 </Project>

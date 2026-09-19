@@ -1,7 +1,7 @@
 using FastMoq;
 using Microsoft.Extensions.Time.Testing;
-using OSSMDotNet.Models;
 using OSSMDotNet.ControlCore;
+using OSSMDotNet.Models;
 
 namespace OSSMDotNet.ControlCore.Tests;
 
@@ -42,13 +42,13 @@ internal sealed class Rig : IAsyncDisposable
         Bridge.ClearCalls();
     }
 
-    public MotionInput Input(long sequence, DesiredState? desired = null)
+    public MotionInput Input(long sequence, MotionSettings? desired = null)
     {
         var grant = Engine.Snapshot.Grant!;
-        return new(2, grant.Epoch, grant.PolicyVersion, grant.Id, sequence, true, desired ?? DesiredState.Stopped with { Speed = 10 });
+        return new(2, grant.Epoch, grant.PolicyVersion, grant.Id, sequence, true, desired ?? MotionSettings.Stopped with { Speed = 10 });
     }
 
-    public MotionInput InputWithoutGrant(long sequence) => new(2, "old", 1, "old", sequence, true, DesiredState.Stopped);
+    public MotionInput InputWithoutGrant(long sequence) => new(2, "old", 1, "old", sequence, true, MotionSettings.Stopped);
     public void Submit(MotionInput input) => Engine.Submit(Guest.SessionId, Guest.GuestToken, Guest.ConnectionId, input);
     public void Pump()
     {

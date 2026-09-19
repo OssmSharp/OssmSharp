@@ -10,7 +10,7 @@ namespace OSSMDotNet.ControlService.IntegrationTests;
 
 internal sealed class LocalSimulatorControlFixture : IAsyncDisposable
 {
-    private readonly Channel<DeviceSample> _samples = Channel.CreateBounded<DeviceSample>(
+    private readonly Channel<DeviceState> _samples = Channel.CreateBounded<DeviceState>(
         new BoundedChannelOptions(128) { FullMode = BoundedChannelFullMode.DropOldest });
     private readonly ILoggerFactory _loggerFactory;
     private int _disposed;
@@ -58,8 +58,8 @@ internal sealed class LocalSimulatorControlFixture : IAsyncDisposable
         }
     }
 
-    internal async Task<DeviceSample> ReadUntilAsync(
-        Func<DeviceSample, bool> predicate,
+    internal async Task<DeviceState> ReadUntilAsync(
+        Func<DeviceState, bool> predicate,
         CancellationToken cancellationToken)
     {
         while (true)

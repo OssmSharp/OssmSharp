@@ -35,7 +35,7 @@ public sealed class TelemetryTests
         Assert.False(status.DeviceEnabled);
         Assert.True(status.IsSimulator);
         Assert.Null(status.ConnectionId);
-        bridge.External(DesiredState.Stopped with { Speed = 10 });
+        bridge.External(MotionSettings.Stopped with { Speed = 10 });
         Assert.True(guests.Status(hubConnectionId).DeviceEnabled);
     }
 }

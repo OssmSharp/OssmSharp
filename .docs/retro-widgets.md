@@ -18,9 +18,6 @@ Consumers need only .NET and the prebuilt package.
   files and 17 declaration files match the reviewed `0.1.0` artifact, so Shadow
   DOM style hashes remain unchanged. Canonical theme CSS SHA-256 is
   `CE3C03FE6E761388F32D19450E62C76202FCE10AD1B16FD431A0BE5002447A77`.
-- Restores use the repository-local `.artifacts\nuget-packages` cache so an
-  older cached artifact with the same development version cannot mask the
-  update.
 - Keep the `.nupkg` in the local folder or an access-controlled internal feed.
   Do not commit the binary here or push/publish it to a public registry.
 - NuGet metadata commands can query all configured sources despite source
@@ -64,11 +61,11 @@ uv run --with-requirements tests\browser\requirements.txt python tools\retro-wid
 ```
 
 Prerequisites are `uv`, Python with the Playwright version pinned in
-`tests/browser/requirements.txt` (currently 1.61.0), and an existing browser.
-By default, the inspector uses the installed Microsoft Edge. Use `--browser
-chromium` for an existing Playwright Chromium installation or `--browser
-firefox` for an existing Playwright Firefox installation. The tool installs
-nothing.
+`tests/browser/requirements.txt` (currently 1.61.0), and an existing browser. By
+default, the inspector uses the installed Microsoft Edge. Use
+`--browser chromium` for an existing Playwright Chromium installation or
+`--browser firefox` for an existing Playwright Firefox installation. The tool
+installs nothing.
 
 The inspector serves only the archive's `staticwebassets/widgets` assets through
 intercepted synthetic-origin routes; external requests are blocked. It observes

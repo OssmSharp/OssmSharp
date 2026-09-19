@@ -7,9 +7,12 @@
     </PropertyGroup>
     <ItemGroup>
         <AssemblyMetadata Include="RepositoryRoot" Value="$(MSBuildProjectDirectory)\..\.." />
-        <ProjectReference Include="..\..\src\OSSMDotNet.DeviceBridge\DeviceBridge.csproj" />
+        <ProjectReference
+            Include="..\..\src\OSSMDotNet.Abstractions\OSSMDotNet.Abstractions.csproj" />
+        <ProjectReference Include="..\..\src\OSSMDotNet\OSSMDotNet.csproj" />
         <PackageReference Include="xunit.v3.mtp-v2" />
         <PackageReference Include="Microsoft.Testing.Platform" />
+        <Using Include="OSSMDotNet.DeviceBridge.Abstractions" />
         <Using Include="Xunit" />
     </ItemGroup>
 </Project>

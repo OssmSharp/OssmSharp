@@ -2,4 +2,4 @@ using OSSMDotNet.Models;
 
 namespace OSSMDotNet.ControlCore;
 
-internal sealed record OwnedCommand(long Id, DesiredState Desired, long Connection);
+internal sealed record OwnedCommand(long Id, MotionSettings Desired, long Connection);

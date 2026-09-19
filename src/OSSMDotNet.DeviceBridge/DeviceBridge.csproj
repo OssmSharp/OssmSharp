@@ -1,7 +1,0 @@
-<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup><RootNamespace>OSSMDotNet.DeviceBridge</RootNamespace></PropertyGroup>
-  <ItemGroup>
-    <ProjectReference Include="..\OSSMDotNet.Models\OSSMDotNet.Models.csproj" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
-  </ItemGroup>
-</Project>

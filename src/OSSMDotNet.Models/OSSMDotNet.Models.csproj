@@ -2,4 +2,9 @@
 	<PropertyGroup>
 		<RootNamespace>OSSMDotNet.Models</RootNamespace>
 	</PropertyGroup>
+	<ItemGroup>
+		<ProjectReference
+			Include="..\OSSMDotNet.Abstractions\OSSMDotNet.Abstractions.csproj" />
+		<Using Include="OSSMDotNet.DeviceBridge.Abstractions" />
+	</ItemGroup>
 </Project>
