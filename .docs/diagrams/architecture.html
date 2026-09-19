@@ -112,6 +112,7 @@
       <nav aria-label="Architecture views">
         <a href="#deployment">01 &nbsp; Deployment &amp; connections</a>
         <a href="#enforcement">02 &nbsp; Control enforcement</a>
+        <a href="#projects">03 &nbsp; Source-project dependencies</a>
       </nav>
     </header>
 
@@ -409,6 +410,139 @@
           </svg>
         </div>
         <figcaption>Hub command replies are acknowledgement-only; initial and live state use one ordered push path, including bounded cursor-log batches. Stop uses the same single writer, ahead of pending motion, and invalidates stale authority-restoring operator actions by advancing authority revision. A detected physical-control change also latches a lockout: no restoration of prior settings, and no guest unlock. Explicit AdminWeb operator unlock leaves the device paused; rearming is separate.</figcaption>
+      </figure>
+    </section>
+
+    <section class="view" id="projects" aria-labelledby="projects-heading">
+      <div class="view-heading">
+        <span class="view-number" aria-hidden="true">03</span>
+        <div>
+          <h2 id="projects-heading">Logical component dependencies</h2>
+          <p>The view follows runtime responsibility rather than project references: user-facing hosts invoke the control services, ControlService owns policy and device work, and DeviceBridge is the sole path to OSSM.</p>
+        </div>
+      </div>
+      <figure>
+        <div class="viewport" role="region" tabindex="0" aria-label="Source project dependency diagram. Scroll horizontally on narrow screens.">
+          <svg viewBox="0 0 1472 1064" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="projects-title projects-desc">
+            <title id="projects-title">OSSM logical component dependencies</title>
+            <desc id="projects-desc">A top-to-bottom logical architecture showing AdminWeb, GuestWeb, and Cli invoking ControlClient in process; ControlClient using SignalR over HTTPS and WSS to call ControlService; ControlService owning ControlCore and DeviceBridge; DeviceBridge communicating with the external ossm-sim-bridge process through JSON-lines over standard input and output; and Models and ServiceDefaults shown as shared supporting projects.</desc>
+            <defs>
+              <marker id="projects-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#667085"/></marker>
+              <marker id="projects-arrow-cyan" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#53d6ff"/></marker>
+              <style>
+                .projects-bg { fill: #090b0f; }
+                .projects-text { fill: #f4f7fb; font-family: Geist, system-ui, sans-serif; }
+                .projects-name { font-size: 16px; font-weight: 600; }
+                .projects-meta { fill: #a7b0c0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10px; letter-spacing: .04em; }
+                .projects-layer { fill: #8e9aaa; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10px; font-weight: 500; letter-spacing: .12em; }
+                .projects-zone { fill: #10141b; stroke: #252b36; stroke-width: 1; }
+                .projects-node { fill: #151a22; stroke: #3a4352; stroke-width: 1; }
+                .projects-node-shared { fill: #121821; stroke: #536174; stroke-width: 1; }
+                .projects-node-focal { fill: #0c2630; stroke: #53d6ff; stroke-width: 1.2; }
+                .projects-node-external { fill: #17120d; stroke: #b4884b; stroke-width: 1; stroke-dasharray: 4 3; }
+                .projects-edge { fill: none; stroke: #667085; stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#projects-arrow); }
+                .projects-edge-runtime { fill: none; stroke: #53d6ff; stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#projects-arrow-cyan); }
+                .projects-edge-support { fill: none; stroke: #8e9aaa; stroke-width: 1; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#projects-arrow); }
+                .projects-label-mask { fill: #090b0f; }
+                .projects-edge-label { fill: #a7b0c0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 8px; letter-spacing: .06em; }
+                .projects-rule { stroke: #252b36; stroke-width: 1; }
+              </style>
+            </defs>
+            <rect width="1472" height="1064" class="projects-bg"/>
+
+            <!-- Layer zones -->
+            <rect x="40" y="64" width="1072" height="288" rx="8" class="projects-zone"/>
+            <rect x="40" y="400" width="1072" height="184" rx="8" class="projects-zone"/>
+            <rect x="40" y="632" width="1072" height="176" rx="8" class="projects-zone"/>
+            <rect x="40" y="856" width="1072" height="136" rx="8" class="projects-zone"/>
+            <rect x="1144" y="64" width="288" height="192" rx="8" class="projects-zone"/>
+            <text x="64" y="96" class="projects-layer">WEB &amp; COMMAND SURFACES</text>
+            <text x="64" y="432" class="projects-layer">CORRESPONDING SERVICES</text>
+            <text x="64" y="664" class="projects-layer">CONTROL, BRIDGE &amp; SHARED CONTRACTS</text>
+            <text x="64" y="888" class="projects-layer">OSSM / EXTERNAL PROCESS</text>
+            <text x="1168" y="96" class="projects-layer">SHARED HOST SUPPORT</text>
+
+            <!-- Logical dependencies: orthogonal routes, fanned ports, no overlap. -->
+            <path d="M 200 208 V 216 Q 200 224 208 224 H 512 Q 520 224 520 232 V 240" class="projects-edge"/>
+            <path d="M 576 208 V 240" class="projects-edge"/>
+            <path d="M 936 208 V 216 Q 936 224 928 224 H 640 Q 632 224 632 232 V 240" class="projects-edge"/>
+            <path d="M 576 320 V 440" class="projects-edge-runtime"/>
+            <path d="M 512 536 V 608 Q 512 616 504 616 H 240 Q 232 616 232 624 V 696" class="projects-edge"/>
+            <path d="M 576 536 V 696" class="projects-edge"/>
+            <path d="M 576 792 V 904" class="projects-edge-runtime"/>
+
+            <!-- Transport labels only. -->
+            <rect x="600" y="364" width="96" height="12" rx="2" class="projects-label-mask"/>
+            <text x="648" y="373" text-anchor="middle" class="projects-edge-label">SIGNALR/WSS</text>
+            <rect x="608" y="816" width="96" height="12" rx="2" class="projects-label-mask"/>
+            <text x="656" y="825" text-anchor="middle" class="projects-edge-label">JSONL/STDIO</text>
+
+            <!-- Web and command surfaces -->
+            <g data-project="AdminWeb">
+              <rect x="112" y="128" width="208" height="80" rx="6" class="projects-node"/>
+              <text x="128" y="152" class="projects-meta">OPERATOR UI</text>
+              <text x="128" y="184" class="projects-text projects-name">AdminWeb</text>
+            </g>
+            <g data-project="GuestWeb">
+              <rect x="472" y="128" width="208" height="80" rx="6" class="projects-node"/>
+              <text x="488" y="152" class="projects-meta">GUEST UI</text>
+              <text x="488" y="184" class="projects-text projects-name">GuestWeb</text>
+            </g>
+            <g data-project="Cli">
+              <rect x="832" y="128" width="208" height="80" rx="6" class="projects-node"/>
+              <text x="848" y="152" class="projects-meta">COMMAND LINE</text>
+              <text x="848" y="184" class="projects-text projects-name">Cli</text>
+            </g>
+            <g data-project="ControlClient">
+              <rect x="464" y="240" width="224" height="80" rx="6" class="projects-node"/>
+              <text x="480" y="264" class="projects-meta">SIGNALR CLIENT</text>
+              <text x="480" y="296" class="projects-text projects-name">ControlClient</text>
+            </g>
+
+            <!-- Service tier -->
+            <g data-project="ControlService">
+              <rect x="448" y="440" width="256" height="96" rx="6" class="projects-node-focal"/>
+              <text x="464" y="472" class="projects-meta">AUTHORITATIVE CONTROL SERVICE</text>
+              <text x="464" y="504" class="projects-text projects-name">ControlService</text>
+              <text x="464" y="524" class="projects-meta">sessions / policy / writer</text>
+            </g>
+            <!-- Control, bridge, and contract tier -->
+            <g data-project="ControlCore">
+              <rect x="112" y="696" width="240" height="96" rx="6" class="projects-node"/>
+              <text x="128" y="728" class="projects-meta">CONTROL DOMAIN</text>
+              <text x="128" y="760" class="projects-text projects-name">ControlCore</text>
+              <text x="128" y="780" class="projects-meta">engine / safety policy</text>
+            </g>
+            <g data-project="DeviceBridge">
+              <rect x="456" y="696" width="240" height="96" rx="6" class="projects-node"/>
+              <text x="472" y="728" class="projects-meta">PRIVATE DEVICE ADAPTER</text>
+              <text x="472" y="760" class="projects-text projects-name">DeviceBridge</text>
+              <text x="472" y="780" class="projects-meta">bounded stdio protocol</text>
+            </g>
+            <g data-project="Models">
+              <rect x="800" y="696" width="240" height="96" rx="6" class="projects-node-shared"/>
+              <text x="816" y="728" class="projects-meta">SHARED CONTRACTS</text>
+              <text x="816" y="760" class="projects-text projects-name">Models</text>
+              <text x="816" y="780" class="projects-meta">state / requests / replies</text>
+            </g>
+
+            <!-- Shared host support -->
+            <g data-project="ServiceDefaults">
+              <rect x="1168" y="128" width="240" height="96" rx="6" class="projects-node-shared"/>
+              <text x="1184" y="160" class="projects-meta">SHARED HOST CONFIG</text>
+              <text x="1184" y="192" class="projects-text projects-name">ServiceDefaults</text>
+              <text x="1184" y="212" class="projects-meta">telemetry / health</text>
+            </g>
+
+            <!-- External device process -->
+            <g data-project="ossm-sim-bridge">
+              <rect x="384" y="904" width="384" height="72" rx="6" class="projects-node-external"/>
+              <text x="400" y="936" class="projects-meta">EXTERNAL RUST PROCESS / JSON-LINES</text>
+              <text x="400" y="960" class="projects-text projects-name">ossm-sim-bridge · OSSM-RS simulator</text>
+            </g>
+          </svg>
+        </div>
+        <figcaption>Only transport boundaries are labelled: ControlClient reaches ControlService through SignalR over WSS, and DeviceBridge reaches the simulator through JSON-lines over standard input/output. ControlService alone owns policy and device activity; DeviceBridge alone speaks the simulator protocol.</figcaption>
       </figure>
     </section>
 
