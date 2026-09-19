@@ -1,5 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <RootNamespace>OSSMDotNet.DeviceBridge.Abstractions</RootNamespace>
+    <RootNamespace>OSSMDotNet.Abstractions</RootNamespace>
   </PropertyGroup>
 </Project>

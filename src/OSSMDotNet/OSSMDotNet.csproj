@@ -1,11 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <RootNamespace>OSSMDotNet.DeviceBridge</RootNamespace>
+    <RootNamespace>OSSMDotNet</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference
-      Include="..\OSSMDotNet.Abstractions\OSSMDotNet.Abstractions.csproj" />
+    <ProjectReference Include="..\OSSMDotNet.Abstractions\OSSMDotNet.Abstractions.csproj" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
-    <Using Include="OSSMDotNet.DeviceBridge.Abstractions" />
+    <Using Include="OSSMDotNet.Abstractions" />
+    <Using Include="Microsoft.Extensions.Logging" />
   </ItemGroup>
 </Project>
