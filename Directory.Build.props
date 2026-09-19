@@ -9,7 +9,7 @@
     <AnalysisMode>latest-All</AnalysisMode>
     <LanguageVersion>latest</LanguageVersion>
     <UseArtifactsOutput>true</UseArtifactsOutput>
-    <ArtifactsPath>$(MSBuildThisFileDirectory).artifacts\</ArtifactsPath>
-    <RestorePackagesPath>$(MSBuildThisFileDirectory).artifacts\nuget-packages\</RestorePackagesPath>
+    <ArtifactsPath>$(MSBuildThisFileDirectory).artifacts</ArtifactsPath>
+    <RestorePackagesPath>$(MSBuildThisFileDirectory).artifacts/nuget-packages/</RestorePackagesPath>
   </PropertyGroup>
 </Project>
