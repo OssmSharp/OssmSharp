@@ -5,49 +5,24 @@ namespace OSSMDotNet;
 /// <summary>
 /// Represents an OSSM device running the supported stock firmware.
 /// </summary>
-/// <remarks>
-/// BLE transport integration is intentionally deferred. This implementation
-/// reports unavailable state and rejects writes rather than simulating success.
-/// </remarks>
-public sealed class OssmDevice : OssmDeviceBase
+public sealed class StockOssmDevice : DeviceBase
 {
     /// <summary>
-    /// Initializes a new instance of the <see cref="OssmDevice"/> class.
+    /// Initializes a new instance of the <see cref="StockOssmDevice"/> class.
     /// </summary>
     /// <param name="options">The validated stock-device options.</param>
     /// <param name="timeProvider">The monotonic and UTC time source.</param>
     /// <param name="logger">The operational logger.</param>
-    public OssmDevice(
-        IOptions<OssmDeviceOptions> options,
+    public StockOssmDevice(
+        IOptions<StockOssmDeviceOptions> options,
         TimeProvider timeProvider,
-        ILogger<OssmDevice> logger)
+        ILogger<StockOssmDevice> logger)
         : base(
             options?.Value ?? throw new ArgumentNullException(nameof(options)),
             timeProvider,
             logger)
     {
     }
-
-    /// <inheritdoc />
-    protected override Task ConnectAsync(CancellationToken cancellationToken) =>
-        Task.FromException(new NotSupportedException("Stock-firmware BLE transport is not implemented."));
-
-    /// <inheritdoc />
-    protected override Task DispatchMotionAsync(
-        MotionSettings motionSettings,
-        CancellationToken cancellationToken) => Task.FromException(
-            new NotSupportedException("Stock-firmware BLE transport is not implemented."));
-
-    protected override bool IsExpectedState(
-        int? previousRequestedSpeed,
-        int? previousStateSpeed,
-        int requestedSpeed,
-        int stateSpeed)
-        => IsExpectedStateImpl(
-            previousRequestedSpeed,
-            previousStateSpeed,
-            requestedSpeed,
-            stateSpeed);
 
     /// <summary>
     /// Determines whether the reported speed is consistent with the previously-requested.
@@ -57,7 +32,7 @@ public sealed class OssmDevice : OssmDeviceBase
     /// <param name="requestedSpeed">The pending requested speed.</param>
     /// <param name="stateSpeed">The reported speed.</param>
     /// <returns><see langword="true"/> when the reported speed is consistent with the request.</returns>
-    public static bool IsExpectedStateImpl(
+    public static bool IsCurrentStateCongruent(
         int? previousRequestedSpeed,
         int? previousStateSpeed,
         int requestedSpeed,
@@ -90,4 +65,24 @@ public sealed class OssmDevice : OssmDeviceBase
         return false;
     }
 
+    /// <inheritdoc />
+    protected override Task ConnectAsync(CancellationToken cancellationToken) =>
+        Task.FromException(new NotSupportedException("Stock-firmware BLE transport is not implemented."));
+
+    /// <inheritdoc />
+    protected override Task DispatchMotionAsync(
+        MotionSettings motionSettings,
+        CancellationToken cancellationToken) => Task.FromException(
+            new NotSupportedException("Stock-firmware BLE transport is not implemented."));
+
+    protected override bool IsExpectedState(
+        int? previousRequestedSpeed,
+        int? previousStateSpeed,
+        int requestedSpeed,
+        int stateSpeed)
+        => IsCurrentStateCongruent(
+            previousRequestedSpeed,
+            previousStateSpeed,
+            requestedSpeed,
+            stateSpeed);
 }

@@ -8,7 +8,7 @@ using OneOf;
 
 namespace OSSMDotNet.Tests;
 
-public sealed class OssmDeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisposable
+public sealed class DeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisposable
 {
     protected override Action<Mocker> SetupMocksAction => mocks =>
     {
@@ -502,8 +502,8 @@ public sealed class OssmDeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisp
         };
 
     private sealed class StockSpeedTestDevice(FakeTimeProvider timeProvider)
-        : OssmDeviceBase(
-            new OssmDeviceOptions
+        : DeviceBase(
+            new StockOssmDeviceOptions
             {
                 ExpectationLifetime = TimeSpan.FromSeconds(1),
             },
@@ -530,7 +530,7 @@ public sealed class OssmDeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisp
             int? previousRequestedSpeed,
             int? previousStateSpeed,
             int requestedSpeed,
-            int stateSpeed) => OssmDevice.IsExpectedStateImpl(
+            int stateSpeed) => StockOssmDevice.IsCurrentStateCongruent(
                 previousRequestedSpeed,
                 previousStateSpeed,
                 requestedSpeed,

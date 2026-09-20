@@ -5,7 +5,7 @@ namespace OSSMDotNet.Simulator;
 /// <summary>
 /// Configures the native OSSM-RS simulator device implementation.
 /// </summary>
-public sealed class SimulatedDeviceOptions : OssmDeviceBaseOptions
+public sealed record SimulatedDeviceOptions : StockOssmDeviceOptions
 {
     /// <summary>
     /// Gets or sets the absolute path to the <c>ossm-sim-bridge</c> executable.

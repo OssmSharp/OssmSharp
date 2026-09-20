@@ -11,8 +11,8 @@ namespace OSSMDotNet.Tests;
 public sealed class TestDevice(
     FakeTimeProvider timeProvider,
     ILogger<TestDevice> logger)
-    : OssmDeviceBase(
-        new OssmDeviceOptions
+    : DeviceBase(
+        new StockOssmDeviceOptions
         {
             ExpectationLifetime = TimeSpan.FromSeconds(1),
         },

@@ -5,7 +5,7 @@ namespace OSSMDotNet;
 /// <summary>
 /// Provides shared options for OSSM device implementations.
 /// </summary>
-public abstract class OssmDeviceBaseOptions : IValidatableObject
+public record StockOssmDeviceOptions : IValidatableObject
 {
     /// <summary>
     /// Gets or sets the maximum interval for matching feedback to a write.

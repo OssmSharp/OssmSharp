@@ -3,7 +3,7 @@ using System.Runtime.Serialization;
 namespace OSSMDotNet.Abstractions;
 
 /// <summary>
-/// Identifies a stock OSSM device state.
+/// Identifies an OSSM device state.
 /// </summary>
 public enum MotionDeviceState
 {

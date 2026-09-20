@@ -23,7 +23,7 @@ public sealed class SimulatedDeviceTests : MockerTestBase<SimulatedDevice>, IAsy
         var options = new SimulatedDeviceOptions { ExecutablePath = "relative-path" };
         Mocks.SetupOptions(options, replace: true);
 
-        Assert.IsAssignableFrom<OssmDeviceBaseOptions>(options);
+        Assert.IsAssignableFrom<StockOssmDeviceOptions>(options);
         Assert.IsAssignableFrom<IValidatableObject>(options);
         var exception = Assert.Throws<TargetInvocationException>(() => Mocks.CreateInstance<SimulatedDevice>());
         Assert.IsType<ValidationException>(exception.InnerException);

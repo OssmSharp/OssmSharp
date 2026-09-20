@@ -8,6 +8,17 @@ namespace OSSMDotNet.Abstractions;
 public interface IOssmDevice : IAsyncDisposable
 {
     /// <summary>
+    /// Occurs after <see cref="ConnectionState"/> changes; a transition does not indicate fresh motion telemetry.
+    /// </summary>
+    event Action<DeviceConnectionState>? ConnectionStateChanged;
+
+    /// <summary>
+    /// Occurs when the device reports state or an asynchronous device fault is detected.
+    /// </summary>
+    /// <remarks>Connection status alone is reported through <see cref="ConnectionStateChanged"/>, not this event.</remarks>
+    event Action<OneOf<DeviceState, Exception>>? DeviceStateChanged;
+
+    /// <summary>
     /// Gets the current connection status independently of device state updates.
     /// </summary>
     /// <remarks>Reading this property does not start a connection or authorize motion.</remarks>
@@ -22,17 +33,6 @@ public interface IOssmDevice : IAsyncDisposable
     /// </remarks>
     /// <exception cref="InvalidOperationException">Device information has not yet been discovered.</exception>
     DeviceInformation Device { get; }
-
-    /// <summary>
-    /// Occurs after <see cref="ConnectionState"/> changes; a transition does not indicate fresh motion telemetry.
-    /// </summary>
-    event Action<DeviceConnectionState>? ConnectionStateChanged;
-
-    /// <summary>
-    /// Occurs when the device reports state or an asynchronous device fault is detected.
-    /// </summary>
-    /// <remarks>Connection status alone is reported through <see cref="ConnectionStateChanged"/>, not this event.</remarks>
-    event Action<OneOf<DeviceState, Exception>>? DeviceStateChanged;
 
     /// <summary>
     /// Sends the requested motion settings to the device.

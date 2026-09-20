@@ -12,7 +12,7 @@ namespace OSSMDotNet.Simulator;
 /// <summary>
 /// Controls the native OSSM-RS simulator through its bounded JSON-lines protocol.
 /// </summary>
-public sealed class SimulatedDevice : OssmDeviceBase
+public sealed class SimulatedDevice : DeviceBase
 {
     private const int MaximumPendingRequests = 8;
     private const int MaximumFrameBytes = 4096;
@@ -96,7 +96,7 @@ public sealed class SimulatedDevice : OssmDeviceBase
         }
 
         _process = process;
-        SimulatedDeviceLog.Started(_logger);
+        _logger.Started();
         var reader = ReadOutputAsync(process.StandardOutput.BaseStream, cancellationToken);
         var diagnostics = DrainDiagnosticsAsync(process.StandardError, cancellationToken);
         try
@@ -127,7 +127,7 @@ public sealed class SimulatedDevice : OssmDeviceBase
                 }
                 catch (OperationCanceledException) when (shutdownTimeout.IsCancellationRequested)
                 {
-                    SimulatedDeviceLog.ShutdownTimedOut(_logger);
+                    _logger.ShutdownTimedOut();
                     process.Kill(entireProcessTree: true);
                     using var terminationTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
                     await process.WaitForExitAsync(terminationTimeout.Token).ConfigureAwait(false);
@@ -139,7 +139,7 @@ public sealed class SimulatedDevice : OssmDeviceBase
             await IgnoreShutdownCancellationAsync(diagnostics, cancellationToken).ConfigureAwait(false);
             _process = null;
             PublishDisconnected();
-            SimulatedDeviceLog.Stopped(_logger);
+            _logger.Stopped();
         }
     }
 
@@ -412,7 +412,7 @@ public sealed class SimulatedDevice : OssmDeviceBase
             if (!_hasDiagnostics)
             {
                 _hasDiagnostics = true;
-                SimulatedDeviceLog.DiagnosticsAvailable(_logger);
+                _logger.DiagnosticsAvailable();
             }
         }
     }

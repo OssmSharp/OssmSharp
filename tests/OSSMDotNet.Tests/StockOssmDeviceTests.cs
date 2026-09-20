@@ -9,13 +9,13 @@ using OneOf;
 
 namespace OSSMDotNet.Tests;
 
-public sealed class StockDeviceTests : MockerTestBase<OssmDevice>, IAsyncDisposable
+public sealed class StockOssmDeviceTests : MockerTestBase<StockOssmDevice>, IAsyncDisposable
 {
     protected override Action<Mocker> SetupMocksAction => mocks =>
     {
-        mocks.SetupOptions(new OssmDeviceOptions());
+        mocks.SetupOptions(new StockOssmDeviceOptions());
         mocks.AddType<TimeProvider>(TimeProvider.System);
-        mocks.AddMethodResult<ILogger<OssmDevice>, bool>(
+        mocks.AddMethodResult<ILogger<StockOssmDevice>, bool>(
             logger => logger.IsEnabled(FastArg.Any<LogLevel>()),
             true);
     };
@@ -23,12 +23,12 @@ public sealed class StockDeviceTests : MockerTestBase<OssmDevice>, IAsyncDisposa
     [Fact]
     public void ConstructorValidatesOptionsThroughDataAnnotations()
     {
-        var options = new OssmDeviceOptions { ExpectationLifetime = TimeSpan.Zero };
+        var options = new StockOssmDeviceOptions { ExpectationLifetime = TimeSpan.Zero };
         Mocks.SetupOptions(options, replace: true);
 
-        Assert.IsAssignableFrom<OssmDeviceBaseOptions>(options);
+        Assert.IsAssignableFrom<StockOssmDeviceOptions>(options);
         Assert.IsAssignableFrom<IValidatableObject>(options);
-        var exception = Assert.Throws<TargetInvocationException>(() => Mocks.CreateInstance<OssmDevice>());
+        var exception = Assert.Throws<TargetInvocationException>(() => Mocks.CreateInstance<StockOssmDevice>());
         Assert.IsType<ValidationException>(exception.InnerException);
     }
 

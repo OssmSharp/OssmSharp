@@ -1,11 +1,31 @@
 using System.ComponentModel.DataAnnotations;
 using System.Text.Json;
 
-namespace OSSMDotNet;
+namespace OSSMDotNet.Models;
 
-internal static class StockFirmwareStateParser
+internal sealed record StateResponse
 {
-    public static DeviceState Parse(string payload, DateTime receivedAtUtc)
+    private StateResponse(
+        uint firmwareTimestamp,
+        DateTime receivedAtUtc,
+        MotionSettings motionSettings,
+        Guid sessionId)
+    {
+        FirmwareTimestamp = firmwareTimestamp;
+        ReceivedAtUtc = receivedAtUtc;
+        MotionSettings = motionSettings;
+        SessionId = sessionId;
+    }
+
+    public uint FirmwareTimestamp { get; }
+
+    public DateTime ReceivedAtUtc { get; }
+
+    public MotionSettings MotionSettings { get; }
+
+    public Guid SessionId { get; }
+
+    public static StateResponse Parse(string payload, DateTime receivedAtUtc)
     {
         if (receivedAtUtc.Kind != DateTimeKind.Utc)
         {
@@ -27,7 +47,7 @@ internal static class StockFirmwareStateParser
             }
 
             ValidateProperties(root);
-            _ = ReadFirmwareTimestamp(root);
+            var firmwareTimestamp = ReadFirmwareTimestamp(root);
             var settings = new MotionSettings(
                 MapState(ReadString(root, "state")),
                 ReadPercentage(root, "speed"),
@@ -40,13 +60,11 @@ internal static class StockFirmwareStateParser
             Validator.ValidateObject(settings, new ValidationContext(settings), validateAllProperties: true);
 
             var session = ReadString(root, "sessionId");
-            return new DeviceState
-            {
-                Timestamp = receivedAtUtc,
-                MotionSettings = settings,
-                SessionId = session.Length == 0 ? Guid.Empty : Guid.Parse(session),
-                VelocityMillimetresPerSecond = null,
-            };
+            return new StateResponse(
+                firmwareTimestamp,
+                receivedAtUtc,
+                settings,
+                session.Length == 0 ? Guid.Empty : Guid.Parse(session));
         }
         catch (InvalidDataException)
         {
@@ -57,6 +75,15 @@ internal static class StockFirmwareStateParser
             throw new InvalidDataException("The state payload is invalid.", exception);
         }
     }
+
+    public DeviceState ToDeviceState() =>
+        new()
+        {
+            Timestamp = ReceivedAtUtc,
+            MotionSettings = MotionSettings,
+            SessionId = SessionId,
+            VelocityMillimetresPerSecond = null,
+        };
 
     private static void ValidateProperties(JsonElement root)
     {

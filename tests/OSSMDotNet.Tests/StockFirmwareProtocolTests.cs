@@ -1,6 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using OSSMDotNet.Models;
 
 namespace OSSMDotNet.Tests;
 
@@ -64,8 +65,11 @@ public sealed class StockFirmwareProtocolTests
         payload["timestamp"] = uint.MaxValue;
         payload["sessionId"] = sessionId.ToString();
 
-        var state = StockFirmwareStateParser.Parse(payload.ToJsonString(), ReceiptTime);
+        var response = StateResponse.Parse(payload.ToJsonString(), ReceiptTime);
+        var state = response.ToDeviceState();
 
+        Assert.Equal(uint.MaxValue, response.FirmwareTimestamp);
+        Assert.Equal(ReceiptTime, response.ReceivedAtUtc);
         Assert.Equal(ReceiptTime, state.Timestamp);
         Assert.Equal(DateTimeKind.Utc, state.Timestamp.Kind);
         Assert.Equal(sessionId, state.SessionId);
@@ -90,7 +94,7 @@ public sealed class StockFirmwareProtocolTests
         var payload = ValidPayload();
         payload["state"] = firmwareState;
 
-        var state = StockFirmwareStateParser.Parse(payload.ToJsonString(), ReceiptTime);
+        var state = ParseState(payload.ToJsonString());
 
         Assert.Equal(expected, state.MotionSettings.State);
     }
@@ -102,7 +106,7 @@ public sealed class StockFirmwareProtocolTests
         var payload = ValidPayload();
         payload["pattern"] = firmwarePattern;
 
-        var state = StockFirmwareStateParser.Parse(payload.ToJsonString(), ReceiptTime);
+        var state = ParseState(payload.ToJsonString());
 
         Assert.Equal(expected, state.MotionSettings.Pattern);
     }
@@ -110,9 +114,41 @@ public sealed class StockFirmwareProtocolTests
     [Fact]
     public void ParseMapsEmptySessionToGuidEmpty()
     {
-        var state = StockFirmwareStateParser.Parse(ValidPayload().ToJsonString(), ReceiptTime);
+        var state = ParseState(ValidPayload().ToJsonString());
 
         Assert.Equal(Guid.Empty, state.SessionId);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(100)]
+    public void ParseAcceptsPercentageBoundaries(int percentage)
+    {
+        var payload = ValidPayload();
+        payload["speed"] = percentage;
+        payload["stroke"] = percentage;
+        payload["sensation"] = percentage;
+        payload["depth"] = percentage;
+        payload["buffer"] = percentage;
+
+        var settings = ParseState(payload.ToJsonString()).MotionSettings;
+
+        Assert.Equal(percentage, settings.Speed);
+        Assert.Equal(percentage, settings.Stroke);
+        Assert.Equal(percentage, settings.Sensation);
+        Assert.Equal(percentage, settings.Depth);
+        Assert.Equal(percentage, settings.Buffer);
+    }
+
+    [Fact]
+    public void ParseAcceptsZeroFirmwareTimestamp()
+    {
+        var payload = ValidPayload();
+        payload["timestamp"] = 0;
+
+        var response = StateResponse.Parse(payload.ToJsonString(), ReceiptTime);
+
+        Assert.Equal(0U, response.FirmwareTimestamp);
     }
 
     [Theory]
@@ -131,8 +167,7 @@ public sealed class StockFirmwareProtocolTests
         var payload = ValidPayload();
         payload.Remove(field);
 
-        Assert.Throws<InvalidDataException>(() =>
-            StockFirmwareStateParser.Parse(payload.ToJsonString(), ReceiptTime));
+        Assert.Throws<InvalidDataException>(() => ParseState(payload.ToJsonString()));
     }
 
     [Fact]
@@ -142,8 +177,7 @@ public sealed class StockFirmwareProtocolTests
         payload["state"] = "unsupported";
         payload["unexpected"] = true;
 
-        var exception = Assert.Throws<InvalidDataException>(() =>
-            StockFirmwareStateParser.Parse(payload.ToJsonString(), ReceiptTime));
+        var exception = Assert.Throws<InvalidDataException>(() => ParseState(payload.ToJsonString()));
 
         Assert.Equal("The state field 'unexpected' is unsupported.", exception.Message);
     }
@@ -154,8 +188,7 @@ public sealed class StockFirmwareProtocolTests
         var payload = ValidPayload().ToJsonString();
         payload = payload.Insert(payload.LastIndexOf('}'), ",\"state\":\"unsupported\"");
 
-        var exception = Assert.Throws<InvalidDataException>(() =>
-            StockFirmwareStateParser.Parse(payload, ReceiptTime));
+        var exception = Assert.Throws<InvalidDataException>(() => ParseState(payload));
 
         Assert.Equal("The state field 'state' is duplicated.", exception.Message);
     }
@@ -163,10 +196,24 @@ public sealed class StockFirmwareProtocolTests
     [Fact]
     public void ParseRejectsMalformedJsonAndPreservesCause()
     {
-        var exception = Assert.Throws<InvalidDataException>(() =>
-            StockFirmwareStateParser.Parse("{", ReceiptTime));
+        var exception = Assert.Throws<InvalidDataException>(() => ParseState("{"));
 
         Assert.IsAssignableFrom<JsonException>(exception.InnerException);
+    }
+
+    [Theory]
+    [InlineData("null")]
+    [InlineData("[]")]
+    [InlineData("\"state\"")]
+    public void ParseRejectsNonObjectJson(string payload)
+    {
+        Assert.Throws<InvalidDataException>(() => ParseState(payload));
+    }
+
+    [Fact]
+    public void ParseRejectsNullPayload()
+    {
+        Assert.Throws<InvalidDataException>(() => StateResponse.Parse(null!, ReceiptTime));
     }
 
     [Theory]
@@ -191,8 +238,7 @@ public sealed class StockFirmwareProtocolTests
         var payload = ValidPayload();
         payload[field] = JsonNode.Parse(value);
 
-        Assert.Throws<InvalidDataException>(() =>
-            StockFirmwareStateParser.Parse(payload.ToJsonString(), ReceiptTime));
+        Assert.Throws<InvalidDataException>(() => ParseState(payload.ToJsonString()));
     }
 
     [Fact]
@@ -201,8 +247,7 @@ public sealed class StockFirmwareProtocolTests
         var payload = ValidPayload();
         payload["state"] = "strokeEngine.unknown";
 
-        Assert.Throws<InvalidDataException>(() =>
-            StockFirmwareStateParser.Parse(payload.ToJsonString(), ReceiptTime));
+        Assert.Throws<InvalidDataException>(() => ParseState(payload.ToJsonString()));
     }
 
     [Theory]
@@ -215,8 +260,7 @@ public sealed class StockFirmwareProtocolTests
         payload["stroke"] = stroke;
         payload["depth"] = depth;
 
-        var exception = Assert.Throws<InvalidDataException>(() =>
-            StockFirmwareStateParser.Parse(payload.ToJsonString(), ReceiptTime));
+        var exception = Assert.Throws<InvalidDataException>(() => ParseState(payload.ToJsonString()));
 
         Assert.IsType<ValidationException>(exception.InnerException);
     }
@@ -227,8 +271,7 @@ public sealed class StockFirmwareProtocolTests
         var payload = ValidPayload();
         payload["sessionId"] = "not-a-guid";
 
-        var exception = Assert.Throws<InvalidDataException>(() =>
-            StockFirmwareStateParser.Parse(payload.ToJsonString(), ReceiptTime));
+        var exception = Assert.Throws<InvalidDataException>(() => ParseState(payload.ToJsonString()));
 
         Assert.IsType<FormatException>(exception.InnerException);
     }
@@ -237,7 +280,17 @@ public sealed class StockFirmwareProtocolTests
     public void ParseRejectsNonUtcReceipt()
     {
         Assert.Throws<InvalidDataException>(() =>
-            StockFirmwareStateParser.Parse(ValidPayload().ToJsonString(), DateTime.UnixEpoch.ToLocalTime()));
+            StateResponse.Parse(ValidPayload().ToJsonString(), DateTime.UnixEpoch.ToLocalTime()));
+    }
+
+    [Fact]
+    public void ParseRejectsNonUtcReceiptBeforeMalformedPayload()
+    {
+        var exception = Assert.Throws<InvalidDataException>(() =>
+            StateResponse.Parse("{", DateTime.UnixEpoch.ToLocalTime()));
+
+        Assert.Equal("The state receipt timestamp must be UTC.", exception.Message);
+        Assert.Null(exception.InnerException);
     }
 
     [Fact]
@@ -253,7 +306,8 @@ public sealed class StockFirmwareProtocolTests
             MotionPattern.Insist,
             12.5);
 
-        var commands = StockFirmwareCommandMapper.Map(settings);
+        var requests = Request.FromMotionSettings(settings);
+        var payloads = requests.Select(static request => request.ToPayload());
 
         Assert.Equal(
             [
@@ -264,10 +318,10 @@ public sealed class StockFirmwareProtocolTests
                 "set:buffer:50",
                 "set:pattern:6",
             ],
-            commands);
-        Assert.DoesNotContain(commands, command => command.StartsWith("go:", StringComparison.Ordinal));
-        Assert.DoesNotContain(commands, command => command.Contains("position", StringComparison.Ordinal));
-        Assert.DoesNotContain(commands, command => command.Contains("state", StringComparison.Ordinal));
+            payloads);
+        Assert.DoesNotContain(payloads, payload => payload.StartsWith("go:", StringComparison.Ordinal));
+        Assert.DoesNotContain(payloads, payload => payload.Contains("position", StringComparison.Ordinal));
+        Assert.DoesNotContain(payloads, payload => payload.Contains("state", StringComparison.Ordinal));
     }
 
     [Theory]
@@ -295,30 +349,69 @@ public sealed class StockFirmwareProtocolTests
             (MotionPattern)pattern,
             position);
 
-        var exception = Assert.Throws<InvalidDataException>(() => StockFirmwareCommandMapper.Map(settings));
+        var exception = Assert.Throws<InvalidDataException>(() => Request.FromMotionSettings(settings));
 
         Assert.IsType<ValidationException>(exception.InnerException);
     }
 
     [Fact]
-    public void IsExpectedAcknowledgementAcceptsExactCommand()
+    public void MapRejectsNullMotionSettings()
     {
-        Assert.True(StockFirmwareNotificationParser.IsExpectedAcknowledgement(
+        Assert.Throws<ArgumentNullException>(() => Request.FromMotionSettings(null!));
+    }
+
+    [Fact]
+    public void ParseAcknowledgementReturnsEchoedCommand()
+    {
+        Assert.True(Acknowledgement.TryParse(
             "ok:set:speed:0",
-            "set:speed:0"));
+            ZeroSpeedRequest(),
+            out var acknowledgement));
+        Assert.Equal(new Acknowledgement("set:speed:0"), acknowledgement);
     }
 
     [Theory]
-    [InlineData("ok:", "")]
-    [InlineData("ok", "set:speed:0")]
-    [InlineData("fail:set:speed:0", "set:speed:0")]
-    [InlineData("ok:xset:speed:0", "set:speed:0")]
-    [InlineData("ok:set:speed:0x", "set:speed:0")]
-    [InlineData("set:speed:0", "set:speed:0")]
-    [InlineData("arbitrary text", "set:speed:0")]
-    public void IsExpectedAcknowledgementRejectsAnythingElse(string payload, string expectedCommand)
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("ok:")]
+    [InlineData("ok")]
+    [InlineData("fail:set:speed:0")]
+    [InlineData("set:speed:0")]
+    [InlineData("arbitrary text")]
+    public void ParseAcknowledgementRejectsMalformedResponse(string? payload)
     {
-        Assert.False(StockFirmwareNotificationParser.IsExpectedAcknowledgement(payload, expectedCommand));
+        Assert.False(Acknowledgement.TryParse(payload, ZeroSpeedRequest(), out var acknowledgement));
+        Assert.Null(acknowledgement);
+    }
+
+    [Theory]
+    [InlineData("ok:xset:speed:0")]
+    [InlineData("ok:set:speed:0x")]
+    [InlineData("ok:set:Speed:0")]
+    [InlineData("ok:set:speed:0 ")]
+    public void ParseAcknowledgementRejectsUnexpectedCommand(string payload)
+    {
+        Assert.False(Acknowledgement.TryParse(payload, ZeroSpeedRequest(), out var acknowledgement));
+        Assert.Null(acknowledgement);
+    }
+
+    [Fact]
+    public void AcknowledgementRejectsEmptyCommand()
+    {
+        Assert.Throws<ArgumentException>(() => new Acknowledgement(string.Empty));
+    }
+
+    [Fact]
+    public void AcknowledgementRejectsNullCommand()
+    {
+        Assert.Throws<ArgumentNullException>(() => new Acknowledgement(null!));
+    }
+
+    [Fact]
+    public void ParseAcknowledgementRejectsNullExpectedRequest()
+    {
+        Assert.Throws<ArgumentNullException>(() =>
+            Acknowledgement.TryParse("ok:set:speed:0", null!, out _));
     }
 
     [Theory]
@@ -338,15 +431,29 @@ public sealed class StockFirmwareProtocolTests
         bool expected) =>
         Assert.Equal(
             expected,
-            OssmDevice.IsExpectedStateImpl(previousRequested, previousReported, requested, reported));
+            StockOssmDevice.IsCurrentStateCongruent(previousRequested, previousReported, requested, reported));
 
     [Fact]
     public void ProtocolTypesRemainInternal()
     {
-        Assert.False(typeof(StockFirmwareStateParser).IsPublic);
-        Assert.False(typeof(StockFirmwareCommandMapper).IsPublic);
-        Assert.False(typeof(StockFirmwareNotificationParser).IsPublic);
+        Assert.False(typeof(Request).IsPublic);
+        Assert.False(typeof(Acknowledgement).IsPublic);
+        Assert.False(typeof(StateResponse).IsPublic);
     }
+
+    private static DeviceState ParseState(string payload) =>
+        StateResponse.Parse(payload, ReceiptTime).ToDeviceState();
+
+    private static Request ZeroSpeedRequest() => Request.FromMotionSettings(
+        new MotionSettings(
+            MotionDeviceState.Restart,
+            0,
+            20,
+            30,
+            40,
+            50,
+            MotionPattern.Insist,
+            12.5))[0];
 
     private static JsonObject ValidPayload() => new()
     {

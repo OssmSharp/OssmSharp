@@ -34,11 +34,11 @@ qualification.
 
 ## Current foundation
 
-`OssmDevice` is the stock adapter with BLE still deferred. The existing
-`StockFirmwareCommandMapper` and state/notification parsers provide protocol
+`StockOssmDevice` is the stock adapter with BLE still deferred. Its internal
+`Request`, `Acknowledgement` and `StateResponse` records provide protocol
 building blocks, not a complete connection or safe multi-write transition.
 `SimulatedDevice` already consumes the native helper. Both derive from
-`OssmDeviceBase`; the shared API publishes transient `DeviceState` events rather
+`DeviceBase`; the shared API publishes transient `DeviceState` events rather
 than caching complete device states.
 
 Application composition and controller consumers still need integration with
@@ -220,11 +220,11 @@ All custom UUIDs below expand `522b443a-4f53-534d-XXXX-420badbabe69`:
 | `2000`         | State notifications; cached reads and `ok:<command>` are not new state evidence |
 | `3000`, `3010` | Pattern metadata; discovery does not expand the qualified pattern set           |
 
-Reuse the stock mapper/parsers rather than writing another protocol stack. Their
-existence does not justify submitting a whole command list without inter-write
-checks. Use plain characteristic payloads, not Shiny's optional message framing:
-stock firmware does not implement that framing protocol. Ordinary writes exclude
-navigation, position streaming and report-only fields.
+Reuse the stock protocol records rather than writing another protocol stack.
+Their existence does not justify submitting a whole command list without
+inter-write checks. Use plain characteristic payloads, not Shiny's optional
+message framing: stock firmware does not implement that framing protocol.
+Ordinary writes exclude navigation, position streaming and report-only fields.
 
 Attach the state callback before enabling notifications. Validate and publish
 events in order; do not debounce or coalesce away intermediate speed changes.

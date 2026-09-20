@@ -1,19 +1,19 @@
 namespace OSSMDotNet;
 
-internal static partial class OssmDeviceBaseLog
+internal static partial class Log
 {
     [LoggerMessage(
         EventId = 1,
         Level = LogLevel.Warning,
         Message = "A device-change subscriber failed.")]
-    public static partial void SubscriberFailed(ILogger logger, Exception exception);
+    public static partial void SubscriberFailed(this ILogger logger, Exception exception);
 
     [LoggerMessage(
         EventId = 2,
         Level = LogLevel.Information,
         Message = "Device connection changed from {PreviousState} to {State}.")]
     public static partial void ConnectionChanged(
-        ILogger logger,
+        this ILogger logger,
         DeviceConnectionState previousState,
         DeviceConnectionState state);
 
@@ -21,5 +21,5 @@ internal static partial class OssmDeviceBaseLog
         EventId = 3,
         Level = LogLevel.Warning,
         Message = "Device connection failed.")]
-    public static partial void ConnectionFailed(ILogger logger, Exception exception);
+    public static partial void ConnectionFailed(this ILogger logger, Exception exception);
 }

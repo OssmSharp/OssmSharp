@@ -53,6 +53,8 @@
 - `OSSMDotNet.Cli` is a command-line tool that uses the control library. It is
   otherwise unrelated to the guest and admin frontend system, and must not have
   references to terms such as "admin".
+- You must put InternalsVisisbleTo declarations in the csproj file, not in
+  AssemblyInfo.cs file(s).
 
 ## Logging
 

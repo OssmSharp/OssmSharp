@@ -7,7 +7,7 @@ namespace OSSMDotNet;
 /// <summary>
 /// Provides shared lifecycle, validation, state, and publication behavior for OSSM devices.
 /// </summary>
-public abstract class OssmDeviceBase : BackgroundService, IOssmDevice, IAsyncDisposable
+public abstract class DeviceBase : BackgroundService, IOssmDevice, IAsyncDisposable
 {
     private readonly object _stateGate = new();
     private readonly SemaphoreSlim _operationGate = new(1, 1);
@@ -19,16 +19,17 @@ public abstract class OssmDeviceBase : BackgroundService, IOssmDevice, IAsyncDis
     private DeviceConnectionState _connectionState = DeviceConnectionState.Disconnected;
     private DeviceInformation? _device;
     private PendingWrite? _pendingWrite;
+    private CancellationToken _hostCancellationToken;
     private int _disposed;
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="OssmDeviceBase"/> class.
+    /// Initializes a new instance of the <see cref="DeviceBase"/> class.
     /// </summary>
     /// <param name="options">The validated shared device options.</param>
     /// <param name="timeProvider">The monotonic and UTC time source.</param>
     /// <param name="logger">The operational logger.</param>
-    protected OssmDeviceBase(
-        OssmDeviceBaseOptions options,
+    protected DeviceBase(
+        StockOssmDeviceOptions options,
         TimeProvider timeProvider,
         ILogger logger)
     {
@@ -41,6 +42,12 @@ public abstract class OssmDeviceBase : BackgroundService, IOssmDevice, IAsyncDis
         _expectationLifetime = options.ExpectationLifetime;
         _logger = logger;
     }
+
+    /// <inheritdoc />
+    public event Action<DeviceConnectionState>? ConnectionStateChanged;
+
+    /// <inheritdoc />
+    public event Action<OneOf<DeviceState, Exception>>? DeviceStateChanged;
 
     /// <inheritdoc />
     public DeviceConnectionState ConnectionState
@@ -65,12 +72,6 @@ public abstract class OssmDeviceBase : BackgroundService, IOssmDevice, IAsyncDis
             }
         }
     }
-
-    /// <inheritdoc />
-    public event Action<DeviceConnectionState>? ConnectionStateChanged;
-
-    /// <inheritdoc />
-    public event Action<OneOf<DeviceState, Exception>>? DeviceStateChanged;
 
     /// <inheritdoc />
     public async Task SetMotionAsync(MotionSettings motionSettings, CancellationToken cancellationToken)
@@ -98,7 +99,7 @@ public abstract class OssmDeviceBase : BackgroundService, IOssmDevice, IAsyncDis
 
             try
             {
-                await DispatchMotionAsync(motionSettings, StoppingToken).ConfigureAwait(false);
+                await DispatchMotionAsync(motionSettings, _hostCancellationToken).ConfigureAwait(false);
             }
             catch
             {
@@ -123,6 +124,46 @@ public abstract class OssmDeviceBase : BackgroundService, IOssmDevice, IAsyncDis
         finally
         {
             _operationGate.Release();
+        }
+    }
+
+    /// <inheritdoc />
+    public async ValueTask DisposeAsync()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return;
+        }
+
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        try
+        {
+            await StopAsync(timeout.Token).ConfigureAwait(false);
+        }
+        finally
+        {
+            await _operationGate.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                await DisposeCoreAsync().ConfigureAwait(false);
+            }
+            finally
+            {
+                try
+                {
+                    lock (_stateGate)
+                    {
+                        _connectionState = DeviceConnectionState.Disconnected;
+                    }
+                }
+                finally
+                {
+                    _operationGate.Release();
+                    _operationGate.Dispose();
+                    Dispose();
+                    GC.SuppressFinalize(this);
+                }
+            }
         }
     }
 
@@ -234,7 +275,7 @@ public abstract class OssmDeviceBase : BackgroundService, IOssmDevice, IAsyncDis
     /// <inheritdoc />
     protected sealed override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        StoppingToken = stoppingToken;
+        _hostCancellationToken = stoppingToken;
         SetConnectionState(DeviceConnectionState.Connecting);
 
         try
@@ -247,112 +288,11 @@ public abstract class OssmDeviceBase : BackgroundService, IOssmDevice, IAsyncDis
         catch (Exception exception) when (exception is IOException or InvalidDataException or TimeoutException or UnauthorizedAccessException or NotSupportedException)
         {
             PublishDisconnected();
-            OssmDeviceBaseLog.ConnectionFailed(_logger, exception);
+            _logger.ConnectionFailed(exception);
         }
         finally
         {
             PublishDisconnected();
-        }
-    }
-
-    /// <inheritdoc />
-    public async ValueTask DisposeAsync()
-    {
-        if (Interlocked.Exchange(ref _disposed, 1) != 0)
-        {
-            return;
-        }
-
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        try
-        {
-            await StopAsync(timeout.Token).ConfigureAwait(false);
-        }
-        finally
-        {
-            await _operationGate.WaitAsync().ConfigureAwait(false);
-            try
-            {
-                await DisposeCoreAsync().ConfigureAwait(false);
-            }
-            finally
-            {
-                try
-                {
-                    lock (_stateGate)
-                    {
-                        _connectionState = DeviceConnectionState.Disconnected;
-                    }
-                }
-                finally
-                {
-                    _operationGate.Release();
-                    _operationGate.Dispose();
-                    Dispose();
-                    GC.SuppressFinalize(this);
-                }
-            }
-        }
-    }
-
-    private CancellationToken StoppingToken { get; set; }
-
-    private PendingWrite? CurrentPendingWrite()
-    {
-        if (_pendingWrite is { } pending &&
-            _timeProvider.GetElapsedTime(pending.Timestamp) >= _expectationLifetime)
-        {
-            _pendingWrite = null;
-        }
-
-        return _pendingWrite;
-    }
-
-    private void SetConnectionState(DeviceConnectionState state, DeviceInformation? device = null)
-    {
-        DeviceConnectionState previousState;
-        lock (_stateGate)
-        {
-            _device ??= device;
-            if (state == DeviceConnectionState.Disconnected)
-            {
-                _lastRequestedMotion = null;
-                _lastStateSpeed = null;
-                _pendingWrite = null;
-            }
-
-            if (_connectionState == state)
-            {
-                return;
-            }
-
-            previousState = _connectionState;
-            _connectionState = state;
-        }
-
-        OssmDeviceBaseLog.ConnectionChanged(_logger, previousState, state);
-        Publish(ConnectionStateChanged, state);
-    }
-
-    private void Publish(OneOf<DeviceState, Exception> change) => Publish(DeviceStateChanged, change);
-
-    private void Publish<T>(Action<T>? handlers, T change)
-    {
-        if (Volatile.Read(ref _disposed) != 0 || handlers is null)
-        {
-            return;
-        }
-
-        foreach (var subscriber in handlers.GetInvocationList().Cast<Action<T>>())
-        {
-            try
-            {
-                subscriber(change);
-            }
-            catch (Exception exception)
-            {
-                OssmDeviceBaseLog.SubscriberFailed(_logger, exception);
-            }
         }
     }
 
@@ -389,6 +329,65 @@ public abstract class OssmDeviceBase : BackgroundService, IOssmDevice, IAsyncDis
         if (!Validator.TryValidateObject(settings, new ValidationContext(settings), validationResults, true))
         {
             throw new ArgumentException(validationResults[0].ErrorMessage, nameof(settings));
+        }
+    }
+
+    private PendingWrite? CurrentPendingWrite()
+    {
+        if (_pendingWrite is { } pending &&
+            _timeProvider.GetElapsedTime(pending.Timestamp) >= _expectationLifetime)
+        {
+            _pendingWrite = null;
+        }
+
+        return _pendingWrite;
+    }
+
+    private void SetConnectionState(DeviceConnectionState state, DeviceInformation? device = null)
+    {
+        DeviceConnectionState previousState;
+        lock (_stateGate)
+        {
+            _device ??= device;
+            if (state == DeviceConnectionState.Disconnected)
+            {
+                _lastRequestedMotion = null;
+                _lastStateSpeed = null;
+                _pendingWrite = null;
+            }
+
+            if (_connectionState == state)
+            {
+                return;
+            }
+
+            previousState = _connectionState;
+            _connectionState = state;
+        }
+
+        _logger.ConnectionChanged(previousState, state);
+        Publish(ConnectionStateChanged, state);
+    }
+
+    private void Publish(OneOf<DeviceState, Exception> change) => Publish(DeviceStateChanged, change);
+
+    private void Publish<T>(Action<T>? handlers, T change)
+    {
+        if (Volatile.Read(ref _disposed) != 0 || handlers is null)
+        {
+            return;
+        }
+
+        foreach (var subscriber in handlers.GetInvocationList().Cast<Action<T>>())
+        {
+            try
+            {
+                subscriber(change);
+            }
+            catch (Exception exception)
+            {
+                _logger.SubscriberFailed(exception);
+            }
         }
     }
 

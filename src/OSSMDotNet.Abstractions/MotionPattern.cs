@@ -1,7 +1,7 @@
 namespace OSSMDotNet.Abstractions;
 
 /// <summary>
-/// Identifies a stock OSSM motion pattern.
+/// Identifies an OSSM motion pattern.
 /// </summary>
 public enum MotionPattern
 {
