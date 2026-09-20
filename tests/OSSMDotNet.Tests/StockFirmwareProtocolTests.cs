@@ -241,6 +241,20 @@ public sealed class StockFirmwareProtocolTests
         Assert.Throws<InvalidDataException>(() => ParseState(payload.ToJsonString()));
     }
 
+    [Theory]
+    [InlineData("timestamp", "\"1234\"")]
+    [InlineData("state", "0")]
+    [InlineData("speed", "\"30\"")]
+    [InlineData("position", "\"12.5\"")]
+    [InlineData("sessionId", "0")]
+    public void ParseRejectsWrongJsonValueKind(string field, string value)
+    {
+        var payload = ValidPayload();
+        payload[field] = JsonNode.Parse(value);
+
+        Assert.Throws<InvalidDataException>(() => ParseState(payload.ToJsonString()));
+    }
+
     [Fact]
     public void ParseRejectsUnsupportedState()
     {
@@ -417,6 +431,10 @@ public sealed class StockFirmwareProtocolTests
     [Theory]
     [InlineData(null, null, 60, 30, true)]
     [InlineData(null, null, 60, 61, false)]
+    [InlineData(null, null, 60, -1, false)]
+    [InlineData(0, 30, 40, 20, true)]
+    [InlineData(60, null, 40, 20, true)]
+    [InlineData(60, 60, 40, 40, true)]
     [InlineData(60, 30, 40, 20, true)]
     [InlineData(60, 30, 40, 19, false)]
     [InlineData(3, 1, 5, 2, true)]

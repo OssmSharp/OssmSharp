@@ -32,6 +32,7 @@ public sealed class TestDevice(
     private readonly TaskCompletionSource _stopped = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource _dispatchStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource _coreDisposed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private Exception? _dispatchError;
 
     /// <summary>
     /// Gets or sets whether writes wait for <see cref="CompleteDispatch"/>; configure before issuing a write.
@@ -67,6 +68,12 @@ public sealed class TestDevice(
     /// Settles blocked transport writes independently of caller cancellation.
     /// </summary>
     public void CompleteDispatch() => _dispatchCompleted.TrySetResult();
+
+    /// <summary>
+    /// Configures the transport error raised during dispatch.
+    /// </summary>
+    /// <param name="exception">The transport error to raise.</param>
+    public void FailDispatchWith(Exception exception) => _dispatchError = exception;
 
     /// <summary>
     /// Ends the transport with an optional failure.
@@ -121,6 +128,13 @@ public sealed class TestDevice(
     /// <param name="state">The state to validate and publish.</param>
     public void ReportState(DeviceState state) => PublishState(state, null);
 
+    /// <summary>
+    /// Sends attributed state through the base validation and publication path.
+    /// </summary>
+    /// <param name="state">The state to validate and publish.</param>
+    /// <param name="isOwnWrite">Whether the transport attributes the state to the pending write.</param>
+    public void ReportState(DeviceState state, bool? isOwnWrite) => PublishState(state, isOwnWrite);
+
     /// <inheritdoc />
     protected override async Task ConnectAsync(CancellationToken cancellationToken)
     {
@@ -138,6 +152,11 @@ public sealed class TestDevice(
     {
         DispatchCount++;
         _dispatchStarted.TrySetResult();
+        if (_dispatchError is { } error)
+        {
+            throw error;
+        }
+
         if (ReportStateDuringDispatch)
         {
             PublishState(

@@ -1,6 +1,9 @@
 using System.Collections.Concurrent;
 using System.ComponentModel.DataAnnotations;
 using System.Reflection;
+using System.Runtime.CompilerServices;
+using System.Text;
+using System.Text.Json;
 using System.Threading.Channels;
 using FastMoq;
 using FastMoq.Extensions;
@@ -11,6 +14,9 @@ namespace OSSMDotNet.Simulator.IntegrationTests;
 
 public sealed class SimulatedDeviceTests : MockerTestBase<SimulatedDevice>, IAsyncDisposable
 {
+    private const string ValidEventJson =
+        """{"v":1,"event":"state","state":{"sampleSequence":1,"changeRevision":0,"commandId":null,"desired":{"pattern":0,"speed":0,"stroke":10,"depth":20,"sensation":50},"enabled":false,"moving":false,"position":0.0,"velocity":0.0,"connected":true,"profileId":"ossm-rs-sim-v1"}}""";
+
     protected override Action<Mocker> SetupMocksAction => mocks =>
     {
         mocks.SetupOptions(new SimulatedDeviceOptions { ExecutablePath = SimulatorPath() });
@@ -444,6 +450,38 @@ public sealed class SimulatedDeviceTests : MockerTestBase<SimulatedDevice>, IAsy
         Assert.Empty(stateChanges);
     }
 
+    [Theory]
+    [InlineData("duplicate-envelope")]
+    [InlineData("duplicate-state")]
+    [InlineData("duplicate-desired")]
+    [InlineData("missing-response-error")]
+    [InlineData("missing-state-revision")]
+    [InlineData("missing-state-command-id")]
+    [InlineData("missing-desired-speed")]
+    public void DuplicateOrMissingKnownJsonFieldsAreRejected(string scenario)
+    {
+        var json = scenario switch
+        {
+            "duplicate-envelope" => ValidEventJson.Replace("\"v\":1", "\"v\":1,\"v\":1", StringComparison.Ordinal),
+            "duplicate-state" => ValidEventJson.Replace(
+                "\"enabled\":false",
+                "\"enabled\":false,\"enabled\":false",
+                StringComparison.Ordinal),
+            "duplicate-desired" => ValidEventJson.Replace(
+                "\"speed\":0",
+                "\"speed\":0,\"speed\":0",
+                StringComparison.Ordinal),
+            "missing-response-error" => ValidResponseJson().Replace(",\"error\":null", string.Empty, StringComparison.Ordinal),
+            "missing-state-revision" => ValidEventJson.Replace("\"changeRevision\":0,", string.Empty, StringComparison.Ordinal),
+            "missing-state-command-id" => ValidEventJson.Replace("\"commandId\":null,", string.Empty, StringComparison.Ordinal),
+            "missing-desired-speed" => ValidEventJson.Replace("\"speed\":0,", string.Empty, StringComparison.Ordinal),
+            _ => throw new ArgumentOutOfRangeException(nameof(scenario)),
+        };
+        var line = Encoding.UTF8.GetBytes($"{json}\n");
+
+        Assert.Throws<JsonException>(() => ConsumeLines(Component, line));
+    }
+
     [Fact]
     public async Task RejectedResponseStateDoesNotPublishOrConsumeSequence()
     {
@@ -529,6 +567,11 @@ public sealed class SimulatedDeviceTests : MockerTestBase<SimulatedDevice>, IAsy
 
     private static SimulatorDesired ValidDesired() => new(0, 0, 10, 20, 50);
 
+    private static string ValidResponseJson() => ValidEventJson.Replace(
+        "\"event\":\"state\"",
+        "\"id\":7,\"ok\":true,\"error\":null",
+        StringComparison.Ordinal);
+
     private static SimulatorState InvalidState(string scenario)
     {
         var state = ValidState();
@@ -573,6 +616,9 @@ public sealed class SimulatedDeviceTests : MockerTestBase<SimulatedDevice>, IAsy
         return Assert.IsType<ConcurrentDictionary<long, TaskCompletionSource<SimulatorReply>>>(
             field?.GetValue(device));
     }
+
+    [UnsafeAccessor(UnsafeAccessorKind.Method, Name = "ConsumeLines")]
+    private static extern int ConsumeLines(SimulatedDevice device, ReadOnlySpan<byte> buffer);
 
     private static async Task<DeviceState> ReadStateAsync(
         ChannelReader<OneOf<DeviceState, Exception>> reader,

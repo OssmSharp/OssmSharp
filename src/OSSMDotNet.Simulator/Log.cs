@@ -1,6 +1,6 @@
 namespace OSSMDotNet.Simulator;
 
-internal static partial class Log
+static partial class Log
 {
     [LoggerMessage(EventId = 100, Level = LogLevel.Information, Message = "Simulator process started.")]
     public static partial void Started(this ILogger logger);

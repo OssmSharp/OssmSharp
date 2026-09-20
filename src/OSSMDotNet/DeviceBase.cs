@@ -19,6 +19,7 @@ public abstract class DeviceBase : BackgroundService, IOssmDevice, IAsyncDisposa
     private DeviceConnectionState _connectionState = DeviceConnectionState.Disconnected;
     private DeviceInformation? _device;
     private PendingWrite? _pendingWrite;
+    private long _matchingContextVersion;
     private CancellationToken _hostCancellationToken;
     private int _disposed;
 
@@ -93,7 +94,8 @@ public abstract class DeviceBase : BackgroundService, IOssmDevice, IAsyncDisposa
                     motionSettings,
                     _lastRequestedMotion?.Speed,
                     _lastStateSpeed,
-                    _timeProvider.GetTimestamp());
+                    _timeProvider.GetTimestamp(),
+                    _matchingContextVersion);
                 _pendingWrite = pending;
             }
 
@@ -116,7 +118,12 @@ public abstract class DeviceBase : BackgroundService, IOssmDevice, IAsyncDisposa
 
             lock (_stateGate)
             {
-                _lastRequestedMotion = motionSettings;
+                // A disconnect clears the request history and changes this version number.
+                // If that happened while sending, do not put this old request back.
+                if (_matchingContextVersion == pending.MatchingContextVersion)
+                {
+                    _lastRequestedMotion = motionSettings;
+                }
             }
 
             cancellationToken.ThrowIfCancellationRequested();
@@ -354,6 +361,7 @@ public abstract class DeviceBase : BackgroundService, IOssmDevice, IAsyncDisposa
                 _lastRequestedMotion = null;
                 _lastStateSpeed = null;
                 _pendingWrite = null;
+                _matchingContextVersion++;
             }
 
             if (_connectionState == state)
@@ -391,9 +399,18 @@ public abstract class DeviceBase : BackgroundService, IOssmDevice, IAsyncDisposa
         }
     }
 
+    /// <summary>
+    /// Stores a motion request and the state needed to match later device reports to it.
+    /// </summary>
+    /// <param name="Settings">The requested motion settings.</param>
+    /// <param name="PreviousRequestedSpeed">The speed from the previous completed request, if available.</param>
+    /// <param name="PreviousStateSpeed">The most recently reported device speed, if available.</param>
+    /// <param name="Timestamp">The monotonic timestamp recorded when the request became pending.</param>
+    /// <param name="MatchingContextVersion">The connection context version captured when the request became pending.</param>
     private sealed record PendingWrite(
         MotionSettings Settings,
         int? PreviousRequestedSpeed,
         int? PreviousStateSpeed,
-        long Timestamp);
+        long Timestamp,
+        long MatchingContextVersion);
 }

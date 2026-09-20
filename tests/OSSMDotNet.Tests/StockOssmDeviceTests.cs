@@ -5,6 +5,8 @@ using FastMoq;
 using FastMoq.Extensions;
 using FastMoq.Providers;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using OneOf;
 
 namespace OSSMDotNet.Tests;
@@ -20,6 +22,44 @@ public sealed class StockOssmDeviceTests : MockerTestBase<StockOssmDevice>, IAsy
             true);
     };
 
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(0)]
+    public void OptionsRejectNonPositiveExpectationLifetime(long ticks)
+    {
+        var options = new StockOssmDeviceOptions
+        {
+            ExpectationLifetime = TimeSpan.FromTicks(ticks),
+        };
+
+        var result = Assert.Single(options.Validate(new ValidationContext(options)));
+
+        Assert.Equal("ExpectationLifetime must be positive.", result.ErrorMessage);
+        Assert.Equal([nameof(StockOssmDeviceOptions.ExpectationLifetime)], result.MemberNames);
+    }
+
+    [Fact]
+    public void OptionsAcceptPositiveExpectationLifetime()
+    {
+        var options = new StockOssmDeviceOptions
+        {
+            ExpectationLifetime = TimeSpan.FromTicks(1),
+        };
+
+        Assert.Empty(options.Validate(new ValidationContext(options)));
+    }
+
+    [Fact]
+    public void ConstructorRejectsMissingDependencies()
+    {
+        var options = Options.Create(new StockOssmDeviceOptions());
+        var logger = NullLogger<StockOssmDevice>.Instance;
+
+        Assert.Throws<ArgumentNullException>(() => new StockOssmDevice(null!, TimeProvider.System, logger));
+        Assert.Throws<ArgumentNullException>(() => new StockOssmDevice(options, null!, logger));
+        Assert.Throws<ArgumentNullException>(() => new StockOssmDevice(options, TimeProvider.System, null!));
+    }
+
     [Fact]
     public void ConstructorValidatesOptionsThroughDataAnnotations()
     {
@@ -30,6 +70,39 @@ public sealed class StockOssmDeviceTests : MockerTestBase<StockOssmDevice>, IAsy
         Assert.IsAssignableFrom<IValidatableObject>(options);
         var exception = Assert.Throws<TargetInvocationException>(() => Mocks.CreateInstance<StockOssmDevice>());
         Assert.IsType<ValidationException>(exception.InnerException);
+    }
+
+    [Fact]
+    public void SpeedMatchingHelperIsInternalStatic()
+    {
+        var method = typeof(StockOssmDevice).GetMethod(
+            nameof(StockOssmDevice.IsCurrentStateCongruent),
+            BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+
+        Assert.NotNull(method);
+        Assert.True(method.IsAssembly);
+        Assert.True(method.IsStatic);
+        Assert.Equal(typeof(bool), method.ReturnType);
+    }
+
+    [Theory]
+    [InlineData(100, 50, 51, 25, true)]
+    [InlineData(2, 0, 51, 25, true)]
+    [InlineData(2, 0, 51, 26, false)]
+    public void SpeedMatchingRequiresOverlappingFractionalKnobIntervals(
+        int previousRequestedSpeed,
+        int previousStateSpeed,
+        int requestedSpeed,
+        int stateSpeed,
+        bool expected)
+    {
+        var actual = StockOssmDevice.IsCurrentStateCongruent(
+            previousRequestedSpeed,
+            previousStateSpeed,
+            requestedSpeed,
+            stateSpeed);
+
+        Assert.Equal(expected, actual);
     }
 
     [Fact]

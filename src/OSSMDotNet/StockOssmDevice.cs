@@ -24,15 +24,7 @@ public sealed class StockOssmDevice : DeviceBase
     {
     }
 
-    /// <summary>
-    /// Determines whether the reported speed is consistent with the previously-requested.
-    /// </summary>
-    /// <param name="previousRequestedSpeed">The requested speed that settled before the pending request was registered.</param>
-    /// <param name="previousStateSpeed">The previous reported speed, when available.</param>
-    /// <param name="requestedSpeed">The pending requested speed.</param>
-    /// <param name="stateSpeed">The reported speed.</param>
-    /// <returns><see langword="true"/> when the reported speed is consistent with the request.</returns>
-    public static bool IsCurrentStateCongruent(
+    internal static bool IsCurrentStateCongruent(
         int? previousRequestedSpeed,
         int? previousStateSpeed,
         int requestedSpeed,
@@ -53,16 +45,20 @@ public sealed class StockOssmDevice : DeviceBase
             return true;
         }
 
-        for (var knobPercentage = 0; knobPercentage <= 100; knobPercentage++)
+        if (previousStateSpeed < 0 || previousStateSpeed > previousRequestedSpeed)
         {
-            if ((previousRequestedSpeed.Value * knobPercentage / 100) == previousStateSpeed &&
-                (requestedSpeed * knobPercentage / 100) == stateSpeed)
-            {
-                return true;
-            }
+            return false;
         }
 
-        return false;
+        if (previousStateSpeed == previousRequestedSpeed || stateSpeed == requestedSpeed)
+        {
+            return previousStateSpeed == previousRequestedSpeed && stateSpeed == requestedSpeed;
+        }
+
+        return (long)previousStateSpeed.Value * requestedSpeed <
+               (long)(stateSpeed + 1) * previousRequestedSpeed.Value &&
+               (long)stateSpeed * previousRequestedSpeed.Value <
+               (long)(previousStateSpeed.Value + 1) * requestedSpeed;
     }
 
     /// <inheritdoc />

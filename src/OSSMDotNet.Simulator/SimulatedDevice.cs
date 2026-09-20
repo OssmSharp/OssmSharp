@@ -24,9 +24,12 @@ public sealed class SimulatedDevice : DeviceBase
         [MotionPattern.SimpleStroke]);
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {
+        AllowDuplicateProperties = false,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
         MaxDepth = 12,
         PropertyNameCaseInsensitive = false,
+        RespectNullableAnnotations = true,
+        RespectRequiredConstructorParameters = true,
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
     };
 
@@ -225,6 +228,52 @@ public sealed class SimulatedDevice : DeviceBase
         await base.DisposeCoreAsync().ConfigureAwait(false);
     }
 
+    private static SimulatorReply DeserializeReply(ReadOnlySpan<byte> line)
+    {
+        if (IsEvent(line))
+        {
+            var message = JsonSerializer.Deserialize<SimulatorEvent>(line, Json)
+                ?? throw new JsonException("The simulator returned an empty event.");
+            return new SimulatorReply(message.V, null, null, null, message.Event, message.State);
+        }
+
+        var response = JsonSerializer.Deserialize<SimulatorResponse>(line, Json)
+            ?? throw new JsonException("The simulator returned an empty response.");
+        return new SimulatorReply(response.V, response.Id, response.Ok, response.Error, null, response.State);
+    }
+
+    private static bool IsEvent(ReadOnlySpan<byte> line)
+    {
+        var reader = new Utf8JsonReader(line);
+        if (!reader.Read() || reader.TokenType != JsonTokenType.StartObject)
+        {
+            throw new JsonException("The simulator returned a non-object response.");
+        }
+
+        while (reader.Read() && reader.TokenType != JsonTokenType.EndObject)
+        {
+            if (reader.TokenType != JsonTokenType.PropertyName)
+            {
+                throw new JsonException("The simulator returned an invalid response object.");
+            }
+
+            var isEvent = reader.ValueTextEquals("event"u8);
+            if (!reader.Read())
+            {
+                throw new JsonException("The simulator returned an incomplete response object.");
+            }
+
+            if (isEvent)
+            {
+                return true;
+            }
+
+            reader.Skip();
+        }
+
+        return false;
+    }
+
     private async Task SendAsync(
         string operation,
         SimulatorDesired? desired,
@@ -347,8 +396,7 @@ public sealed class SimulatedDevice : DeviceBase
                 line = line[..^1];
             }
 
-            var reply = JsonSerializer.Deserialize<SimulatorReply>(line, Json)
-                ?? throw new InvalidDataException("The simulator returned an empty response.");
+            var reply = DeserializeReply(line);
             ProcessReply(reply);
             consumed += offset + 1;
         }
