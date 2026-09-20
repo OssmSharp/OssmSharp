@@ -6,6 +6,11 @@ namespace OSSMDotNet.Abstractions;
 public enum DeviceConnectionState
 {
     /// <summary>
+    /// Disconnected
+    /// </summary>
+    Disconnected,
+
+    /// <summary>
     /// Establishing its connection.
     /// </summary>
     Connecting,
@@ -14,14 +19,4 @@ public enum DeviceConnectionState
     /// Connection is active.
     /// </summary>
     Connected,
-
-    /// <summary>
-    /// Disconnected
-    /// </summary>
-    Disconnected,
-
-    /// <summary>
-    /// The implementation has encountered a connection or protocol fault.
-    /// </summary>
-    Faulted,
 }

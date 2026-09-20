@@ -17,12 +17,13 @@ implement presentation or infer authority from a UI state.
 and **can** capability or possibility. **Must not** denotes prohibition;
 **cannot** describes inability. Firmware facts remain descriptive.
 
-| Logical component      | Responsibility                                                                                       | Permitted internal dependencies                                                          |
-| ---------------------- | ---------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| Device abstractions    | Device interface, motion settings, observations, states and pattern identifiers                      | No other core or application component                                                   |
-| Device implementations | Stock protocol mapping, native connection ownership and simulator process integration                | Device abstractions                                                                      |
-| Shared models          | Immutable controller/application data contracts, explicit units, outcomes and versioned message data | Device abstractions only where a core value is required; no implementation or host types |
-| Controller             | Lifecycle, limits, trusted execution guards, scheduling, single writer, Stop and lockout             | Device abstractions and shared models, never a concrete device implementation            |
+| Logical component           | Responsibility                                                                                       | Permitted internal dependencies                                                          |
+| --------------------------- | ---------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| Device abstractions         | Device interface, motion settings, observations, states and pattern identifiers                      | No other core or application component                                                   |
+| Stock device implementation | Shared device behavior, stock protocol mapping and native connection ownership                       | Device abstractions                                                                      |
+| Simulator implementation    | Simulator process integration and direct engine observation assessment                               | Stock device implementation and device abstractions                                      |
+| Shared models               | Immutable controller/application data contracts, explicit units, outcomes and versioned message data | Device abstractions only where a core value is required; no implementation or host types |
+| Controller                  | Lifecycle, limits, trusted execution guards, scheduling, single writer, Stop and lockout             | Device abstractions and shared models, never a concrete device implementation            |
 
 Framework libraries for hosting, options, logging and timing may support core
 lifetime management; ASP.NET Core, Blazor, SignalR, Aspire and UI components
@@ -81,7 +82,9 @@ observation freshness. Operational diagnostics must use `ILogger<T>` with
 structured, bounded, non-sensitive fields, not a custom logging framework.
 
 Stock and simulator implementations must satisfy the same observable device
-contract. The
+contract. `OssmDeviceBase` must own their shared contract behavior in the stock
+library. The simulator may reference that library to derive from the base, but
+the stock library must not reference the simulator. The
 [stock implementation](device-control/spec.md#stock-firmware-implementation)
 owns BLE-specific behavior; the
 [simulator implementation](device-control/spec.md#simulator-implementation) uses

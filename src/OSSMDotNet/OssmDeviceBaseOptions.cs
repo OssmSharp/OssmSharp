@@ -9,11 +9,13 @@ public abstract class OssmDeviceBaseOptions : IValidatableObject
 {
     /// <summary>
     /// Gets or sets the interval during which motion telemetry is live.
+    /// TODO: what is this? bad name.
     /// </summary>
     public TimeSpan ObservationLiveFor { get; set; } = TimeSpan.FromMilliseconds(1500);
 
     /// <summary>
     /// Gets or sets the maximum interval for matching feedback to a write.
+    /// TODO: what is this? bad name.
     /// </summary>
     public TimeSpan ExpectationLifetime { get; set; } = TimeSpan.FromMilliseconds(1500);
 

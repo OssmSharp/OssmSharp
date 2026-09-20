@@ -3,7 +3,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using OSSMDotNet.ControlCore;
 using OSSMDotNet.ControlService.Models;
-using OSSMDotNet.DeviceBridge;
+using OSSMDotNet.Simulator;
 using OSSMDotNet.Models;
 
 namespace OSSMDotNet.ControlService.IntegrationTests;
@@ -19,7 +19,7 @@ internal sealed class LocalSimulatorControlFixture : IAsyncDisposable
     {
         Activity = new ControlActivityProvider(TimeProvider.System);
         _loggerFactory = LoggerFactory.Create(builder => builder.AddProvider(Activity));
-        Bridge = new SimulatorProcessBridge(_loggerFactory.CreateLogger<SimulatorProcessBridge>());
+        Bridge = new SimulatorProcessTransport(_loggerFactory.CreateLogger<SimulatorProcessTransport>());
         Bridge.SampleReceived += sample => _samples.Writer.TryWrite(sample);
         Engine = new PrototypeEngine(Bridge, TimeProvider.System);
         Authority = new ControlAuthority(Engine);
@@ -36,7 +36,7 @@ internal sealed class LocalSimulatorControlFixture : IAsyncDisposable
     }
 
     internal ControlActivityProvider Activity { get; }
-    internal SimulatorProcessBridge Bridge { get; }
+    internal SimulatorProcessTransport Bridge { get; }
     internal PrototypeEngine Engine { get; }
     internal ControlAuthority Authority { get; }
     internal ControlOperations Operations { get; }

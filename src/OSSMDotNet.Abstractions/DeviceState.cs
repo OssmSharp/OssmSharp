@@ -1,13 +1,41 @@
 namespace OSSMDotNet.Abstractions;
 
 /// <summary>
-/// Represents a state notification from an OSSM device.
+/// Represents the latest device observation and retained requested motion.
 /// </summary>
-public sealed record DeviceState(
-    DateTime Timestamp,
-    MotionSettings MotionSettings,
-    Guid SessionId)
+public sealed record DeviceState
 {
+    /// <summary>
+    /// Gets the original UTC sample timestamp.
+    /// </summary>
+    public required DateTime Timestamp { get; init; }
+
+    /// <summary>
+    /// Gets the observed settings. Speed is an effective percentage and position is in millimetres.
+    /// </summary>
+    public required MotionSettings MotionSettings { get; init; }
+
+    /// <summary>
+    /// Gets the device session identifier.
+    /// </summary>
+    public required Guid SessionId { get; init; }
+
+    /// <summary>
+    /// Gets the directly reported signed velocity in millimetres per second, or <see langword="null"/> when not reported.
+    /// A supplied value must be finite; zero is a reported value, not absence. Velocity must not be derived from speed percentages.
+    /// </summary>
+    public double? VelocityMillimetresPerSecond { get; init; }
+
+    /// <summary>
+    /// Gets the last successfully settled requested settings, or <see langword="null"/> before any write settles.
+    /// </summary>
+    public MotionSettings? RequestedMotion { get; init; }
+
+    /// <summary>
+    /// Gets the freshness of the retained observation; successful writes do not refresh it.
+    /// </summary>
+    public ObservationFreshness ObservationFreshness { get; init; } = ObservationFreshness.Unavailable;
+
     /// <summary>
     /// Determines whether an observed state can represent the requested state without prior feedback.
     /// </summary>
@@ -18,7 +46,7 @@ public sealed record DeviceState(
     {
         ArgumentNullException.ThrowIfNull(requested);
         ArgumentNullException.ThrowIfNull(observed);
-        return IsSpeedMatch(
+        return requested.MotionSettings is not null && observed.MotionSettings is not null && IsSpeedMatch(
             null,
             null,
             requested.MotionSettings.Speed,
@@ -41,9 +69,9 @@ public sealed record DeviceState(
     {
         ArgumentNullException.ThrowIfNull(requested);
         ArgumentNullException.ThrowIfNull(observed);
-        return IsSpeedMatch(
+        return observed.MotionSettings is not null && IsSpeedMatch(
             previousRequested?.Speed,
-            previousObserved?.MotionSettings.Speed,
+            previousObserved?.MotionSettings?.Speed,
             requested.Speed,
             observed.MotionSettings.Speed);
     }

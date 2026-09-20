@@ -9,6 +9,7 @@
     <AssemblyMetadata Include="RepositoryRoot" Value="$(MSBuildProjectDirectory)\..\.." />
     <ProjectReference Include="..\..\src\OSSMDotNet.Abstractions\OSSMDotNet.Abstractions.csproj" />
     <ProjectReference Include="..\..\src\OSSMDotNet.Simulator\OSSMDotNet.Simulator.csproj" />
+    <PackageReference Include="FastMoq.Core" />
     <PackageReference Include="xunit.v3.mtp-v2" />
     <PackageReference Include="Microsoft.Testing.Platform" />
     <Using Include="OSSMDotNet.Abstractions" />

@@ -13,7 +13,7 @@
     <PackageReference Include="Microsoft.Testing.Platform" />
     <PackageReference Include="FastMoq.Core" />
     <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
-    <Using Include="OSSMDotNet.DeviceBridge.Abstractions" />
+    <Using Include="OSSMDotNet.Abstractions" />
     <Using Include="Xunit" />
   </ItemGroup>
 </Project>

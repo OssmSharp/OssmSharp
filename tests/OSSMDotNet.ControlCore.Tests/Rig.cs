@@ -17,7 +17,7 @@ internal sealed class Rig : IAsyncDisposable
     public Rig()
     {
         Clock = new(Time);
-        _mocker.AddType<IDeviceBridge>(Bridge);
+        _mocker.AddType<IDeviceTransport>(Bridge);
         _mocker.AddType<TimeProvider>(Clock);
         Engine = Assert.IsType<PrototypeEngine>(_mocker.CreateInstance<PrototypeEngine>());
         Bridge.Publish();

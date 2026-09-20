@@ -15,7 +15,10 @@ public abstract class OssmDeviceBase : BackgroundService, IOssmDevice, IAsyncDis
     private readonly TimeSpan _observationLiveFor;
     private readonly TimeSpan _expectationLifetime;
     private readonly ILogger _logger;
-    private DeviceSnapshot _snapshot;
+    private DeviceState? _state;
+    private MotionSettings? _lastRequestedMotion;
+    private DeviceConnectionState _connectionState = DeviceConnectionState.Disconnected;
+    private DeviceInformation? _device;
     private long _observationTimestamp;
     private PendingWrite? _pendingWrite;
     private int _disposed;
@@ -40,27 +43,48 @@ public abstract class OssmDeviceBase : BackgroundService, IOssmDevice, IAsyncDis
         _observationLiveFor = options.ObservationLiveFor;
         _expectationLifetime = options.ExpectationLifetime;
         _logger = logger;
-        _snapshot = new(
-            UtcNow(),
-            DeviceConnectionState.Disconnected,
-            null,
-            null,
-            ObservationFreshness.Unavailable,
-            null,
-            null);
     }
 
     /// <inheritdoc />
-    public event Action<OneOf<DeviceSnapshot, Exception>>? DeviceChanged;
+    public DeviceConnectionState ConnectionState
+    {
+        get
+        {
+            lock (_stateGate)
+            {
+                return _connectionState;
+            }
+        }
+    }
 
     /// <inheritdoc />
-    public Task<DeviceSnapshot> GetSnapshotAsync(CancellationToken cancellationToken)
+    public DeviceInformation Device
+    {
+        get
+        {
+            lock (_stateGate)
+            {
+                return _device ?? throw new InvalidOperationException("Device information has not yet been discovered.");
+            }
+        }
+    }
+
+    /// <inheritdoc />
+    public event Action<DeviceConnectionState>? ConnectionStateChanged;
+
+    /// <inheritdoc />
+    public event Action<OneOf<DeviceState, Exception>>? DeviceStateChanged;
+
+    /// <inheritdoc />
+    public Task<DeviceState> GetStateAsync(CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
         cancellationToken.ThrowIfCancellationRequested();
         lock (_stateGate)
         {
-            return Task.FromResult(_snapshot);
+            return _state is null
+                ? Task.FromException<DeviceState>(new NoDeviceDataException())
+                : Task.FromResult(_state);
         }
     }
 
@@ -100,18 +124,19 @@ public abstract class OssmDeviceBase : BackgroundService, IOssmDevice, IAsyncDis
                 throw;
             }
 
-            DeviceSnapshot snapshot;
+            DeviceState? state;
             lock (_stateGate)
             {
-                _snapshot = _snapshot with
-                {
-                    CapturedAtUtc = UtcNow(),
-                    RequestedMotion = motionSettings,
-                };
-                snapshot = _snapshot;
+                _lastRequestedMotion = motionSettings;
+                _state = _state is null ? null : _state with { RequestedMotion = motionSettings };
+                state = _state;
             }
 
-            Publish(snapshot);
+            if (state is not null)
+            {
+                Publish(state);
+            }
+
             cancellationToken.ThrowIfCancellationRequested();
         }
         finally
@@ -127,42 +152,31 @@ public abstract class OssmDeviceBase : BackgroundService, IOssmDevice, IAsyncDis
     protected void PublishConnected(DeviceInformation device)
     {
         ArgumentNullException.ThrowIfNull(device);
-        UpdateSnapshot(snapshot => snapshot with
-        {
-            CapturedAtUtc = UtcNow(),
-            ConnectionState = DeviceConnectionState.Connected,
-            Device = device,
-        });
+        SetConnectionState(DeviceConnectionState.Connected, device);
     }
 
     /// <summary>
     /// Publishes a disconnected state without discarding retained observations.
     /// </summary>
-    protected void PublishDisconnected() => UpdateSnapshot(snapshot => snapshot with
-    {
-        CapturedAtUtc = UtcNow(),
-        ConnectionState = DeviceConnectionState.Disconnected,
-    });
+    protected void PublishDisconnected() => SetConnectionState(DeviceConnectionState.Disconnected);
 
     /// <summary>
     /// Commits and publishes a validated observation.
     /// </summary>
     /// <param name="observation">The validated device observation.</param>
-    /// <param name="velocityMillimetresPerSecond">Directly observed velocity, when available.</param>
     /// <param name="isOwnWrite">Whether the implementation can directly attribute the observation to the pending write.</param>
     protected void PublishObservation(
         DeviceState observation,
-        double? velocityMillimetresPerSecond,
         bool? isOwnWrite)
     {
         ArgumentNullException.ThrowIfNull(observation);
-        ValidateObservation(observation, velocityMillimetresPerSecond);
+        ValidateObservation(observation);
 
-        DeviceSnapshot snapshot;
+        DeviceState state;
         UnexpectedSpeedChangeException? unexpected = null;
         lock (_stateGate)
         {
-            var previous = _snapshot.Observation;
+            var previous = _state;
             var pending = CurrentPendingWrite();
             var expected = isOwnWrite is true ||
                 (isOwnWrite is not false && pending is not null &&
@@ -172,28 +186,26 @@ public abstract class OssmDeviceBase : BackgroundService, IOssmDevice, IAsyncDis
             {
                 _pendingWrite = null;
             }
-            else if (previous is not null &&
-                     previous.MotionSettings.Speed != observation.MotionSettings.Speed)
+            else if (previous?.MotionSettings is { } previousSettings &&
+                     previousSettings.Speed != observation.MotionSettings.Speed)
             {
                 unexpected = new UnexpectedSpeedChangeException(
-                    previous.MotionSettings.Speed,
+                    previousSettings.Speed,
                     observation.MotionSettings.Speed,
                     pending?.Settings.Speed,
                     observation.Timestamp);
             }
 
             _observationTimestamp = _timeProvider.GetTimestamp();
-            _snapshot = _snapshot with
+            state = observation with
             {
-                CapturedAtUtc = UtcNow(),
+                RequestedMotion = _lastRequestedMotion,
                 ObservationFreshness = ObservationFreshness.Live,
-                Observation = observation,
-                ObservedVelocityMillimetresPerSecond = velocityMillimetresPerSecond,
             };
-            snapshot = _snapshot;
+            _state = state;
         }
 
-        Publish(snapshot);
+        Publish(state);
         if (unexpected is not null)
         {
             Publish(unexpected);
@@ -201,17 +213,12 @@ public abstract class OssmDeviceBase : BackgroundService, IOssmDevice, IAsyncDis
     }
 
     /// <summary>
-    /// Publishes an asynchronous implementation error.
+    /// Publishes an asynchronous implementation error without changing connection status.
     /// </summary>
     /// <param name="exception">The semantic exception exposed to consumers.</param>
     protected void PublishError(Exception exception)
     {
         ArgumentNullException.ThrowIfNull(exception);
-        UpdateSnapshot(snapshot => snapshot with
-        {
-            CapturedAtUtc = UtcNow(),
-            ConnectionState = DeviceConnectionState.Faulted,
-        });
         Publish(exception);
     }
 
@@ -236,7 +243,7 @@ public abstract class OssmDeviceBase : BackgroundService, IOssmDevice, IAsyncDis
         {
             lock (_stateGate)
             {
-                return _snapshot.RequestedMotion;
+                return _lastRequestedMotion;
             }
         }
     }
@@ -244,7 +251,7 @@ public abstract class OssmDeviceBase : BackgroundService, IOssmDevice, IAsyncDis
     /// <summary>
     /// Runs the implementation-owned transport until shutdown.
     /// </summary>
-    protected abstract Task RunTransportAsync(CancellationToken cancellationToken);
+    protected abstract Task ConnectAsync(CancellationToken cancellationToken);
 
     /// <summary>
     /// Dispatches one validated motion request to the implementation transport.
@@ -262,26 +269,24 @@ public abstract class OssmDeviceBase : BackgroundService, IOssmDevice, IAsyncDis
     /// <inheritdoc />
     protected sealed override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        UpdateSnapshot(snapshot => snapshot with
-        {
-            CapturedAtUtc = UtcNow(),
-            ConnectionState = DeviceConnectionState.Connecting,
-        });
+        SetConnectionState(DeviceConnectionState.Connecting);
 
         var freshness = MonitorFreshnessAsync(stoppingToken);
         try
         {
-            await RunTransportAsync(stoppingToken).ConfigureAwait(false);
+            await ConnectAsync(stoppingToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
         }
         catch (Exception exception) when (exception is IOException or InvalidDataException or TimeoutException or UnauthorizedAccessException)
         {
+            PublishDisconnected();
             PublishError(exception);
         }
         finally
         {
+            PublishDisconnected();
             try
             {
                 await freshness.ConfigureAwait(false);
@@ -318,11 +323,7 @@ public abstract class OssmDeviceBase : BackgroundService, IOssmDevice, IAsyncDis
                 {
                     lock (_stateGate)
                     {
-                        _snapshot = _snapshot with
-                        {
-                            CapturedAtUtc = UtcNow(),
-                            ConnectionState = DeviceConnectionState.Disconnected,
-                        };
+                        _connectionState = DeviceConnectionState.Disconnected;
                     }
                 }
                 finally
@@ -345,19 +346,18 @@ public abstract class OssmDeviceBase : BackgroundService, IOssmDevice, IAsyncDis
         while (true)
         {
             await Task.Delay(interval, _timeProvider, cancellationToken).ConfigureAwait(false);
-            DeviceSnapshot? changed = null;
+            DeviceState? changed = null;
             lock (_stateGate)
             {
                 _ = CurrentPendingWrite();
-                if (_snapshot.ObservationFreshness == ObservationFreshness.Live &&
+                if (_state is { ObservationFreshness: ObservationFreshness.Live } observation &&
                     _timeProvider.GetElapsedTime(_observationTimestamp) >= _observationLiveFor)
                 {
-                    _snapshot = _snapshot with
+                    changed = observation with
                     {
-                        CapturedAtUtc = UtcNow(),
                         ObservationFreshness = ObservationFreshness.LastKnown,
                     };
-                    changed = _snapshot;
+                    _state = changed;
                 }
             }
 
@@ -379,25 +379,32 @@ public abstract class OssmDeviceBase : BackgroundService, IOssmDevice, IAsyncDis
         return _pendingWrite;
     }
 
-    private void UpdateSnapshot(Func<DeviceSnapshot, DeviceSnapshot> update)
+    private void SetConnectionState(DeviceConnectionState state, DeviceInformation? device = null)
     {
-        DeviceSnapshot snapshot;
         lock (_stateGate)
         {
-            snapshot = _snapshot = update(_snapshot);
+            _device ??= device;
+            if (_connectionState == state)
+            {
+                return;
+            }
+
+            _connectionState = state;
         }
 
-        Publish(snapshot);
+        Publish(ConnectionStateChanged, state);
     }
 
-    private void Publish(OneOf<DeviceSnapshot, Exception> change)
+    private void Publish(OneOf<DeviceState, Exception> change) => Publish(DeviceStateChanged, change);
+
+    private void Publish<T>(Action<T>? handlers, T change)
     {
-        if (Volatile.Read(ref _disposed) != 0 || DeviceChanged is not { } handlers)
+        if (Volatile.Read(ref _disposed) != 0 || handlers is null)
         {
             return;
         }
 
-        foreach (var subscriber in handlers.GetInvocationList().Cast<Action<OneOf<DeviceSnapshot, Exception>>>())
+        foreach (var subscriber in handlers.GetInvocationList().Cast<Action<T>>())
         {
             try
             {
@@ -410,13 +417,16 @@ public abstract class OssmDeviceBase : BackgroundService, IOssmDevice, IAsyncDis
         }
     }
 
-    private DateTime UtcNow() => _timeProvider.GetUtcNow().UtcDateTime;
-
-    private static void ValidateObservation(DeviceState observation, double? velocity)
+    private static void ValidateObservation(DeviceState observation)
     {
-        if (observation.Timestamp.Kind != DateTimeKind.Utc)
+        if (observation.Timestamp is not { Kind: DateTimeKind.Utc })
         {
             throw new InvalidDataException("Observation timestamps must use UTC.");
+        }
+
+        if (observation.MotionSettings is null)
+        {
+            throw new InvalidDataException("A device observation must contain motion settings.");
         }
 
         try
@@ -428,7 +438,7 @@ public abstract class OssmDeviceBase : BackgroundService, IOssmDevice, IAsyncDis
             throw new InvalidDataException("The device observation contains invalid motion settings.", exception);
         }
 
-        if (velocity is { } value && !double.IsFinite(value))
+        if (observation.VelocityMillimetresPerSecond is { } value && !double.IsFinite(value))
         {
             throw new InvalidDataException("The observed velocity must be finite.");
         }

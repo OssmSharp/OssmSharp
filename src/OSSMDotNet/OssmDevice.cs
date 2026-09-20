@@ -24,20 +24,15 @@ public sealed class OssmDevice : OssmDeviceBase
         IOptions<OssmDeviceOptions> options,
         TimeProvider timeProvider,
         ILogger<OssmDevice> logger)
-        : this(ValidateOptions(options), timeProvider, logger)
-    {
-    }
-
-    private OssmDevice(
-        OssmDeviceOptions options,
-        TimeProvider timeProvider,
-        ILogger<OssmDevice> logger)
-        : base(options, timeProvider, logger)
+        : base(
+            options?.Value ?? throw new ArgumentNullException(nameof(options)),
+            timeProvider,
+            logger)
     {
     }
 
     /// <inheritdoc />
-    protected override async Task RunTransportAsync(CancellationToken cancellationToken)
+    protected override async Task ConnectAsync(CancellationToken cancellationToken)
     {
         PublishDisconnected();
         PublishError(BleUnavailable);
@@ -58,9 +53,4 @@ public sealed class OssmDevice : OssmDeviceBase
             previous,
             requested,
             observed);
-
-    private static OssmDeviceOptions ValidateOptions(IOptions<OssmDeviceOptions>? options)
-    {
-        return options?.Value ?? throw new ArgumentNullException(nameof(options));
-    }
 }

@@ -1,10 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
-	<PropertyGroup>
-		<RootNamespace>OSSMDotNet.Models</RootNamespace>
-	</PropertyGroup>
-	<ItemGroup>
-		<ProjectReference
-			Include="..\OSSMDotNet.Abstractions\OSSMDotNet.Abstractions.csproj" />
-		<Using Include="OSSMDotNet.DeviceBridge.Abstractions" />
-	</ItemGroup>
+  <PropertyGroup>
+    <RootNamespace>OSSMDotNet.Models</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference
+      Include="..\OSSMDotNet.Abstractions\OSSMDotNet.Abstractions.csproj" />
+    <Using Include="OSSMDotNet.Abstractions" />
+  </ItemGroup>
 </Project>

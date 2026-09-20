@@ -25,7 +25,7 @@ public sealed partial class ControlActivityProviderTests
     public void LiveLogRetainsOnlyTwoHundredEntriesAndSupportsIncrementalReads()
     {
         using var provider = new ControlActivityProvider(TimeProvider.System);
-        var logger = provider.CreateLogger("OSSMDotNet.DeviceBridge.SimulatorProcessBridge");
+        var logger = provider.CreateLogger("OSSMDotNet.Simulator.SimulatorProcessTransport");
         for (var index = 0; index < 250; index++)
             LogDeviceActivity(logger, index);
 

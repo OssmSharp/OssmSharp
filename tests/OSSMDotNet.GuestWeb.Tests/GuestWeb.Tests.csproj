@@ -12,7 +12,7 @@
     <PackageReference Include="xunit.v3.mtp-v2" />
     <PackageReference Include="Microsoft.Testing.Platform" />
     <PackageReference Include="Microsoft.Extensions.Diagnostics.Testing" />
-    <Using Include="OSSMDotNet.DeviceBridge.Abstractions" />
+    <Using Include="OSSMDotNet.Abstractions" />
     <Using Include="Xunit" />
   </ItemGroup>
 </Project>

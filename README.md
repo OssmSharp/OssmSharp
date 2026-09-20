@@ -5,9 +5,10 @@ or remote access.** Use admin and guest tabs on the same computer.
 
 ## Quick start
 
-Requires .NET 10 and Rust/Cargo. The sibling `..\retro-webui` checkout must contain its
-private widget package at `artifacts\packages\RetroWebUi.Blazor.0.2.0.nupkg`.
-See [local widget setup](.docs/retro-widgets.md) if it is missing.
+Requires .NET 10 and Rust/Cargo. The sibling `..\retro-webui` checkout must
+contain its private widget package at
+`artifacts\packages\RetroWebUi.Blazor.0.2.0.nupkg`. See
+[local widget setup](.docs/retro-widgets.md) if it is missing.
 
 Run from this repository:
 
@@ -28,8 +29,8 @@ The device API is split into three independently buildable libraries:
 These libraries do not depend on ControlService, Aspire, or either web host.
 
 `OSSMDotNet.Simulator` requires the separately built
-[`ossm-sim-bridge`](tools/ossm-sim-bridge/README.md) executable at runtime.
-The library boundary is not a published package, a separate network service, or
+[`ossm-sim-bridge`](tools/ossm-sim-bridge/README.md) executable at runtime. The
+library boundary is not a published package, a separate network service, or
 physical-device qualification. See the
 [device-control specification](.docs/specs/device-control/spec.md) for the
 contract and safety boundaries.

@@ -2,7 +2,7 @@ using OSSMDotNet.Models;
 
 namespace OSSMDotNet.ControlCore.Tests;
 
-internal sealed class FakeBridge : IDeviceBridge
+internal sealed class FakeBridge : IDeviceTransport
 {
     private readonly List<BridgeCall> _calls = [];
     private Action<DeviceState>? _received;

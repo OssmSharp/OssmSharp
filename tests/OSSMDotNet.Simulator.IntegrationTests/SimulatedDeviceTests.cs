@@ -1,25 +1,30 @@
 using System.ComponentModel.DataAnnotations;
 using System.Reflection;
 using System.Threading.Channels;
-using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
+using FastMoq;
+using FastMoq.Extensions;
 using OneOf;
 
 namespace OSSMDotNet.Simulator.IntegrationTests;
 
-public sealed class SimulatedDeviceTests
+public sealed class SimulatedDeviceTests : MockerTestBase<SimulatedDevice>, IAsyncDisposable
 {
+    protected override Action<Mocker> SetupMocksAction => mocks =>
+    {
+        mocks.SetupOptions(new SimulatedDeviceOptions { ExecutablePath = SimulatorPath() });
+        mocks.AddType<TimeProvider>(TimeProvider.System);
+    };
+
     [Fact]
     public void ConstructorValidatesOptionsThroughDataAnnotations()
     {
         var options = new SimulatedDeviceOptions { ExecutablePath = "relative-path" };
+        Mocks.SetupOptions(options, replace: true);
 
         Assert.IsAssignableFrom<OssmDeviceBaseOptions>(options);
         Assert.IsAssignableFrom<IValidatableObject>(options);
-        Assert.Throws<ValidationException>(() => new SimulatedDevice(
-            Options.Create(options),
-            TimeProvider.System,
-            NullLogger<SimulatedDevice>.Instance));
+        var exception = Assert.Throws<TargetInvocationException>(() => Mocks.CreateInstance<SimulatedDevice>());
+        Assert.IsType<ValidationException>(exception.InnerException);
     }
 
     [Fact]
@@ -27,40 +32,76 @@ public sealed class SimulatedDeviceTests
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(10));
-        await using var device = new SimulatedDevice(
-            Options.Create(new SimulatedDeviceOptions { ExecutablePath = SimulatorPath() }),
-            TimeProvider.System,
-            NullLogger<SimulatedDevice>.Instance);
-        var changes = Channel.CreateUnbounded<OneOf<DeviceSnapshot, Exception>>();
-        device.DeviceChanged += change => changes.Writer.TryWrite(change);
+        var changes = Channel.CreateUnbounded<OneOf<DeviceState, Exception>>();
+        Component.DeviceStateChanged += change => changes.Writer.TryWrite(change);
 
-        await device.StartAsync(timeout.Token);
-        var initial = await ReadSnapshotAsync(
+        var beforeStartup = Component.GetStateAsync(timeout.Token);
+        await Assert.ThrowsAsync<NoDeviceDataException>(() => beforeStartup);
+        Assert.False(changes.Reader.TryRead(out _));
+        Assert.Equal(DeviceConnectionState.Disconnected, Component.ConnectionState);
+        Assert.Throws<InvalidOperationException>(() => Component.Device);
+
+        await Component.StartAsync(timeout.Token);
+        var initial = await ReadStateAsync(
             changes.Reader,
-            snapshot => snapshot.ConnectionState == DeviceConnectionState.Connected &&
-                snapshot.ObservationFreshness == ObservationFreshness.Live,
+            state => Component.ConnectionState == DeviceConnectionState.Connected &&
+                state.ObservationFreshness == ObservationFreshness.Live,
             timeout.Token);
         var moving = Settings(12);
 
-        await device.SetMotionAsync(moving, timeout.Token);
-        var applied = await ReadSnapshotAsync(
+        await Component.SetMotionAsync(moving, timeout.Token);
+        var applied = await ReadStateAsync(
             changes.Reader,
-            snapshot => snapshot.Observation?.MotionSettings.Speed == moving.Speed &&
-                snapshot.RequestedMotion == moving,
+            state => state.MotionSettings.Speed == moving.Speed &&
+                state.RequestedMotion == moving,
             timeout.Token);
-        await device.SetMotionAsync(moving with { Speed = 0 }, timeout.Token);
-        var stopped = await ReadSnapshotAsync(
+        await Component.SetMotionAsync(moving with { Speed = 0 }, timeout.Token);
+        var stopped = await ReadStateAsync(
             changes.Reader,
-            snapshot => snapshot.Observation?.MotionSettings.Speed == 0 &&
-                snapshot.RequestedMotion?.Speed == 0,
+            state => state.MotionSettings.Speed == 0 &&
+                state.RequestedMotion?.Speed == 0,
             timeout.Token);
+        var current = await Component.GetStateAsync(timeout.Token);
 
-        Assert.Equal("ossm-rs simulator", initial.Device?.Identity);
-        Assert.Equal("ossm-rs-sim-v1", initial.Device?.ProfileId);
+        Assert.Equal("ossm-rs simulator", Component.Device.Identity);
+        Assert.Equal("ossm-rs-sim-v1", Component.Device.ProfileId);
+        Assert.Equal(DateTimeKind.Utc, initial.Timestamp.Kind);
+        Assert.Equal(DateTimeKind.Utc, applied.Timestamp.Kind);
+        Assert.Equal(DateTimeKind.Utc, stopped.Timestamp.Kind);
+        Assert.True(initial.VelocityMillimetresPerSecond is { } initialVelocity &&
+            double.IsFinite(initialVelocity));
+        Assert.True(applied.VelocityMillimetresPerSecond is { } appliedVelocity &&
+            double.IsFinite(appliedVelocity));
+        Assert.True(stopped.VelocityMillimetresPerSecond is { } stoppedVelocity &&
+            double.IsFinite(stoppedVelocity));
+        Assert.Null(initial.RequestedMotion);
+        Assert.Equal(ObservationFreshness.Live, applied.ObservationFreshness);
+        Assert.Equal(ObservationFreshness.Live, stopped.ObservationFreshness);
         Assert.Equal(moving, applied.RequestedMotion);
-        Assert.Equal(moving.Stroke, stopped.Observation?.MotionSettings.Stroke);
-        Assert.Equal(moving.Depth, stopped.Observation?.MotionSettings.Depth);
-        Assert.Equal(moving.Pattern, stopped.Observation?.MotionSettings.Pattern);
+        Assert.Equal(moving.Stroke, stopped.MotionSettings.Stroke);
+        Assert.Equal(moving.Depth, stopped.MotionSettings.Depth);
+        Assert.Equal(moving.Pattern, stopped.MotionSettings.Pattern);
+        Assert.Equal(0, current.MotionSettings.Speed);
+        Assert.Equal(moving with { Speed = 0 }, current.RequestedMotion);
+        Assert.Equal(stopped.SessionId, current.SessionId);
+
+        var information = Component.Device;
+        await Component.StopAsync(timeout.Token);
+        var lastObservation = stopped;
+        while (changes.Reader.TryRead(out var change))
+        {
+            if (change.IsT1)
+            {
+                throw change.AsT1;
+            }
+
+            lastObservation = change.AsT0;
+        }
+
+        var retained = await Component.GetStateAsync(timeout.Token);
+        Assert.Equal(DeviceConnectionState.Disconnected, Component.ConnectionState);
+        Assert.Same(information, Component.Device);
+        Assert.Equal(lastObservation, retained);
     }
 
     [Fact]
@@ -68,30 +109,32 @@ public sealed class SimulatedDeviceTests
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(10));
-        var device = new SimulatedDevice(
-            Options.Create(new SimulatedDeviceOptions { ExecutablePath = SimulatorPath() }),
-            TimeProvider.System,
-            NullLogger<SimulatedDevice>.Instance);
-        var changes = Channel.CreateUnbounded<OneOf<DeviceSnapshot, Exception>>();
-        device.DeviceChanged += change => changes.Writer.TryWrite(change);
+        var changes = Channel.CreateUnbounded<OneOf<DeviceState, Exception>>();
+        Component.DeviceStateChanged += change => changes.Writer.TryWrite(change);
 
+        await Component.StartAsync(timeout.Token);
+        await ReadStateAsync(
+            changes.Reader,
+            state => Component.ConnectionState == DeviceConnectionState.Connected &&
+                state.ObservationFreshness == ObservationFreshness.Live,
+            timeout.Token);
+
+        await Component.DisposeAsync();
+        await Component.DisposeAsync();
+
+        await Assert.ThrowsAsync<ObjectDisposedException>(() =>
+            Component.GetStateAsync(TestContext.Current.CancellationToken));
+    }
+
+    public async ValueTask DisposeAsync()
+    {
         try
         {
-            await device.StartAsync(timeout.Token);
-            await ReadSnapshotAsync(
-                changes.Reader,
-                snapshot => snapshot.ConnectionState == DeviceConnectionState.Connected,
-                timeout.Token);
-
-            await device.DisposeAsync();
-            await device.DisposeAsync();
-
-            await Assert.ThrowsAsync<ObjectDisposedException>(() =>
-                device.GetSnapshotAsync(TestContext.Current.CancellationToken));
+            await Component.DisposeAsync();
         }
         finally
         {
-            await device.DisposeAsync();
+            base.Dispose();
         }
     }
 
@@ -105,24 +148,22 @@ public sealed class SimulatedDeviceTests
         MotionPattern.SimpleStroke,
         0);
 
-    private static async Task<DeviceSnapshot> ReadSnapshotAsync(
-        ChannelReader<OneOf<DeviceSnapshot, Exception>> reader,
-        Func<DeviceSnapshot, bool> predicate,
+    private static async Task<DeviceState> ReadStateAsync(
+        ChannelReader<OneOf<DeviceState, Exception>> reader,
+        Func<DeviceState, bool> predicate,
         CancellationToken cancellationToken)
     {
         while (true)
         {
             var change = await reader.ReadAsync(cancellationToken);
-            if (change.TryPickT0(out var snapshot, out var exception))
+            if (change.TryPickT0(out var state, out _) && predicate(state))
             {
-                if (predicate(snapshot))
-                {
-                    return snapshot;
-                }
+                return state;
             }
-            else
+
+            if (change.IsT1)
             {
-                throw exception;
+                throw change.AsT1;
             }
         }
     }

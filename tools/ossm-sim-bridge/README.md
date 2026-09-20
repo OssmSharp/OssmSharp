@@ -1,10 +1,10 @@
 # OSSM-RS headless simulation bridge
 
 `ossm-sim-bridge` is the external runtime used by the current standalone
-`OSSMDotNet.Simulator` .NET library. It is a bounded, native
-JSON-lines adapter for the **existing OSSM-RS motion engine**. The executable is
-built separately and supplied to the .NET library at runtime; it is for a local
-controller prototype, not hardware operation or stock-firmware qualification.
+`OSSMDotNet.Simulator` .NET library. It is a bounded, native JSON-lines adapter
+for the **existing OSSM-RS motion engine**. The executable is built separately
+and supplied to the .NET library at runtime; it is for a local controller
+prototype, not hardware operation or stock-firmware qualification.
 
 It has no GUI, network endpoint, BLE, serial port, device I/O, homing procedure,
 or saved-state persistence. Its motor implementation is a no-op. Position and
@@ -21,8 +21,8 @@ model. Each process starts connected and stopped:
 - Target source commit: `578161b2e78d8ca70f8909f0ec34b8ae6014cfda`.
 - Upstream license: Apache-2.0.
 - Profile: `ossm-rs-sim-v1`.
-- The lockfile includes
-  `rsruckig` 2.1.3 at `d73e32f072aed81da3dba9b83b410062d27d9c6f`.
+- The lockfile includes `rsruckig` 2.1.3 at
+  `d73e32f072aed81da3dba9b83b410062d27d9c6f`.
 
 The manifest and lockfile pin the upstream Git revision. Cargo fetches that
 revision when it is not already cached. The adapter does not read, replace,

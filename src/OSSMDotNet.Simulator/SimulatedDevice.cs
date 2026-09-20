@@ -67,7 +67,7 @@ public sealed class SimulatedDevice : OssmDeviceBase
     }
 
     /// <inheritdoc />
-    protected override async Task RunTransportAsync(CancellationToken cancellationToken)
+    protected override async Task ConnectAsync(CancellationToken cancellationToken)
     {
         ValidateExecutable();
         using var process = new Process
@@ -347,8 +347,13 @@ public sealed class SimulatedDevice : OssmDeviceBase
                 ? true
                 : state.CommandId is null ? false : null;
             PublishObservation(
-                new DeviceState(_timeProvider.GetUtcNow().UtcDateTime, settings, Guid.Empty),
-                state.Velocity,
+                new DeviceState
+                {
+                    Timestamp = _timeProvider.GetUtcNow().UtcDateTime,
+                    MotionSettings = settings,
+                    SessionId = Guid.Empty,
+                    VelocityMillimetresPerSecond = state.Velocity,
+                },
                 isOwnWrite);
         }
 
