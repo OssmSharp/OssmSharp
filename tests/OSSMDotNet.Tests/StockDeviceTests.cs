@@ -3,6 +3,8 @@ using System.Reflection;
 using System.Threading.Channels;
 using FastMoq;
 using FastMoq.Extensions;
+using FastMoq.Providers;
+using Microsoft.Extensions.Logging;
 using OneOf;
 
 namespace OSSMDotNet.Tests;
@@ -13,12 +15,15 @@ public sealed class StockDeviceTests : MockerTestBase<OssmDevice>, IAsyncDisposa
     {
         mocks.SetupOptions(new OssmDeviceOptions());
         mocks.AddType<TimeProvider>(TimeProvider.System);
+        mocks.AddMethodResult<ILogger<OssmDevice>, bool>(
+            logger => logger.IsEnabled(FastArg.Any<LogLevel>()),
+            true);
     };
 
     [Fact]
     public void ConstructorValidatesOptionsThroughDataAnnotations()
     {
-        var options = new OssmDeviceOptions { ObservationLiveFor = TimeSpan.Zero };
+        var options = new OssmDeviceOptions { ExpectationLifetime = TimeSpan.Zero };
         Mocks.SetupOptions(options, replace: true);
 
         Assert.IsAssignableFrom<OssmDeviceBaseOptions>(options);
@@ -28,25 +33,26 @@ public sealed class StockDeviceTests : MockerTestBase<OssmDevice>, IAsyncDisposa
     }
 
     [Fact]
-    public async Task BlePlaceholderReportsFaultAndRejectsWritesWithoutClaimingConnection()
+    public async Task BlePlaceholderStaysDisconnectedLogsUnsupportedConnectionFailureAndRejectsWrites()
     {
-        var changes = Channel.CreateUnbounded<OneOf<DeviceState, Exception>>();
-        Component.DeviceStateChanged += change => changes.Writer.TryWrite(change);
+        var changes = new List<OneOf<DeviceState, Exception>>();
+        var connections = Channel.CreateUnbounded<DeviceConnectionState>();
+        Component.DeviceStateChanged += changes.Add;
+        Component.ConnectionStateChanged += state => connections.Writer.TryWrite(state);
 
-        var beforeStartup = Component.GetStateAsync(TestContext.Current.CancellationToken);
-        await Assert.ThrowsAsync<NoDeviceDataException>(() => beforeStartup);
-        Assert.False(changes.Reader.TryRead(out _));
         Assert.Equal(DeviceConnectionState.Disconnected, Component.ConnectionState);
         Assert.Throws<InvalidOperationException>(() => Component.Device);
 
         await Component.StartAsync(TestContext.Current.CancellationToken);
-        var reported = await changes.Reader.ReadAsync(TestContext.Current.CancellationToken);
-        Assert.True(reported.IsT1);
-        Assert.IsType<NotSupportedException>(reported.AsT1);
 
-        var afterStartup = Component.GetStateAsync(TestContext.Current.CancellationToken);
-        await Assert.ThrowsAsync<NoDeviceDataException>(() => afterStartup);
-        Assert.False(changes.Reader.TryRead(out _));
+        Assert.Equal(DeviceConnectionState.Connecting, await connections.Reader.ReadAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(DeviceConnectionState.Disconnected, await connections.Reader.ReadAsync(TestContext.Current.CancellationToken));
+        await Component.StopAsync(TestContext.Current.CancellationToken);
+        Assert.Empty(changes);
+        Assert.Equal(DeviceConnectionState.Disconnected, Component.ConnectionState);
+        Assert.Throws<InvalidOperationException>(() => Component.Device);
+        Mocks.VerifyLogged(LogLevel.Warning, "Device connection failed", TimesSpec.Once);
+
         var write = new MotionSettings(
             MotionDeviceState.StrokeEngineIdle,
             0,
@@ -60,11 +66,8 @@ public sealed class StockDeviceTests : MockerTestBase<OssmDevice>, IAsyncDisposa
         await Assert.ThrowsAsync<NotSupportedException>(() =>
             Component.SetMotionAsync(write, TestContext.Current.CancellationToken));
 
-        var afterFailedWrite = Component.GetStateAsync(TestContext.Current.CancellationToken);
-        await Assert.ThrowsAsync<NoDeviceDataException>(() => afterFailedWrite);
-        Assert.False(changes.Reader.TryRead(out _));
+        Assert.Empty(changes);
         Assert.Equal(DeviceConnectionState.Disconnected, Component.ConnectionState);
-        Assert.Throws<InvalidOperationException>(() => Component.Device);
     }
 
     public async ValueTask DisposeAsync()

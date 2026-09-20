@@ -13,4 +13,30 @@ internal sealed record SimulatorState(
     double Position,
     double Velocity,
     bool Connected,
-    string ProfileId);
+    string ProfileId)
+{
+    internal void Validate()
+    {
+        if (SampleSequence <= 0 ||
+            ChangeRevision < 0 ||
+            CommandId is <= 0 ||
+            Desired is not { } desired ||
+            desired.Pattern != (int)MotionPattern.SimpleStroke ||
+            desired.Speed is < 0 or > 100 ||
+            desired.Stroke is < 0 or > 100 ||
+            desired.Depth is < 0 or > 100 ||
+            desired.Sensation is < 0 or > 100 ||
+            desired.Stroke > desired.Depth ||
+            (desired.Speed != 0 && desired.Stroke == 0) ||
+            !double.IsFinite(Position) ||
+            !double.IsFinite(Velocity))
+        {
+            throw new InvalidDataException("The simulator returned an invalid state.");
+        }
+
+        if (!string.Equals(ProfileId, "ossm-rs-sim-v1", StringComparison.Ordinal))
+        {
+            throw new InvalidDataException("The simulator returned an unsupported profile.");
+        }
+    }
+}

@@ -172,6 +172,51 @@ public sealed class SimulatedDevice : OssmDeviceBase
         return SendAsync("write", desired, cancellationToken);
     }
 
+    internal Task InjectExternalAsync(
+        MotionSettings motionSettings,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(motionSettings);
+        Validator.ValidateObject(
+            motionSettings,
+            new ValidationContext(motionSettings),
+            validateAllProperties: true);
+        if (motionSettings.Pattern != MotionPattern.SimpleStroke)
+        {
+            throw new NotSupportedException("The simulator currently supports only Simple Stroke.");
+        }
+
+        var desired = new SimulatorDesired(
+            (int)motionSettings.Pattern,
+            motionSettings.Speed,
+            motionSettings.Stroke,
+            motionSettings.Depth,
+            motionSettings.Sensation);
+        return SendAsync("external", desired, cancellationToken);
+    }
+
+    internal Task SetDelayAsync(int milliseconds, CancellationToken cancellationToken)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(milliseconds);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(milliseconds, 5000);
+        return SendAsync("delay", null, cancellationToken, milliseconds);
+    }
+
+    internal Task SetStaleAsync(bool freeze, CancellationToken cancellationToken) =>
+        SendAsync("stale", null, cancellationToken, freeze ? 1 : 0);
+
+    internal async Task DisconnectAsync(CancellationToken cancellationToken)
+    {
+        await SendAsync("disconnect", null, cancellationToken).ConfigureAwait(false);
+        PublishDisconnected();
+    }
+
+    internal async Task ReconnectAsync(CancellationToken cancellationToken)
+    {
+        await SendAsync("connect", null, cancellationToken).ConfigureAwait(false);
+        PublishConnected(Information);
+    }
+
     /// <inheritdoc />
     protected override async ValueTask DisposeCoreAsync()
     {
@@ -183,7 +228,8 @@ public sealed class SimulatedDevice : OssmDeviceBase
     private async Task SendAsync(
         string operation,
         SimulatorDesired? desired,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        int? value = null)
     {
         var process = _process;
         if (process is null || process.HasExited)
@@ -217,7 +263,7 @@ public sealed class SimulatedDevice : OssmDeviceBase
                 operation,
                 operation is "write" or "stop" ? id : null,
                 desired,
-                null);
+                value);
             var bytes = JsonSerializer.SerializeToUtf8Bytes(request, Json);
             if (bytes.Length > MaximumFrameBytes)
             {
@@ -310,20 +356,15 @@ public sealed class SimulatedDevice : OssmDeviceBase
         return consumed;
     }
 
-    private void ProcessReply(SimulatorReply reply)
+    internal void ProcessReply(SimulatorReply reply)
     {
-        if (reply.V != 1 || (reply.Event != "state" && reply.Id is null))
-        {
-            throw new InvalidDataException("The simulator returned an invalid response envelope.");
-        }
+        reply.Validate();
 
-        if (reply.State is { } state && state.SampleSequence > _lastSampleSequence)
+        if (reply.Ok is not false &&
+            reply.State is { } state &&
+            state.SampleSequence > _lastSampleSequence)
         {
             _lastSampleSequence = state.SampleSequence;
-            if (!string.Equals(state.ProfileId, Information.ProfileId, StringComparison.Ordinal))
-            {
-                throw new InvalidDataException("The simulator returned an unsupported profile.");
-            }
 
             if (state.Connected)
             {
@@ -346,7 +387,7 @@ public sealed class SimulatedDevice : OssmDeviceBase
             bool? isOwnWrite = reply.Id is not null && state.CommandId == reply.Id
                 ? true
                 : state.CommandId is null ? false : null;
-            PublishObservation(
+            PublishState(
                 new DeviceState
                 {
                     Timestamp = _timeProvider.GetUtcNow().UtcDateTime,

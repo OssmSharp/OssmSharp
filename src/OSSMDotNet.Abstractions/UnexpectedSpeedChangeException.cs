@@ -1,41 +1,41 @@
 namespace OSSMDotNet.Abstractions;
 
 /// <summary>
-/// Indicates that an observed speed change was not explained by the pending write.
+/// Indicates that a reported speed change was not explained by the pending write.
 /// </summary>
 public sealed class UnexpectedSpeedChangeException : InvalidOperationException
 {
     /// <summary>
     /// Initializes a new instance of the <see cref="UnexpectedSpeedChangeException"/> class.
     /// </summary>
-    /// <param name="previousObservedSpeed">The previous observed effective speed.</param>
-    /// <param name="observedSpeed">The newly observed effective speed.</param>
+    /// <param name="previousStateSpeed">The previous reported effective speed.</param>
+    /// <param name="stateSpeed">The newly reported effective speed.</param>
     /// <param name="pendingRequestedSpeed">The pending requested speed, when one existed.</param>
-    /// <param name="observationTimestamp">The UTC observation timestamp.</param>
-    /// <param name="innerException">The provider failure associated with the observation, when present.</param>
+    /// <param name="stateTimestamp">The UTC state timestamp.</param>
+    /// <param name="innerException">The provider failure associated with the state, when present.</param>
     public UnexpectedSpeedChangeException(
-        int previousObservedSpeed,
-        int observedSpeed,
+        int previousStateSpeed,
+        int stateSpeed,
         int? pendingRequestedSpeed,
-        DateTime observationTimestamp,
+        DateTime stateTimestamp,
         Exception? innerException = null)
-        : base("The observed device speed changed without a matching pending write.", innerException)
+        : base("The reported device speed changed without a matching pending write.", innerException)
     {
-        PreviousObservedSpeed = previousObservedSpeed;
-        ObservedSpeed = observedSpeed;
+        PreviousStateSpeed = previousStateSpeed;
+        StateSpeed = stateSpeed;
         PendingRequestedSpeed = pendingRequestedSpeed;
-        ObservationTimestamp = observationTimestamp;
+        StateTimestamp = stateTimestamp;
     }
 
     /// <summary>
-    /// Gets the previous observed effective speed.
+    /// Gets the previous reported effective speed.
     /// </summary>
-    public int PreviousObservedSpeed { get; }
+    public int PreviousStateSpeed { get; }
 
     /// <summary>
-    /// Gets the newly observed effective speed.
+    /// Gets the newly reported effective speed.
     /// </summary>
-    public int ObservedSpeed { get; }
+    public int StateSpeed { get; }
 
     /// <summary>
     /// Gets the pending requested speed, when one existed.
@@ -43,7 +43,7 @@ public sealed class UnexpectedSpeedChangeException : InvalidOperationException
     public int? PendingRequestedSpeed { get; }
 
     /// <summary>
-    /// Gets the UTC observation timestamp.
+    /// Gets the UTC state timestamp.
     /// </summary>
-    public DateTime ObservationTimestamp { get; }
+    public DateTime StateTimestamp { get; }
 }

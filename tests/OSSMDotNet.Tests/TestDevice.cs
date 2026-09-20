@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
 
 namespace OSSMDotNet.Tests;
@@ -7,15 +7,17 @@ namespace OSSMDotNet.Tests;
 /// Exercises shared device behavior with a fake clock and explicitly controlled transport settlement.
 /// </summary>
 /// <param name="timeProvider">The clock shared with the test.</param>
-public sealed class TestDevice(FakeTimeProvider timeProvider)
+/// <param name="logger">The logger tracked by the test.</param>
+public sealed class TestDevice(
+    FakeTimeProvider timeProvider,
+    ILogger<TestDevice> logger)
     : OssmDeviceBase(
         new OssmDeviceOptions
         {
-            ObservationLiveFor = TimeSpan.FromSeconds(2),
             ExpectationLifetime = TimeSpan.FromSeconds(1),
         },
         timeProvider,
-        NullLogger.Instance)
+        logger)
 {
     /// <summary>
     /// Provides the identity reported by this fake transport.
@@ -42,9 +44,9 @@ public sealed class TestDevice(FakeTimeProvider timeProvider)
     public bool ConnectOnStart { get; set; } = true;
 
     /// <summary>
-    /// Gets or sets whether dispatch reports its own observation before settling; configure before issuing a write.
+    /// Gets or sets whether dispatch reports its own state before settling; configure before issuing a write.
     /// </summary>
-    public bool ObserveDuringDispatch { get; set; }
+    public bool ReportStateDuringDispatch { get; set; }
 
     /// <summary>
     /// Gets completion when a write reaches the transport.
@@ -88,7 +90,7 @@ public sealed class TestDevice(FakeTimeProvider timeProvider)
     public void Connect() => PublishConnected(SimulatorInformation);
 
     /// <summary>
-    /// Reports connection loss without changing observations.
+    /// Reports connection loss without changing device state.
     /// </summary>
     public void Disconnect() => PublishDisconnected();
 
@@ -99,13 +101,13 @@ public sealed class TestDevice(FakeTimeProvider timeProvider)
     public void Fail(Exception exception) => PublishError(exception);
 
     /// <summary>
-    /// Sends sample fields through the base's observation validation and publication path.
+    /// Sends state fields through the base validation and publication path.
     /// </summary>
-    /// <param name="settings">The observed settings.</param>
+    /// <param name="settings">The reported settings.</param>
     /// <param name="timestamp">The sample timestamp.</param>
     /// <param name="velocity">The reported velocity, or null when unknown.</param>
-    public void Observe(MotionSettings settings, DateTime timestamp, double? velocity = null) =>
-        Observe(new DeviceState
+    public void ReportState(MotionSettings settings, DateTime timestamp, double? velocity = null) =>
+        ReportState(new DeviceState
         {
             Timestamp = timestamp,
             MotionSettings = settings,
@@ -114,10 +116,10 @@ public sealed class TestDevice(FakeTimeProvider timeProvider)
         });
 
     /// <summary>
-    /// Sends a sample through the base's observation validation and publication path.
+    /// Sends state through the base validation and publication path.
     /// </summary>
-    /// <param name="state">The sample to validate and publish.</param>
-    public void Observe(DeviceState state) => PublishObservation(state, null);
+    /// <param name="state">The state to validate and publish.</param>
+    public void ReportState(DeviceState state) => PublishState(state, null);
 
     /// <inheritdoc />
     protected override async Task ConnectAsync(CancellationToken cancellationToken)
@@ -136,9 +138,9 @@ public sealed class TestDevice(FakeTimeProvider timeProvider)
     {
         DispatchCount++;
         _dispatchStarted.TrySetResult();
-        if (ObserveDuringDispatch)
+        if (ReportStateDuringDispatch)
         {
-            PublishObservation(
+            PublishState(
                 new DeviceState
                 {
                     Timestamp = timeProvider.GetUtcNow().UtcDateTime,

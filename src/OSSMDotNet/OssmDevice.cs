@@ -11,9 +11,6 @@ namespace OSSMDotNet;
 /// </remarks>
 public sealed class OssmDevice : OssmDeviceBase
 {
-    private static readonly NotSupportedException BleUnavailable = new(
-        "Stock-firmware BLE transport is not implemented.");
-
     /// <summary>
     /// Initializes a new instance of the <see cref="OssmDevice"/> class.
     /// </summary>
@@ -32,25 +29,65 @@ public sealed class OssmDevice : OssmDeviceBase
     }
 
     /// <inheritdoc />
-    protected override async Task ConnectAsync(CancellationToken cancellationToken)
-    {
-        PublishDisconnected();
-        PublishError(BleUnavailable);
-        await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken).ConfigureAwait(false);
-    }
+    protected override Task ConnectAsync(CancellationToken cancellationToken) =>
+        Task.FromException(new NotSupportedException("Stock-firmware BLE transport is not implemented."));
 
     /// <inheritdoc />
     protected override Task DispatchMotionAsync(
         MotionSettings motionSettings,
-        CancellationToken cancellationToken) => Task.FromException(BleUnavailable);
+        CancellationToken cancellationToken) => Task.FromException(
+            new NotSupportedException("Stock-firmware BLE transport is not implemented."));
 
-    /// <inheritdoc />
-    protected override bool IsExpectedObservation(
-        MotionSettings requested,
-        DeviceState? previous,
-        DeviceState observed) => DeviceState.IsSpeedMatch(
-            LastRequestedMotion,
-            previous,
-            requested,
-            observed);
+    protected override bool IsExpectedState(
+        int? previousRequestedSpeed,
+        int? previousStateSpeed,
+        int requestedSpeed,
+        int stateSpeed)
+        => IsExpectedStateImpl(
+            previousRequestedSpeed,
+            previousStateSpeed,
+            requestedSpeed,
+            stateSpeed);
+
+    /// <summary>
+    /// Determines whether the reported speed is consistent with the previously-requested.
+    /// </summary>
+    /// <param name="previousRequestedSpeed">The requested speed that settled before the pending request was registered.</param>
+    /// <param name="previousStateSpeed">The previous reported speed, when available.</param>
+    /// <param name="requestedSpeed">The pending requested speed.</param>
+    /// <param name="stateSpeed">The reported speed.</param>
+    /// <returns><see langword="true"/> when the reported speed is consistent with the request.</returns>
+    public static bool IsExpectedStateImpl(
+        int? previousRequestedSpeed,
+        int? previousStateSpeed,
+        int requestedSpeed,
+        int stateSpeed)
+    {
+        if (requestedSpeed == 0)
+        {
+            return stateSpeed == 0;
+        }
+
+        if (stateSpeed < 0 || stateSpeed > requestedSpeed)
+        {
+            return false;
+        }
+
+        if (previousRequestedSpeed is not > 0 || previousStateSpeed is null)
+        {
+            return true;
+        }
+
+        for (var knobPercentage = 0; knobPercentage <= 100; knobPercentage++)
+        {
+            if ((previousRequestedSpeed.Value * knobPercentage / 100) == previousStateSpeed &&
+                (requestedSpeed * knobPercentage / 100) == stateSpeed)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
 }

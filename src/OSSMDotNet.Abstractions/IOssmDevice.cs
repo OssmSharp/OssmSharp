@@ -3,12 +3,12 @@ using OneOf;
 namespace OSSMDotNet.Abstractions;
 
 /// <summary>
-/// Provides observations and motion control for an OSSM device implementation.
+/// Provides state updates and motion control for an OSSM device implementation.
 /// </summary>
 public interface IOssmDevice : IAsyncDisposable
 {
     /// <summary>
-    /// Gets the current connection status independently of motion observations.
+    /// Gets the current connection status independently of device state updates.
     /// </summary>
     /// <remarks>Reading this property does not start a connection or authorize motion.</remarks>
     DeviceConnectionState ConnectionState { get; }
@@ -29,18 +29,10 @@ public interface IOssmDevice : IAsyncDisposable
     event Action<DeviceConnectionState>? ConnectionStateChanged;
 
     /// <summary>
-    /// Occurs when retained motion or observation freshness changes, or an asynchronous device fault is detected.
+    /// Occurs when the device reports state or an asynchronous device fault is detected.
     /// </summary>
     /// <remarks>Connection status alone is reported through <see cref="ConnectionStateChanged"/>, not this event.</remarks>
     event Action<OneOf<DeviceState, Exception>>? DeviceStateChanged;
-
-    /// <summary>
-    /// Gets the current retained requested motion, observation and freshness without changing device state or authorizing motion.
-    /// </summary>
-    /// <returns>The current snapshot.</return>
-    /// <remarks>A retained observation remains available after disconnection.</remarks>
-    /// <exception cref="NoDeviceDataException">No device observation is available.</exception>
-    Task<DeviceState> GetStateAsync(CancellationToken cancellationToken);
 
     /// <summary>
     /// Sends the requested motion settings to the device.

@@ -1,5 +1,8 @@
 using System.Threading.Channels;
 using FastMoq;
+using FastMoq.Extensions;
+using FastMoq.Providers;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
 using OneOf;
 
@@ -8,19 +11,23 @@ namespace OSSMDotNet.Tests;
 public sealed class OssmDeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisposable
 {
     protected override Action<Mocker> SetupMocksAction => mocks =>
+    {
         mocks.AddType(new FakeTimeProvider(DateTimeOffset.UnixEpoch));
+        mocks.AddMethodResult<ILogger<TestDevice>, bool>(
+            logger => logger.IsEnabled(FastArg.Any<LogLevel>()),
+            true);
+    };
 
     [Fact]
-    public async Task StartsWithoutObservationThenPublishesConnectedDeviceFacts()
+    public async Task StartPublishesConnectionFactsWithoutState()
     {
         var device = Component;
-        var changes = Channel.CreateUnbounded<OneOf<DeviceState, Exception>>();
-        device.DeviceStateChanged += change => changes.Writer.TryWrite(change);
+        var changes = new List<OneOf<DeviceState, Exception>>();
+        device.DeviceStateChanged += changes.Add;
         var connections = Channel.CreateUnbounded<(DeviceConnectionState Event, DeviceConnectionState Property, DeviceInformation? Device)>();
         device.ConnectionStateChanged += state => connections.Writer.TryWrite((
             state, device.ConnectionState, state == DeviceConnectionState.Connected ? device.Device : null));
 
-        await Assert.ThrowsAsync<NoDeviceDataException>(() => device.GetStateAsync(TestContext.Current.CancellationToken));
         Assert.Equal(DeviceConnectionState.Disconnected, device.ConnectionState);
         Assert.Throws<InvalidOperationException>(() => device.Device);
         Assert.False(connections.Reader.TryRead(out _));
@@ -33,180 +40,17 @@ public sealed class OssmDeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisp
         Assert.Equal(DeviceConnectionState.Connected, connected.Event);
         Assert.Equal(connected.Event, connected.Property);
         Assert.Same(TestDevice.SimulatorInformation, connected.Device);
-        await Assert.ThrowsAsync<NoDeviceDataException>(() => device.GetStateAsync(TestContext.Current.CancellationToken));
         Assert.Equal(DeviceConnectionState.Connected, device.ConnectionState);
-        Assert.False(changes.Reader.TryRead(out _));
+        Assert.Empty(changes);
         Assert.False(connections.Reader.TryRead(out _));
-    }
-
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task MissingTelemetryReadFailsWithoutChangingConnectionOrPublishing(bool connected)
-    {
-        var device = Component;
-        if (connected)
-        {
-            device.Connect();
-        }
-
-        var connections = new List<DeviceConnectionState>();
-        var changes = new List<OneOf<DeviceState, Exception>>();
-        device.ConnectionStateChanged += connections.Add;
-        device.DeviceStateChanged += changes.Add;
-
-        var read = device.GetStateAsync(TestContext.Current.CancellationToken);
-        await Assert.ThrowsAsync<NoDeviceDataException>(() => read);
-        await Assert.ThrowsAsync<NoDeviceDataException>(() => device.GetStateAsync(TestContext.Current.CancellationToken));
-
-        Assert.Equal(connected ? DeviceConnectionState.Connected : DeviceConnectionState.Disconnected, device.ConnectionState);
-        if (connected)
-        {
-            Assert.Same(TestDevice.SimulatorInformation, device.Device);
-        }
-        else
-        {
-            Assert.Throws<InvalidOperationException>(() => device.Device);
-        }
-
-        Assert.Equal(0, device.DispatchCount);
-        Assert.Empty(connections);
-        Assert.Empty(changes);
-    }
-
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task CanceledReadTakesPrecedenceOverObservationAvailability(bool hasObservation)
-    {
-        var device = Component;
-        device.Connect();
-        if (hasObservation)
-        {
-            device.Observe(Settings(10), DateTime.UnixEpoch, 12.5);
-        }
-
-        var initial = hasObservation ? await device.GetStateAsync(TestContext.Current.CancellationToken) : null;
-        var connections = new List<DeviceConnectionState>();
-        var changes = new List<OneOf<DeviceState, Exception>>();
-        device.ConnectionStateChanged += connections.Add;
-        device.DeviceStateChanged += changes.Add;
-        using var cancellation = new CancellationTokenSource();
-        await cancellation.CancelAsync();
-
-        var error = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => device.GetStateAsync(cancellation.Token));
-
-        Assert.Equal(cancellation.Token, error.CancellationToken);
-        if (hasObservation)
-        {
-            Assert.NotNull(initial);
-            Assert.Same(initial, await device.GetStateAsync(TestContext.Current.CancellationToken));
-        }
-        else
-        {
-            await Assert.ThrowsAsync<NoDeviceDataException>(() => device.GetStateAsync(TestContext.Current.CancellationToken));
-        }
-
-        Assert.Equal(DeviceConnectionState.Connected, device.ConnectionState);
-        Assert.Same(TestDevice.SimulatorInformation, device.Device);
-        Assert.Equal(0, device.DispatchCount);
-        Assert.Empty(connections);
-        Assert.Empty(changes);
-    }
-
-    [Theory]
-    [InlineData(false, false)]
-    [InlineData(false, true)]
-    [InlineData(true, false)]
-    [InlineData(true, true)]
-    public async Task DisposedReadTakesPrecedenceOverCancellationAndObservationAvailability(bool hasObservation, bool canceled)
-    {
-        var device = Component;
-        if (hasObservation)
-        {
-            device.Observe(Settings(10), DateTime.UnixEpoch, 12.5);
-        }
-
-        await device.DisposeAsync();
-        var connections = new List<DeviceConnectionState>();
-        var changes = new List<OneOf<DeviceState, Exception>>();
-        device.ConnectionStateChanged += connections.Add;
-        device.DeviceStateChanged += changes.Add;
-        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
-        if (canceled)
-        {
-            await cancellation.CancelAsync();
-        }
-
-        await Assert.ThrowsAsync<ObjectDisposedException>(() => device.GetStateAsync(cancellation.Token));
-
-        Assert.Equal(DeviceConnectionState.Disconnected, device.ConnectionState);
-        Assert.Equal(0, device.DispatchCount);
-        Assert.Empty(connections);
-        Assert.Empty(changes);
+        Mocks.VerifyLogged(LogLevel.Information, "Device connection changed", TimesSpec.Exactly(2));
     }
 
     [Fact]
-    public async Task ObservationAgesToLastKnownAndRemainsAccessibleAfterDisconnection()
-    {
-        var time = Mocks.GetRequiredObject<FakeTimeProvider>();
-        var device = Component;
-        var changes = Channel.CreateUnbounded<OneOf<DeviceState, Exception>>();
-        device.DeviceStateChanged += change => changes.Writer.TryWrite(change);
-        var connected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        device.ConnectionStateChanged += state =>
-        {
-            if (state == DeviceConnectionState.Connected)
-            {
-                connected.TrySetResult();
-            }
-        };
-        await device.StartAsync(TestContext.Current.CancellationToken);
-        await connected.Task.WaitAsync(TestContext.Current.CancellationToken);
-        var requested = Settings(10);
-        await device.SetMotionAsync(requested, TestContext.Current.CancellationToken);
-        var observedAt = time.GetUtcNow().UtcDateTime;
-        var sessionId = Guid.Parse("a8d3e997-8ccd-42be-bb46-2c96684024a6");
-        device.Observe(new DeviceState
-        {
-            Timestamp = observedAt,
-            MotionSettings = Settings(10),
-            SessionId = sessionId,
-            VelocityMillimetresPerSecond = -12.5,
-        });
-        var live = await ReadStateAsync(changes.Reader, state => state.ObservationFreshness == ObservationFreshness.Live);
-
-        time.Advance(TimeSpan.FromSeconds(3));
-        var lastKnown = await ReadStateAsync(changes.Reader, state => state.ObservationFreshness == ObservationFreshness.LastKnown);
-
-        Assert.Same(live.MotionSettings, lastKnown.MotionSettings);
-        Assert.Same(requested, lastKnown.RequestedMotion);
-        Assert.Equal(observedAt, lastKnown.Timestamp);
-        Assert.Equal(10, lastKnown.MotionSettings.Speed);
-        Assert.Equal(sessionId, lastKnown.SessionId);
-        Assert.Equal(-12.5, lastKnown.VelocityMillimetresPerSecond);
-        Assert.Equal(live with { ObservationFreshness = ObservationFreshness.LastKnown }, lastKnown);
-        Assert.Equal(ObservationFreshness.Live, live.ObservationFreshness);
-        Assert.Equal(DeviceConnectionState.Connected, device.ConnectionState);
-
-        var connections = new List<DeviceConnectionState>();
-        device.ConnectionStateChanged += connections.Add;
-        device.Disconnect();
-
-        Assert.Same(lastKnown, await device.GetStateAsync(TestContext.Current.CancellationToken));
-        Assert.Equal(DeviceConnectionState.Disconnected, device.ConnectionState);
-        Assert.Same(TestDevice.SimulatorInformation, device.Device);
-        Assert.Equal([DeviceConnectionState.Disconnected], connections);
-        Assert.False(changes.Reader.TryRead(out _));
-    }
-
-    [Fact]
-    public async Task ConnectionTransitionsRetainIdentityAndDoNotRepublishMotion()
+    public void ConnectionTransitionsRetainIdentityAndDoNotPublishState()
     {
         var device = Component;
         device.Connect();
-        device.Observe(Settings(10), DateTime.UnixEpoch, 12.5);
-        var initial = await device.GetStateAsync(TestContext.Current.CancellationToken);
         var connections = new List<DeviceConnectionState>();
         var changes = new List<OneOf<DeviceState, Exception>>();
         device.ConnectionStateChanged += _ => throw new InvalidOperationException("subscriber failure");
@@ -215,8 +59,6 @@ public sealed class OssmDeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisp
         var error = new IOException("transport failed");
 
         device.Disconnect();
-        Assert.Same(initial, await device.GetStateAsync(TestContext.Current.CancellationToken));
-        Assert.Equal(ObservationFreshness.Live, initial.ObservationFreshness);
         Assert.Equal(DeviceConnectionState.Disconnected, device.ConnectionState);
         Assert.Same(TestDevice.SimulatorInformation, device.Device);
         Assert.Empty(changes);
@@ -229,14 +71,32 @@ public sealed class OssmDeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisp
             connections);
         Assert.Same(TestDevice.SimulatorInformation, device.Device);
         Assert.Equal(DeviceConnectionState.Connected, device.ConnectionState);
-        Assert.Same(initial, await device.GetStateAsync(TestContext.Current.CancellationToken));
         Assert.Same(error, Assert.Single(changes).AsT1);
+    }
+
+    [Fact]
+    public async Task DisconnectClearsStateMatchingContext()
+    {
+        var device = Component;
+        device.Connect();
+        await device.SetMotionAsync(Settings(40), TestContext.Current.CancellationToken);
+        device.ReportState(State(Settings(20), DateTime.UnixEpoch));
+        var changes = new List<OneOf<DeviceState, Exception>>();
+        device.DeviceStateChanged += changes.Add;
+
+        device.Disconnect();
+        device.Connect();
+        var reported = State(Settings(0), DateTime.UnixEpoch.AddSeconds(1));
+        device.ReportState(reported);
+
+        Assert.Single(changes);
+        Assert.Same(reported, changes[0].AsT0);
     }
 
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task ReportedErrorDoesNotChangeConnectionState(bool connected)
+    public void ReportedErrorDoesNotChangeConnectionState(bool connected)
     {
         var device = Component;
         if (connected)
@@ -244,16 +104,14 @@ public sealed class OssmDeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisp
             device.Connect();
         }
 
-        await Assert.ThrowsAsync<NoDeviceDataException>(() => device.GetStateAsync(TestContext.Current.CancellationToken));
         var expected = device.ConnectionState;
         var connections = new List<DeviceConnectionState>();
         var changes = new List<OneOf<DeviceState, Exception>>();
         device.ConnectionStateChanged += connections.Add;
         device.DeviceStateChanged += changes.Add;
-        var error = new InvalidDataException("Invalid telemetry.");
+        var error = new InvalidDataException("Invalid state.");
 
         device.Fail(error);
-        await Assert.ThrowsAsync<NoDeviceDataException>(() => device.GetStateAsync(TestContext.Current.CancellationToken));
 
         Assert.Equal(expected, device.ConnectionState);
         Assert.Empty(connections);
@@ -263,24 +121,18 @@ public sealed class OssmDeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisp
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task TransportFailureReportsDisconnectedSeparatelyFromError(bool connectsFirst)
+    public async Task TransportFailurePublishesDisconnectedWithoutStateErrorAndLogsWarning(bool connectsFirst)
     {
         var device = Component;
         device.ConnectOnStart = connectsFirst;
-        var reported = new TaskCompletionSource<(Exception Error, DeviceConnectionState State)>(
-            TaskCreationOptions.RunContinuationsAsynchronously);
+        var changes = new List<OneOf<DeviceState, Exception>>();
         var connections = Channel.CreateUnbounded<DeviceConnectionState>();
         device.ConnectionStateChanged += state => connections.Writer.TryWrite(state);
-        device.DeviceStateChanged += change => change.Switch(
-            _ => { }, error => reported.TrySetResult((error, device.ConnectionState)));
+        device.DeviceStateChanged += changes.Add;
         await device.StartAsync(TestContext.Current.CancellationToken);
-        var error = new IOException("Transport closed.");
 
-        device.EndTransport(error);
-        var result = await reported.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        device.EndTransport(new IOException("Transport closed."));
 
-        Assert.Same(error, result.Error);
-        Assert.Equal(DeviceConnectionState.Disconnected, result.State);
         Assert.Equal(DeviceConnectionState.Connecting, await connections.Reader.ReadAsync(TestContext.Current.CancellationToken));
         if (connectsFirst)
         {
@@ -289,11 +141,15 @@ public sealed class OssmDeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisp
         }
 
         Assert.Equal(DeviceConnectionState.Disconnected, await connections.Reader.ReadAsync(TestContext.Current.CancellationToken));
+        await device.StopAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(DeviceConnectionState.Disconnected, device.ConnectionState);
+        Assert.Empty(changes);
         Assert.False(connections.Reader.TryRead(out _));
+        Mocks.VerifyLogged(LogLevel.Warning, "Device connection failed", TimesSpec.Once);
     }
 
     [Fact]
-    public async Task NormalTransportExitReportsDisconnectedWithoutError()
+    public async Task NormalTransportExitPublishesDisconnectedWithoutStateError()
     {
         var device = Component;
         var disconnected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -310,6 +166,7 @@ public sealed class OssmDeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisp
 
         device.EndTransport();
         await disconnected.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        await device.StopAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(DeviceConnectionState.Disconnected, device.ConnectionState);
         Assert.Empty(changes);
@@ -318,168 +175,55 @@ public sealed class OssmDeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisp
     [Theory]
     [InlineData(0)]
     [InlineData(30)]
-    public async Task FirstSettledWriteBeforeTelemetryDoesNotInventAnObservation(int speed)
+    public async Task FirstSettledWriteDoesNotPublishState(int speed)
     {
         var device = Component;
         var changes = new List<OneOf<DeviceState, Exception>>();
         device.DeviceStateChanged += changes.Add;
-        await Assert.ThrowsAsync<NoDeviceDataException>(() => device.GetStateAsync(TestContext.Current.CancellationToken));
         var requested = Settings(speed);
 
         await device.SetMotionAsync(requested, TestContext.Current.CancellationToken);
-        await Assert.ThrowsAsync<NoDeviceDataException>(() => device.GetStateAsync(TestContext.Current.CancellationToken));
 
         Assert.Equal(1, device.DispatchCount);
         Assert.Empty(changes);
 
-        var observation = new DeviceState
-        {
-            Timestamp = DateTime.UnixEpoch,
-            MotionSettings = Settings(speed),
-            SessionId = Guid.Empty,
-            VelocityMillimetresPerSecond = 0,
-            RequestedMotion = Settings(99),
-        };
-        device.Observe(observation);
-        var observed = await device.GetStateAsync(TestContext.Current.CancellationToken);
+        var reported = State(requested, DateTime.UnixEpoch, 0);
+        device.ReportState(reported);
 
-        Assert.Same(requested, observed.RequestedMotion);
-        Assert.Same(observation.MotionSettings, observed.MotionSettings);
-        Assert.Equal(observation with
-        {
-            RequestedMotion = requested,
-            ObservationFreshness = ObservationFreshness.Live,
-        }, observed);
-        Assert.Equal(ObservationFreshness.Unavailable, observation.ObservationFreshness);
-        Assert.Equal(99, observation.RequestedMotion.Speed);
-        Assert.Same(observed, Assert.Single(changes).AsT0);
+        Assert.Same(reported, Assert.Single(changes).AsT0);
     }
 
     [Theory]
     [InlineData(null)]
     [InlineData(0d)]
-    public async Task ObservationDistinguishesUnknownVelocityFromReportedZero(double? velocity)
+    public void StatePublicationDistinguishesUnknownVelocityFromReportedZero(double? velocity)
     {
         var device = Component;
-        await Assert.ThrowsAsync<NoDeviceDataException>(() => device.GetStateAsync(TestContext.Current.CancellationToken));
+        var changes = new List<OneOf<DeviceState, Exception>>();
+        device.DeviceStateChanged += changes.Add;
         var settings = Settings(0);
+        var reported = State(settings, DateTime.UnixEpoch, velocity);
 
-        device.Observe(settings, DateTime.UnixEpoch, velocity);
-        var observed = await device.GetStateAsync(TestContext.Current.CancellationToken);
+        device.ReportState(reported);
 
-        Assert.Same(settings, observed.MotionSettings);
-        Assert.Equal(DateTime.UnixEpoch, observed.Timestamp);
-        Assert.Equal(velocity, observed.VelocityMillimetresPerSecond);
-        Assert.Equal(ObservationFreshness.Live, observed.ObservationFreshness);
-        Assert.Null(observed.RequestedMotion);
+        var published = Assert.Single(changes).AsT0;
+        Assert.Same(reported, published);
+        Assert.Same(settings, published.MotionSettings);
+        Assert.Equal(DateTime.UnixEpoch, published.Timestamp);
+        Assert.Equal(velocity, published.VelocityMillimetresPerSecond);
     }
 
     [Fact]
-    public async Task SettledWriteDoesNotChangeRetainedObservationTimeOrVelocity()
+    public async Task SettledWriteAfterReportedStateDoesNotPublishState()
     {
-        var time = Mocks.GetRequiredObject<FakeTimeProvider>();
         var device = Component;
-        var sessionId = Guid.Parse("a8d3e997-8ccd-42be-bb46-2c96684024a6");
-        device.Observe(new DeviceState
-        {
-            Timestamp = DateTime.UnixEpoch,
-            MotionSettings = Settings(10),
-            SessionId = sessionId,
-            VelocityMillimetresPerSecond = 12.5,
-        });
-        var initial = await device.GetStateAsync(TestContext.Current.CancellationToken);
-        time.Advance(TimeSpan.FromSeconds(1));
+        device.ReportState(State(Settings(10), DateTime.UnixEpoch, 12.5));
         var changes = new List<OneOf<DeviceState, Exception>>();
         device.DeviceStateChanged += changes.Add;
 
-        var requested = Settings(30);
-        await device.SetMotionAsync(requested, TestContext.Current.CancellationToken);
-        var settled = await device.GetStateAsync(TestContext.Current.CancellationToken);
+        await device.SetMotionAsync(Settings(30), TestContext.Current.CancellationToken);
 
-        Assert.Same(requested, settled.RequestedMotion);
-        Assert.Same(initial.MotionSettings, settled.MotionSettings);
-        Assert.Equal(DateTime.UnixEpoch, settled.Timestamp);
-        Assert.Equal(sessionId, settled.SessionId);
-        Assert.Equal(12.5, settled.VelocityMillimetresPerSecond);
-        Assert.Equal(initial with { RequestedMotion = requested }, settled);
-        Assert.Same(settled, Assert.Single(changes).AsT0);
-        Assert.Null(initial.RequestedMotion);
-    }
-
-    [Theory]
-    [InlineData(false, true)]
-    [InlineData(true, false)]
-    [InlineData(true, true)]
-    public async Task TelemetryPreservesLastSettledRequestAndPreviouslyReturnedState(
-        bool settlesWrite,
-        bool includesRequestedMotion)
-    {
-        var device = Component;
-        var original = new DeviceState
-        {
-            Timestamp = DateTime.UnixEpoch,
-            MotionSettings = Settings(10),
-            SessionId = Guid.Empty,
-            VelocityMillimetresPerSecond = 12.5,
-        };
-        device.Observe(original);
-        var requested = settlesWrite ? Settings(30) : null;
-        if (requested is not null)
-        {
-            await device.SetMotionAsync(requested, TestContext.Current.CancellationToken);
-        }
-
-        var retained = await device.GetStateAsync(TestContext.Current.CancellationToken);
-        var changes = new List<OneOf<DeviceState, Exception>>();
-        device.DeviceStateChanged += changes.Add;
-        var incoming = new DeviceState
-        {
-            Timestamp = DateTime.UnixEpoch.AddSeconds(1),
-            MotionSettings = Settings(requested?.Speed ?? 10),
-            SessionId = Guid.Parse("a8d3e997-8ccd-42be-bb46-2c96684024a6"),
-            VelocityMillimetresPerSecond = -12.5,
-            RequestedMotion = includesRequestedMotion ? Settings(99) : null,
-            ObservationFreshness = ObservationFreshness.LastKnown,
-        };
-
-        device.Observe(incoming);
-        var current = await device.GetStateAsync(TestContext.Current.CancellationToken);
-
-        Assert.Same(requested, current.RequestedMotion);
-        Assert.Same(incoming.MotionSettings, current.MotionSettings);
-        Assert.Equal(incoming with
-        {
-            RequestedMotion = requested,
-            ObservationFreshness = ObservationFreshness.Live,
-        }, current);
-        Assert.Equal(current, Assert.Single(changes).AsT0);
-        Assert.Equal(original with
-        {
-            RequestedMotion = requested,
-            ObservationFreshness = ObservationFreshness.Live,
-        }, retained);
-        Assert.Same(original.MotionSettings, retained.MotionSettings);
-        Assert.Equal(ObservationFreshness.Unavailable, original.ObservationFreshness);
-        Assert.Equal(includesRequestedMotion ? 99 : (int?)null, incoming.RequestedMotion?.Speed);
-        Assert.Equal(ObservationFreshness.LastKnown, incoming.ObservationFreshness);
-    }
-
-    [Fact]
-    public async Task ExplicitUtcMinimumTimestampIsAnObservationNotAnAbsenceSentinel()
-    {
-        var timestamp = DateTime.SpecifyKind(DateTime.MinValue, DateTimeKind.Utc);
-        var observation = new DeviceState
-        {
-            Timestamp = timestamp,
-            MotionSettings = Settings(0),
-            SessionId = Guid.Empty,
-        };
-
-        Component.Observe(observation);
-        var result = await Component.GetStateAsync(TestContext.Current.CancellationToken);
-
-        Assert.Equal(observation with { ObservationFreshness = ObservationFreshness.Live }, result);
-        Assert.Equal(DateTimeKind.Utc, result.Timestamp.Kind);
+        Assert.Empty(changes);
     }
 
     [Theory]
@@ -489,16 +233,15 @@ public sealed class OssmDeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisp
     [InlineData(DateTimeKind.Local, false, true)]
     [InlineData(DateTimeKind.Utc, false, false)]
     [InlineData(DateTimeKind.Unspecified, true, false)]
-    public async Task InvalidObservationIsRejectedBeforeStateOrPendingWriteChanges(
+    public async Task InvalidStateDoesNotClearPendingExpectation(
         DateTimeKind timestampKind,
         bool defaultTimestamp,
         bool hasSettings)
     {
         var device = Component;
-        device.Observe(Settings(10), DateTime.UnixEpoch, 12.5);
+        device.ReportState(State(Settings(10), DateTime.UnixEpoch, 12.5));
         var requested = Settings(30);
         await device.SetMotionAsync(requested, TestContext.Current.CancellationToken);
-        var initial = await device.GetStateAsync(TestContext.Current.CancellationToken);
         var changes = new List<OneOf<DeviceState, Exception>>();
         device.DeviceStateChanged += changes.Add;
         var invalid = new DeviceState
@@ -509,111 +252,122 @@ public sealed class OssmDeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisp
             VelocityMillimetresPerSecond = -12.5,
         };
 
-        Assert.Throws<InvalidDataException>(() => device.Observe(invalid));
-
-        Assert.Same(initial, await device.GetStateAsync(TestContext.Current.CancellationToken));
+        Assert.Throws<InvalidDataException>(() => device.ReportState(invalid));
         Assert.Empty(changes);
-        device.Observe(requested, DateTime.UnixEpoch.AddSeconds(1), -12.5);
-        Assert.Same(requested, Assert.Single(changes).AsT0.MotionSettings);
+
+        var reported = State(requested, DateTime.UnixEpoch.AddSeconds(1), -12.5);
+        device.ReportState(reported);
+
+        Assert.Same(reported, Assert.Single(changes).AsT0);
     }
 
     [Theory]
     [InlineData(double.NaN)]
     [InlineData(double.PositiveInfinity)]
     [InlineData(double.NegativeInfinity)]
-    public async Task InvalidObservationVelocityDoesNotReplaceRetainedSample(double velocity)
+    public void InvalidStateDoesNotAlterSpeedBaseline(double velocity)
     {
         var device = Component;
-        device.Observe(Settings(10), DateTime.UnixEpoch, 12.5);
-        var requested = Settings(30);
-        await device.SetMotionAsync(requested, TestContext.Current.CancellationToken);
-        var initial = await device.GetStateAsync(TestContext.Current.CancellationToken);
+        device.ReportState(State(Settings(10), DateTime.UnixEpoch, 12.5));
         var changes = new List<OneOf<DeviceState, Exception>>();
         device.DeviceStateChanged += changes.Add;
 
-        Assert.Throws<InvalidDataException>(() => device.Observe(requested, DateTime.UnixEpoch, velocity));
-
-        Assert.Same(initial, await device.GetStateAsync(TestContext.Current.CancellationToken));
+        Assert.Throws<InvalidDataException>(() =>
+            device.ReportState(State(Settings(20), DateTime.UnixEpoch.AddSeconds(1), velocity)));
         Assert.Empty(changes);
-        device.Observe(requested, DateTime.UnixEpoch.AddSeconds(1), -12.5);
-        Assert.Same(requested, Assert.Single(changes).AsT0.MotionSettings);
-    }
 
-    [Fact]
-    public async Task RegistersPendingWriteBeforeDispatchAndDoesNotReportItsSynchronousObservation()
-    {
-        var device = Component;
-        device.ObserveDuringDispatch = true;
-        var errors = Channel.CreateUnbounded<Exception>();
-        device.DeviceStateChanged += change => change.Switch(_ => { }, error => errors.Writer.TryWrite(error));
-        await device.StartAsync(TestContext.Current.CancellationToken);
+        var reported = State(Settings(30), DateTime.UnixEpoch.AddSeconds(2), -12.5);
+        device.ReportState(reported);
 
-        await device.SetMotionAsync(Settings(speed: 30), TestContext.Current.CancellationToken);
-
-        Assert.False(errors.Reader.TryRead(out _));
-        Assert.Equal(30, (await device.GetStateAsync(TestContext.Current.CancellationToken)).RequestedMotion?.Speed);
-    }
-
-    [Fact]
-    public async Task UnexpectedSpeedCommitsStateBeforePublishingTheException()
-    {
-        var time = Mocks.GetRequiredObject<FakeTimeProvider>();
-        var device = Component;
-        var report = new TaskCompletionSource<(UnexpectedSpeedChangeException Error, DeviceState State)>(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-        device.DeviceStateChanged += change => change.Switch(
-            _ => { },
-            error =>
+        Assert.Collection(
+            changes,
+            change => Assert.Same(reported, change.AsT0),
+            change =>
             {
-                var unexpected = Assert.IsType<UnexpectedSpeedChangeException>(error);
-                var state = device.GetStateAsync(TestContext.Current.CancellationToken).GetAwaiter().GetResult();
-                report.TrySetResult((unexpected, state));
+                var error = Assert.IsType<UnexpectedSpeedChangeException>(change.AsT1);
+                Assert.Equal(10, error.PreviousStateSpeed);
+                Assert.Equal(30, error.StateSpeed);
             });
-        await device.StartAsync(TestContext.Current.CancellationToken);
-        device.Observe(Settings(speed: 10), time.GetUtcNow().UtcDateTime);
-
-        device.Observe(Settings(speed: 20), time.GetUtcNow().UtcDateTime);
-        var reported = await report.Task.WaitAsync(TestContext.Current.CancellationToken);
-
-        Assert.Equal(20, reported.State.MotionSettings.Speed);
     }
 
     [Fact]
-    public async Task SubscriberFailureDoesNotPreventLaterSubscribersOrBecomeADeviceError()
+    public async Task RegistersPendingWriteBeforeDispatchAndPublishesItsSynchronousStateOnce()
     {
-        var time = Mocks.GetRequiredObject<FakeTimeProvider>();
+        var device = Component;
+        device.ReportStateDuringDispatch = true;
+        var changes = new List<OneOf<DeviceState, Exception>>();
+        device.DeviceStateChanged += changes.Add;
+        await device.StartAsync(TestContext.Current.CancellationToken);
+
+        await device.SetMotionAsync(Settings(30), TestContext.Current.CancellationToken);
+
+        var published = Assert.Single(changes).AsT0;
+        Assert.Equal(30, published.MotionSettings.Speed);
+        Assert.Equal(1, device.DispatchCount);
+    }
+
+    [Fact]
+    public async Task SettledWriteUsesPriorRequestToMatchDelayedScaledState()
+    {
+        await using var device = new StockSpeedTestDevice(Mocks.GetRequiredObject<FakeTimeProvider>());
+        var changes = new List<OneOf<DeviceState, Exception>>();
+        device.DeviceStateChanged += changes.Add;
+
+        await device.SetMotionAsync(Settings(60), TestContext.Current.CancellationToken);
+        device.ReportState(Settings(30));
+        await device.SetMotionAsync(Settings(40), TestContext.Current.CancellationToken);
+        device.ReportState(Settings(20));
+
+        Assert.Collection(
+            changes,
+            change => Assert.Equal(30, change.AsT0.MotionSettings.Speed),
+            change => Assert.Equal(20, change.AsT0.MotionSettings.Speed));
+    }
+
+    [Fact]
+    public void UnexpectedSpeedPublishesStateBeforeException()
+    {
+        var device = Component;
+        device.ReportState(State(Settings(10), DateTime.UnixEpoch));
+        var changes = new List<OneOf<DeviceState, Exception>>();
+        device.DeviceStateChanged += changes.Add;
+        var reported = State(Settings(20), DateTime.UnixEpoch.AddSeconds(1));
+
+        device.ReportState(reported);
+
+        Assert.Collection(
+            changes,
+            change => Assert.Same(reported, change.AsT0),
+            change =>
+            {
+                var error = Assert.IsType<UnexpectedSpeedChangeException>(change.AsT1);
+                Assert.Equal(10, error.PreviousStateSpeed);
+                Assert.Equal(20, error.StateSpeed);
+                Assert.Null(error.PendingRequestedSpeed);
+                Assert.Equal(reported.Timestamp, error.StateTimestamp);
+            });
+    }
+
+    [Fact]
+    public async Task SubscriberFailureDoesNotPreventLaterSubscribersOrBecomeDeviceError()
+    {
         var device = Component;
         var changes = new List<OneOf<DeviceState, Exception>>();
         device.DeviceStateChanged += _ => throw new InvalidOperationException("subscriber failure");
         device.DeviceStateChanged += changes.Add;
-        var requested = Settings(0);
-        var updated = Settings(30);
-        var observation = new DeviceState
-        {
-            Timestamp = time.GetUtcNow().UtcDateTime,
-            MotionSettings = Settings(0),
-            SessionId = Guid.Empty,
-        };
+        var reported = State(Settings(0), DateTime.UnixEpoch);
         var error = new IOException("transport failed");
 
         await device.StartAsync(TestContext.Current.CancellationToken);
-        await device.SetMotionAsync(requested, TestContext.Current.CancellationToken);
+        await device.SetMotionAsync(Settings(0), TestContext.Current.CancellationToken);
         Assert.Empty(changes);
-        device.Observe(observation);
-        await device.SetMotionAsync(updated, TestContext.Current.CancellationToken);
+        device.ReportState(reported);
+        await device.SetMotionAsync(Settings(30), TestContext.Current.CancellationToken);
         device.Fail(error);
 
-        Assert.Collection(changes,
-            change => Assert.Equal(observation with
-            {
-                RequestedMotion = requested,
-                ObservationFreshness = ObservationFreshness.Live,
-            }, change.AsT0),
-            change => Assert.Equal(observation with
-            {
-                RequestedMotion = updated,
-                ObservationFreshness = ObservationFreshness.Live,
-            }, change.AsT0),
+        Assert.Collection(
+            changes,
+            change => Assert.Same(reported, change.AsT0),
             change => Assert.Same(error, change.AsT1));
     }
 
@@ -628,16 +382,16 @@ public sealed class OssmDeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisp
         await cancellation.CancelAsync();
 
         await Assert.ThrowsAsync<ArgumentException>(() =>
-            device.SetMotionAsync(Settings(speed: 10) with { Stroke = 0 }, TestContext.Current.CancellationToken));
+            device.SetMotionAsync(Settings(10) with { Stroke = 0 }, TestContext.Current.CancellationToken));
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            device.SetMotionAsync(Settings(speed: 10), cancellation.Token));
+            device.SetMotionAsync(Settings(10), cancellation.Token));
 
         Assert.Equal(0, device.DispatchCount);
         Assert.Equal(0, reportedErrors);
     }
 
     [Fact]
-    public async Task CancellationAfterDispatchWaitsForSettlementBeforeReportingCancellation()
+    public async Task CancellationAfterDispatchWaitsForSettlementWithoutPublishingState()
     {
         var device = Component;
         device.BlockDispatch = true;
@@ -654,15 +408,28 @@ public sealed class OssmDeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisp
         Assert.False(write.IsCompleted);
         device.CompleteDispatch();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => write);
-        await Assert.ThrowsAsync<NoDeviceDataException>(() => device.GetStateAsync(TestContext.Current.CancellationToken));
         Assert.Empty(changes);
 
-        device.Observe(requested, DateTime.UnixEpoch);
-        var observed = await device.GetStateAsync(TestContext.Current.CancellationToken);
+        var reported = State(requested, DateTime.UnixEpoch);
+        device.ReportState(reported);
 
         Assert.Equal(1, device.DispatchCount);
-        Assert.Same(requested, observed.RequestedMotion);
-        Assert.Same(observed, Assert.Single(changes).AsT0);
+        Assert.Same(reported, Assert.Single(changes).AsT0);
+    }
+
+    [Fact]
+    public void UtcMinimumTimestampPublishesState()
+    {
+        var device = Component;
+        var changes = new List<OneOf<DeviceState, Exception>>();
+        device.DeviceStateChanged += changes.Add;
+        var reported = State(
+            Settings(0),
+            DateTime.SpecifyKind(DateTime.MinValue, DateTimeKind.Utc));
+
+        device.ReportState(reported);
+
+        Assert.Same(reported, Assert.Single(changes).AsT0);
     }
 
     [Fact]
@@ -671,7 +438,7 @@ public sealed class OssmDeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisp
         var device = Component;
         device.BlockDispatch = true;
         await device.StartAsync(TestContext.Current.CancellationToken);
-        var write = device.SetMotionAsync(Settings(speed: 30), TestContext.Current.CancellationToken);
+        var write = device.SetMotionAsync(Settings(30), TestContext.Current.CancellationToken);
         await device.DispatchStarted.WaitAsync(TestContext.Current.CancellationToken);
 
         var disposal = device.DisposeAsync().AsTask();
@@ -704,7 +471,6 @@ public sealed class OssmDeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisp
     {
         try
         {
-            // Release a gated dispatch if an assertion failed before the test could settle it.
             Component.CompleteDispatch();
             await Component.DisposeAsync();
         }
@@ -724,21 +490,50 @@ public sealed class OssmDeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisp
         MotionPattern.SimpleStroke,
         0);
 
-    private static async Task<DeviceState> ReadStateAsync(
-        ChannelReader<OneOf<DeviceState, Exception>> reader,
-        Func<DeviceState, bool> predicate)
-    {
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
-        timeout.CancelAfter(TimeSpan.FromSeconds(5));
-        while (await reader.ReadAsync(timeout.Token) is { } change)
+    private static DeviceState State(
+        MotionSettings settings,
+        DateTime timestamp,
+        double? velocity = null) => new()
         {
-            var state = Assert.IsType<DeviceState>(change.Value);
-            if (predicate(state))
-            {
-                return state;
-            }
-        }
+            Timestamp = timestamp,
+            MotionSettings = settings,
+            SessionId = Guid.Empty,
+            VelocityMillimetresPerSecond = velocity,
+        };
 
-        throw new InvalidOperationException("State channel completed unexpectedly.");
+    private sealed class StockSpeedTestDevice(FakeTimeProvider timeProvider)
+        : OssmDeviceBase(
+            new OssmDeviceOptions
+            {
+                ExpectationLifetime = TimeSpan.FromSeconds(1),
+            },
+            timeProvider,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance)
+    {
+        public void ReportState(MotionSettings settings) => PublishState(
+            new DeviceState
+            {
+                Timestamp = timeProvider.GetUtcNow().UtcDateTime,
+                MotionSettings = settings,
+                SessionId = Guid.Empty,
+            },
+            null);
+
+        protected override Task ConnectAsync(CancellationToken cancellationToken) =>
+            Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+
+        protected override Task DispatchMotionAsync(
+            MotionSettings motionSettings,
+            CancellationToken cancellationToken) => Task.CompletedTask;
+
+        protected override bool IsExpectedState(
+            int? previousRequestedSpeed,
+            int? previousStateSpeed,
+            int requestedSpeed,
+            int stateSpeed) => OssmDevice.IsExpectedStateImpl(
+                previousRequestedSpeed,
+                previousStateSpeed,
+                requestedSpeed,
+                stateSpeed);
     }
 }

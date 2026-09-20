@@ -5,21 +5,19 @@ using OneOf;
 namespace OSSMDotNet;
 
 /// <summary>
-/// Provides shared lifecycle, validation, observation, and publication behavior for OSSM devices.
+/// Provides shared lifecycle, validation, state, and publication behavior for OSSM devices.
 /// </summary>
 public abstract class OssmDeviceBase : BackgroundService, IOssmDevice, IAsyncDisposable
 {
     private readonly object _stateGate = new();
     private readonly SemaphoreSlim _operationGate = new(1, 1);
     private readonly TimeProvider _timeProvider;
-    private readonly TimeSpan _observationLiveFor;
     private readonly TimeSpan _expectationLifetime;
     private readonly ILogger _logger;
-    private DeviceState? _state;
     private MotionSettings? _lastRequestedMotion;
+    private int? _lastStateSpeed;
     private DeviceConnectionState _connectionState = DeviceConnectionState.Disconnected;
     private DeviceInformation? _device;
-    private long _observationTimestamp;
     private PendingWrite? _pendingWrite;
     private int _disposed;
 
@@ -40,7 +38,6 @@ public abstract class OssmDeviceBase : BackgroundService, IOssmDevice, IAsyncDis
         Validator.ValidateObject(options, new ValidationContext(options), validateAllProperties: true);
 
         _timeProvider = timeProvider;
-        _observationLiveFor = options.ObservationLiveFor;
         _expectationLifetime = options.ExpectationLifetime;
         _logger = logger;
     }
@@ -76,19 +73,6 @@ public abstract class OssmDeviceBase : BackgroundService, IOssmDevice, IAsyncDis
     public event Action<OneOf<DeviceState, Exception>>? DeviceStateChanged;
 
     /// <inheritdoc />
-    public Task<DeviceState> GetStateAsync(CancellationToken cancellationToken)
-    {
-        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
-        cancellationToken.ThrowIfCancellationRequested();
-        lock (_stateGate)
-        {
-            return _state is null
-                ? Task.FromException<DeviceState>(new NoDeviceDataException())
-                : Task.FromResult(_state);
-        }
-    }
-
-    /// <inheritdoc />
     public async Task SetMotionAsync(MotionSettings motionSettings, CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
@@ -101,9 +85,14 @@ public abstract class OssmDeviceBase : BackgroundService, IOssmDevice, IAsyncDis
         {
             ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
             cancellationToken.ThrowIfCancellationRequested();
-            var pending = new PendingWrite(motionSettings, _timeProvider.GetTimestamp());
+            PendingWrite pending;
             lock (_stateGate)
             {
+                pending = new PendingWrite(
+                    motionSettings,
+                    _lastRequestedMotion?.Speed,
+                    _lastStateSpeed,
+                    _timeProvider.GetTimestamp());
                 _pendingWrite = pending;
             }
 
@@ -124,17 +113,9 @@ public abstract class OssmDeviceBase : BackgroundService, IOssmDevice, IAsyncDis
                 throw;
             }
 
-            DeviceState? state;
             lock (_stateGate)
             {
                 _lastRequestedMotion = motionSettings;
-                _state = _state is null ? null : _state with { RequestedMotion = motionSettings };
-                state = _state;
-            }
-
-            if (state is not null)
-            {
-                Publish(state);
             }
 
             cancellationToken.ThrowIfCancellationRequested();
@@ -156,53 +137,49 @@ public abstract class OssmDeviceBase : BackgroundService, IOssmDevice, IAsyncDis
     }
 
     /// <summary>
-    /// Publishes a disconnected state without discarding retained observations.
+    /// Publishes a disconnected connection state.
     /// </summary>
     protected void PublishDisconnected() => SetConnectionState(DeviceConnectionState.Disconnected);
 
     /// <summary>
-    /// Commits and publishes a validated observation.
+    /// Publishes validated device state.
     /// </summary>
-    /// <param name="observation">The validated device observation.</param>
-    /// <param name="isOwnWrite">Whether the implementation can directly attribute the observation to the pending write.</param>
-    protected void PublishObservation(
-        DeviceState observation,
+    /// <param name="state">The validated device state.</param>
+    /// <param name="isOwnWrite">Whether the implementation can directly attribute the state to the pending write.</param>
+    protected void PublishState(
+        DeviceState state,
         bool? isOwnWrite)
     {
-        ArgumentNullException.ThrowIfNull(observation);
-        ValidateObservation(observation);
+        ArgumentNullException.ThrowIfNull(state);
+        ValidateState(state);
 
-        DeviceState state;
         UnexpectedSpeedChangeException? unexpected = null;
         lock (_stateGate)
         {
-            var previous = _state;
             var pending = CurrentPendingWrite();
             var expected = isOwnWrite is true ||
                 (isOwnWrite is not false && pending is not null &&
-                 IsExpectedObservation(pending.Settings, previous, observation));
+                 IsExpectedState(
+                     pending.PreviousRequestedSpeed,
+                     pending.PreviousStateSpeed,
+                     pending.Settings.Speed,
+                     state.MotionSettings.Speed));
 
             if (expected)
             {
                 _pendingWrite = null;
             }
-            else if (previous?.MotionSettings is { } previousSettings &&
-                     previousSettings.Speed != observation.MotionSettings.Speed)
+            else if (_lastStateSpeed is { } previousStateSpeed &&
+                     previousStateSpeed != state.MotionSettings.Speed)
             {
                 unexpected = new UnexpectedSpeedChangeException(
-                    previousSettings.Speed,
-                    observation.MotionSettings.Speed,
+                    previousStateSpeed,
+                    state.MotionSettings.Speed,
                     pending?.Settings.Speed,
-                    observation.Timestamp);
+                    state.Timestamp);
             }
 
-            _observationTimestamp = _timeProvider.GetTimestamp();
-            state = observation with
-            {
-                RequestedMotion = _lastRequestedMotion,
-                ObservationFreshness = ObservationFreshness.Live,
-            };
-            _state = state;
+            _lastStateSpeed = state.MotionSettings.Speed;
         }
 
         Publish(state);
@@ -223,30 +200,18 @@ public abstract class OssmDeviceBase : BackgroundService, IOssmDevice, IAsyncDis
     }
 
     /// <summary>
-    /// Determines whether an observation is consistent with a pending request.
+    /// Determines whether reported state is consistent with a pending request.
     /// </summary>
-    /// <param name="requested">The pending requested settings.</param>
-    /// <param name="previous">The previous observation, when available.</param>
-    /// <param name="observed">The new observation.</param>
-    /// <returns><see langword="true"/> when the observation is consistent with the request.</returns>
-    protected virtual bool IsExpectedObservation(
-        MotionSettings requested,
-        DeviceState? previous,
-        DeviceState observed) => requested.Speed == observed.MotionSettings.Speed;
-
-    /// <summary>
-    /// Gets the last motion settings whose transport operation settled successfully.
-    /// </summary>
-    protected MotionSettings? LastRequestedMotion
-    {
-        get
-        {
-            lock (_stateGate)
-            {
-                return _lastRequestedMotion;
-            }
-        }
-    }
+    /// <param name="previousRequestedSpeed">The requested speed that settled before the pending request was registered.</param>
+    /// <param name="previousStateSpeed">The previous reported speed, when available.</param>
+    /// <param name="requestedSpeed">The pending requested speed.</param>
+    /// <param name="stateSpeed">The newly reported speed.</param>
+    /// <returns><see langword="true"/> when the reported speed is consistent with the request.</returns>
+    protected virtual bool IsExpectedState(
+        int? previousRequestedSpeed,
+        int? previousStateSpeed,
+        int requestedSpeed,
+        int stateSpeed) => requestedSpeed == stateSpeed;
 
     /// <summary>
     /// Runs the implementation-owned transport until shutdown.
@@ -269,9 +234,9 @@ public abstract class OssmDeviceBase : BackgroundService, IOssmDevice, IAsyncDis
     /// <inheritdoc />
     protected sealed override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        StoppingToken = stoppingToken;
         SetConnectionState(DeviceConnectionState.Connecting);
 
-        var freshness = MonitorFreshnessAsync(stoppingToken);
         try
         {
             await ConnectAsync(stoppingToken).ConfigureAwait(false);
@@ -279,21 +244,14 @@ public abstract class OssmDeviceBase : BackgroundService, IOssmDevice, IAsyncDis
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
         }
-        catch (Exception exception) when (exception is IOException or InvalidDataException or TimeoutException or UnauthorizedAccessException)
+        catch (Exception exception) when (exception is IOException or InvalidDataException or TimeoutException or UnauthorizedAccessException or NotSupportedException)
         {
             PublishDisconnected();
-            PublishError(exception);
+            OssmDeviceBaseLog.ConnectionFailed(_logger, exception);
         }
         finally
         {
             PublishDisconnected();
-            try
-            {
-                await freshness.ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-            {
-            }
         }
     }
 
@@ -339,35 +297,6 @@ public abstract class OssmDeviceBase : BackgroundService, IOssmDevice, IAsyncDis
 
     private CancellationToken StoppingToken { get; set; }
 
-    private async Task MonitorFreshnessAsync(CancellationToken cancellationToken)
-    {
-        StoppingToken = cancellationToken;
-        var interval = TimeSpan.FromTicks(Math.Min(_observationLiveFor.Ticks, TimeSpan.FromMilliseconds(100).Ticks));
-        while (true)
-        {
-            await Task.Delay(interval, _timeProvider, cancellationToken).ConfigureAwait(false);
-            DeviceState? changed = null;
-            lock (_stateGate)
-            {
-                _ = CurrentPendingWrite();
-                if (_state is { ObservationFreshness: ObservationFreshness.Live } observation &&
-                    _timeProvider.GetElapsedTime(_observationTimestamp) >= _observationLiveFor)
-                {
-                    changed = observation with
-                    {
-                        ObservationFreshness = ObservationFreshness.LastKnown,
-                    };
-                    _state = changed;
-                }
-            }
-
-            if (changed is not null)
-            {
-                Publish(changed);
-            }
-        }
-    }
-
     private PendingWrite? CurrentPendingWrite()
     {
         if (_pendingWrite is { } pending &&
@@ -381,17 +310,27 @@ public abstract class OssmDeviceBase : BackgroundService, IOssmDevice, IAsyncDis
 
     private void SetConnectionState(DeviceConnectionState state, DeviceInformation? device = null)
     {
+        DeviceConnectionState previousState;
         lock (_stateGate)
         {
             _device ??= device;
+            if (state == DeviceConnectionState.Disconnected)
+            {
+                _lastRequestedMotion = null;
+                _lastStateSpeed = null;
+                _pendingWrite = null;
+            }
+
             if (_connectionState == state)
             {
                 return;
             }
 
+            previousState = _connectionState;
             _connectionState = state;
         }
 
+        OssmDeviceBaseLog.ConnectionChanged(_logger, previousState, state);
         Publish(ConnectionStateChanged, state);
     }
 
@@ -417,30 +356,30 @@ public abstract class OssmDeviceBase : BackgroundService, IOssmDevice, IAsyncDis
         }
     }
 
-    private static void ValidateObservation(DeviceState observation)
+    private static void ValidateState(DeviceState state)
     {
-        if (observation.Timestamp is not { Kind: DateTimeKind.Utc })
+        if (state.Timestamp is not { Kind: DateTimeKind.Utc })
         {
-            throw new InvalidDataException("Observation timestamps must use UTC.");
+            throw new InvalidDataException("State timestamps must use UTC.");
         }
 
-        if (observation.MotionSettings is null)
+        if (state.MotionSettings is null)
         {
-            throw new InvalidDataException("A device observation must contain motion settings.");
+            throw new InvalidDataException("Device state must contain motion settings.");
         }
 
         try
         {
-            ValidateSettings(observation.MotionSettings);
+            ValidateSettings(state.MotionSettings);
         }
         catch (ArgumentException exception)
         {
-            throw new InvalidDataException("The device observation contains invalid motion settings.", exception);
+            throw new InvalidDataException("The device state contains invalid motion settings.", exception);
         }
 
-        if (observation.VelocityMillimetresPerSecond is { } value && !double.IsFinite(value))
+        if (state.VelocityMillimetresPerSecond is { } value && !double.IsFinite(value))
         {
-            throw new InvalidDataException("The observed velocity must be finite.");
+            throw new InvalidDataException("The reported velocity must be finite.");
         }
     }
 
@@ -453,5 +392,9 @@ public abstract class OssmDeviceBase : BackgroundService, IOssmDevice, IAsyncDis
         }
     }
 
-    private sealed record PendingWrite(MotionSettings Settings, long Timestamp);
+    private sealed record PendingWrite(
+        MotionSettings Settings,
+        int? PreviousRequestedSpeed,
+        int? PreviousStateSpeed,
+        long Timestamp);
 }
