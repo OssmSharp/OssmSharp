@@ -199,12 +199,20 @@ public abstract class DeviceBase : BackgroundService, IOssmDevice, IAsyncDisposa
         bool? isOwnWrite)
     {
         ArgumentNullException.ThrowIfNull(state);
-        ValidateState(state);
+        var validationResults = new List<ValidationResult>();
+        if (!Validator.TryValidateObject(
+                state,
+                new ValidationContext(state),
+                validationResults,
+                validateAllProperties: true))
+        {
+            throw new InvalidDataException(validationResults[0].ErrorMessage);
+        }
 
         UnexpectedSpeedChangeException? unexpected = null;
         lock (_stateGate)
         {
-            var pending = CurrentPendingWrite();
+            var pending = GetValidPendingWrite();
             var expected = isOwnWrite is true ||
                 (isOwnWrite is not false && pending is not null &&
                  IsExpectedState(
@@ -303,33 +311,6 @@ public abstract class DeviceBase : BackgroundService, IOssmDevice, IAsyncDisposa
         }
     }
 
-    private static void ValidateState(DeviceState state)
-    {
-        if (state.Timestamp is not { Kind: DateTimeKind.Utc })
-        {
-            throw new InvalidDataException("State timestamps must use UTC.");
-        }
-
-        if (state.MotionSettings is null)
-        {
-            throw new InvalidDataException("Device state must contain motion settings.");
-        }
-
-        try
-        {
-            ValidateSettings(state.MotionSettings);
-        }
-        catch (ArgumentException exception)
-        {
-            throw new InvalidDataException("The device state contains invalid motion settings.", exception);
-        }
-
-        if (state.VelocityMillimetresPerSecond is { } value && !double.IsFinite(value))
-        {
-            throw new InvalidDataException("The reported velocity must be finite.");
-        }
-    }
-
     private static void ValidateSettings(MotionSettings settings)
     {
         var validationResults = new List<ValidationResult>();
@@ -339,7 +320,7 @@ public abstract class DeviceBase : BackgroundService, IOssmDevice, IAsyncDisposa
         }
     }
 
-    private PendingWrite? CurrentPendingWrite()
+    private PendingWrite? GetValidPendingWrite()
     {
         if (_pendingWrite is { } pending &&
             _timeProvider.GetElapsedTime(pending.Timestamp) >= _expectationLifetime)

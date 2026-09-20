@@ -137,11 +137,12 @@ sessions are not guest capabilities.
 Stroke, Sensation, Depth and Buffer in `[0,100]`, and finite Position in
 millimetres. Settings and implementation options must use DataAnnotations for
 property constraints and `IValidatableObject` for model/cross-field constraints.
-Every device entry point must invoke standard model validation because
-annotations alone cannot validate construction. State labels must map explicitly
-to firmware strings, and pattern identifiers `0`–`6` must retain SimpleStroke,
-TeasingPounding, RoboStroke, HalfAndHalf, Deeper, StopAndGo and Insist
-respectively. Profile meaning must remain explicit.
+`DeviceState` must own its UTC timestamp, reported-settings and finite-velocity
+validation. Every device entry point must invoke standard model validation
+because annotations alone cannot validate construction. State labels must map
+explicitly to firmware strings, and pattern identifiers `0`–`6` must retain
+SimpleStroke, TeasingPounding, RoboStroke, HalfAndHalf, Deeper, StopAndGo and
+Insist respectively. Profile meaning must remain explicit.
 
 On input, Speed is requested speed; in reported states it is effective speed.
 Position is report-only, and reported mode is not navigation permission. The
@@ -161,14 +162,14 @@ probes must not be published as new motion state. Required-feedback tracking and
 freshness deadlines belong to the controller under DC-07.
 
 `OssmDeviceBase` in the stock library must own common state publication,
-settings validation, pending-write expectation registration before dispatch,
-operation settlement, semantic fault reporting, subscriber isolation and
-repeated cleanup. It must not retain complete `DeviceState` instances or provide
-a replacement state cache. Its public invariants must not be overridable.
-Protected hooks must be limited to transport lifetime, settings dispatch and
-implementation-specific state assessment. The stock implementation must assess
-knob scaling and integer truncation; the simulator must use direct engine
-evidence. The base must not add controller authority, arming, persistent
+model-validation enforcement, pending-write expectation registration before
+dispatch, operation settlement, semantic fault reporting, subscriber isolation
+and repeated cleanup. It must not retain complete `DeviceState` instances or
+provide a replacement state cache. Its public invariants must not be
+overridable. Protected hooks must be limited to transport lifetime, settings
+dispatch and implementation-specific state assessment. The stock implementation
+must assess knob scaling and integer truncation; the simulator must use direct
+engine evidence. The base must not add controller authority, arming, persistent
 lockout, Stop priority or a second desired-state queue.
 
 Concrete implementations must receive their own validated `IOptions<TOptions>`

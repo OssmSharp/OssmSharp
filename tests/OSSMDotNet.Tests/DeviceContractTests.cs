@@ -71,6 +71,23 @@ public sealed class DeviceContractTests
     }
 
     [Fact]
+    public void StateOwnsReportedSampleValidation()
+    {
+        var invalidTimestamp = State(10) with { Timestamp = DateTime.SpecifyKind(DateTime.UnixEpoch, DateTimeKind.Local) };
+        var missingSettings = State(10) with { MotionSettings = null! };
+        var invalidSettings = State(10) with { MotionSettings = ValidSettings(10) with { Stroke = 0 } };
+        var invalidVelocity = State(10) with { VelocityMillimetresPerSecond = double.NaN };
+
+        Assert.IsAssignableFrom<IValidatableObject>(invalidTimestamp);
+        Assert.Contains(Validate(invalidTimestamp), result => result.MemberNames.Contains(nameof(DeviceState.Timestamp)));
+        Assert.Contains(Validate(missingSettings), result => result.MemberNames.Contains(nameof(DeviceState.MotionSettings)));
+        Assert.Contains(Validate(invalidSettings), result => result.MemberNames.Contains(nameof(DeviceState.MotionSettings)));
+        Assert.Contains(
+            Validate(invalidVelocity),
+            result => result.MemberNames.Contains(nameof(DeviceState.VelocityMillimetresPerSecond)));
+    }
+
+    [Fact]
     public void MotionSettingsUsePropertyAndCrossFieldValidation()
     {
         var propertyInvalid = ValidSettings() with { Speed = 101 };
