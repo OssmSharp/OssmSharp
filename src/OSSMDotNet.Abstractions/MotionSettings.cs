@@ -21,4 +21,30 @@ public sealed record MotionSettings(
     [property: Range(0, 100)] int Depth,
     [property: Range(0, 100)] int Buffer,
     [property: EnumDataType(typeof(MotionPattern))] MotionPattern Pattern,
-    [property: Range(double.MinValue, double.MaxValue)] double Position);
+    [property: Range(double.MinValue, double.MaxValue)] double Position) : IValidatableObject
+{
+    /// <inheritdoc />
+    public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+    {
+        if (!double.IsFinite(Position))
+        {
+            yield return new ValidationResult(
+                "Position must be finite.",
+                [nameof(Position)]);
+        }
+
+        if (Speed > 0 && Stroke == 0)
+        {
+            yield return new ValidationResult(
+                "Nonzero speed requires a positive stroke.",
+                [nameof(Speed), nameof(Stroke)]);
+        }
+
+        if (Stroke > Depth)
+        {
+            yield return new ValidationResult(
+                "Stroke must not exceed depth.",
+                [nameof(Stroke), nameof(Depth)]);
+        }
+    }
+}

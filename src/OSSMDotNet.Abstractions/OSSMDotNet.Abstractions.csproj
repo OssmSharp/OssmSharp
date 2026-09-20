@@ -2,4 +2,7 @@
   <PropertyGroup>
     <RootNamespace>OSSMDotNet.Abstractions</RootNamespace>
   </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="OneOf" />
+  </ItemGroup>
 </Project>
