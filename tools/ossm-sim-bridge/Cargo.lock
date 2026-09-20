@@ -235,6 +235,7 @@ checksum = "42f5e15c9953c5e4ccceeb2e7382a716482c34515315f7b03532b8b4e8393d2d"
 [[package]]
 name = "ossm-motion"
 version = "0.1.0"
+source = "git+https://github.com/ossm-rs/ossm-rs?rev=578161b2e78d8ca70f8909f0ec34b8ae6014cfda#578161b2e78d8ca70f8909f0ec34b8ae6014cfda"
 dependencies = [
  "critical-section",
  "embassy-time",

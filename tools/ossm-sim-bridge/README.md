@@ -1,7 +1,7 @@
 # OSSM-RS headless simulation bridge
 
 `ossm-sim-bridge` is the external runtime used by the current standalone
-`OSSMDotNet.DeviceBridge` .NET library implementation. It is a bounded, native
+`OSSMDotNet.Simulator` .NET library. It is a bounded, native
 JSON-lines adapter for the **existing OSSM-RS motion engine**. The executable is
 built separately and supplied to the .NET library at runtime; it is for a local
 controller prototype, not hardware operation or stock-firmware qualification.
@@ -17,19 +17,16 @@ model. Each process starts connected and stopped:
 
 ## Source provenance
 
-- Local source: `D:\src\ossm-rs\ossm-motion`.
-- Cargo path: `../../../ossm-rs/ossm-motion`.
+- Repository: `https://github.com/ossm-rs/ossm-rs`.
 - Target source commit: `578161b2e78d8ca70f8909f0ec34b8ae6014cfda`.
-- Upstream license: Apache-2.0; see `D:\src\ossm-rs\LICENSE`.
+- Upstream license: Apache-2.0.
 - Profile: `ossm-rs-sim-v1`.
-- The lockfile was seeded from `D:\src\ossm-rs\ossm-sim\Cargo.lock`, including
+- The lockfile includes
   `rsruckig` 2.1.3 at `d73e32f072aed81da3dba9b83b410062d27d9c6f`.
 
-The manifest records the supplied source revision. A Cargo path dependency is
-not an immutable Git dependency: it compiles the local files as they exist. No
-Git operation verifies or changes that checkout. Keep the intended local source
-revision available; rebuilding after local source edits can change the engine.
-The adapter does not read, replace, build, or run firmware binaries.
+The manifest and lockfile pin the upstream Git revision. Cargo fetches that
+revision when it is not already cached. The adapter does not read, replace,
+build, or run firmware binaries.
 
 The integration follows the local simulator's `src/motion_control.rs`:
 `MotionControl::new_with_debug`, a dummy `Motor`, an Embassy-backed `Timer`, and
@@ -40,36 +37,30 @@ controls. No control update is split by an async yield.
 
 ## Build and run
 
-From `D:\src\ossm-web-controls`, with the existing Rust toolchain and simulator
-dependencies already cached:
+From the repository root, with an existing Rust toolchain:
 
-```powershell
-$env:CARGO_NET_OFFLINE = 'true'
-$env:CARGO_INCREMENTAL = '0'
-$env:CARGO_TARGET_DIR = 'D:\src\ossm-web-controls\tools\ossm-sim-bridge\target'
-cargo test --manifest-path tools\ossm-sim-bridge\Cargo.toml
-cargo build --release --manifest-path tools\ossm-sim-bridge\Cargo.toml
+```shell
+cargo test --locked --manifest-path tools/ossm-sim-bridge/Cargo.toml
+cargo build --locked --release --manifest-path tools/ossm-sim-bridge/Cargo.toml
 ```
 
-Offline mode prevents registry access and Git fetching. An incomplete cache
-causes a build failure; these commands do not install an SDK or start the GUI.
-Incremental compilation is disabled here to avoid the existing Windows cache
-finalization access-denied issue. The upstream unused `Float` import warning is
-left untouched.
+Cargo resolves `ossm-motion` from the pinned upstream Git revision and verifies
+the checked-in lockfile. These commands do not install a toolchain or start a
+GUI. Use Cargo's standard `--offline` option only after the registry and Git
+revision are cached.
 
-Executable:
+Executables:
 
 ```text
-D:\src\ossm-web-controls\tools\ossm-sim-bridge\target\release\ossm-sim-bridge.exe
+tools/ossm-sim-bridge/target/release/ossm-sim-bridge
+tools/ossm-sim-bridge/target/release/ossm-sim-bridge.exe
 ```
 
 The process takes no arguments. A minimal pipeline:
 
-```powershell
-@(
-    '{"v":1,"id":1,"op":"status"}'
-    '{"v":1,"id":2,"op":"shutdown"}'
-) | & .\tools\ossm-sim-bridge\target\release\ossm-sim-bridge.exe
+```shell
+printf '%s\n' '{"v":1,"id":1,"op":"status"}' '{"v":1,"id":2,"op":"shutdown"}' \
+  | tools/ossm-sim-bridge/target/release/ossm-sim-bridge
 ```
 
 A controller should keep stdin open and continuously drain stdout. Replies can

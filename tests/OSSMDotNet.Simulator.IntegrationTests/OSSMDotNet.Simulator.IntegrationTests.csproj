@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>OSSMDotNet.Simulator.IntegrationTests</RootNamespace>
+    <IsTestProject>true</IsTestProject>
+    <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+  </PropertyGroup>
+  <ItemGroup>
+    <AssemblyMetadata Include="RepositoryRoot" Value="$(MSBuildProjectDirectory)\..\.." />
+    <ProjectReference Include="..\..\src\OSSMDotNet.Abstractions\OSSMDotNet.Abstractions.csproj" />
+    <ProjectReference Include="..\..\src\OSSMDotNet.Simulator\OSSMDotNet.Simulator.csproj" />
+    <PackageReference Include="xunit.v3.mtp-v2" />
+    <PackageReference Include="Microsoft.Testing.Platform" />
+    <Using Include="OSSMDotNet.Abstractions" />
+    <Using Include="Xunit" />
+  </ItemGroup>
+</Project>

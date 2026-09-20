@@ -5,8 +5,7 @@ or remote access.** Use admin and guest tabs on the same computer.
 
 ## Quick start
 
-Requires .NET 10, Rust/Cargo, and the `ossm-rs` checkout beside this repository
-at `..\ossm-rs`. The sibling `..\retro-webui` checkout must also contain its
+Requires .NET 10 and Rust/Cargo. The sibling `..\retro-webui` checkout must contain its
 private widget package at `artifacts\packages\RetroWebUi.Blazor.0.2.0.nupkg`.
 See [local widget setup](.docs/retro-widgets.md) if it is missing.
 
@@ -18,19 +17,20 @@ dnx Aspire.Cli@13.5.3 -- run --project src\OSSMDotNet.AppHost\AppHost.csproj
 
 Keep the terminal open. Aspire builds and starts the application.
 
-## DeviceBridge library
+## Device libraries
 
-DeviceBridge is also an independently buildable and consumable .NET feature.
-`OSSMDotNet.DeviceBridge.Abstractions` contains the dependency-free
-`IDeviceBridge`, `DesiredState` and `DeviceSample` contract. The separate
-`OSSMDotNet.DeviceBridge` library contains the current simulator process
-implementation; it does not depend on ControlService, Aspire or either web host.
+The device API is split into three independently buildable libraries:
 
-The simulator implementation requires the separately built
+- `OSSMDotNet.Abstractions` contains `IOssmDevice` and immutable device models.
+- `OSSMDotNet` contains `OssmDeviceBase` and the stock-firmware `OssmDevice`.
+- `OSSMDotNet.Simulator` contains the native-process `SimulatedDevice`.
+
+These libraries do not depend on ControlService, Aspire, or either web host.
+
+`OSSMDotNet.Simulator` requires the separately built
 [`ossm-sim-bridge`](tools/ossm-sim-bridge/README.md) executable at runtime.
-ControlService owns one instance when running this application. This library
-boundary is not a published package, a separate network service, a native-device
-implementation or physical-device qualification. See the
+The library boundary is not a published package, a separate network service, or
+physical-device qualification. See the
 [device-control specification](.docs/specs/device-control/spec.md) for the
 contract and safety boundaries.
 

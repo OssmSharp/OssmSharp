@@ -19,11 +19,10 @@
     <Project Path="tests/OSSMDotNet.ControlClient.Tests/ControlClient.Tests.csproj" />
     <Project Path="tests/OSSMDotNet.Cli.Tests/Cli.Tests.csproj" />
     <Project Path="tests/OSSMDotNet.ControlCore.Tests/ControlCore.Tests.csproj" />
-    <Project
-      Path="tests/OSSMDotNet.ControlService.IntegrationTests/ControlService.IntegrationTests.csproj" />
+    <Project Path="tests/OSSMDotNet.ControlService.IntegrationTests/ControlService.IntegrationTests.csproj" />
     <Project Path="tests/OSSMDotNet.ControlService.Tests/ControlService.Tests.csproj" />
-    <Project
-      Path="tests/OSSMDotNet.DeviceBridge.IntegrationTests/DeviceBridge.IntegrationTests.csproj" />
+    <Project Path="tests/OSSMDotNet.Simulator.IntegrationTests/OSSMDotNet.Simulator.IntegrationTests.csproj" />
+    <Project Path="tests/OSSMDotNet.Tests/OSSMDotNet.Tests.csproj" />
     <Project Path="tests/OSSMDotNet.GuestWeb.Tests/GuestWeb.Tests.csproj" />
     <Project Path="tests/OSSMDotNet.ServiceDefaults.Tests/ServiceDefaults.Tests.csproj" />
     <Project Path="tests/OSSMDotNet.WebCommon.Tests/SharedUi.Tests.csproj" />

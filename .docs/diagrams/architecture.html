@@ -385,7 +385,7 @@
               <rect x="976" y="448" width="232" height="96" rx="8" class="node-bg"/>
               <rect x="976" y="448" width="232" height="96" rx="8" class="node"/>
               <text x="1000" y="476" class="tech">PRIVATE .NET ADAPTER</text>
-              <text x="1000" y="508" class="name-small">Device bridge</text>
+              <text x="1000" y="508" class="name-small">Device adapter</text>
               <text x="1000" y="528" class="body">Protocol + native I/O</text>
             </g>
             <g data-node="ctl-device">
@@ -418,14 +418,14 @@
         <span class="view-number" aria-hidden="true">03</span>
         <div>
           <h2 id="projects-heading">Logical component dependencies</h2>
-          <p>The view follows runtime responsibility rather than every project reference: user-facing hosts invoke the control services, ControlService owns policy and device work in this application, and the standalone DeviceBridge libraries provide the sole device path.</p>
+          <p>The view follows runtime responsibility rather than every project reference: user-facing hosts invoke the control services, ControlService owns policy and device work in this application, and the standalone device libraries provide the sole device path.</p>
         </div>
       </div>
       <figure>
         <div class="viewport" role="region" tabindex="0" aria-label="Source project dependency diagram. Scroll horizontally on narrow screens.">
           <svg viewBox="0 0 1472 1064" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="projects-title projects-desc">
             <title id="projects-title">OSSM logical component dependencies</title>
-            <desc id="projects-desc">A top-to-bottom logical architecture showing AdminWeb, GuestWeb, and Cli invoking ControlClient in process; ControlClient using SignalR over HTTPS and WSS to call ControlService; ControlService owning ControlCore and hosting the standalone DeviceBridge contract and implementation libraries; DeviceBridge communicating with the external ossm-sim-bridge process through JSON-lines over standard input and output; and Models and ServiceDefaults shown as shared supporting projects.</desc>
+            <desc id="projects-desc">A top-to-bottom logical architecture showing AdminWeb, GuestWeb, and Cli invoking ControlClient in process; ControlClient using SignalR over HTTPS and WSS to call ControlService; ControlService owning ControlCore and hosting the standalone device contract and implementation libraries; OSSMDotNet.Simulator communicating with the external ossm-sim-bridge process through JSON-lines over standard input and output; and Models and ServiceDefaults shown as shared supporting projects.</desc>
             <defs>
               <marker id="projects-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#667085"/></marker>
               <marker id="projects-arrow-cyan" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#53d6ff"/></marker>
@@ -513,11 +513,11 @@
               <text x="128" y="760" class="projects-text projects-name">ControlCore</text>
               <text x="128" y="780" class="projects-meta">engine / safety policy</text>
             </g>
-            <g data-project="DeviceBridge">
+            <g data-project="DeviceLibraries">
               <rect x="456" y="696" width="240" height="96" rx="6" class="projects-node"/>
               <text x="472" y="728" class="projects-meta">STANDALONE .NET FEATURE</text>
-              <text x="472" y="760" class="projects-text projects-name">DeviceBridge</text>
-              <text x="472" y="780" class="projects-meta">abstractions + simulator adapter</text>
+              <text x="472" y="760" class="projects-text projects-name">Device libraries</text>
+              <text x="472" y="780" class="projects-meta">contracts / stock / simulator</text>
             </g>
             <g data-project="Models">
               <rect x="800" y="696" width="240" height="96" rx="6" class="projects-node-shared"/>
@@ -542,7 +542,7 @@
             </g>
           </svg>
         </div>
-        <figcaption>Only transport boundaries are labelled: ControlClient reaches ControlService through SignalR over WSS, and DeviceBridge reaches the simulator through JSON-lines over standard input/output. DeviceBridge is independently buildable and consumable; ControlService hosts one instance and alone owns policy and device activity in this application.</figcaption>
+        <figcaption>Only transport boundaries are labelled: ControlClient reaches ControlService through SignalR over WSS, and OSSMDotNet.Simulator reaches the native simulator through JSON-lines over standard input/output. The device libraries are independently buildable and consumable; ControlService hosts one instance and alone owns policy and device activity in this application.</figcaption>
       </figure>
     </section>
 

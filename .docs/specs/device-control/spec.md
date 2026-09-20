@@ -61,11 +61,15 @@ belong to a separately qualified mapping, not a global undocumented offset.
 ## Device abstraction and ownership
 
 The device abstractions must own the following contract. Device implementations
-must keep native handles, raw payloads and transport records private.
+must keep native handles, raw payloads and transport records private. The
+abstractions must not enumerate or otherwise identify concrete implementations;
+implementations describe their semantics through profile identifiers and
+reported capabilities.
 
 | Member | Required behavior |
 | --- | --- |
-| `event Action<DeviceState>? DeviceStateReceived` | Publish validated observations, not synthetic write acknowledgements. |
+| `event Action<OneOf<DeviceSnapshot, Exception>>? DeviceChanged` | Publish ordered immutable snapshots or asynchronous device errors. Errors must use the `Exception` arm and must not be retained in snapshots. Subscriber failures must be isolated, must not prevent later subscribers, and must not be republished as device errors. |
+| `Task<DeviceSnapshot> GetSnapshotAsync(CancellationToken cancellationToken)` | Return current retained device facts and optionally perform bounded read-only work. Successful retrieval must not imply fresh telemetry, authorize motion or change device state. |
 | `Task SetMotionAsync(MotionSettings motionSettings, CancellationToken cancellationToken)` | Write requested settings. Completion must mean the operation settled, not that feedback arrived or a physical outcome was measured. |
 | Inherited `ValueTask DisposeAsync()` | Release owned I/O and subscriptions once, without resuming motion. |
 
@@ -76,6 +80,20 @@ with zero speed, preserving other settings. It must write zero even if reported
 effective speed is already zero, and must not navigate to the menu or enter/
 re-enter play. DC-05 owns scheduling and authority invalidation for that write.
 
+`DeviceSnapshot` must expose connection state, discovered device identity,
+profile/version, supported patterns, the last requested settings, the latest
+observation with live/last-known/unavailable freshness and optional directly
+observed velocity. It must not retain errors or expose guest
+sessions, grants, UI state, application arming/lockout, native handles, raw
+payloads, command identifiers or causal-attribution claims. Unavailable state
+must not fabricate a zero observation. Last-known state must retain the original
+sample timestamp. Stock must not fabricate velocity.
+
+Connection state must contain only connecting, connected, disconnected and
+faulted. Before startup and whenever no connection remains, the state is
+disconnected. A new connection attempt transitions from disconnected or faulted
+to connecting. Disposal remains object lifetime, not a connection state.
+
 `DeviceState` must retain `DateTime Timestamp`, nested `MotionSettings` and
 `Guid SessionId`. Observation timestamps must be UTC and remain unchanged when
 retaining or replaying a last-known reading. Stock uptime must remain private
@@ -85,9 +103,11 @@ capabilities.
 
 `MotionSettings` must retain defined state/pattern enum values, integer Speed,
 Stroke, Sensation, Depth and Buffer in `[0,100]`, and finite Position in
-millimetres. The model must retain DataAnnotations; parsers must explicitly
-validate values because annotations alone cannot validate construction. State
-labels must map explicitly to firmware strings, and pattern identifiers `0`–`6`
+millimetres. Settings and implementation options must use DataAnnotations for
+property constraints and `IValidatableObject` for model/cross-field constraints.
+Every device entry point must invoke standard model validation because
+annotations alone cannot validate construction. State labels must map explicitly
+to firmware strings, and pattern identifiers `0`–`6`
 must retain SimpleStroke, TeasingPounding, RoboStroke, HalfAndHalf, Deeper,
 StopAndGo and Insist respectively. Profile meaning must remain explicit.
 
@@ -109,6 +129,33 @@ Notification silence alone must not imply disconnection, and it must not change
 motion to manufacture telemetry. State reads must remain last-known unless
 their sample age can be established; a different cached timestamp alone cannot
 establish liveness. Required-observation handling belongs to DC-07.
+
+`OssmDeviceBase` in the stock library must own common snapshot publication,
+monotonic freshness aging, settings validation, pending-write expectation
+registration before dispatch, operation settlement, fault reporting, subscriber
+isolation and repeated cleanup. Its public invariants must not be overridable.
+Protected hooks must be limited to transport lifetime, settings dispatch and
+implementation-specific observation assessment. The stock implementation must
+assess knob scaling and integer truncation; the simulator must use direct engine
+evidence. The base must not add controller authority, arming, persistent lockout,
+Stop priority or a second desired-state queue.
+
+Concrete implementations must receive their own validated `IOptions<TOptions>`
+and own connection startup and shutdown. Composition must register one concrete
+instance as both hosted service and `IOssmDevice`. Constructors must not perform
+asynchronous I/O or authorize calibration, navigation or motion.
+
+Awaited methods must throw standard .NET exceptions by meaning. Provider access,
+timeout, transport and malformed-data failures must map to
+`UnauthorizedAccessException`, `TimeoutException`, `IOException` and
+`InvalidDataException`, preserving obscure provider failures as `InnerException`.
+Caller cancellation must remain `OperationCanceledException`; argument and
+cancellation failures must not be broadcast. Asynchronous errors must be
+published only through the `Exception` arm of `DeviceChanged`. An unexplained
+observed speed change must publish `UnexpectedSpeedChangeException`, after
+committing the new snapshot, without throwing from a native callback. BLE work
+deferred from this increment must throw `NotSupportedException`; placeholders
+must never report a connected device or successful write.
 
 ## Stock firmware implementation
 
@@ -231,10 +278,12 @@ require full initialization and locks must use DC-09.
 
 ### DC-03: Capability and value contract
 
-Device information must distinguish firmware/simulator, patterns, field units,
-resolution and observations from physical qualification. Requested settings must
-remain distinct from effective observations. Profiles must give identifiers
-explicit meaning; consumers must not infer equivalence from numbers or names.
+Device information must identify its profile and reported capabilities without
+an abstraction-owned implementation taxonomy. Profiles must distinguish field
+units, resolution and observations from physical qualification. Requested
+settings must remain distinct from effective observations. Profiles must give
+identifiers explicit meaning; consumers must not infer equivalence from numbers
+or names.
 
 Requests must supply a complete pattern/speed/stroke/depth/sensation tuple.
 Validation must reject wrong types, nonfinite values, unsupported patterns,
