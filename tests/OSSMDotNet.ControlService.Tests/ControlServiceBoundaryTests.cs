@@ -1,9 +1,8 @@
+using System.Diagnostics;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
-using OSSMDotNet.ControlService;
 using OSSMDotNet.ControlService.Models;
-using System.Diagnostics;
 
 namespace OSSMDotNet.ControlService.Tests;
 

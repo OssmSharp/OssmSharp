@@ -3,8 +3,6 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using OSSMDotNet.ControlCore;
 using OSSMDotNet.ControlService.Models;
-using OSSMDotNet.Simulator;
-using OSSMDotNet.Models;
 
 namespace OSSMDotNet.ControlService.IntegrationTests;
 

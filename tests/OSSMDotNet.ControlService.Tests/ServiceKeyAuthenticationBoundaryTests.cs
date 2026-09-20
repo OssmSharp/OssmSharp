@@ -3,7 +3,6 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Primitives;
-using OSSMDotNet.ControlService;
 using OSSMDotNet.ControlService.Models;
 
 namespace OSSMDotNet.ControlService.Tests;

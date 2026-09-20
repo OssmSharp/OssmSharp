@@ -1,5 +1,3 @@
-using Microsoft.JSInterop;
-
 namespace OSSMDotNet.GuestWeb.Tests;
 
 internal sealed class RecordedJsModule : IJSObjectReference

@@ -1,6 +1,5 @@
 using FastMoq;
 using Microsoft.Extensions.Time.Testing;
-using OSSMDotNet.ControlCore;
 using OSSMDotNet.Models;
 
 namespace OSSMDotNet.ControlCore.Tests;

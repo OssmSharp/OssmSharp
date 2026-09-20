@@ -1,5 +1,3 @@
-using Microsoft.Extensions.Logging;
-
 namespace OSSMDotNet.ControlService;
 
 internal sealed class ControlActivityWriter(string category, ControlActivityProvider provider) : ILogger

@@ -8,7 +8,6 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
-using OSSMDotNet.ServiceDefaults;
 
 namespace OSSMDotNet.ServiceDefaults.Tests;
 

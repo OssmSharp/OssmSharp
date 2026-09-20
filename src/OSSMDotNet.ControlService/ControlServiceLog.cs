@@ -1,5 +1,3 @@
-using Microsoft.Extensions.Logging;
-
 namespace OSSMDotNet.ControlService;
 
 internal static partial class ControlServiceLog

@@ -199,13 +199,13 @@ or successful write.
 The stock adapter must target the pinned firmware:
 
 1. It must use Shiny in the owning .NET process, without a BLE helper process,
-  and own one native BLE connection and its subscriptions. The selected package
-  version, host OS, service-account permissions and hardware must be verified
-  against the [adapter integration gates](adapters.md#compatibility-findings-and-integration-gates).
-  It must remain disarmed during startup, await
-   operator-authorized setup/navigation and enable/read back knob limiting. It
-   must not add automatic reconnect or speculative reconnect-generation
-   machinery.
+   and own one native BLE connection and its subscriptions. The selected package
+   version, host OS, service-account permissions and hardware must be verified
+   against the
+   [adapter integration gates](adapters.md#compatibility-findings-and-integration-gates).
+   It must remain disarmed during startup, await operator-authorized
+   setup/navigation and enable/read back knob limiting. It must not add
+   automatic reconnect or speculative reconnect-generation machinery.
 2. It must translate writable settings to stock `set:*` commands and serialize
    each operation, respecting the controller's Stop/generation checks between
    writes. Zero speed must map to `set:speed:0`. Redundant-write detection must
@@ -225,12 +225,12 @@ The stock adapter must target the pinned firmware:
 5. It must use BLE lifecycle events and operation failures for connection state.
    It may probe responsiveness with a bounded pairing/configuration read. It
    must read firmware identity from pairing and names/indices from patterns,
-  without requiring manual firmware/profile selection when identification
-  works. Physical peripheral enrollment and later locator resolution are
-  distinct from profile identification; the [adapter design](adapters.md#physical-device-selection-and-connection)
-  describes that selection. These reads
-   must not grant physical qualification or advance the controller's feedback
-   deadline.
+   without requiring manual firmware/profile selection when identification
+   works. Physical peripheral enrollment and later locator resolution are
+   distinct from profile identification; the
+   [adapter design](adapters.md#physical-device-selection-and-connection)
+   describes that selection. These reads must not grant physical qualification
+   or advance the controller's feedback deadline.
 
 ## Simulator implementation
 

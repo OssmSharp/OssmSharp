@@ -1,7 +1,3 @@
-using Microsoft.AspNetCore.SignalR;
-using OSSMDotNet.ControlClient;
-using OSSMDotNet.Models;
-
 namespace OSSMDotNet.ControlClient.Tests;
 
 public sealed class ControlHubClientContractTests

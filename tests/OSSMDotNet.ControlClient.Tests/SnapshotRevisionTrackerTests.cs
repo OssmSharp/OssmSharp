@@ -1,5 +1,3 @@
-using OSSMDotNet.ControlClient;
-
 namespace OSSMDotNet.ControlClient.Tests;
 
 public sealed class SnapshotRevisionTrackerTests

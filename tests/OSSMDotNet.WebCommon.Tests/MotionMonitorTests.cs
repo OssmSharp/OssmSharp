@@ -1,9 +1,3 @@
-using Microsoft.AspNetCore.Components;
-using Microsoft.AspNetCore.Components.Web;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
-using OSSMDotNet.WebCommon;
-
 namespace OSSMDotNet.WebCommon.Tests;
 
 public sealed class MotionMonitorTests

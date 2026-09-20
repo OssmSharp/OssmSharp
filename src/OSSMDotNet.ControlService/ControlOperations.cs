@@ -1,6 +1,5 @@
 using Microsoft.Extensions.Options;
 using OSSMDotNet.ControlService.Models;
-using OSSMDotNet.DeviceBridge;
 using OSSMDotNet.Models;
 
 namespace OSSMDotNet.ControlService;

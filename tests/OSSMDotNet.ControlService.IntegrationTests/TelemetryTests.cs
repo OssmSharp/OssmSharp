@@ -1,7 +1,5 @@
 using OSSMDotNet.ControlCore;
 using OSSMDotNet.ControlCore.Tests;
-using OSSMDotNet.ControlService;
-using OSSMDotNet.Models;
 
 namespace OSSMDotNet.ControlService.IntegrationTests;
 

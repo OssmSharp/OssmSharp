@@ -1,4 +1,3 @@
-using OSSMDotNet.ControlClient;
 using OSSMDotNet.Models;
 
 namespace OSSMDotNet.ControlClient.Tests;

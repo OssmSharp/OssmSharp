@@ -1,5 +1,4 @@
 using Microsoft.AspNetCore.WebUtilities;
-using OSSMDotNet.ServiceDefaults;
 
 namespace OSSMDotNet.ServiceDefaults.Tests;
 

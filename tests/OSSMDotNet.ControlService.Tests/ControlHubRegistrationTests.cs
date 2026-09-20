@@ -4,7 +4,6 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
-using OSSMDotNet.ControlService;
 using OSSMDotNet.ControlService.Models;
 
 namespace OSSMDotNet.ControlService.Tests;

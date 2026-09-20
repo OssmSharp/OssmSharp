@@ -1,5 +1,4 @@
 using Microsoft.Extensions.Logging;
-using OSSMDotNet.ControlService;
 
 namespace OSSMDotNet.ControlService.Tests;
 

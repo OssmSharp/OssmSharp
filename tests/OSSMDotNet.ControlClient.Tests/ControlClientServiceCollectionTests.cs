@@ -1,7 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
-using OSSMDotNet.ControlClient;
 
 namespace OSSMDotNet.ControlClient.Tests;
 

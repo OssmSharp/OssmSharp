@@ -1,5 +1,3 @@
-using OSSMDotNet.Models;
-
 namespace OSSMDotNet.ControlCore;
 
 internal sealed class Operation(long id, OperationKind kind, MotionSettings desired, long startedAt,

@@ -1,5 +1,3 @@
-using OSSMDotNet.Models;
-
 namespace OSSMDotNet.ControlCore.Tests;
 
 internal sealed class FakeBridge : IDeviceTransport

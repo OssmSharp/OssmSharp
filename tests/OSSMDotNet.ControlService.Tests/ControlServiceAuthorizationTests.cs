@@ -1,7 +1,6 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.DependencyInjection;
-using OSSMDotNet.ControlService;
 
 namespace OSSMDotNet.ControlService.Tests;
 

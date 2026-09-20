@@ -1,6 +1,3 @@
-using Microsoft.AspNetCore.SignalR;
-using OSSMDotNet.Models;
-
 namespace OSSMDotNet.GuestWeb.Tests;
 
 public sealed class PageControlHub(PageControlHubFixture fixture) : Hub

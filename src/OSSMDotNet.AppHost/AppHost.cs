@@ -1,6 +1,5 @@
 using System.Buffers.Text;
 using System.Security.Cryptography;
-using Aspire.Hosting.ApplicationModel;
 
 var builder = DistributedApplication.CreateBuilder(args);
 if (!builder.ExecutionContext.IsRunMode)

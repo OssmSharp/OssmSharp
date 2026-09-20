@@ -1,5 +1,4 @@
 using System.Text.Json;
-using OSSMDotNet.Cli;
 using OSSMDotNet.ControlClient.Tests;
 
 namespace OSSMDotNet.Cli.Tests;

@@ -1,4 +1,3 @@
-using Microsoft.Extensions.Logging;
 using OSSMDotNet.Models;
 
 namespace OSSMDotNet.ControlService;

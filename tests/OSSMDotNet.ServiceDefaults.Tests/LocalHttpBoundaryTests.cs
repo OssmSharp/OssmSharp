@@ -1,9 +1,8 @@
-using System.Net;
 using System.Diagnostics;
+using System.Net;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
-using OSSMDotNet.ServiceDefaults;
 
 namespace OSSMDotNet.ServiceDefaults.Tests;
 
