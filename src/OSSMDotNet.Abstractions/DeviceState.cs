@@ -9,6 +9,46 @@ public sealed record DeviceState(
     Guid SessionId)
 {
     /// <summary>
+    /// Determines whether an observed state can represent the requested state without prior feedback.
+    /// </summary>
+    /// <param name="requested">The requested state.</param>
+    /// <param name="observed">The observed state.</param>
+    /// <returns><see langword="true"/> when the observed speed can result from the requested speed.</returns>
+    public static bool IsSpeedMatch(DeviceState requested, DeviceState observed)
+    {
+        ArgumentNullException.ThrowIfNull(requested);
+        ArgumentNullException.ThrowIfNull(observed);
+        return IsSpeedMatch(
+            null,
+            null,
+            requested.MotionSettings.Speed,
+            observed.MotionSettings.Speed);
+    }
+
+    /// <summary>
+    /// Determines whether an observed state is consistent with requested settings and prior feedback.
+    /// </summary>
+    /// <param name="previousRequested">The previous requested settings, when available.</param>
+    /// <param name="previousObserved">The previous observed state, when available.</param>
+    /// <param name="requested">The newly requested settings.</param>
+    /// <param name="observed">The newly observed state.</param>
+    /// <returns><see langword="true"/> when a knob percentage can explain both observations.</returns>
+    public static bool IsSpeedMatch(
+        MotionSettings? previousRequested,
+        DeviceState? previousObserved,
+        MotionSettings requested,
+        DeviceState observed)
+    {
+        ArgumentNullException.ThrowIfNull(requested);
+        ArgumentNullException.ThrowIfNull(observed);
+        return IsSpeedMatch(
+            previousRequested?.Speed,
+            previousObserved?.MotionSettings.Speed,
+            requested.Speed,
+            observed.MotionSettings.Speed);
+    }
+
+    /// <summary>
     /// Determines whether an effective speed is consistent with the requested speed and prior feedback.
     /// </summary>
     /// <param name="previousRequestedSpeed">The previous requested speed, when available.</param>

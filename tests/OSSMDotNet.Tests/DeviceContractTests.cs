@@ -64,7 +64,25 @@ public sealed class DeviceContractTests
         Assert.Equal(
             expected,
             DeviceState.IsSpeedMatch(previousRequested, previousObserved, requested, observed));
+        Assert.Equal(
+            expected,
+            DeviceState.IsSpeedMatch(
+                previousRequested is { } previousRequestedSpeed ? ValidSettings(previousRequestedSpeed) : null,
+                previousObserved is { } previousObservedSpeed ? State(previousObservedSpeed) : null,
+                ValidSettings(requested),
+                State(observed)));
     }
+
+    [Theory]
+    [InlineData(60, 30, true)]
+    [InlineData(60, 61, false)]
+    [InlineData(0, 0, true)]
+    [InlineData(0, 1, false)]
+    public void SpeedMatchAcceptsRequestedAndObservedStates(
+        int requested,
+        int observed,
+        bool expected) =>
+        Assert.Equal(expected, DeviceState.IsSpeedMatch(State(requested), State(observed)));
 
     [Fact]
     public void InterfaceExposesSnapshotWriteAndOneOfNotification()
@@ -120,15 +138,18 @@ public sealed class DeviceContractTests
         Assert.DoesNotContain("provider failure", error.Message, StringComparison.Ordinal);
     }
 
-    private static MotionSettings ValidSettings() => new(
+    private static MotionSettings ValidSettings(int speed = 10) => new(
         MotionDeviceState.StrokeEngineIdle,
-        10,
+        speed,
         20,
         50,
         40,
         0,
         MotionPattern.SimpleStroke,
         0);
+
+    private static DeviceState State(int speed) =>
+        new(DateTime.UnixEpoch, ValidSettings(speed), Guid.Empty);
 
     private static List<ValidationResult> Validate(object value)
     {
