@@ -36,6 +36,11 @@ may and can. The [repository instructions](../../AGENTS.md) govern development
 and approvals; requirements do not authorize branches, commits, dependencies,
 deployment or physical operation.
 
+The [device adapter design](device-control/adapters.md) records Shiny BLE,
+native simulation, DI selection, proposed enrollment/configuration and
+integration gates. It supports the device specification without adding another
+owner for DC-01 through DC-09.
+
 ## Logical modules
 
 The original module IDs remain navigation/ownership labels, not proposed

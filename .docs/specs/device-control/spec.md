@@ -10,11 +10,15 @@ adapters, and controller execution rules. The
 requirement terms. Project names are not part of this contract; interface/model
 names below describe the API, not its packaging.
 
-The device library must own transport, protocol mapping and device observations.
+The device library must own transport, protocol mapping and state publication.
 The controller must own lifecycle, limits, trusted execution guards and the
 single writer. A consuming application must supply trusted authorization and own
 their lifetimes. These components must not require guest sessions, web hosts, UI
 routes or a particular orchestration application.
+
+The [adapter design](adapters.md) records the accepted Shiny/native-simulator
+direction, DI composition, proposed device-selection configuration and remaining
+integration gates. The device contract and DC requirements remain owned here.
 
 The [application contract](../application.md) owns remote invitations, approval,
 grants, service transport and display. Its security checks must feed the core
@@ -31,7 +35,7 @@ native OSSM-RS engine and is not a stock-firmware emulator.
 
 The following are pinned firmware facts, not additional requirement copies:
 
-| Evidence                                             | Observed stock behavior                                                                                                                                                                                                                                                                                                 |
+| Evidence                                             | Reported stock behavior                                                                                                                                                                                                                                                                                                 |
 | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [Version header][firmware-version]                   | Identifies the selected stock version.                                                                                                                                                                                                                                                                                  |
 | [Pairing characteristic][firmware-pairing]           | A live read returns `MAC;chip;wifiConnected;md5;version`; identity is not attestation or fresh motion telemetry.                                                                                                                                                                                                        |
@@ -67,15 +71,14 @@ abstractions must not enumerate or otherwise identify concrete implementations;
 implementations describe their semantics through profile identifiers and
 reported capabilities.
 
-| Member                                                                                       | Required behavior                                                                                                                                                                                                                                   |
-| -------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `DeviceConnectionState ConnectionState { get; }`                                             | Expose current connection status independently of motion observations. The shared base must own this getter-only property.                                                                                                                          |
-| `DeviceInformation Device { get; }`                                                          | Expose discovered device information for the instance lifetime; throw `InvalidOperationException` before discovery. Reading this getter must have no side effects.                                                                                  |
-| `event Action<DeviceConnectionState>? ConnectionStateChanged`                                | Notify connection transitions after updating the property, without publishing unrelated motion snapshots or refreshing observations. Subscriber failures must be isolated.                                                                          |
-| `event Action<OneOf<DeviceState, Exception>>? DeviceStateChanged`                           | Publish an immutable observed state or asynchronous device error. Errors must not be retained in state. Subscriber failures must be isolated and must not be republished as device errors. |
-| `Task<DeviceState> GetStateAsync(CancellationToken cancellationToken)`                       | Return the retained observation or throw `NoDeviceDataException` when none is available. Successful retrieval must not imply fresh telemetry, authorize motion or change device state.   |
-| `Task SetMotionAsync(MotionSettings motionSettings, CancellationToken cancellationToken)`    | Write requested settings. Completion must mean the operation settled, not that feedback arrived or a physical outcome was measured.                                                                                                                 |
-| Inherited `ValueTask DisposeAsync()`                                                         | Release owned I/O and subscriptions once, without resuming motion.                                                                                                                                                                                  |
+| Member                                                                                    | Required behavior                                                                                                                                                       |
+| ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DeviceConnectionState ConnectionState { get; }`                                          | Expose current connection status independently of reported motion state. The shared base must own this getter-only property.                                            |
+| `DeviceInformation Device { get; }`                                                       | Expose discovered device information for the instance lifetime; throw `InvalidOperationException` before discovery. Reading this getter must have no side effects.      |
+| `event Action<DeviceConnectionState>? ConnectionStateChanged`                             | Notify connection transitions after updating the property, without publishing unrelated device states. Subscriber failures must be isolated.                            |
+| `event Action<OneOf<DeviceState, Exception>>? DeviceStateChanged`                         | Publish transient immutable validated states or semantic asynchronous device errors. Subscriber failures must be isolated and must not be republished as device errors. |
+| `Task SetMotionAsync(MotionSettings motionSettings, CancellationToken cancellationToken)` | Write requested settings. Completion must mean the operation settled, not that feedback arrived or a physical outcome was measured.                                     |
+| Inherited `ValueTask DisposeAsync()`                                                      | Release owned I/O and subscriptions once, without resuming motion.                                                                                                      |
 
 Device information must be discovered by the implementation, not supplied by
 callers or constructor arguments, and must never be fabricated. Once discovered,
@@ -90,49 +93,45 @@ even if reported effective speed is already zero, and must not navigate to the
 menu or enter/ re-enter play. DC-05 owns scheduling and authority invalidation
 for that write.
 
-`DeviceState` must be a public sealed record representing an actual observation;
-`DeviceSnapshot` must be removed, with no `Observation` wrapper property. It
-must use explicit `get; init;` properties rather than a positional constructor:
-required `DateTime Timestamp`, `MotionSettings MotionSettings` and
-`Guid SessionId`, plus optional `double? VelocityMillimetresPerSecond`. It must
-also expose init-only `MotionSettings? RequestedMotion` and
-`ObservationFreshness ObservationFreshness` properties. Requested motion
-defaults to null and freshness defaults to `Unavailable`; the adapter marks
-validated incoming samples `Live` when publishing them. Timestamp and observed
-settings are required; velocity remains optional because some transports do not
-report it. Observation absence must be reported by `GetStateAsync` as
-`NoDeviceDataException`, not represented by a partial state.
+`DeviceState` must be a public sealed record representing actual reported state;
+`DeviceSnapshot` must remain absent. `DeviceState` must use explicit
+`get; init;` properties rather than a positional constructor: required
+`DateTime Timestamp`, `MotionSettings MotionSettings` and `Guid SessionId`, plus
+optional `double? VelocityMillimetresPerSecond`. It must not include submitted
+settings or freshness metadata. Timestamp and reported settings are required;
+velocity remains optional because some transports do not report it.
 
 Connection status and discovered device identity/profile/capabilities must
-remain device properties, not state fields. The state must not carry an
-`Observation`, `CapturedAtUtc`, `Fault`, `Device` or `ConnectionState` property,
-or duplicate observation velocity. It must not retain errors or expose guest
-sessions, grants, UI state, application arming/lockout, native handles, raw
-payloads, command identifiers or causal-attribution claims. Before the first
-observation, `GetStateAsync` must throw `NoDeviceDataException`. Absence must not
-be represented by a partial `DeviceState`, a sentinel timestamp or fabricated zero settings or velocity. A
-real zero reading retains its sample timestamp and settings. Last-known state
-must retain the original sample timestamp.
+remain device properties, not state fields. The state must not carry a
+`CapturedAtUtc`, `Fault`, `Device` or `ConnectionState` property, duplicate
+reported velocity, or embed errors. It must not expose guest sessions, grants,
+UI state, application arming/lockout, native handles, raw payloads, command
+identifiers or causal-attribution claims. Before the first state report, no
+state event is published. Absence must not be represented by a partial
+`DeviceState`, a sentinel timestamp or fabricated zero settings or velocity. A
+real zero report keeps its sample timestamp and settings.
 
 Connection state must contain only disconnected, connecting and connected.
 Before startup and whenever no connection remains, the state must be
 disconnected. A new connection attempt transitions from disconnected to
 connecting. Reporting an error must not change connection state by itself;
 transport termination or a failed connection attempt must report disconnected.
-Errors must use the exception notification path, independently of connection
-status. Persistent fault/recovery policy belongs to the controller. Disposal
-remains object lifetime, not a connection state.
+Connection attempts, transitions and transport failures must be diagnosed with
+structured logs at the shared lifecycle owner; connection failures must not be
+published through `DeviceStateChanged`. Its exception arm is reserved for
+semantic asynchronous device errors. Persistent fault/recovery policy belongs to
+the controller. Disposal remains object lifetime, not a connection state.
 
-An incoming observation must have both a UTC timestamp and observed
-`MotionSettings`; `PublishObservation` must reject incomplete observations with
-`InvalidDataException` before mutating retained state or pending expectations.
-Velocity must be finite when supplied, must belong to that observation, and must
-remain unknown when the transport does not report it. Speed percentages must not
-be converted into fabricated velocity; stock must leave it unknown. Observation
-timestamps must be UTC and remain unchanged when retaining or replaying a
-last-known reading. Stock uptime must remain private sample metadata, not be
-cast to `DateTime`. Empty stock sessions must map to `Guid.Empty`; later values
-must parse as UUIDs. Device sessions are not guest capabilities.
+An incoming state report must have both a UTC timestamp and reported
+`MotionSettings`; publication must reject incomplete states with
+`InvalidDataException` before invoking subscribers or mutating pending
+expectations. Velocity must be finite when supplied, must belong to that report,
+and must remain unknown when the transport does not report it. Speed percentages
+must not be converted into fabricated velocity; stock must leave it unknown.
+State timestamps must be UTC and remain unchanged when published. Stock uptime
+must remain private sample metadata, not be cast to `DateTime`. Empty stock
+sessions must map to `Guid.Empty`; later values must parse as UUIDs. Device
+sessions are not guest capabilities.
 
 `MotionSettings` must retain defined state/pattern enum values, integer Speed,
 Stroke, Sensation, Depth and Buffer in `[0,100]`, and finite Position in
@@ -144,48 +143,41 @@ to firmware strings, and pattern identifiers `0`–`6` must retain SimpleStroke,
 TeasingPounding, RoboStroke, HalfAndHalf, Deeper, StopAndGo and Insist
 respectively. Profile meaning must remain explicit.
 
-On input, Speed is requested speed; in observations it is effective speed.
-Position is observation-only, and observed mode is not navigation permission.
-The caller must not use the record as a position-streaming or homing API.
+On input, Speed is requested speed; in reported states it is effective speed.
+Position is report-only, and reported mode is not navigation permission. The
+caller must not use the record as a position-streaming or homing API.
 
-### Observation semantics
+### State publication semantics
 
-Observations must carry live/last-known status alongside their time; absence
-must be reported by `NoDeviceDataException`. A retained `DeviceState` alone
-must not imply liveness. The adapter must age readings using monotonic
-`TimeProvider` elapsed time and publish freshness loss without waiting for
-another event. Retained/frozen readings must preserve their original age. Cached
-reads, write completion and successful liveness probes must not renew motion
-telemetry. Missing observations must remain unavailable.
+Each validated incoming state must be published transiently through
+`DeviceStateChanged`. The device abstraction and shared base must not cache
+complete `DeviceState` instances. State events must originate from validated
+incoming state, and previously delivered states must remain immutable.
 
-A successfully settled write must change only `RequestedMotion`; even the first
-write before telemetry must not invent observed settings, a timestamp or
-velocity, publish a state, or make `GetStateAsync` succeed. Incoming samples must
-preserve the last settled request and ignore their own `RequestedMotion`.
-Freshness-only updates must clone the state without changing requested motion or
-any sample field. Previously returned states must remain immutable.
-Speed-matching helpers must return false when required requested or observed
-motion settings are missing, rather than treating absence as zero.
-
-The adapter must keep responsiveness separate from telemetry freshness.
-Notification silence alone must not imply disconnection, and it must not change
-motion to manufacture telemetry. State reads must remain last-known unless their
-sample age can be established; a different cached timestamp alone cannot
-establish liveness. Required-observation handling belongs to DC-07.
+The adapter must keep responsiveness separate from state feedback. Notification
+silence alone must not imply disconnection, and it must not change motion to
+manufacture feedback. Cached reads, write completion and successful liveness
+probes must not be published as new motion state. Required-feedback tracking and
+freshness deadlines belong to the controller under DC-07.
 
 `OssmDeviceBase` in the stock library must own common state publication,
-monotonic freshness aging, settings validation, pending-write expectation
-registration before dispatch, operation settlement, fault reporting, subscriber
-isolation and repeated cleanup. Its public invariants must not be overridable.
+settings validation, pending-write expectation registration before dispatch,
+operation settlement, semantic fault reporting, subscriber isolation and
+repeated cleanup. It must not retain complete `DeviceState` instances or provide
+a replacement state cache. Its public invariants must not be overridable.
 Protected hooks must be limited to transport lifetime, settings dispatch and
-implementation-specific observation assessment. The stock implementation must
-assess knob scaling and integer truncation; the simulator must use direct engine
+implementation-specific state assessment. The stock implementation must assess
+knob scaling and integer truncation; the simulator must use direct engine
 evidence. The base must not add controller authority, arming, persistent
 lockout, Stop priority or a second desired-state queue.
 
 Concrete implementations must receive their own validated `IOptions<TOptions>`
 and own connection startup and shutdown. Composition must register one concrete
-instance as both hosted service and `IOssmDevice`. Constructors must not perform
+instance as both hosted service and `IOssmDevice`, selected through dependency
+injection at startup. Controller and ordinary application paths must not select
+or branch on concrete adapters; the composition root owns that choice.
+Superseded adapter references must be removed during integration, not retained
+as aliases or parallel execution paths. Constructors must not perform
 asynchronous I/O or authorize calibration, navigation or motion.
 
 Awaited methods must throw standard .NET exceptions by meaning. Provider access,
@@ -193,43 +185,52 @@ timeout, transport and malformed-data failures must map to
 `UnauthorizedAccessException`, `TimeoutException`, `IOException` and
 `InvalidDataException`, preserving obscure provider failures as
 `InnerException`. Caller cancellation must remain `OperationCanceledException`;
-argument and cancellation failures must not be broadcast. Asynchronous errors
-must be published only through the `Exception` arm of `DeviceStateChanged`. An
-unexplained observed speed change must publish `UnexpectedSpeedChangeException`,
-after committing the new state, without throwing from a native callback. BLE
-work deferred from this increment must throw `NotSupportedException`;
-placeholders must never report a connected device or successful write.
+argument and cancellation failures must not be broadcast. Semantic asynchronous
+errors must be published only through the `Exception` arm of
+`DeviceStateChanged`. Connection attempts, transitions and transport failures
+must use lifecycle logging instead. An unexplained reported speed change must
+publish `UnexpectedSpeedChangeException` after publishing the new state, without
+throwing from a native callback. BLE work deferred from this increment must
+throw `NotSupportedException`; placeholders must never report a connected device
+or successful write.
 
 ## Stock firmware implementation
 
 The stock adapter must target the pinned firmware:
 
-1. It must own one native BLE connection and its subscriptions. Selection of a
-   BLE library must follow verification of host OS, service-account permissions
-   and supported hardware. It must remain disarmed during startup, await
+1. It must use Shiny in the owning .NET process, without a BLE helper process,
+  and own one native BLE connection and its subscriptions. The selected package
+  version, host OS, service-account permissions and hardware must be verified
+  against the [adapter integration gates](adapters.md#compatibility-findings-and-integration-gates).
+  It must remain disarmed during startup, await
    operator-authorized setup/navigation and enable/read back knob limiting. It
-   must not add automatic reconnect/replay or speculative reconnect-generation
+   must not add automatic reconnect or speculative reconnect-generation
    machinery.
 2. It must translate writable settings to stock `set:*` commands and serialize
    each operation, respecting the controller's Stop/generation checks between
    writes. Zero speed must map to `set:speed:0`. Redundant-write detection must
-   compare submitted requests, not effective-speed observations. Changed
-   requests must still write when equal to the current knob-scaled reading.
-   Ordinary settings writes must exclude navigation and observation-only fields.
+   compare submitted requests, not effective reported speed. Changed requests
+   must still write when equal to the current knob-scaled reading. Ordinary
+   settings writes must exclude navigation and report-only fields.
 3. It must distinguish state JSON, `ok:<command>` and malformed responses.
-   Validated state notifications must become observations under the shared
-   semantics. Cached, non-notified acknowledgements must not become an
-   asynchronous confirmation protocol.
-4. Tracking must retain only the current observation, last submitted settings
-   and bounded pending expectations needed by DC-09. Notification handling and
-   expectation bookkeeping must be serialized. Asynchronous detection must use
-   the observable fault/status path, not throw from native callbacks. Faulted
-   adapters must reject nonzero writes while allowing serialized zero writes.
+   Validated state notifications must be published under the shared semantics.
+   Cached, non-notified acknowledgements must not become an asynchronous
+   confirmation protocol.
+4. Tracking must retain only the last reported speed, last submitted settings
+   and bounded pending expectation needed by DC-09. It must not retain complete
+   device states. Notification handling and expectation bookkeeping must be
+   serialized. Semantic asynchronous detection must use the state/error event,
+   not throw from native callbacks. Faulted adapters must reject nonzero writes
+   while allowing serialized zero writes.
 5. It must use BLE lifecycle events and operation failures for connection state.
    It may probe responsiveness with a bounded pairing/configuration read. It
    must read firmware identity from pairing and names/indices from patterns,
-   without requiring manual selection when identification works. These reads
-   must not grant physical qualification or refresh motion authority/telemetry.
+  without requiring manual firmware/profile selection when identification
+  works. Physical peripheral enrollment and later locator resolution are
+  distinct from profile identification; the [adapter design](adapters.md#physical-device-selection-and-connection)
+  describes that selection. These reads
+   must not grant physical qualification or advance the controller's feedback
+   deadline.
 
 ## Simulator implementation
 
@@ -240,10 +241,20 @@ second C# engine, import GUI saved motion or modify the sibling Rust checkout.
 Its private profile must remain `ossm-rs-sim-v1`; its mapping and possible
 retraction are not stock behavior or hardware qualification.
 
-Shared tracking may live in the stock implementation with overridable
-operations. The simulator must use direct engine settings/position/velocity and
-may override stock transport and inference. Reuse must not require BLE caching,
-knob estimation, polling or a strategy/factory layer per method.
+The adapter must map native data directly to the same `DeviceState` and
+`MotionSettings` shape, units and public event semantics as the stock adapter.
+The application must not require simulator-specific parsing or control paths.
+Profile identity and supported capabilities must remain truthful; transparent
+consumption must not fabricate stock behavior or hide unsupported settings.
+Motion-only simulation without stock-firmware or BLE emulation is accepted for
+the current scope. The [adapter design](adapters.md#transparent-simulator-data)
+describes the mapping and limits.
+
+Shared speed/expectation bookkeeping may live in the stock implementation with
+overridable operations. The simulator must use direct engine
+settings/position/velocity and may override stock transport and inference. Reuse
+must not require BLE caching, knob estimation, polling or a strategy/factory
+layer per method.
 
 - Lifetime must use `BackgroundService` and validated typed options. The
   configured executable must start once, with no command-line arguments. The
@@ -254,18 +265,20 @@ knob estimation, polling or a strategy/factory layer per method.
   separately drained stderr. Outstanding requests must be bounded. Private IDs
   may correlate replies without becoming public contract fields.
 - Zero-speed `SetMotionAsync` must use the existing engine zero-speed operation.
-  Completion must settle the operation; the resulting observation must be
+  Completion must settle the operation; the resulting reported state must be
   published separately. Engine settlement required by safe transitions must
   remain private and must not impose public Enabled/Moving fields.
 - The adapter should use private sample/change metadata where useful instead of
-  reconstructing engine truth through stock heuristics. Frozen observations must
-  obey the shared freshness rules even while the process responds.
+  reconstructing engine truth through stock heuristics. Frozen feedback must not
+  be replayed; no `DeviceStateChanged` state events are published while feedback
+  is frozen, even if the process responds.
 - Identity must use the known simulator profile. Operator/test-only injection
   must cover unexpected speed changes (P0), other settings (P2), delayed
   completion, frozen feedback and disconnect. No guest control may expose it.
-- Process exit/protocol failure must settle pending requests with errors and be
-  reported. Disposal must release readers, streams and the child. Simulation
-  must not open BLE or drive physical hardware.
+- Process exit/protocol failure must settle pending requests with errors, update
+  connection state and be diagnosed through lifecycle logs. It must not publish
+  a `DeviceStateChanged` error. Disposal must release readers, streams and the
+  child. Simulation must not open BLE or drive physical hardware.
 
 ## Controller execution requirements
 
@@ -278,9 +291,9 @@ or fault recovery must not clear it. Device selection and pairing must require
 trusted owner setup, not untrusted consumer input.
 
 Initialization must submit zero, obtain stock knob-limit enable/readback or
-direct simulator state, validate observed readiness, await required navigation
-and satisfy DC-07's live-observation rules before publishing ready. Each step
-must have a finite deadline and recheck revocation. Merely reaching a play-page
+direct simulator state, validate reported readiness, await required navigation
+and satisfy DC-07's feedback rules before publishing ready. Each step must have
+a finite deadline and recheck revocation. Merely reaching a play-page
 initializing/preflight state must not imply readiness.
 
 Navigation that can home/calibrate must require explicit local consent, never
@@ -293,7 +306,7 @@ must be independent of application/service availability.
 ### DC-02: Narrow consumer surface
 
 The controller must expose only initialization, complete desired-state
-submission, Stop, trusted resume/recovery/unlock, immutable observation and
+submission, Stop, trusted resume/recovery/unlock, immutable state feedback and
 disposal. It must not expose raw commands, arbitrary method invocation, position
 streaming or firmware operations. These are controller responsibilities, not
 additional `IOssmDevice` methods.
@@ -304,10 +317,10 @@ superseded, rejected, cancelled or faulted outcome. Acceptance is not transition
 completion, and completion is not independent mechanical measurement.
 
 The mandatory guard must decide synchronously under current authorization,
-policy and freshness rules. It must not originate from an untrusted payload or
-perform asynchronous work. Guard errors must fault the controller, not default
-to permission. The controller must also enforce its generation/device
-invariants.
+policy and controller feedback-freshness rules. It must not originate from an
+untrusted payload or perform asynchronous work. Guard errors must fault the
+controller, not default to permission. The controller must also enforce its
+generation/device invariants.
 
 The core must retain the guard for applied nonzero output and evaluate it on the
 expiry timer even without pending work. Revocation must latch Stop without
@@ -324,8 +337,8 @@ require full initialization and locks must use DC-09.
 
 Device information must identify its profile and reported capabilities without
 an abstraction-owned implementation taxonomy. Profiles must distinguish field
-units, resolution and observations from physical qualification. Requested
-settings must remain distinct from effective observations. Profiles must give
+units, resolution and reported states from physical qualification. Requested
+settings must remain distinct from effective reported states. Profiles must give
 identifiers explicit meaning; consumers must not infer equivalence from numbers
 or names.
 
@@ -338,9 +351,9 @@ firmware clipping. The adapter owns mappings/update order; the controller owns
 enforcement of the caller's permitted envelope. Execution must enforce both.
 
 Limits must be applied atomically. A proposal conflicting with accepted, active
-observed, pending, in-flight or completed-but-unconfirmed writes must reject as
-`limits-conflict` before mutation, including zero-speed envelope writes.
-Rejection must retain prior policy, authority, desired state and writer.
+reported feedback, pending, in-flight or completed-but-unconfirmed writes must
+reject as `limits-conflict` before mutation, including zero-speed envelope
+writes. Rejection must retain prior policy, authority, desired state and writer.
 Compatible changes must preserve ready state, generation and accepted
 guard/deadline; they must not pause, clamp, rearm or permit a forbidden
 transient. Identical limits must be a no-op. Policy edits must not clear
@@ -387,8 +400,8 @@ Stop writes or replace/reuse the connection prematurely. If I/O later settles
 and transport is usable, serialized zero may be attempted, but fault must
 remain.
 
-Outcomes must distinguish Stop latched, zero write settled, observed zero and
-unconfirmed. Successful writing must not update observed speed. Operational
+Outcomes must distinguish Stop latched, zero write settled, reported zero and
+unconfirmed. Successful writing must not update reported speed. Operational
 zero-speed evidence does not establish independent physical stopping; the
 application owns its user-facing status and physical-stop instruction.
 
@@ -414,25 +427,28 @@ motion.
 ### DC-07: Feedback, loss and disposal
 
 Notifications/readbacks/metadata must be treated as untrusted and validated
-before publication. The controller must preserve the device observation
-semantics and track submitted intent separately. Write completion must settle
-I/O bookkeeping, not an outstanding observation expectation.
+before publication. The controller must consume transient device states, own the
+latest validated state and its monotonic freshness deadline, and track submitted
+intent separately. Write completion must settle I/O bookkeeping, not an
+outstanding feedback expectation.
 
-A matching live observation must satisfy the expected result. For
-initialization, Stop and transitions, a still-live already-satisfied baseline
-may supply evidence if no intervening write/observation contradicts it. The
-controller must not demand duplicate change-only notifications or refresh the
-baseline's age. Explicit Stop must still write zero. Cached values/write
-completion alone must not satisfy new observation requirements. Matching
-establishes consistency, not exclusive causation; no public firmware command ID,
-sample sequence or causal-attribution framework is required.
+A matching state report received within the controller's feedback deadline must
+satisfy the expected result. For initialization, Stop and transitions, a still-
+valid already-satisfied controller baseline may supply evidence if no
+intervening write or state report contradicts it. The controller must not demand
+duplicate change-only notifications or refresh the baseline's deadline. Explicit
+Stop must still write zero. Cached protocol values and write completion alone
+must not satisfy new feedback requirements. Matching establishes consistency,
+not exclusive causation; no public firmware command ID, sample sequence or
+causal- attribution framework is required.
 
 Missing/invalid required feedback at its deadline must remain unconfirmed, fault
 the controller, inhibit motion and request serialized zero where possible.
 Missing feedback alone must not create an external-change lock. An idle reading
-ageing into last-known status must not imply transport failure. DC-09 owns
-unexpected-change lockout; neither fault path may replay previous settings as a
-repair. Active motion must still obey freshness/authority deadlines.
+exceeding the controller's freshness deadline must not imply transport failure.
+DC-09 owns unexpected-change lockout; neither fault path may replay previous
+settings as a repair. Active motion must still obey freshness/authority
+deadlines.
 
 The controller must check monotonic deadlines at intake, completion and expiry
 timer callbacks. On resume from process/OS suspension or an overdue expiry
@@ -469,11 +485,11 @@ negotiation belongs to the application, not the device library.
 ### DC-09: External parameter changes latch an admin-only lockout
 
 Here, admin means the trusted owner, not a particular web host. P0 detection
-must atomically lock with `external-parameter-change` when live effective speed
-changes without an explaining pending speed write, including detected
-knob/remote decreases to zero. Other settings/mode detection is P2 and must use
-this same lock when implemented, but must not block P0 delivery. Ordinary
-position/time changes must not count as overrides.
+must atomically lock with `external-parameter-change` when timely reported
+effective speed changes without an explaining pending speed write, including
+detected knob/remote decreases to zero. Other settings/mode detection is P2 and
+must use this same lock when implemented, but must not block P0 delivery.
+Ordinary position/time changes must not count as overrides.
 
 The controller must own the lock independently of application sessions. Locking
 must revoke current authority, advance execution generation, clear pending
@@ -483,29 +499,31 @@ override. Status must expose the lock and trusted-unlock-required reason, not
 claim physical stopping. Stop, read-only status and application leave must
 remain usable.
 
-#### Track observed speed and pending writes
+#### Track reported speed and pending writes
 
-Tracking must retain the last live speed baseline, last submitted speed and
-expected change for the single pending speed write. It must register
-expectations before I/O because feedback can arrive first, and clear them after
-observation or the bounded feedback deadline. Old requests and depth-only writes
-must not excuse later speed changes.
+Adapter tracking must retain only the minimal prior reported speed baseline,
+last submitted speed and expected change for the single pending speed write. It
+must register expectations before I/O because feedback can arrive first, and
+clear them after matching state feedback or the bounded feedback deadline. Old
+requests and depth-only writes must not excuse later speed changes.
 
-Without a pending speed change, changed live speed must be unexpected. Pending
-matching must account for stock knob scaling and integer truncation, not demand
-requested/effective equality or use a broad tolerance. A previous nonzero
-request may establish a scaling estimate with the previous integer reading's
-rounding interval. A zero baseline cannot reveal knob position: the first
-nonzero request must use the first consistent live reading as its effective
-baseline, without claiming knowledge of knob position or stored BLE request.
+Without a pending speed change, changed timely reported speed must be
+unexpected. Pending matching must account for stock knob scaling and integer
+truncation, not demand requested/effective equality or use a broad tolerance. A
+previous nonzero request may establish a scaling estimate with the previous
+integer reading's rounding interval. A zero baseline cannot reveal knob
+position: the first nonzero request must use the first consistent timely report
+as its effective baseline, without claiming knowledge of knob position or stored
+BLE request.
 
 That bounded first match must not become permanent tolerance;
 established-scaling matching must not accept every value below requested speed.
-Inconsistency must lock; missing required observations must use DC-07. The
-simulator may directly identify its own writes/injected changes. Cached
-readings/acknowledgements must not advance baselines, renew freshness or clear
-locks. Identical observable external changes cannot be attributed exclusively by
-this mechanism.
+Inconsistency must lock; missing required feedback must use DC-07. The simulator
+may directly identify its own writes/injected changes. Cached protocol
+readings/acknowledgements must not advance adapter baselines, controller
+freshness deadlines or clear locks. The adapter publishes a semantic unexpected-
+speed error; the controller owns the resulting lock. Identical reported external
+changes cannot be attributed exclusively by this mechanism.
 
 #### Explicit unlock, with no motion resumption
 
@@ -515,12 +533,14 @@ invalidate the current generation and await every issued operation, including
 logically timed-out I/O. Unsettled operations must make recovery fail unknown/
 faulted without creating another connection or writer.
 
-After settlement, recovery must request serialized Stop and require live zero
-evidence after lock plus a settled zero write. A still-live zero observation
-that triggered lock may supply the evidence without a duplicate notification.
+After settlement, recovery must request serialized Stop and require timely zero
+evidence after lock plus a settled zero write. A zero state report that
+triggered the lock and remains within the controller's feedback deadline may
+supply the evidence without a duplicate notification.
+
 The controller must validate the current envelope and recheck the same lock
 revision before committing the zero baseline. New unexpected speed changes must
-advance the revision and retain the lock; stale/unresolved observations must not
+advance the revision and retain the lock; stale/unresolved feedback must not
 clear it.
 
 Success must leave paused, with separate arming and new valid input required for
@@ -538,16 +558,16 @@ and qualification review. Stage deadlines must not renew after successful
 substeps; the earlier deadline must win. Operator provisioning is outside
 connection timing and must not start motion.
 
-| Boundary                                     | Default           | Required expiry behavior                             |
-| -------------------------------------------- | ----------------- | ---------------------------------------------------- |
-| Connection/discovery after provisioning      | 5,000 ms overall  | Fault; retain unsettled I/O ownership during cleanup |
-| Initial stopped/configured/readiness stage   | 5,000 ms overall  | Fault; no ready publication                          |
-| Explicitly consented local navigation        | 30,000 ms overall | Fault; no subsequent nonzero write                   |
-| Each GATT read/write/notification setup      | 1,000 ms          | Fault; retain ownership until actual settlement      |
-| Required observation after transition/Stop   | 1,500 ms          | Unconfirmed/fault; no speed restoration              |
-| Live-feedback age where supported by profile | 1,500 ms          | Invalidate motion and request Stop                   |
-| Serialized diagnostic/readback opportunity   | 500 ms            | Coalesce behind Stop; cached reads remain cached     |
-| Controller expiry-check timer                | 50 ms             | Process overdue expiry before other pending work     |
+| Boundary                                      | Default           | Required expiry behavior                             |
+| --------------------------------------------- | ----------------- | ---------------------------------------------------- |
+| Connection/discovery after provisioning       | 5,000 ms overall  | Fault; retain unsettled I/O ownership during cleanup |
+| Initial stopped/configured/readiness stage    | 5,000 ms overall  | Fault; no ready publication                          |
+| Explicitly consented local navigation         | 30,000 ms overall | Fault; no subsequent nonzero write                   |
+| Each GATT read/write/notification setup       | 1,000 ms          | Fault; retain ownership until actual settlement      |
+| Required state feedback after transition/Stop | 1,500 ms          | Unconfirmed/fault; no speed restoration              |
+| Controller feedback age where supported       | 1,500 ms          | Invalidate motion and request Stop                   |
+| Serialized diagnostic/readback opportunity    | 500 ms            | Coalesce behind Stop; cached reads remain cached     |
+| Controller expiry-check timer                 | 50 ms             | Process overdue expiry before other pending work     |
 
 Controller conformance must cover each DC requirement using deterministic clocks
 and deferred I/O, not sleeps. Deadline checks must include immediately before,
@@ -557,11 +577,11 @@ tuple rejection, compatible/conflicting policy updates, and revocation before/
 after every await, including applied guards with no pending request.
 
 Adapter conformance must cover parsing, identity, scaling/truncation, zero
-writes despite effective zero, unchanged still-live baselines,
-cached/acknowledgement non-freshness, missing-feedback faults, external changes
-during own/unrelated writes, stale unlocks and partial/repeated cleanup. Stock
-and simulator must be tested through their shared observable contract without
-requiring application hosts. See
+writes despite effective zero, no state publication for frozen simulator
+feedback, cached/acknowledgement non-publication, missing-feedback faults,
+external changes during own/unrelated writes, stale unlocks and partial/repeated
+cleanup. Stock and simulator must be tested through their shared observable
+contract without requiring application hosts. See
 [core verification](../control-core.md#implementation-and-verification) for
 framework/tooling and
 [application conformance](../application.md#application-conformance) for
@@ -584,9 +604,9 @@ operation or automatic resumption is authorized.
 | Native deployment        | Verified OS, BLE hardware, service identity, permissions and provisioning; no invented platform support or untested container access                                                                                                        |
 
 The feature must not claim exhaustive causal attribution or treat it as a
-software prerequisite. An observed override lock cannot establish that a
-physical remote is an independently proven emergency stop. Live-service guest
-loss and controller/OS failure must remain separate qualification cases.
+software prerequisite. A reported override lock cannot establish that a physical
+remote is an independently proven emergency stop. Live-service guest loss and
+controller/OS failure must remain separate qualification cases.
 
 A timer, average latency, write acknowledgement or manual power cut cannot prove
 automatic independent stopping. If stock firmware cannot meet that boundary,
