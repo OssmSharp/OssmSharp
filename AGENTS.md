@@ -20,49 +20,14 @@
   Double-check before proceeding that the user's intent is honoured and the
   change does not mask or enshrine the wrong behaviour.
 
-## Structure and configuration
+## Coding
 
-- **One class per file**; also separate records, interfaces, enums and test
-  helpers. Match filenames to types. Exclude generated code; allow Razor
-  partials.
 - Reusable namespaces: `OSSMDotNet.*`. Web-specific: `OSSMDotNet.AdminWeb`,
   `OSSMDotNet.GuestWeb`, `OSSMDotNet.ControlService`, and
   `OSSMDotNet.WebCommon`.
-- Register multi-consumer components through **`IServiceCollection` extensions**
-  owned by the component. Centralize lifetimes; avoid speculative abstractions.
-- Use **`Microsoft.Extensions.Options`** and typed DI configuration.
-- Use **`System.ComponentModel.DataAnnotations`** attributes for constraints.
-- Use **`IValidatableObject` / `IValidateOptions<T>`** for domain/cross-field
-  checks.
-- Require **`ValidateDataAnnotations()` + `ValidateOnStart()`**. Fail invalid
-  startup; no parallel options parser or silent defaults.
-- Git: LF in commits, CRLF on checkout via `.gitattributes`; no global
-  overrides.
-- Source and test folder names must match their namespaces.
-- Store interfaces and models shared between projects in the `OSSMDotNet.Models`
-  project. Project-specific models must be in a `Models/` subfolder.
-- Projects that host websites must end with "Web". Projects that host APIs must
-  end with "Service". Projects that are CLIs must end with "Cli".
-- Startup and configuration that is shared between all aspire projects must be
-  in `OSSMDotNet.ServiceDefaults`.
-- Consider using the suffix ".Abstractions" for projects that provide interfaces
-  and models without concrete implementations, per the .NET convention.
-- Domain-specific public classes, records, interfaces and methods in .cs files
-  must be annotated with xmldoc-valid comments.
-- All application CLIs use **`System.CommandLine`**.
 - `OSSMDotNet.Cli` is a command-line tool that uses the control library. It is
   otherwise unrelated to the guest and admin frontend system, and must not have
   references to terms such as "admin".
-- You must put InternalsVisisbleTo declarations in the csproj file, not in
-  AssemblyInfo.cs file(s).
-
-## Logging
-
-- Use **`Microsoft.Extensions.Logging.ILogger<T>`** for operational diagnostics.
-- Use Aspire ServiceDefaults/OpenTelemetry; no custom logging infrastructure.
-- Use structured templates, appropriate levels and one owning failure log.
-- No secrets, capability URLs, raw payloads or sensitive identifiers in logs.
-- Reserve console output for intentional CLI results/help, not service logging.
 
 ## User interface conventions
 

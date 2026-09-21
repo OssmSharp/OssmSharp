@@ -1,3 +1,7 @@
 {
-  "recommendations": ["1yib.rust-bundle", "rust-lang.rust-analyzer"]
+  "recommendations": [
+    "1yib.rust-bundle",
+    "rust-lang.rust-analyzer",
+    "microsoft-aspire.aspire-vscode"
+  ]
 }
