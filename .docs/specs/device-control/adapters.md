@@ -41,6 +41,13 @@ building blocks, not a complete connection or safe multi-write transition.
 `DeviceBase`; the shared API publishes transient `DeviceState` events rather
 than caching complete device states.
 
+The simulator library owns an `AddOssmSimulator` registration that exposes one
+instance as `SimulatedDevice`, `IOssmDevice` and `IHostedService`. The standalone
+`OSSMDotNet.DeviceCli` exercises status and bounded Simple Stroke motion through
+that library without ControlCore or either web host. The stock library includes
+strict codecs for the pinned identity and pattern metadata payloads; BLE
+transport remains deferred.
+
 Application composition and controller consumers still need integration with
 that API. The existence of standalone adapter tests is not evidence that the
 whole application already uses it.

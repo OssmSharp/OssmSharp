@@ -23,7 +23,8 @@ Keep the terminal open. Aspire builds and starts the application.
 The device API is split into three independently buildable libraries:
 
 - `OSSMDotNet.Abstractions` contains `IOssmDevice` and immutable device models.
-- `OSSMDotNet` contains `OssmDeviceBase` and the stock-firmware `OssmDevice`.
+- `OSSMDotNet` contains `DeviceBase`, the stock protocol codecs and the
+  stock-firmware `StockOssmDevice` transport placeholder.
 - `OSSMDotNet.Simulator` contains the native-process `SimulatedDevice`.
 
 These libraries do not depend on ControlService, Aspire, or either web host.
@@ -34,6 +35,22 @@ library boundary is not a published package, a separate network service, or
 physical-device qualification. See the
 [device-control specification](.docs/specs/device-control/spec.md) for the
 contract and safety boundaries.
+
+### Standalone simulator diagnostics
+
+Build the native bridge, then inspect or move the simulator without
+ControlCore, Aspire or either web application:
+
+```powershell
+cargo build --locked --release --manifest-path tools\ossm-sim-bridge\Cargo.toml
+$simulatorPath = (Resolve-Path tools\ossm-sim-bridge\target\release\ossm-sim-bridge.exe).Path
+dotnet run --project src\OSSMDotNet.DeviceCli\DeviceCli.csproj -- --simulator-path $simulatorPath status
+dotnet run --project src\OSSMDotNet.DeviceCli\DeviceCli.csproj -- --simulator-path $simulatorPath move --speed 20 --stroke 20 --depth 50 --seconds 3
+```
+
+`move` supports Simple Stroke with sensation `50` and buffer `0`, and always
+issues a zero-speed command before disposing its simulator process. This is a
+software diagnostic path, not physical-device qualification.
 
 ## Use it
 

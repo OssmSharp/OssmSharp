@@ -161,6 +161,11 @@ public sealed class SimulatedDevice : DeviceBase
             throw new NotSupportedException("The simulator requires sensation 50 for ordinary writes.");
         }
 
+        if (motionSettings.Buffer != 0)
+        {
+            throw new NotSupportedException("The simulator supports buffer 0 only.");
+        }
+
         if (motionSettings.Speed == 0)
         {
             return SendAsync("stop", null, cancellationToken);

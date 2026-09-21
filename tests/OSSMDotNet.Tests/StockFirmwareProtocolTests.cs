@@ -457,7 +457,73 @@ public sealed class StockFirmwareProtocolTests
         Assert.False(typeof(Request).IsPublic);
         Assert.False(typeof(Acknowledgement).IsPublic);
         Assert.False(typeof(StateResponse).IsPublic);
+        Assert.False(typeof(PairingIdentity).IsPublic);
+        Assert.False(typeof(PatternMetadata).IsPublic);
     }
+
+    [Fact]
+    public void StockProfileUsesPinnedFirmwareUuids()
+    {
+        Assert.Equal(new Guid("522b443a-4f53-534d-0001-420badbabe69"), StockFirmwareProfile.Service);
+        Assert.Equal(new Guid("522b443a-4f53-534d-0010-420badbabe69"), StockFirmwareProfile.Identity);
+        Assert.Equal(new Guid("522b443a-4f53-534d-1000-420badbabe69"), StockFirmwareProfile.Command);
+        Assert.Equal(new Guid("522b443a-4f53-534d-1010-420badbabe69"), StockFirmwareProfile.KnobConfiguration);
+        Assert.Equal(new Guid("522b443a-4f53-534d-2000-420badbabe69"), StockFirmwareProfile.State);
+        Assert.Equal(new Guid("522b443a-4f53-534d-3000-420badbabe69"), StockFirmwareProfile.Patterns);
+        Assert.Equal(new Guid("522b443a-4f53-534d-3010-420badbabe69"), StockFirmwareProfile.PatternData);
+    }
+
+    [Fact]
+    public void PairingIdentityParsesAndNormalizesPinnedFirmwarePayload()
+    {
+        var identity = PairingIdentity.Parse("a4:cf:12:34:56:78;ESP32-S3;1;0123456789abcdef0123456789abcdef;1.0.34"u8);
+
+        Assert.Equal("A4:CF:12:34:56:78", identity.WifiMac);
+        Assert.Equal("ESP32-S3", identity.Chip);
+        Assert.True(identity.WifiConnected);
+        Assert.Equal("0123456789abcdef0123456789abcdef", identity.SketchMd5);
+        Assert.Equal("1.0.34", identity.Version);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("A4:CF:12:34:56:78;ESP32-S3;1;0123456789abcdef0123456789abcdef")]
+    [InlineData("A4:CF:12:34:56:78;ESP32-S3;2;0123456789abcdef0123456789abcdef;1.0.34")]
+    [InlineData("not-a-mac;ESP32-S3;1;0123456789abcdef0123456789abcdef;1.0.34")]
+    [InlineData("A4:CF:12:34:56:78;;1;0123456789abcdef0123456789abcdef;1.0.34")]
+    [InlineData("A4:CF:12:34:56:78;ESP32-S3;1;not-an-md5;1.0.34")]
+    [InlineData("A4:CF:12:34:56:78;ESP32-S3;1;0123456789abcdef0123456789abcdef;")]
+    public void PairingIdentityRejectsMalformedPayload(string payload) =>
+        Assert.Throws<InvalidDataException>(() => PairingIdentity.Parse(System.Text.Encoding.UTF8.GetBytes(payload)));
+
+    [Fact]
+    public void PatternMetadataParsesPinnedFirmwareJson()
+    {
+        var patterns = PatternMetadata.Parse("[{\"name\":\"Simple Stroke\",\"idx\":0},{\"name\":\"Teasing Pounding\",\"idx\":1}]"u8);
+
+        Assert.Collection(
+            patterns,
+            pattern =>
+            {
+                Assert.Equal("Simple Stroke", pattern.Name);
+                Assert.Equal(0, pattern.Index);
+            },
+            pattern =>
+            {
+                Assert.Equal("Teasing Pounding", pattern.Name);
+                Assert.Equal(1, pattern.Index);
+            });
+    }
+
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("[{}]")]
+    [InlineData("[{\"name\":\"Simple Stroke\",\"idx\":-1}]")]
+    [InlineData("[{\"name\":\"\",\"idx\":0}]")]
+    [InlineData("[{\"name\":\"Simple Stroke\",\"idx\":0,\"extra\":true}]")]
+    [InlineData("[{\"name\":\"Simple Stroke\",\"idx\":0},{\"name\":\"Other\",\"idx\":0}]")]
+    public void PatternMetadataRejectsMalformedPayload(string payload) =>
+        Assert.Throws<InvalidDataException>(() => PatternMetadata.Parse(System.Text.Encoding.UTF8.GetBytes(payload)));
 
     private static DeviceState ParseState(string payload) =>
         StateResponse.Parse(payload, ReceiptTime).ToDeviceState();

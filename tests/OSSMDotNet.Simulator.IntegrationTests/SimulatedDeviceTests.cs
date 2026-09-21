@@ -90,6 +90,25 @@ public sealed class SimulatedDeviceTests : MockerTestBase<SimulatedDevice>, IAsy
     }
 
     [Fact]
+    public async Task NonzeroBufferIsRejected()
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(10));
+        var changes = Channel.CreateUnbounded<OneOf<DeviceState, Exception>>();
+        Component.DeviceStateChanged += change => changes.Writer.TryWrite(change);
+        await Component.StartAsync(timeout.Token);
+        await ReadStateAsync(
+            changes.Reader,
+            _ => Component.ConnectionState == DeviceConnectionState.Connected,
+            timeout.Token);
+
+        var exception = await Assert.ThrowsAsync<NotSupportedException>(() =>
+            Component.SetMotionAsync(Settings(12) with { Buffer = 1 }, timeout.Token));
+
+        Assert.Equal("The simulator supports buffer 0 only.", exception.Message);
+    }
+
+    [Fact]
     public async Task RealSimulatorCanBeDisposedRepeatedly()
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);

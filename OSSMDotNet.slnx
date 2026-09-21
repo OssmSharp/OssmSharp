@@ -5,6 +5,7 @@
     <Project Path="src/OSSMDotNet.ControlClient/ControlClient.csproj" />
     <Project Path="src/OSSMDotNet.ControlCore/ControlCore.csproj" />
     <Project Path="src/OSSMDotNet.ControlService/ControlService.csproj" />
+    <Project Path="src/OSSMDotNet.DeviceCli/DeviceCli.csproj" />
     <Project Path="src/OSSMDotNet.Simulator/OSSMDotNet.Simulator.csproj" />
     <Project Path="src/OSSMDotNet.Abstractions/OSSMDotNet.Abstractions.csproj" />
     <Project Path="src/OSSMDotNet/OSSMDotNet.csproj" />
@@ -22,6 +23,9 @@
     <Project
       Path="tests/OSSMDotNet.ControlService.IntegrationTests/ControlService.IntegrationTests.csproj" />
     <Project Path="tests/OSSMDotNet.ControlService.Tests/ControlService.Tests.csproj" />
+    <Project
+      Path="tests/OSSMDotNet.DeviceCli.IntegrationTests/DeviceCli.IntegrationTests.csproj" />
+    <Project Path="tests/OSSMDotNet.DeviceCli.Tests/DeviceCli.Tests.csproj" />
     <Project
       Path="tests/OSSMDotNet.Simulator.IntegrationTests/OSSMDotNet.Simulator.IntegrationTests.csproj" />
     <Project Path="tests/OSSMDotNet.Tests/OSSMDotNet.Tests.csproj" />
