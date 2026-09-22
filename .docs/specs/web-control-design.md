@@ -471,8 +471,9 @@ After authentication, at most 10 run-input attempts per connection/epoch may be
 accepted in any rolling monotonic one-second window. Over-limit attempts must
 not advance sequence, refresh authority, replace pending work or reach the
 controller. Status, Stop and Leave do not consume that capacity; all retain the
-envelope bound. The recorded bucket discrepancy is an [open issue](#open-issues),
-not permission to relax this rule.
+envelope bound. The requester selected this rolling rule over the existing
+20-capacity bucket; the [resolved decision](#resolved-direction-and-review)
+requires a separately verified behavior correction, not a silent extraction change.
 
 Session, policy and grant must be rechecked through the execution guard.
 Server/circuit timers, heartbeat, ping/pong, status, retained UI state and probes
@@ -599,22 +600,12 @@ selection or clearance and does not replace physical qualification obligations.
 
 ## Delivery and verification
 
-Implementation is subsequent work. Keep the hub path and wire contracts stable
-while making each increment demonstrate the intended separation:
-
-1. Characterize current admission, input, Stop, rotation and policy behavior at
-   the library/transport boundary. Record failures against retained contracts
-   rather than declaring existing code conformant.
-2. Host the current operation seam through Api and make ControlService a library.
-   Move listeners, authentication, hub and delivery infrastructure to Api;
-   demonstrate the existing invite/approve/send/Stop flow through both web hosts.
-   Do not run old and new authority hosts against the same device.
-3. Move application-session/grant policy still held in the engine to
-   ControlService, preserving one serialized authority and the execution guard.
-   The extraction is incomplete until standalone core use needs no guest session.
-4. Update composition, project references, matching unit/integration test owners
-   and the architecture view. Exercise disconnect, stale authority, slow I/O and
-   UI drafts before treating the split as complete.
+Implementation is subsequent work. The
+[implementation plan](../plans/web-control-implementation.md) owns the ordered
+tasks, prerequisites and focused acceptance evidence. Keep the hub path and wire
+contracts stable during extraction; record existing contract failures and explicit
+behavior corrections separately. The split is incomplete until standalone core
+use needs no guest session and the application library needs no transport host.
 
 Restart during cutover discards authority and starts paused/disarmed; it must
 not migrate live sessions or resume accepted input. Reverting packaging likewise
@@ -651,8 +642,8 @@ Software conformance must never be presented as hardware safety.
 
 | Question | Impact and options | Next step and blocking scope |
 | --- | --- | --- |
-| Is the recorded 20-capacity bucket obsolete? | It is not equivalent to 10 attempts in a rolling monotonic second. Retain the rolling rule, or explicitly approve a changed requirement with new evidence; do not silently substitute algorithms. | The project owner must reconcile the historical discrepancy against the implementation/tests before rate-limit work. The host/library extraction must preserve the stricter stated contract. |
-| Must moved public in-process types preserve source/binary compatibility? | SignalR compatibility is required by this design. External consumers of current service/core assemblies have not been established. Options are coordinated source migration or a narrowly scoped compatibility plan for proven consumers, not a speculative permanent shim. | Inventory references and published consumers, starting with `IControlOperations` in Models, then ask the project owner before breaking public APIs. Blocks affected signature/assembly moves, not this documentation draft. |
+| Which grant metadata must cross the wire? | Current DTOs lack the specified grant sequence and explicit timestamps; issuance-based expiry exists internally. Keep logical metadata internal where the contract permits, or introduce a separately versioned wire change where explicit fields are required. Input sequence is not grant sequence. | The project owner must reconcile the schema requirements before grant-conformance work. Compatible host/library extraction is not blocked; full grant-schema conformance remains unproven. |
+| Which Join boundary returns the private proof? | The internal application result supplies a proof retained against the connection; the current hub reply is acknowledgement-only. Clarify the application/wire distinction rather than exposing a secret to satisfy ambiguous wording. | Clarify the requirement with the project owner before changing the Join schema. Preserve the existing bound proof validation and hub receipt during extraction. |
 
 ### Resolved direction and review
 
@@ -661,8 +652,15 @@ Software conformance must never be presented as hardware safety.
 - **Host name:** the requester selected `OSSMDotNet.Api` instead of RestApi.
 - **Library role:** ControlService is the requested business-logic library. The
   detailed extraction and retained core boundary remain subject to design review.
+- **Public .NET moves (22 September 2026):** the requester selected coordinated
+  repository-consumer updates without source/binary compatibility shims. This
+  resolves the public-type migration question; SignalR compatibility still holds.
+- **Rolling limit (22 September 2026):** the requester selected 10 authenticated
+  run-input attempts in any rolling monotonic second, replacing the tested
+  20-capacity bucket. The bucket's burst allowance is not equivalent. Prove the
+  regression first and update its tests as a separate behavior correction.
 
 Start review with the project owner on the scenarios and ownership split, then
 seek focused device-boundary and UI feedback as needed. Keep comments and
 resolutions with this document and its version history. An AI review or silence
-is not approval; unresolved compatibility/rate-limit questions remain visible.
+is not approval; unresolved grant-schema and Join-boundary questions remain visible.

@@ -90,6 +90,8 @@ unattended use, persistent motion profiles, media and automatic motion
 resumption remain out of scope. Accounts, databases and cloud services are not
 required for the approved local application.
 
-The known rate-limit discrepancy remains recorded once under
-[open issues](web-control-design.md#open-issues); this
-reorganization does not resolve it by silently changing a limit.
+The [implementation plan](../plans/web-control-implementation.md) owns the task
+list and acceptance evidence for the host/library split. The
+[resolved decisions](web-control-design.md#resolved-direction-and-review) record
+the selected rolling rate limit and coordinated public-type migration; neither
+decision establishes completed implementation.
