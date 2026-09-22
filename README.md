@@ -44,12 +44,18 @@ ControlCore, Aspire or either web application:
 ```powershell
 cargo build --locked --release --manifest-path tools\ossm-sim-bridge\Cargo.toml
 $simulatorPath = (Resolve-Path tools\ossm-sim-bridge\target\release\ossm-sim-bridge.exe).Path
-dotnet run --project src\OSSMDotNet.DeviceCli\DeviceCli.csproj -- --simulator-path $simulatorPath status
-dotnet run --project src\OSSMDotNet.DeviceCli\DeviceCli.csproj -- --simulator-path $simulatorPath move --speed 20 --stroke 20 --depth 50 --seconds 3
+dotnet run --project src\OSSMDotNet.DeviceCli\DeviceCli.csproj -- start --simulator-path $simulatorPath
+dotnet run --project src\OSSMDotNet.DeviceCli\DeviceCli.csproj -- status
+dotnet run --project src\OSSMDotNet.DeviceCli\DeviceCli.csproj -- move --speed 20 --stroke 20 --depth 50 --seconds 3
+dotnet run --project src\OSSMDotNet.DeviceCli\DeviceCli.csproj -- stop
 ```
 
-`move` supports Simple Stroke with sensation `50` and buffer `0`, and always
-issues a zero-speed command before disposing its simulator process. This is a
+`start` launches one headless simulator host for the current user and is safe to
+repeat with the same bridge path. `status` and `move` reuse that host. `move`
+supports Simple Stroke with sensation `50` and buffer `0`, settles at zero speed
+after the bounded duration, and leaves the host running. `stop` settles zero
+speed and ends the host. The bridge has no UI; the separate OSSM-RS `ossm-sim`
+project contains a browser UI, but it is not this library integration. This is a
 software diagnostic path, not physical-device qualification.
 
 ## Use it

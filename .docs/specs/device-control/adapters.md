@@ -43,10 +43,14 @@ than caching complete device states.
 
 The simulator library owns an `AddOssmSimulator` registration that exposes one
 instance as `SimulatedDevice`, `IOssmDevice` and `IHostedService`. The standalone
-`OSSMDotNet.DeviceCli` exercises status and bounded Simple Stroke motion through
-that library without ControlCore or either web host. The stock library includes
-strict codecs for the pinned identity and pattern metadata payloads; BLE
-transport remains deferred.
+`OSSMDotNet.DeviceCli` can start one per-user background diagnostic host, query
+status, issue bounded Simple Stroke motion and stop that host without ControlCore
+or either web application. Its private current-user IPC exists only to manage
+the diagnostic process; it is not an application control transport, remote
+endpoint or authority boundary. Start never restores prior motion, bounded
+motion settles at zero, and Stop settles zero before ending the simulator
+process. The stock library includes strict codecs for the pinned identity and
+pattern metadata payloads; BLE transport remains deferred.
 
 Application composition and controller consumers still need integration with
 that API. The existence of standalone adapter tests is not evidence that the

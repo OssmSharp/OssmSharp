@@ -10,11 +10,22 @@ public static class DeviceCommand
     /// <summary>Creates the root device diagnostic command.</summary>
     public static RootCommand Create() => Create(DeviceCommandRunner.RunAsync);
 
+    /// <summary>
+    /// Invokes the device diagnostic command with the supplied arguments.
+    /// </summary>
+    /// <param name="args">The command-line arguments to parse and execute.</param>
+    /// <returns>A task that completes with the command exit code.</returns>
     internal static Task<int> InvokeAsync(string[] args) => InvokeAsync(
         args,
         DeviceCommandRunner.RunAsync,
         CancellationToken.None);
 
+    /// <summary>
+    /// Invokes the device diagnostic command with a supplied runner.
+    /// </summary>
+    /// <param name="args">The command-line arguments to parse and execute.</param>
+    /// <param name="runAsync">The operation runner selected by the parsed command.</param>
+    /// <returns>A task that completes with the command exit code.</returns>
     internal static async Task<int> InvokeAsync(
         string[] args,
         Func<DeviceCommandRequest, CancellationToken, Task<int>> runAsync,
@@ -25,16 +36,20 @@ public static class DeviceCommand
         return parse.Errors.Count == 0 ? exitCode : 2;
     }
 
+    /// <summary>
+    /// Creates the root device diagnostic command with a supplied operation runner.
+    /// </summary>
+    /// <param name="runAsync">The operation runner selected by each command.</param>
+    /// <returns>The configured root command.</returns>
     internal static RootCommand Create(
         Func<DeviceCommandRequest, CancellationToken, Task<int>> runAsync)
     {
         ArgumentNullException.ThrowIfNull(runAsync);
 
-        var root = new RootCommand("OSSM device diagnostics for the local native simulator.");
+        var root = new RootCommand("Manage one persistent local OSSM simulator for device diagnostics.");
         var simulatorPath = new Option<string>("--simulator-path")
         {
             Description = "Absolute path to the ossm-sim-bridge executable.",
-            Recursive = true,
             Required = true,
             CustomParser = result =>
             {
@@ -54,13 +69,17 @@ public static class DeviceCommand
                 return Path.GetFullPath(path);
             },
         };
-        root.Options.Add(simulatorPath);
-
-        var status = new Command("status", "Start the simulator and print its first device state as JSON.");
-        status.SetAction((parse, cancellationToken) => runAsync(
+        var start = new Command("start", "Start or reuse the persistent local simulator host.");
+        start.Options.Add(simulatorPath);
+        start.SetAction((parse, cancellationToken) => runAsync(
             new DeviceCommandRequest(
-                DeviceCommandOperation.Status,
+                DeviceCommandOperation.Start,
                 parse.GetValue(simulatorPath)!),
+            cancellationToken));
+
+        var status = new Command("status", "Print the running simulator's latest device state as JSON.");
+        status.SetAction((parse, cancellationToken) => runAsync(
+            new DeviceCommandRequest(DeviceCommandOperation.Status),
             cancellationToken));
 
         var speed = PercentageOption("--speed", "Motion speed percentage from 1 to 100.", 1);
@@ -72,7 +91,7 @@ public static class DeviceCommand
             DefaultValueFactory = _ => 3,
             CustomParser = result => ParseDouble(result, 0.1, 60),
         };
-        var move = new Command("move", "Run one bounded Simple Stroke motion, then stop the simulator.");
+        var move = new Command("move", "Run one bounded Simple Stroke motion, then settle at zero speed.");
         move.Options.Add(speed);
         move.Options.Add(stroke);
         move.Options.Add(depth);
@@ -94,15 +113,21 @@ public static class DeviceCommand
         move.SetAction((parse, cancellationToken) => runAsync(
             new DeviceCommandRequest(
                 DeviceCommandOperation.Move,
-                parse.GetValue(simulatorPath)!,
-                parse.GetValue(speed),
-                parse.GetValue(stroke),
-                parse.GetValue(depth),
-                TimeSpan.FromSeconds(parse.GetValue(seconds))),
+                Speed: parse.GetValue(speed),
+                Stroke: parse.GetValue(stroke),
+                Depth: parse.GetValue(depth),
+                Duration: TimeSpan.FromSeconds(parse.GetValue(seconds))),
             cancellationToken));
 
+        var stop = new Command("stop", "Set zero speed and stop the persistent simulator host.");
+        stop.SetAction((parse, cancellationToken) => runAsync(
+            new DeviceCommandRequest(DeviceCommandOperation.Stop),
+            cancellationToken));
+
+        root.Subcommands.Add(start);
         root.Subcommands.Add(status);
         root.Subcommands.Add(move);
+        root.Subcommands.Add(stop);
         return root;
     }
 

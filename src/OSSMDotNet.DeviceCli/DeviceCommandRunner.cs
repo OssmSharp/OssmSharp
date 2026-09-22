@@ -1,112 +1,103 @@
 using System.Text.Json;
-using System.Text.Json.Serialization;
-using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
-using OSSMDotNet.Abstractions;
-using OSSMDotNet.Simulator;
 
 namespace OSSMDotNet.DeviceCli;
 
+/// <summary>
+/// Sends diagnostic commands to the current user's persistent simulator host.
+/// </summary>
 internal static class DeviceCommandRunner
 {
-    private static readonly TimeSpan OperationTimeout = TimeSpan.FromSeconds(5);
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
+    private static readonly TimeSpan StartupTimeout = TimeSpan.FromSeconds(5);
+    private static readonly JsonSerializerOptions OutputJson = new(SimulatorIpcProtocol.SerializerOptions)
     {
         WriteIndented = true,
-        Converters = { new JsonStringEnumConverter() },
     };
 
+    /// <summary>
+    /// Executes a command using the default console streams and host endpoint.
+    /// </summary>
+    /// <param name="request">The parsed command to execute.</param>
+    /// <param name="cancellationToken">The token that cancels the client operation.</param>
+    /// <returns>A task that completes with the command exit code.</returns>
     internal static Task<int> RunAsync(
         DeviceCommandRequest request,
         CancellationToken cancellationToken) =>
-        RunAsync(request, Console.Out, Console.Error, cancellationToken);
+        RunAsync(
+            request,
+            Console.Out,
+            Console.Error,
+            SimulatorEndpoint.CreateDefault(),
+            SimulatorProcessLauncher.Start,
+            cancellationToken);
 
+    /// <summary>
+    /// Executes a command using a supplied output writer and the default host endpoint.
+    /// </summary>
+    /// <param name="request">The parsed command to execute.</param>
+    /// <param name="output">The writer for successful command output.</param>
+    /// <param name="cancellationToken">The token that cancels the client operation.</param>
+    /// <returns>A task that completes with the command exit code.</returns>
     internal static Task<int> RunAsync(
         DeviceCommandRequest request,
         TextWriter output,
         CancellationToken cancellationToken) =>
-        RunAsync(request, output, TextWriter.Null, cancellationToken);
+        RunAsync(
+            request,
+            output,
+            TextWriter.Null,
+            SimulatorEndpoint.CreateDefault(),
+            SimulatorProcessLauncher.Start,
+            cancellationToken);
 
-    private static async Task<int> RunAsync(
+    /// <summary>
+    /// Executes a command against a supplied host endpoint and launcher.
+    /// </summary>
+    /// <param name="request">The parsed command to execute.</param>
+    /// <param name="output">The writer for successful command output.</param>
+    /// <param name="error">The writer for command failures.</param>
+    /// <param name="endpoint">The private endpoint of the simulator host.</param>
+    /// <param name="startHost">The operation that starts a host when required.</param>
+    /// <param name="cancellationToken">The token that cancels the client operation.</param>
+    /// <returns>A task that completes with the command exit code.</returns>
+    internal static async Task<int> RunAsync(
         DeviceCommandRequest request,
         TextWriter output,
         TextWriter error,
+        SimulatorEndpoint endpoint,
+        Func<string, SimulatorEndpoint, SimulatorHostLaunch> startHost,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(error);
+        ArgumentNullException.ThrowIfNull(endpoint);
+        ArgumentNullException.ThrowIfNull(startHost);
 
         try
         {
-            await using var device = new SimulatedDevice(
-                Options.Create(new SimulatedDeviceOptions { ExecutablePath = request.SimulatorPath }),
-                TimeProvider.System,
-                NullLogger<SimulatedDevice>.Instance);
-            DeviceState? latestState = null;
-            var connectionStarted = false;
-            var firstState = new TaskCompletionSource<DeviceState>(TaskCreationOptions.RunContinuationsAsynchronously);
-            device.ConnectionStateChanged += state =>
-            {
-                if (state == DeviceConnectionState.Connecting)
-                {
-                    connectionStarted = true;
-                }
-                else if (state == DeviceConnectionState.Disconnected && connectionStarted)
-                {
-                    firstState.TrySetException(new IOException(
-                        "The simulator stopped before publishing its initial state."));
-                }
-            };
-            device.DeviceStateChanged += change =>
-            {
-                if (change.IsT0)
-                {
-                    Volatile.Write(ref latestState, change.AsT0);
-                    firstState.TrySetResult(change.AsT0);
-                }
-                else
-                {
-                    firstState.TrySetException(change.AsT1);
-                }
-            };
-            await device.StartAsync(cancellationToken).ConfigureAwait(false);
-            var state = await firstState.Task
-                .WaitAsync(OperationTimeout, cancellationToken)
-                .ConfigureAwait(false);
+            var ipcRequest = ToIpcRequest(request);
+            var response = request.Operation == DeviceCommandOperation.Start
+                ? await StartAsync(
+                    request.SimulatorPath!,
+                    ipcRequest,
+                    endpoint,
+                    startHost,
+                    cancellationToken).ConfigureAwait(false)
+                : await SimulatorClient.SendAsync(endpoint, ipcRequest, cancellationToken)
+                    .ConfigureAwait(false);
 
-            if (request.Operation == DeviceCommandOperation.Move)
+            if (!response.Ok)
             {
-                state = state with
-                {
-                    MotionSettings = state.MotionSettings with
-                    {
-                        State = MotionDeviceState.StrokeEngineIdle,
-                        Speed = request.Speed,
-                        Stroke = request.Stroke,
-                        Sensation = 50,
-                        Depth = request.Depth,
-                        Buffer = 0,
-                        Pattern = MotionPattern.SimpleStroke,
-                    },
-                };
-                await device.SetMotionAsync(state.MotionSettings, cancellationToken).ConfigureAwait(false);
-                state = Volatile.Read(ref latestState)
-                    ?? throw new InvalidDataException("The simulator did not publish the applied motion state.");
-                await WriteAsync(output, device, state, cancellationToken).ConfigureAwait(false);
-
-                try
-                {
-                    await Task.Delay(request.Duration, cancellationToken).ConfigureAwait(false);
-                }
-                finally
-                {
-                    await SettleStopAsync(device, state.MotionSettings).ConfigureAwait(false);
-                }
+                await error.WriteLineAsync(response.Error ?? "The simulator host rejected the command.")
+                    .ConfigureAwait(false);
+                return 1;
             }
-            else
+
+            if (response.Output is not null)
             {
-                await WriteAsync(output, device, state, cancellationToken).ConfigureAwait(false);
+                await output.WriteLineAsync(
+                    JsonSerializer.Serialize(response.Output, OutputJson).AsMemory(),
+                    cancellationToken).ConfigureAwait(false);
             }
 
             return 0;
@@ -115,6 +106,13 @@ internal static class DeviceCommandRunner
         {
             throw;
         }
+        catch (Exception exception) when (exception is IOException or TimeoutException)
+        {
+            await error.WriteLineAsync(
+                "The simulator host is not running. Run 'start --simulator-path <path>' first.")
+                .ConfigureAwait(false);
+            return 1;
+        }
         catch (Exception exception)
         {
             await error.WriteLineAsync(exception.Message).ConfigureAwait(false);
@@ -122,40 +120,68 @@ internal static class DeviceCommandRunner
         }
     }
 
-    private static async Task SettleStopAsync(
-        SimulatedDevice device,
-        MotionSettings motionSettings)
+    private static async Task<SimulatorIpcResponse> StartAsync(
+        string simulatorPath,
+        SimulatorIpcRequest request,
+        SimulatorEndpoint endpoint,
+        Func<string, SimulatorEndpoint, SimulatorHostLaunch> startHost,
+        CancellationToken cancellationToken)
     {
-        var stop = device.SetMotionAsync(
-            motionSettings with { Speed = 0 },
-            CancellationToken.None);
         try
         {
-            await stop.WaitAsync(OperationTimeout).ConfigureAwait(false);
-        }
-        catch (TimeoutException exception)
-        {
-            await device.StopAsync(CancellationToken.None)
-                .WaitAsync(OperationTimeout)
+            return await SimulatorClient.SendAsync(endpoint, request, cancellationToken)
                 .ConfigureAwait(false);
-            try
-            {
-                await stop.ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-            }
+        }
+        catch (Exception exception) when (exception is IOException or TimeoutException)
+        {
+            using var host = startHost(simulatorPath, endpoint);
 
-            throw new TimeoutException("The simulator did not settle the zero-speed command.", exception);
+            return await WaitForHostAsync(host, request, endpoint, cancellationToken).ConfigureAwait(false);
         }
     }
 
-    private static Task WriteAsync(
-        TextWriter output,
-        SimulatedDevice device,
-        DeviceState state,
-        CancellationToken cancellationToken) =>
-        output.WriteLineAsync(JsonSerializer.Serialize(
-            new DeviceCommandOutput(device.ConnectionState, device.Device, state),
-            Json).AsMemory(), cancellationToken);
+    private static async Task<SimulatorIpcResponse> WaitForHostAsync(
+        SimulatorHostLaunch host,
+        SimulatorIpcRequest request,
+        SimulatorEndpoint endpoint,
+        CancellationToken cancellationToken)
+    {
+        var deadline = TimeProvider.System.GetTimestamp() +
+            (long)(StartupTimeout.TotalSeconds * TimeProvider.System.TimestampFrequency);
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                return await SimulatorClient.SendAsync(endpoint, request, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception exception) when (
+                exception is IOException or TimeoutException &&
+                TimeProvider.System.GetTimestamp() < deadline)
+            {
+                var failure = await host.GetFailureAsync().ConfigureAwait(false);
+                if (failure is not null)
+                {
+                    throw new InvalidOperationException(failure, exception);
+                }
+
+                await Task.Delay(TimeSpan.FromMilliseconds(50), cancellationToken).ConfigureAwait(false);
+            }
+        }
+    }
+
+    private static SimulatorIpcRequest ToIpcRequest(DeviceCommandRequest request) => request.Operation switch
+    {
+        DeviceCommandOperation.Start => new("start", request.SimulatorPath),
+        DeviceCommandOperation.Status => new("status"),
+        DeviceCommandOperation.Move => new(
+            "move",
+            Speed: request.Speed,
+            Stroke: request.Stroke,
+            Depth: request.Depth,
+            DurationMilliseconds: checked((int)request.Duration.TotalMilliseconds)),
+        DeviceCommandOperation.Stop => new("stop"),
+        _ => throw new ArgumentOutOfRangeException(nameof(request)),
+    };
 }

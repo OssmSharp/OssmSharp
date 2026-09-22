@@ -425,7 +425,7 @@
         <div class="viewport" role="region" tabindex="0" aria-label="Source project dependency diagram. Scroll horizontally on narrow screens.">
           <svg viewBox="0 0 1472 1064" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="projects-title projects-desc">
             <title id="projects-title">OSSM logical component dependencies</title>
-            <desc id="projects-desc">A top-to-bottom logical architecture showing AdminWeb, GuestWeb, and Cli invoking ControlClient in process; DeviceCli invoking the standalone device libraries directly; ControlClient using SignalR over HTTPS and WSS to call ControlService; ControlService owning ControlCore and hosting the standalone device contract and implementation libraries; OSSMDotNet.Simulator communicating with the external ossm-sim-bridge process through JSON-lines over standard input and output; and Models and ServiceDefaults shown as shared supporting projects.</desc>
+            <desc id="projects-desc">A top-to-bottom logical architecture showing AdminWeb, GuestWeb, and Cli invoking ControlClient in process; DeviceCli managing a persistent per-user diagnostic host that invokes the standalone device libraries directly; ControlClient using SignalR over HTTPS and WSS to call ControlService; ControlService owning ControlCore and hosting the standalone device contract and implementation libraries; OSSMDotNet.Simulator communicating with the external ossm-sim-bridge process through JSON-lines over standard input and output; and Models and ServiceDefaults shown as shared supporting projects.</desc>
             <defs>
               <marker id="projects-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#667085"/></marker>
               <marker id="projects-arrow-cyan" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#53d6ff"/></marker>
@@ -503,6 +503,7 @@
               <rect x="800" y="240" width="224" height="80" rx="6" class="projects-node"/>
               <text x="816" y="264" class="projects-meta">DEVICE DIAGNOSTICS</text>
               <text x="816" y="296" class="projects-text projects-name">DeviceCli</text>
+              <text x="816" y="312" class="projects-meta">PRIVATE PER-USER HOST</text>
             </g>
 
             <!-- Service tier -->
@@ -548,7 +549,7 @@
             </g>
           </svg>
         </div>
-        <figcaption>Only transport boundaries are labelled: ControlClient reaches ControlService through SignalR over WSS, and OSSMDotNet.Simulator reaches the native simulator through JSON-lines over standard input/output. DeviceCli is a standalone software diagnostic consumer. The device libraries are independently buildable and consumable; ControlService hosts one instance and alone owns policy and device activity in the web application.</figcaption>
+        <figcaption>Only application transport boundaries are labelled: ControlClient reaches ControlService through SignalR over WSS, and OSSMDotNet.Simulator reaches the native simulator through JSON-lines over standard input/output. DeviceCli manages one persistent per-user software diagnostic host through private local process IPC; that IPC is not an application control transport or authority boundary. The device libraries are independently buildable and consumable; ControlService hosts one instance and alone owns policy and device activity in the web application.</figcaption>
       </figure>
     </section>
 
