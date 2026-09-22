@@ -23,8 +23,11 @@ integration below. It does not declare those details implemented, select a
 qualified host platform, or authorize physical operation. The
 [device specification](spec.md) remains authoritative for `IOssmDevice` and
 DC-01 through DC-09; this document adds no parallel safety requirements or IDs.
-The [core](../control-core.md) and [application](../application.md) contracts
-retain their ownership boundaries.
+The [web-control design](../web-control-design.md#requirement-ownership) records
+core and application ownership, including the
+[reusable core boundary](../web-control-design.md#reusable-core-boundary).
+Its proposed Api/ControlService packaging remains DRAFT, not implemented or
+approved by the direction recorded above.
 
 The audience is implementers of the device libraries and application
 composition, and operators configuring a local device. Non-goals are a new

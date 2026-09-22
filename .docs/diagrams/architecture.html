@@ -106,8 +106,11 @@
 <body>
   <main>
     <header>
-      <p class="eyebrow">Architecture proposal / .NET 10</p>
+        <p class="eyebrow">Existing architecture reference / .NET 10</p>
       <h1>OSSM system architecture</h1>
+      <p>The <a href="../specs/web-control-design.md">replacement web-control design</a> is <strong>NOT YET IMPLEMENTED</strong>:
+        it proposes <code>OSSMDotNet.Api</code> hosting <code>OSSMDotNet.ControlService</code> as a business logic library, not a fourth process.
+        SignalR remains the control transport; no REST control surface is proposed.</p>
       <p class="lead">AdminWeb and GuestWeb are server-side Blazor hosts. One SignalR ControlService owns sessions, safety policy, ControlCore and every device write.</p>
       <nav aria-label="Architecture views">
         <a href="#deployment">01 &nbsp; Deployment &amp; connections</a>
@@ -562,8 +565,8 @@
     </aside>
 
     <footer>
-      <p>Design proposal &middot; updated 16 September 2026 &middot; No implementation or hardware qualification claimed.</p>
-      <p>Source: <a href="../specs/README.md">architecture and requirements</a> &middot; <a href="../specs/device-control/spec.md">device-control contract</a> &middot; <a href="../specs/README.md#functionality-and-package-inventory">planned packages</a>.</p>
+      <p>Pre-split architecture reference &middot; status clarified 22 September 2026 &middot; This view does not establish implementation conformance or hardware qualification.</p>
+      <p>Source: <a href="../specs/README.md">architecture and requirements</a> &middot; <a href="../specs/device-control/spec.md">device-control contract</a> &middot; <a href="../specs/README.md#logical-modules">logical modules</a>.</p>
       <p>Overview omits proxy/tunnel setup, service-key provisioning and native bridge provisioning. ControlService's hub is <code>/hubs/control/v1</code>; there is no named-pipe or REST control surface. The bridge implementation remains subject to host-platform qualification. Fonts use local fallbacks when offline.</p>
     </footer>
   </main>

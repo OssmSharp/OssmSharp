@@ -6,9 +6,11 @@ Module: `device-control`. Requirement IDs DC-01 through DC-09 are retained.
 
 This specification owns the reusable device contract, stock and simulator
 adapters, and controller execution rules. The
-[core composition contract](../control-core.md) defines logical components and
-requirement terms. Project names are not part of this contract; interface/model
-names below describe the API, not its packaging.
+[core composition contract](../web-control-design.md#reusable-core-boundary)
+defines logical components; the
+[scope](../web-control-design.md#scope-and-ownership) defines requirement terms.
+Project names are not part of this contract; interface/model names below
+describe the API, not its packaging.
 
 The device library must own transport, protocol mapping and state publication.
 The controller must own lifecycle, limits, trusted execution guards and the
@@ -20,11 +22,12 @@ The [adapter design](adapters.md) records the accepted Shiny/native-simulator
 direction, DI composition, proposed device-selection configuration and remaining
 integration gates. The device contract and DC requirements remain owned here.
 
-The [application contract](../application.md) owns remote invitations, approval,
-grants, service transport and display. Its security checks must feed the core
-execution guard; the core must not infer authority from presentation state. The
-device contract must be usable directly without the controller, while an
-application composing a controller must not allow callers to bypass its writer.
+The [web-control design](../web-control-design.md#requirement-ownership) owns
+remote invitations, approval, grants, service transport and display. Its security
+checks must feed the core execution guard; the core must not infer authority
+from presentation state. The device contract must be usable directly without
+the controller, while an application composing a controller must not allow
+callers to bypass its writer.
 
 ## Device profile, identity and feedback
 
@@ -583,9 +586,9 @@ feedback, cached/acknowledgement non-publication, missing-feedback faults,
 external changes during own/unrelated writes, stale unlocks and partial/repeated
 cleanup. Stock and simulator must be tested through their shared observable
 contract without requiring application hosts. See
-[core verification](../control-core.md#implementation-and-verification) for
+[core verification](../web-control-design.md#implementation-and-verification) for
 framework/tooling and
-[application conformance](../application.md#application-conformance) for
+[application conformance](../web-control-design.md#application-conformance) for
 service/browser coverage. Software acceptance requires applicable contract
 tests, focused builds and application smoke checks; it is not physical approval.
 

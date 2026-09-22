@@ -70,7 +70,7 @@ FluentValidation.
   suitable boundaries; do not create a test project solely for this refactor.
 
 Requirements remain owned by [the capability map](../specs/README.md),
-[ControlCore contract](../specs/control-core.md) and
+[reusable core boundary](../specs/web-control-design.md#reusable-core-boundary) and
 [device-control specification](../specs/device-control/spec.md). Retain
 `SESSION-01`, `CC-06`, `CC-07`, `CC-09`, `DC-03`, `DC-04`, `DC-05`, `DC-07` and
 `DC-09` when updating affected requirements.
