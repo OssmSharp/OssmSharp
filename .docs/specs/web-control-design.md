@@ -29,19 +29,18 @@ responsibilities below describe the proposed change.
 
 ## Background and intended outcomes
 
-Today, `OSSMDotNet.ControlService` is an executable: its
-[`Program.cs`](../../src/OSSMDotNet.ControlService/Program.cs) composes device
-ownership, authentication and the hub. Its
-[`ControlHub`](../../src/OSSMDotNet.ControlService/ControlHub.cs) delegates
-operations rather than writing the device directly. Both web hosts use
+Before the split, `OSSMDotNet.ControlService` was an executable. The host
+responsibilities now belong to [`OSSMDotNet.Api`](../../src/OSSMDotNet.Api/Program.cs):
+its [`ControlHub`](../../src/OSSMDotNet.Api/ControlHub.cs) delegates operations
+rather than writing the device directly. Both web hosts use
 `OSSMDotNet.ControlClient` and `/hubs/control/v1`; there is no REST control API.
 
-The application/execution separation is incomplete:
-[`ControlAuthority`](../../src/OSSMDotNet.ControlService/ControlAuthority.cs)
-delegates invitation, admission and guest-input operations to
+The pre-split application/execution separation was incomplete: invitation,
+admission and guest-input operations lived in
 [`PrototypeEngine`](../../src/OSSMDotNet.ControlCore/PrototypeEngine.cs).
-Extracting a host alone would not make the new library own all business logic.
-These are source observations, not conformance results.
+[`ControlAuthority`](../../src/OSSMDotNet.ControlService/ControlAuthority.cs)
+now owns that application state. These source observations do not establish
+full design conformance.
 
 The intended outcomes are:
 

@@ -2,9 +2,9 @@
 
 Date: 22 September 2026
 
-Status: Planned, not implemented. This is the authoritative task list for the
-[web-control design](../specs/web-control-design.md). Saving this plan does not
-establish a passing build, completed implementation or physical qualification.
+Status: Tasks 1-6 are implemented and focused-verified. This is the authoritative task list for the
+[web-control design](../specs/web-control-design.md). Recorded focused evidence
+does not establish full design conformance or physical qualification.
 
 ## Goal and scope
 
@@ -39,10 +39,9 @@ composition root. Models remains shared immutable data; operation interfaces
 belong with their operation owner. Neither web host resolves application
 authority or a device implementation.
 
-Inspection found unresolved legacy `IDeviceBridge`/`SimulatorProcessBridge`
-consumers alongside the newer `IOssmDevice` implementations. This is a
-source/dependency inconsistency, not a verified build failure. Establish the
-affected baseline first rather than assume the extraction begins from green.
+The 22 September baseline verified that unresolved legacy
+`IDeviceBridge`/`SimulatorProcessBridge` consumers prevented ControlCore from
+compiling. Task 1 removed that obsolete path in favor of `IOssmDevice`.
 
 Task 1 precedes tasks 2 and 3; both precede task 4. Task 5 follows task 4,
 and task 6 follows task 5. Tasks 2 and 3 currently touch the same engine and
@@ -53,6 +52,8 @@ increment; intermediate states need not be independently deployable.
 ## Tasks
 
 ### 1. Establish the device baseline
+
+**Status:** Complete on 23 September 2026.
 
 - **Owner/scope:** Core and device composition; `PrototypeEngine.cs`,
   `DeviceLoop.cs`, service registrations and affected project references.
@@ -66,8 +67,22 @@ increment; intermediate states need not be independently deployable.
 - **Verification:** Establish the focused build baseline, then use deterministic
   core/device tests and the affected simulator integration checks. For changed
   behavior, first prove a focused regression fails for the intended reason.
+- **Evidence:** The native simulator helper release build completed. Focused MTP
+  projects passed: `OSSMDotNet.Tests` 204/204,
+  `OSSMDotNet.Simulator.IntegrationTests` 72/72, `ControlCore.Tests` 89/89,
+  `ControlService.Tests` 170/170, and sequential
+  `ControlService.IntegrationTests` 65/65. Regressions first failed for stock
+  profile readiness, knob-scaled effective speed with live position, stale
+  reconnect observations, and a pending speed write accompanied by an
+  unexplained depth change. The pinned stock firmware evidence and agent test
+  constraints are retained under `.docs/references/device-control/`.
+- **Remaining limits:** Stock BLE transport and physical qualification remain
+  deferred. Simulator evidence does not populate the physical allowlist or
+  prove stopping distance, BLE latency, or independent stopping.
 
 ### 2. Correct the rolling input limit
+
+**Status:** Complete on 23 September 2026.
 
 - **Depends on:** Task 1.
 - **Owner/scope:** Application policy currently in `PrototypeEngine.cs`;
@@ -82,8 +97,18 @@ increment; intermediate states need not be independently deployable.
 - **Verification:** Controlled-clock tests around the rolling boundary, idle
   bursts, wall-clock jumps, rejected attempts and unchanged motion deadlines.
   Keep this behavior correction distinct from project/file moves.
+- **Evidence:** The old capacity-20/refill tests failed against the approved
+  contract before implementation. The controller now records at most ten
+  authenticated attempts in a bounded monotonic rolling second. Focused tests
+  cover the exact boundary, wall-clock jumps, authenticated engine and
+  transport-level invalid requests, bound null payloads through the real hub,
+  unchanged pending work and grant deadlines, and Stop/Leave exemptions.
+  `ControlCore.Tests` passed 92/92, `ControlService.Tests` 172/172, and
+  sequential `ControlService.IntegrationTests` 66/66.
 
 ### 3. Establish atomic core operations
+
+**Status:** Complete on 23 September 2026.
 
 - **Depends on:** Task 1; coordinate shared engine edits with task 2.
 - **Owner/scope:** ControlCore controller contracts and `PrototypeEngine.cs`;
@@ -98,8 +123,19 @@ increment; intermediate states need not be independently deployable.
 - **Verification:** Deterministic tests for in-flight and awaiting-feedback
   conflicts, arm preconditions, stale revisions, Stop races and logical timeout
   without I/O settlement. Preserve DC-01 through DC-09 by reference.
+- **Evidence:** Core arming is usable without a guest session; application Arm
+  and AllowControl atomically verify the exact unexpired approved admission.
+  Limits and arming reject unsettled and logically timed-out I/O without
+  replacing its writer. Device calls are reserved under the core lock, claimed
+  once after final authorization, and invoked outside the lock; synchronous
+  callbacks cannot block Stop. Disposal waits at most two seconds and reports
+  unsettled I/O rather than claiming settlement. Focused projects passed:
+  `ControlCore.Tests` 95/95, `ControlService.Tests` 174/174, and sequential
+  `ControlService.IntegrationTests` 66/66.
 
 ### 4. Extract application authority into ControlService
+
+**Status:** Complete on 23 September 2026.
 
 - **Depends on:** Tasks 2 and 3.
 - **Owner/scope:** `ControlAuthority.cs`, `ControlOperations.cs`,
@@ -116,8 +152,24 @@ increment; intermediate states need not be independently deployable.
   `LimitsPolicyTests`, `ControlAuthorityTests`, `ControlAuthorityRevisionTests`
   and `GuestControlOperationsTests`. Prove exact admission, stale-proof rejection,
   rotation during unsettled I/O, expiry, and policy changes without lease extension.
+- **Evidence:** `ControlAuthority` now owns invitation proofs, connection-bound
+  admissions, session expiry, policy versions, grants, sequences, rolling input
+  attempts and role-scoped projections under one lock. `PrototypeEngine` exposes
+  only execution state and atomic arm, limits, Stop, unlock and accepted-motion
+  operations; accepted motion carries the original monotonic grant deadline and
+  no guest session state. `GuestControlOperations` is independent of SignalR and
+  its connection registry; the hub retains private proofs and performs transport
+  binding. The operation interface moved from Models to ControlService without a
+  forwarding type. Execution-owned tests remain in Core and application-owned
+  scenarios moved to Service; delayed-write cycle serialization and owned-ID
+  wrong-tuple lockout are retained explicitly. The focused projects passed:
+  `OSSMDotNet.Tests` 205/205, `OSSMDotNet.Simulator.IntegrationTests` 72/72,
+  `ControlCore.Tests` 50/50, `ControlService.Tests` 214/214, and sequential
+  `ControlService.IntegrationTests` 66/66.
 
 ### 5. Extract Api and cut over composition
+
+**Status:** Complete on 23 September 2026.
 
 - **Depends on:** Task 4; coordinate library/project conversion in this increment.
 - **Owner/scope:** New `OSSMDotNet.Api`; existing `Program.cs`, authentication,
@@ -136,8 +188,22 @@ increment; intermediate states need not be independently deployable.
   evidence. Existing same-process semaphore/options tests alone do not establish
   cross-process exclusion or actual socket exposure. Keep unit and integration
   projects named after their owning assembly and reuse shared fakes.
+- **Evidence:** `OSSMDotNet.Api` is the only control host; ControlService is a
+  class library, and AppHost builds with Api under the existing `control`
+  resource. The old host copies and project exclusions were removed; host and
+  authority tests live with their owners. Two real Api processes demonstrate
+  competing-owner rejection during managed shutdown and acquisition after
+  release. Process checks also verify that conflicting `ASPNETCORE_URLS` and
+  `DOTNET_URLS` values open no additional listener. The lease outlives async
+  host disposal. Focused MTP projects passed: `Api.Tests` 117/117,
+  `Api.IntegrationTests` 67/67, `ControlService.Tests` 97/97,
+  `ControlService.IntegrationTests` 2/2, and `ControlClient.Tests` 56/56.
+  This proves new/new process exclusion on Windows, not old/new binary coexistence
+  or physical stopping.
 
 ### 6. Verify consumers and complete documentation
+
+**Status:** Complete on 23 September 2026.
 
 - **Depends on:** Task 5.
 - **Owner/scope:** ControlClient, AdminWeb/GuestWeb tests, focused browser checks,
@@ -154,6 +220,22 @@ increment; intermediate states need not be independently deployable.
 - **Documentation:** Update the diagram to show Api hosting ControlService only
   after cutover works. Record actual evidence, unresolved conformance gaps and
   task completion here; do not retain a second checklist in the design.
+- **Evidence:** The final focused MTP runs passed `AdminWeb.Tests` 15/15,
+  `GuestWeb.Tests` 26/26, `Cli.Tests` 21/21, `DeviceCli.Tests` 12/12, and
+  `DeviceCli.IntegrationTests` 8/8. `ControlClient.Tests` passed 56/56 at
+  cutover. With Python 3.13.15 in the local uv environment, the guest browser
+  modules passed 6/6 and lifecycle modules 2/2. The isolated Aspire
+  `control`, `admin` and `guest` services became healthy; focused operator
+  layout and the full Edge simulator browser journey passed, including
+  invitation, approval, Send, Stop, non-pausing limits, leave/rejoin, End,
+  cycle revocation, second-guest rejection, guest socket loss, and operator
+  recovery. Component regressions separately prove delivery resync ends the
+  guest and closes its connection before the server timeout, while unexpected
+  loss retains its inline danger alert. The diagram shows
+  Api hosting ControlService as a library. The first combined browser-module
+  run had one intermittent blur assertion failure; isolated and subsequent
+  combined runs passed. That test timing remains a residual reliability risk,
+  not evidence of a verified production fix.
 
 ## Risks and blocked conformance work
 

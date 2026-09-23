@@ -36,6 +36,11 @@ The stock reference is firmware `1.0.34` at
 not qualification of every unit reporting that version. The simulator uses the
 native OSSM-RS engine and is not a stock-firmware emulator.
 
+The locally retained [firmware evidence snapshot](../../references/device-control/stock-firmware-1.0.34-evidence.md)
+records the inspected behavior and pinned source links. Agents changing device
+tests or feedback handling must also follow the distilled
+[stock firmware agent guide](../../references/device-control/stock-firmware-agent-guide.md).
+
 The following are pinned firmware facts, not additional requirement copies:
 
 | Evidence                                             | Reported stock behavior                                                                                                                                                                                                                                                                                                 |

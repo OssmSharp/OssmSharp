@@ -106,12 +106,12 @@
 <body>
   <main>
     <header>
-        <p class="eyebrow">Existing architecture reference / .NET 10</p>
+        <p class="eyebrow">Current architecture reference / .NET 10</p>
       <h1>OSSM system architecture</h1>
-      <p>The <a href="../specs/web-control-design.md">replacement web-control design</a> is <strong>NOT YET IMPLEMENTED</strong>:
-        it proposes <code>OSSMDotNet.Api</code> hosting <code>OSSMDotNet.ControlService</code> as a business logic library, not a fourth process.
-        SignalR remains the control transport; no REST control surface is proposed.</p>
-      <p class="lead">AdminWeb and GuestWeb are server-side Blazor hosts. One SignalR ControlService owns sessions, safety policy, ControlCore and every device write.</p>
+      <p>Task 5 of the <a href="../specs/web-control-design.md">replacement web-control design</a> is implemented:
+        <code>OSSMDotNet.Api</code> hosts <code>OSSMDotNet.ControlService</code> as a business logic library, not a fourth process.
+        SignalR remains the control transport; there is no REST control surface.</p>
+      <p class="lead">AdminWeb and GuestWeb are server-side Blazor hosts. Api is the SignalR and device-owning process; its ControlService library owns sessions, policy and application operations.</p>
       <nav aria-label="Architecture views">
         <a href="#deployment">01 &nbsp; Deployment &amp; connections</a>
         <a href="#enforcement">02 &nbsp; Control enforcement</a>
@@ -124,14 +124,14 @@
         <span class="view-number" aria-hidden="true">01</span>
         <div>
           <h2 id="deployment-heading">Deployment &amp; connections</h2>
-          <p>Separately hostable web hosts call one ControlService. Remote access ends at GuestWeb; AdminWeb is deliberately unauthenticated and loopback-only.</p>
+          <p>Separately hostable web hosts call one Api. Remote access ends at GuestWeb; AdminWeb is deliberately unauthenticated and loopback-only.</p>
         </div>
       </div>
       <figure>
         <div class="viewport" role="region" tabindex="0" aria-label="Deployment diagram. Scroll horizontally on narrow screens.">
           <svg viewBox="0 0 1280 720" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="dep-title dep-desc">
-            <title id="dep-title">OSSM deployment: web hosts and ControlService</title>
-            <desc id="dep-desc">A guest browser connects to GuestWeb over HTTPS and WSS. GuestWeb and AdminWeb are server-side Blazor hosts that call ControlService through the SignalR endpoint /hubs/control/v1 over HTTPS and WSS. AdminWeb and GuestWeb use separately generated service keys; those keys authenticate the hosts, while ControlService independently validates invitation and session capabilities for guest operations. AdminWeb is unauthenticated for its local human operator and bound to 127.0.0.1 with Host/Origin protection. The CLI also calls ControlService. Only ControlService's private .NET bridge reaches OSSM over BLE. Local one-box mode places the same browser and all hosts on one computer without changing guest authorization. No named-pipe or REST control surface exists.</desc>
+            <title id="dep-title">OSSM deployment: web hosts and Api</title>
+            <desc id="dep-desc">A guest browser connects to GuestWeb over HTTPS and WSS. GuestWeb and AdminWeb are server-side Blazor hosts that call Api through the SignalR endpoint /hubs/control/v1 over HTTPS and WSS. AdminWeb and GuestWeb use separately generated service keys; those keys authenticate the hosts, while the hosted ControlService library independently validates invitation and session capabilities for guest operations. AdminWeb is unauthenticated for its local human operator and bound to 127.0.0.1 with Host/Origin protection. The CLI also calls Api. Only Api's selected device adapter reaches OSSM. Local one-box mode places the same browser and all hosts on one computer without changing guest authorization. No named-pipe or REST control surface exists.</desc>
             <defs>
               <marker id="dep-arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M 0 0 L 8 4 L 0 8 Z" fill="#4f5d75"/></marker>
               <marker id="dep-arrow-accent" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M 0 0 L 8 4 L 0 8 Z" fill="#eb6c36"/></marker>
@@ -204,17 +204,17 @@
             <g data-node="dep-admin">
               <rect x="760" y="320" width="240" height="208" rx="8" class="node-bg"/>
               <rect x="760" y="320" width="240" height="208" rx="8" class="node focal"/>
-              <text x="784" y="352" class="tech">PROCESS 02 / SERVICE</text>
-              <text x="784" y="388" class="name">ControlService</text>
+              <text x="784" y="352" class="tech">PROCESS 03 / API</text>
+              <text x="784" y="388" class="name">Api</text>
               <text x="784" y="420" class="tech">.NET 10 / SIGNALR</text>
-              <text x="784" y="456" class="body">Sessions + policy + ControlCore</text>
+              <text x="784" y="456" class="body">Hosts ControlService + ControlCore</text>
               <text x="784" y="484" class="body">Single device owner</text>
               <text x="784" y="508" class="tech">Includes .NET bridge</text>
             </g>
             <g data-node="dep-operator">
               <rect x="712" y="160" width="288" height="88" rx="8" class="node-bg"/>
               <rect x="712" y="160" width="288" height="88" rx="8" class="node client"/>
-              <text x="736" y="184" class="tech">ADMINWEB / CONTROL CLI</text>
+              <text x="736" y="184" class="tech">PROCESS 02 / ADMINWEB + CLI</text>
               <text x="736" y="216" class="name-small">Direct control clients</text>
             </g>
             <g data-node="dep-device">
@@ -243,7 +243,7 @@
             </g>
           </svg>
         </div>
-        <figcaption>One-box means one computer, not one process. GuestWeb exposes no operator operation or device access. AdminWeb and GuestWeb authenticate to ControlService with distinct generated keys over HTTPS/WSS; ControlService independently validates the guest invitation/session capability. The keys are host credentials, not human authentication. AdminWeb, GuestWeb and ControlService may be separate processes; AdminWeb remains unauthenticated and loopback-only, which does not isolate compromised code running as the same user. A local operator can generate a session link in one click; that link points to GuestWeb, never ControlService.</figcaption>
+        <figcaption>One-box means one computer, not one process. GuestWeb exposes no operator operation or device access. AdminWeb and GuestWeb authenticate to Api with distinct generated keys over HTTPS/WSS; the hosted ControlService library independently validates the guest invitation/session capability. The keys are host credentials, not human authentication. AdminWeb, GuestWeb and Api are the three service processes; AdminWeb remains unauthenticated and loopback-only, which does not isolate compromised code running as the same user. A local operator can generate a session link in one click; that link points to GuestWeb, never Api.</figcaption>
       </figure>
     </section>
 
@@ -252,7 +252,7 @@
         <span class="view-number" aria-hidden="true">02</span>
         <div>
           <h2 id="enforcement-heading">Control enforcement</h2>
-          <p>ControlService independently decides whether each hub command can reach the device; its controller checks again at execution.</p>
+          <p>Api authenticates and validates each hub command; ControlService decides application authority and ControlCore checks again at execution.</p>
         </div>
       </div>
       <figure>
@@ -269,7 +269,7 @@
             <g data-boundary="admin-process">
               <rect x="312" y="56" width="928" height="512" rx="8" class="boundary"/>
               <rect x="328" y="44" width="456" height="24" class="mask"/>
-              <text x="336" y="60" class="boundary-name">CONTROLSERVICE / AUTHORITATIVE ENFORCEMENT</text>
+              <text x="336" y="60" class="boundary-name">API HOST + CONTROLSERVICE / AUTHORITATIVE ENFORCEMENT</text>
             </g>
 
             <g data-edge="ctl-input" data-from="ctl-request" data-to="ctl-access">
@@ -421,14 +421,14 @@
         <span class="view-number" aria-hidden="true">03</span>
         <div>
           <h2 id="projects-heading">Logical component dependencies</h2>
-          <p>The view follows runtime responsibility rather than every project reference: user-facing hosts invoke the control services, ControlService owns policy and device work in this application, and the standalone device libraries provide the sole device path.</p>
+          <p>The view follows runtime responsibility rather than every project reference: user-facing hosts invoke Api, its ControlService library owns application policy, and the standalone device libraries provide the sole device path.</p>
         </div>
       </div>
       <figure>
         <div class="viewport" role="region" tabindex="0" aria-label="Source project dependency diagram. Scroll horizontally on narrow screens.">
           <svg viewBox="0 0 1472 1064" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="projects-title projects-desc">
             <title id="projects-title">OSSM logical component dependencies</title>
-            <desc id="projects-desc">A top-to-bottom logical architecture showing AdminWeb, GuestWeb, and Cli invoking ControlClient in process; DeviceCli managing a persistent per-user diagnostic host that invokes the standalone device libraries directly; ControlClient using SignalR over HTTPS and WSS to call ControlService; ControlService owning ControlCore and hosting the standalone device contract and implementation libraries; OSSMDotNet.Simulator communicating with the external ossm-sim-bridge process through JSON-lines over standard input and output; and Models and ServiceDefaults shown as shared supporting projects.</desc>
+            <desc id="projects-desc">A top-to-bottom logical architecture showing AdminWeb, GuestWeb, and Cli invoking ControlClient in process; DeviceCli managing a persistent per-user diagnostic host that invokes the standalone device libraries directly; ControlClient using SignalR over HTTPS and WSS to call Api; Api hosting the ControlService library, ControlCore and selected device implementation; OSSMDotNet.Simulator communicating with the external ossm-sim-bridge process through JSON-lines over standard input and output; and Models and ServiceDefaults shown as shared supporting projects.</desc>
             <defs>
               <marker id="projects-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#667085"/></marker>
               <marker id="projects-arrow-cyan" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#53d6ff"/></marker>
@@ -510,11 +510,11 @@
             </g>
 
             <!-- Service tier -->
-            <g data-project="ControlService">
+            <g data-project="Api">
               <rect x="448" y="440" width="256" height="96" rx="6" class="projects-node-focal"/>
-              <text x="464" y="472" class="projects-meta">AUTHORITATIVE CONTROL SERVICE</text>
-              <text x="464" y="504" class="projects-text projects-name">ControlService</text>
-              <text x="464" y="524" class="projects-meta">sessions / policy / writer</text>
+              <text x="464" y="472" class="projects-meta">SIGNALR + DEVICE HOST</text>
+              <text x="464" y="504" class="projects-text projects-name">Api</text>
+              <text x="464" y="524" class="projects-meta">hosts ControlService library</text>
             </g>
             <!-- Control, bridge, and contract tier -->
             <g data-project="ControlCore">
@@ -552,22 +552,22 @@
             </g>
           </svg>
         </div>
-        <figcaption>Only application transport boundaries are labelled: ControlClient reaches ControlService through SignalR over WSS, and OSSMDotNet.Simulator reaches the native simulator through JSON-lines over standard input/output. DeviceCli manages one persistent per-user software diagnostic host through private local process IPC; that IPC is not an application control transport or authority boundary. The device libraries are independently buildable and consumable; ControlService hosts one instance and alone owns policy and device activity in the web application.</figcaption>
+        <figcaption>Only application transport boundaries are labelled: ControlClient reaches Api through SignalR over WSS, and OSSMDotNet.Simulator reaches the native simulator through JSON-lines over standard input/output. DeviceCli manages one persistent per-user software diagnostic host through private local process IPC; that IPC is not an application control transport or authority boundary. The device libraries are independently buildable and consumable; Api hosts one ControlService/controller/device lifetime.</figcaption>
       </figure>
     </section>
 
     <aside class="constraints" aria-labelledby="constraints-heading">
       <h2 id="constraints-heading">What these boundaries do &mdash; and do not &mdash; guarantee</h2>
       <p><strong>No accounts.</strong> AdminWeb is deliberately unauthenticated on loopback; AdminWeb/GuestWeb host keys and guest invitation/session capabilities are separate credentials. Creating a session link does not approve a guest, arm the device or start motion.</p>
-      <p><strong>No direct guest control.</strong> GuestWeb cannot invoke operator methods or obtain device permissions. ControlService still constrains input from a compromised guest host that possesses a valid guest capability.</p>
+      <p><strong>No direct guest control.</strong> GuestWeb cannot invoke operator methods or obtain device permissions. Api and ControlService still constrain input from a compromised guest host that possesses a valid guest capability.</p>
       <p><strong>Physical overrides take precedence.</strong> Device parameter changes not explained by an owned command trigger lockout and Stop. Expected command readback is distinguished from external changes. The physical remote's detectability and stopping behavior must be demonstrated on the selected firmware.</p>
       <p><strong>Physical release remains gated.</strong> ControlService, OS or bridge failure can prevent a software Stop. Independent stopping on the selected hardware/firmware must be demonstrated; a completed write or readback is not physical stop confirmation. The 750 ms grant and tunable 1 s/3 s loss detection are not hardware qualification or real-time safety guarantees.</p>
     </aside>
 
     <footer>
-      <p>Pre-split architecture reference &middot; status clarified 22 September 2026 &middot; This view does not establish implementation conformance or hardware qualification.</p>
+      <p>Api/ControlService split implemented 23 September 2026 &middot; This view does not establish full design conformance or hardware qualification.</p>
       <p>Source: <a href="../specs/README.md">architecture and requirements</a> &middot; <a href="../specs/device-control/spec.md">device-control contract</a> &middot; <a href="../specs/README.md#logical-modules">logical modules</a>.</p>
-      <p>Overview omits proxy/tunnel setup, service-key provisioning and native bridge provisioning. ControlService's hub is <code>/hubs/control/v1</code>; there is no named-pipe or REST control surface. The bridge implementation remains subject to host-platform qualification. Fonts use local fallbacks when offline.</p>
+      <p>Overview omits proxy/tunnel setup, service-key provisioning and native bridge provisioning. Api's hub is <code>/hubs/control/v1</code>; there is no named-pipe or REST control surface. The bridge implementation remains subject to host-platform qualification. Fonts use local fallbacks when offline.</p>
     </footer>
   </main>
 </body>
