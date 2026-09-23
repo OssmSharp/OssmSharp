@@ -21,7 +21,7 @@ internal sealed class DeviceLoopIntegrationHarness : IAsyncDisposable
             _loggerFactory.CreateLogger<SimulatedDevice>());
         Device.ConnectionStateChanged += OnConnectionStateChanged;
         Device.DeviceStateChanged += OnDeviceStateChanged;
-        Engine = new PrototypeEngine(Device, TimeProvider.System);
+        Engine = new ControlEngine(Device, TimeProvider.System);
         Authority = new ControlAuthority(Engine, TimeProvider.System);
         Registry = new ControlHubConnectionRegistry();
         Guests = new GuestControlOperations(Authority);
@@ -47,7 +47,7 @@ internal sealed class DeviceLoopIntegrationHarness : IAsyncDisposable
 
     internal ControlActivityProvider Activity { get; }
     internal SimulatedDevice Device { get; }
-    internal PrototypeEngine Engine { get; }
+    internal ControlEngine Engine { get; }
     internal ControlAuthority Authority { get; }
     internal ControlHubConnectionRegistry Registry { get; }
     internal GuestControlOperations Guests { get; }

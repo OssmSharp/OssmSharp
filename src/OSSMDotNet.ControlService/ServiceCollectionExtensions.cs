@@ -3,8 +3,8 @@ using Microsoft.Extensions.Logging;
 using OSSMDotNet.ControlCore;
 using OSSMDotNet.ControlService.Activity;
 using OSSMDotNet.ControlService.Authority;
-using OSSMDotNet.ControlService.Operations;
 using OSSMDotNet.ControlService.Models;
+using OSSMDotNet.ControlService.Operations;
 
 namespace OSSMDotNet.ControlService;
 
@@ -19,7 +19,7 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddControlService(this IServiceCollection services)
     {
         services.AddControlActivity();
-        services.AddSingleton<PrototypeEngine>();
+        services.AddSingleton<ControlEngine>();
         services.AddSingleton<ControlAuthority>();
         services.AddSingleton<GuestControlOperations>();
         services.AddSingleton<IControlOperations, ControlOperations>();

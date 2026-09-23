@@ -55,7 +55,7 @@ increment; intermediate states need not be independently deployable.
 
 **Status:** Complete on 23 September 2026.
 
-- **Owner/scope:** Core and device composition; `PrototypeEngine.cs`,
+- **Owner/scope:** Core and device composition; `ControlEngine.cs`,
   `DeviceLoop.cs`, service registrations and affected project references.
 - **Work:** Reconcile obsolete bridge consumers with the existing `IOssmDevice`
   adapters, including feedback, lifetime and privileged simulator controls.
@@ -85,8 +85,8 @@ increment; intermediate states need not be independently deployable.
 **Status:** Complete on 23 September 2026.
 
 - **Depends on:** Task 1.
-- **Owner/scope:** Application policy currently in `PrototypeEngine.cs`;
-  `PrototypeEngineTests.cs` and `LimitsPolicyTests.cs`.
+- **Owner/scope:** Application policy currently in `ControlEngine.cs`;
+  `ControlEngineTests.cs` and `LimitsPolicyTests.cs`.
 - **Work:** Prove an eleventh authenticated attempt within a rolling second is
   rejected, then replace the token bucket. Update the existing capacity-20 test
   to the approved contract rather than remove the test.
@@ -111,7 +111,7 @@ increment; intermediate states need not be independently deployable.
 **Status:** Complete on 23 September 2026.
 
 - **Depends on:** Task 1; coordinate shared engine edits with task 2.
-- **Owner/scope:** ControlCore controller contracts and `PrototypeEngine.cs`;
+- **Owner/scope:** ControlCore controller contracts and `ControlEngine.cs`;
   the affected core tests, particularly `LimitsPolicyTests.cs`.
 - **Work:** Expose arm/limit operations that atomically check and commit
   execution-side preconditions. Do not replace them with snapshot reads followed
@@ -154,7 +154,7 @@ increment; intermediate states need not be independently deployable.
   rotation during unsettled I/O, expiry, and policy changes without lease extension.
 - **Evidence:** `ControlAuthority` now owns invitation proofs, connection-bound
   admissions, session expiry, policy versions, grants, sequences, rolling input
-  attempts and role-scoped projections under one lock. `PrototypeEngine` exposes
+  attempts and role-scoped projections under one lock. `ControlEngine` exposes
   only execution state and atomic arm, limits, Stop, unlock and accepted-motion
   operations; accepted motion carries the original monotonic grant deadline and
   no guest session state. `GuestControlOperations` is independent of SignalR and

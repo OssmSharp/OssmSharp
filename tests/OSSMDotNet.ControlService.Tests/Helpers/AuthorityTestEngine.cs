@@ -6,7 +6,7 @@ namespace OSSMDotNet.ControlService.Tests.Helpers;
 /// <param name="core">The engine used when no approved session can be armed through authority.</param>
 /// <param name="authority">The authority under test.</param>
 internal sealed class AuthorityTestEngine(
-    PrototypeEngine core,
+    ControlEngine core,
     ControlAuthority authority)
 {
     internal ControlSnapshot Snapshot => authority.Read().Snapshot;

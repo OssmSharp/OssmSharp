@@ -209,7 +209,7 @@ public sealed partial class ControlPushDispatcherTests
     /// </summary>
     private sealed class DispatcherFixture : IAsyncDisposable
     {
-        private DispatcherFixture(FakeBridge bridge, PrototypeEngine engine, ControlAuthority authority,
+        private DispatcherFixture(FakeBridge bridge, ControlEngine engine, ControlAuthority authority,
             ControlHubConnectionRegistry registry, ControlActivityProvider activity, ILoggerFactory loggerFactory,
             TestPushSink sink, ControlPushDispatcher dispatcher)
         {
@@ -224,7 +224,7 @@ public sealed partial class ControlPushDispatcherTests
         }
 
         internal FakeBridge Bridge { get; }
-        internal PrototypeEngine Engine { get; }
+        internal ControlEngine Engine { get; }
         internal ControlAuthority Authority { get; }
         internal ControlHubConnectionRegistry Registry { get; }
         internal ControlActivityProvider Activity { get; }
@@ -235,7 +235,7 @@ public sealed partial class ControlPushDispatcherTests
         internal static async Task<DispatcherFixture> CreateAsync()
         {
             var bridge = new FakeBridge();
-            var engine = new PrototypeEngine(bridge, TimeProvider.System);
+            var engine = new ControlEngine(bridge, TimeProvider.System);
             bridge.Connected = true;
             bridge.Publish();
             var authority = new ControlAuthority(engine, TimeProvider.System);

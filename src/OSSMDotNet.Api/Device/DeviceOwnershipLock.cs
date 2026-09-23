@@ -5,7 +5,7 @@ namespace OSSMDotNet.Api.Device;
 /// </summary>
 internal sealed class DeviceOwnershipLock : IDisposable
 {
-    private const string LocalName = "ossm-web-controls-prototype-device";
+    private const string LocalName = "ossm-web-controls-device";
     private readonly Semaphore _semaphore;
     private int _disposed;
 

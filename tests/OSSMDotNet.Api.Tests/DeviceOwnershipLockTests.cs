@@ -9,8 +9,8 @@ public sealed class DeviceOwnershipLockTests
     public void OwnershipNameUsesTheMachineGlobalWindowsNamespace()
     {
         var expected = OperatingSystem.IsWindows()
-            ? @"Global\ossm-web-controls-prototype-device"
-            : "ossm-web-controls-prototype-device";
+            ? @"Global\ossm-web-controls-device"
+            : "ossm-web-controls-device";
 
         Assert.Equal(expected, DeviceOwnershipLock.Name);
     }

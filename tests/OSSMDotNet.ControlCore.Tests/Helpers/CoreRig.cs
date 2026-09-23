@@ -27,7 +27,7 @@ internal sealed class CoreRig : IAsyncDisposable
     /// </summary>
     internal WallClockTimeProvider Clock => _clock;
     internal FakeBridge Bridge { get; } = new();
-    internal PrototypeEngine Engine { get; }
+    internal ControlEngine Engine { get; }
 
     /// <summary>
     /// Converts a duration to a deadline on the engine's timestamp clock.

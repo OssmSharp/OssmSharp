@@ -72,7 +72,7 @@ public sealed class ControlAuthorityTests
     {
         await using var bridge = new FakeBridge();
         var time = new ManualTimeProvider();
-        await using var engine = new PrototypeEngine(bridge, time);
+        await using var engine = new ControlEngine(bridge, time);
         bridge.Connected = true;
         bridge.Publish();
         await using var authority = new ControlAuthority(engine, time);
@@ -97,9 +97,9 @@ public sealed class ControlAuthorityTests
         Assert.Null(authority.Read().Snapshot.Grant);
     }
 
-    private static PrototypeEngine CreateEngine(FakeBridge bridge)
+    private static ControlEngine CreateEngine(FakeBridge bridge)
     {
-        var engine = new PrototypeEngine(bridge, TimeProvider.System);
+        var engine = new ControlEngine(bridge, TimeProvider.System);
         bridge.Connected = true;
         bridge.Publish();
         return engine;

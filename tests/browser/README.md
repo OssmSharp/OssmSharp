@@ -45,7 +45,7 @@ instance:
     adminUrl = 'http://127.0.0.1:<admin-port>'
     guestOrigin = 'http://127.0.0.1:<guest-port>'
     browser = 'firefox' # or 'edge'
-} | ConvertTo-Json -Compress | uv run --with-requirements tests\browser\requirements.txt python tests\browser\prototype_smoke.py
+} | ConvertTo-Json -Compress | uv run --with-requirements tests\browser\requirements.txt python tests\browser\control_smoke.py
 ```
 
 For fast iteration on the operator layout contract, run only that browser scope.
@@ -55,5 +55,5 @@ It does not create a guest session:
 @{
     adminUrl = 'http://127.0.0.1:<admin-port>'
     scope = 'operator-layout'
-} | ConvertTo-Json -Compress | uv run --with-requirements tests\browser\requirements.txt python tests\browser\prototype_smoke.py
+} | ConvertTo-Json -Compress | uv run --with-requirements tests\browser\requirements.txt python tests\browser\control_smoke.py
 ```

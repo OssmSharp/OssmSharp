@@ -3,8 +3,8 @@
 `ossm-sim-bridge` is the external runtime used by the current standalone
 `OSSMDotNet.Simulator` .NET library. It is a bounded, native JSON-lines adapter
 for the **existing OSSM-RS motion engine**. The executable is built separately
-and supplied to the .NET library at runtime; it is for a local controller
-prototype, not hardware operation or stock-firmware qualification.
+and supplied to the .NET library at runtime; it is for local simulator use,
+not hardware operation or stock-firmware qualification.
 
 It has no GUI, network endpoint, BLE, serial port, device I/O, homing procedure,
 or saved-state persistence. Its motor implementation is a no-op. Position and

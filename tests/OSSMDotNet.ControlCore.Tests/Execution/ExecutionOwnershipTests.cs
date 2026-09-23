@@ -416,7 +416,7 @@ public sealed class ExecutionOwnershipTests
     public async Task UnsupportedDeviceProfileNeverQualifiesAndDisposalUnsubscribes()
     {
         await using var bridge = new FakeBridge { Profile = "native-device" };
-        var engine = new PrototypeEngine(bridge, new Microsoft.Extensions.Time.Testing.FakeTimeProvider());
+        var engine = new ControlEngine(bridge, new Microsoft.Extensions.Time.Testing.FakeTimeProvider());
         bridge.Connected = true;
         bridge.Publish();
 

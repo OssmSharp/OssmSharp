@@ -28,7 +28,7 @@ internal sealed class LocalSimulatorControlFixture : IAsyncDisposable
             _changes.Writer.TryWrite(change);
         };
         Device.ConnectionStateChanged += state => _connections.Writer.TryWrite(state);
-        Engine = new PrototypeEngine(Device, TimeProvider.System);
+        Engine = new ControlEngine(Device, TimeProvider.System);
         Authority = new ControlAuthority(Engine, TimeProvider.System);
         Operations = new ControlOperations(
             Authority,
@@ -44,7 +44,7 @@ internal sealed class LocalSimulatorControlFixture : IAsyncDisposable
 
     internal ControlActivityProvider Activity { get; }
     internal SimulatedDevice Device { get; }
-    internal PrototypeEngine Engine { get; }
+    internal ControlEngine Engine { get; }
     internal ControlAuthority Authority { get; }
     internal ControlOperations Operations { get; }
     internal SimulatorFaultOperations Faults { get; }

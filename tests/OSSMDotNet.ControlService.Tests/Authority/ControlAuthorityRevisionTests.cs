@@ -189,14 +189,14 @@ public sealed class ControlAuthorityRevisionTests
         private AuthorityFixture()
         {
             Bridge = new FakeBridge();
-            Engine = new PrototypeEngine(Bridge, TimeProvider.System);
+            Engine = new ControlEngine(Bridge, TimeProvider.System);
             Bridge.Connected = true;
             Bridge.Publish();
             Authority = new ControlAuthority(Engine, TimeProvider.System);
         }
 
         internal FakeBridge Bridge { get; }
-        internal PrototypeEngine Engine { get; }
+        internal ControlEngine Engine { get; }
         internal ControlAuthority Authority { get; }
         internal string CurrentGuestConnectionId => Authority.Read().Snapshot.ConnectionId ?? "guest-connection";
 

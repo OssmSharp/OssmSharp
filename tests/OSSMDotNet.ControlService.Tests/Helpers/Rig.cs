@@ -10,13 +10,13 @@ internal sealed class Rig : IAsyncDisposable
     public ManualTimeProvider Time { get; } = new();
     public ManualTimeProvider Clock => Time;
     public FakeBridge Bridge { get; } = new();
-    public PrototypeEngine Core { get; }
+    public ControlEngine Core { get; }
     public AuthorityTestEngine Engine { get; }
     public JoinResult Guest { get; private set; } = null!;
 
     public Rig()
     {
-        Core = new PrototypeEngine(Bridge, Time);
+        Core = new ControlEngine(Bridge, Time);
         Engine = new(Core, new ControlAuthority(Core, Time));
         Bridge.Connected = true;
         Bridge.Publish();
@@ -27,7 +27,7 @@ internal sealed class Rig : IAsyncDisposable
     public void ConnectGuest()
     {
         var invitation = Invite();
-        Guest = Engine.Join(invitation.SessionId, PrototypeEngineTests.Secret(invitation), "connection");
+        Guest = Engine.Join(invitation.SessionId, ControlEngineTests.Secret(invitation), "connection");
     }
 
     /// <summary>

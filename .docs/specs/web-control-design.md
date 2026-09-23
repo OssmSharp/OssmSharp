@@ -37,7 +37,7 @@ rather than writing the device directly. Both web hosts use
 
 The pre-split application/execution separation was incomplete: invitation,
 admission and guest-input operations lived in
-[`PrototypeEngine`](../../src/OSSMDotNet.ControlCore/PrototypeEngine.cs).
+[`ControlEngine`](../../src/OSSMDotNet.ControlCore/ControlEngine.cs).
 [`ControlAuthority`](../../src/OSSMDotNet.ControlService/ControlAuthority.cs)
 now owns that application state. These source observations do not establish
 full design conformance.

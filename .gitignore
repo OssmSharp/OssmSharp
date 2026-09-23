@@ -20,13 +20,12 @@ target
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
-# .NET prototype output and local run state
+# .NET build output and local run state
 **/bin/
 **/obj/
 **/TestResults/
 *.binlog
 .artifacts/
-.prototype/
 artifacts/
 
 # Python and uv local environments and generated caches

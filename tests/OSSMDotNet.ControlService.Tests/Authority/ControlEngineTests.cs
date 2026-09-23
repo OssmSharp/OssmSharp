@@ -1,13 +1,13 @@
-using OSSMDotNet.Models;
-using OSSMDotNet.ControlService.Tests;
 using OSSMDotNet.ControlCore.Tests;
+using OSSMDotNet.ControlService.Tests;
+using OSSMDotNet.Models;
 
 namespace OSSMDotNet.ControlService.Tests.Authority;
 
 /// <summary>
 /// Checks control-engine state and device feedback through the application authority layer.
 /// </summary>
-public sealed class PrototypeEngineTests
+public sealed class ControlEngineTests
 {
     [Fact]
     public async Task DefaultLimitsAllowExplicitControlWithoutASeparateLimitsStep()
@@ -837,7 +837,7 @@ public sealed class PrototypeEngineTests
     public async Task UnsupportedDeviceProfileNeverQualifiesAndDisposalUnsubscribes()
     {
         await using var bridge = new FakeBridge { Profile = "native-device" };
-        await using var engine = new PrototypeEngine(bridge, new ManualTimeProvider());
+        await using var engine = new ControlEngine(bridge, new ManualTimeProvider());
         bridge.Publish();
         Rejected(engine.Recover);
         Assert.False(engine.Snapshot.BridgeReady);

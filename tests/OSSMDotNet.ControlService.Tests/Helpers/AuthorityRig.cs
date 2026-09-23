@@ -20,7 +20,7 @@ internal sealed class AuthorityRig : IAsyncDisposable
 
     internal ManualTimeProvider Time { get; } = new();
     internal FakeBridge Bridge { get; } = new();
-    internal PrototypeEngine Core { get; }
+    internal ControlEngine Core { get; }
     internal ControlAuthority Authority { get; }
     internal AuthorityTestEngine Engine { get; }
     internal JoinResult Guest { get; private set; } = null!;

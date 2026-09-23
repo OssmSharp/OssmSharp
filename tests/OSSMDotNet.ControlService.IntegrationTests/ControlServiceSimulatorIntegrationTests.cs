@@ -18,7 +18,7 @@ public sealed class ControlServiceSimulatorIntegrationTests
             TimeProvider.System,
             NullLogger<SimulatedDevice>.Instance);
         device.DeviceStateChanged += change => CompleteState(change, firstState);
-        await using var engine = new PrototypeEngine(device, TimeProvider.System);
+        await using var engine = new ControlEngine(device, TimeProvider.System);
         await using var authority = new ControlAuthority(engine, TimeProvider.System);
         using var activity = new ControlActivityProvider(TimeProvider.System);
         var operations = new ControlOperations(

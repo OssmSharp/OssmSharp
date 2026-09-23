@@ -10,7 +10,7 @@ namespace OSSMDotNet.ControlService.Authority;
 /// <summary>Owns and serializes invitations, guest authority, policy, grants, and application deadlines.</summary>
 /// <param name="engine">The device execution engine controlled by this authority.</param>
 /// <param name="time">The clock used for grants and application deadlines.</param>
-public sealed class ControlAuthority(PrototypeEngine engine, TimeProvider time) : IAsyncDisposable
+public sealed class ControlAuthority(ControlEngine engine, TimeProvider time) : IAsyncDisposable
 {
     private static readonly TimeSpan GrantLifetime = TimeSpan.FromMilliseconds(750);
     private readonly object _gate = new();

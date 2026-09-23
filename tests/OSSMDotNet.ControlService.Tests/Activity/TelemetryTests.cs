@@ -11,7 +11,7 @@ public sealed class TelemetryTests
     public async Task JoinedGuestReceivesScopedActualSettingsAndMotion()
     {
         await using var bridge = new FakeBridge { Position = 73.5, Velocity = -6.25 };
-        await using var engine = new PrototypeEngine(bridge, TimeProvider.System);
+        await using var engine = new ControlEngine(bridge, TimeProvider.System);
         bridge.Connected = true;
         bridge.Publish();
         await using var authority = new ControlAuthority(engine, TimeProvider.System);

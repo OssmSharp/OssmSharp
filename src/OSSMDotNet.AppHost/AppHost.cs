@@ -3,7 +3,7 @@ using System.Security.Cryptography;
 
 var builder = DistributedApplication.CreateBuilder(args);
 if (!builder.ExecutionContext.IsRunMode)
-    throw new InvalidOperationException("This simulator prototype supports local Aspire runs only.");
+    throw new InvalidOperationException("This simulator setup supports local Aspire runs only.");
 
 var simulatorDirectory = Path.GetFullPath(Path.Combine(builder.AppHostDirectory, "..", "..", "tools", "ossm-sim-bridge"));
 var simulatorPath = Path.Combine(simulatorDirectory, "target", "release",

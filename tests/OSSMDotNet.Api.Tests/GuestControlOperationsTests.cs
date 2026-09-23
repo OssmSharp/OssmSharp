@@ -273,7 +273,7 @@ public sealed class GuestControlOperationsTests
         private GuestFixture()
         {
             Bridge = new FakeBridge();
-            Engine = new PrototypeEngine(Bridge, TimeProvider.System);
+            Engine = new ControlEngine(Bridge, TimeProvider.System);
             Bridge.Connected = true;
             Bridge.Publish();
             Authority = new ControlAuthority(Engine, TimeProvider.System);
@@ -282,7 +282,7 @@ public sealed class GuestControlOperationsTests
         }
 
         internal FakeBridge Bridge { get; }
-        internal PrototypeEngine Engine { get; }
+        internal ControlEngine Engine { get; }
         internal ControlAuthority Authority { get; }
         internal ControlHubConnectionRegistry Registry { get; }
         internal GuestOperationsHarness Guests { get; }

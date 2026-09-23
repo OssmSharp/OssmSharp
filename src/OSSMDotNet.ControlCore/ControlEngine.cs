@@ -5,7 +5,7 @@ using OSSMDotNet.Models;
 namespace OSSMDotNet.ControlCore;
 
 /// <summary>Coordinates device execution, safety policy, and the single device writer.</summary>
-public sealed class PrototypeEngine : IAsyncDisposable
+public sealed class ControlEngine : IAsyncDisposable
 {
     private const string SimulatorProfile = "ossm-rs-sim-v1";
     private static readonly TimeSpan FeedbackFreshness = TimeSpan.FromMilliseconds(1500);
@@ -52,7 +52,7 @@ public sealed class PrototypeEngine : IAsyncDisposable
     /// </summary>
     /// <param name="device">The single owned device writer and feedback source.</param>
     /// <param name="timeProvider">The clock used for deadlines and feedback freshness.</param>
-    public PrototypeEngine(IOssmDevice device, TimeProvider timeProvider)
+    public ControlEngine(IOssmDevice device, TimeProvider timeProvider)
     {
         _device = device ?? throw new ArgumentNullException(nameof(device));
         _time = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));

@@ -22,7 +22,7 @@ internal sealed partial class LocalControlServiceHubFixture : IAsyncDisposable
     {
         Time = new ManualTimeProvider();
         Bridge = new FakeBridge();
-        Engine = new PrototypeEngine(Bridge, Time);
+        Engine = new ControlEngine(Bridge, Time);
         Bridge.Connected = true;
         Bridge.Publish();
         Authority = new ControlAuthority(Engine, Time);
@@ -39,7 +39,7 @@ internal sealed partial class LocalControlServiceHubFixture : IAsyncDisposable
 
     internal ManualTimeProvider Time { get; }
     internal FakeBridge Bridge { get; }
-    internal PrototypeEngine Engine { get; }
+    internal ControlEngine Engine { get; }
     internal ControlAuthority Authority { get; }
     internal ControlHubConnectionRegistry Registry { get; }
     internal ControlActivityProvider Activity { get; }

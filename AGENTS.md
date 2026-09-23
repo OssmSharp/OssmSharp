@@ -144,7 +144,7 @@
 
 ## Boundaries
 
-- Approved prototype dependencies only: explicit, pinned, necessary.
+- Approved dependencies only: explicit, pinned, necessary.
 - Use compatible installed tools; record actual versions.
 - Branches, commits, pushes, schemas and other-checkout changes need explicit
   approval.

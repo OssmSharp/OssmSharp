@@ -1,5 +1,5 @@
-using OSSMDotNet.Models;
 using OSSMDotNet.ControlCore.Tests;
+using OSSMDotNet.Models;
 
 namespace OSSMDotNet.ControlService.Tests.Authority;
 
@@ -21,7 +21,7 @@ public sealed class InvitationLifecycleTests
         Assert.Equal(invitation, rig.Invite());
         Assert.Equal(before, rig.Engine.Snapshot);
         Assert.Empty(rig.Bridge.Calls);
-        var guest = rig.Engine.Join(invitation.SessionId, PrototypeEngineTests.Secret(invitation), "fresh");
+        var guest = rig.Engine.Join(invitation.SessionId, ControlEngineTests.Secret(invitation), "fresh");
         Assert.Equal("PendingApproval", rig.Engine.Snapshot.SessionMode);
         Assert.Equal(before.Mode, rig.Engine.Snapshot.Mode);
         Assert.Null(rig.Engine.Snapshot.Grant);
@@ -47,7 +47,7 @@ public sealed class InvitationLifecycleTests
             rig.Engine.EndSession();
         rig.Pump();
 
-        var next = rig.Engine.Join(invitation.SessionId, PrototypeEngineTests.Secret(invitation), "next");
+        var next = rig.Engine.Join(invitation.SessionId, ControlEngineTests.Secret(invitation), "next");
 
         Assert.Equal(invitation, rig.Invite());
         Assert.NotEqual(previous.GuestToken, next.GuestToken);
@@ -76,16 +76,16 @@ public sealed class InvitationLifecycleTests
     {
         await using var rig = new Rig();
         var invitation = rig.Invite();
-        var first = rig.Engine.Join(invitation.SessionId, PrototypeEngineTests.Secret(invitation), "first");
+        var first = rig.Engine.Join(invitation.SessionId, ControlEngineTests.Secret(invitation), "first");
         if (approved) rig.Engine.Approve(first.ConnectionId);
         rig.Time.Advance(TimeSpan.FromSeconds(seconds) - TimeSpan.FromMilliseconds(1));
         Assert.Equal(approved ? "Approved" : "PendingApproval",
             rig.Engine.GuestSnapshot(first.SessionId, first.GuestToken, first.ConnectionId).SessionMode);
         Assert.Throws<ControlRejectedException>(() =>
-            rig.Engine.Join(invitation.SessionId, PrototypeEngineTests.Secret(invitation), "second"));
+            rig.Engine.Join(invitation.SessionId, ControlEngineTests.Secret(invitation), "second"));
         rig.Time.Advance(TimeSpan.FromMilliseconds(1));
 
-        var next = rig.Engine.Join(invitation.SessionId, PrototypeEngineTests.Secret(invitation), "second");
+        var next = rig.Engine.Join(invitation.SessionId, ControlEngineTests.Secret(invitation), "second");
 
         Assert.Equal("PendingApproval", rig.Engine.Snapshot.SessionMode);
         Assert.Null(rig.Engine.Snapshot.Grant);
@@ -102,7 +102,7 @@ public sealed class InvitationLifecycleTests
         var before = rig.Engine.Snapshot;
         var invitation = rig.Invite();
         Assert.Throws<ControlRejectedException>(() =>
-            rig.Engine.Join(invitation.SessionId, PrototypeEngineTests.Secret(invitation), "second"));
+            rig.Engine.Join(invitation.SessionId, ControlEngineTests.Secret(invitation), "second"));
         Assert.Equal(before, rig.Engine.Snapshot);
         Assert.Empty(rig.Bridge.Calls);
     }
@@ -118,7 +118,7 @@ public sealed class InvitationLifecycleTests
         rig.Pump();
         var locked = rig.Engine.Snapshot;
 
-        rig.Engine.Join(invitation.SessionId, PrototypeEngineTests.Secret(invitation), "next");
+        rig.Engine.Join(invitation.SessionId, ControlEngineTests.Secret(invitation), "next");
         rig.Engine.Approve("next");
 
         Assert.Equal("Locked", rig.Engine.Snapshot.Mode);
@@ -148,7 +148,7 @@ public sealed class InvitationLifecycleTests
         Assert.True(rig.Engine.Snapshot.OperationPending);
         Assert.Empty(rig.Bridge.Calls);
         Assert.Throws<ControlRejectedException>(() =>
-            rig.Engine.Join(invitation.SessionId, PrototypeEngineTests.Secret(invitation), "old-link"));
+            rig.Engine.Join(invitation.SessionId, ControlEngineTests.Secret(invitation), "old-link"));
         foreach (var operation in new Action[]
         {
             () => rig.Engine.GuestSnapshot(previous.SessionId, previous.GuestToken, previous.ConnectionId),
@@ -157,7 +157,7 @@ public sealed class InvitationLifecycleTests
             () => rig.Engine.Submit(previous.SessionId, previous.GuestToken, previous.ConnectionId, oldInput),
         })
             Assert.Equal("guest-unauthorized", Assert.Throws<ControlRejectedException>(operation).Code);
-        var guest = rig.Engine.Join(next.SessionId, PrototypeEngineTests.Secret(next), "next");
+        var guest = rig.Engine.Join(next.SessionId, ControlEngineTests.Secret(next), "next");
         rig.Engine.TransportLost(previous.ConnectionId);
         Assert.Equal("PendingApproval", rig.Engine.Snapshot.SessionMode);
         rig.Engine.Approve(guest.ConnectionId);
@@ -184,7 +184,7 @@ public sealed class InvitationLifecycleTests
         rig.Submit(rig.Input(2, TestMotion.Settings(speed: 15)));
 
         var invitation = rig.Engine.CycleInvitation(new Uri("http://localhost:8080"));
-        rig.Engine.Join(invitation.SessionId, PrototypeEngineTests.Secret(invitation), "next");
+        rig.Engine.Join(invitation.SessionId, ControlEngineTests.Secret(invitation), "next");
         rig.Engine.Approve("next");
         rig.Pump();
         Assert.Single(rig.Bridge.Calls);
@@ -233,6 +233,6 @@ public sealed class InvitationLifecycleTests
         Assert.Null(restarted.Engine.Snapshot.Grant);
         Assert.Empty(restarted.Bridge.Calls);
         Assert.Throws<ControlRejectedException>(() =>
-            restarted.Engine.Join(invitation.SessionId, PrototypeEngineTests.Secret(invitation), "stale"));
+            restarted.Engine.Join(invitation.SessionId, ControlEngineTests.Secret(invitation), "stale"));
     }
 }

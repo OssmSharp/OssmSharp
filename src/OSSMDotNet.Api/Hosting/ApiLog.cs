@@ -6,7 +6,7 @@ internal static partial class ApiLog
     internal static partial void DeviceSafetyState(ILogger logger, string status);
 
     [LoggerMessage(EventId = 202, EventName = "OperatorActivityOwnership", Level = LogLevel.Critical,
-        Message = "Another control authority already controls the prototype device. Stop that service before starting this one.")]
+        Message = "Another control authority already controls the device. Stop that service before starting this one.")]
     internal static partial void AuthorityAlreadyOwned(ILogger logger);
 
     [LoggerMessage(EventId = 203, EventName = "ControlServiceDeliveryFailed", Level = LogLevel.Warning,
