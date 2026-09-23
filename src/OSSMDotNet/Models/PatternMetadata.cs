@@ -3,6 +3,11 @@ using System.Text.Json.Serialization;
 
 namespace OSSMDotNet.Models;
 
+/// <summary>
+/// Describes a pattern name and index reported by the stock firmware.
+/// </summary>
+/// <param name="Name">The name displayed for the pattern.</param>
+/// <param name="Index">The nonnegative firmware pattern index.</param>
 internal sealed record PatternMetadata(string Name, int Index)
 {
     private const int MaximumPatterns = 64;
@@ -16,6 +21,12 @@ internal sealed record PatternMetadata(string Name, int Index)
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
     };
 
+    /// <summary>
+    /// Parses the firmware's bounded list of supported motion patterns.
+    /// </summary>
+    /// <param name="payload">The UTF-8 JSON pattern list.</param>
+    /// <returns>Between one and 64 patterns with unique nonnegative indices.</returns>
+    /// <exception cref="InvalidDataException">The list is malformed or contains invalid or duplicate patterns.</exception>
     internal static IReadOnlyList<PatternMetadata> Parse(ReadOnlySpan<byte> payload)
     {
         PatternPayload[] patterns;

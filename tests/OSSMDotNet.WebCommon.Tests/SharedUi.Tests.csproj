@@ -9,5 +9,10 @@
         <PackageReference Include="xunit.v3.mtp-v2" />
         <PackageReference Include="Microsoft.Testing.Platform" />
         <Using Include="Xunit" />
+        <Using Include="Microsoft.Extensions.DependencyInjection" />
+        <Using Include="Microsoft.Extensions.Logging" />
+        <Using Include="Microsoft.AspNetCore.Components.Web" />
+        <Using Include="Microsoft.AspNetCore.Components" />
+        <Using Include="OSSMDotNet.WebCommon.Components" />
     </ItemGroup>
 </Project>

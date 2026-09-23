@@ -12,8 +12,12 @@ class GuestControlTests(unittest.TestCase):
         self.page.clock.install()
         root = Path(__file__).resolve().parents[2]
         modules = {
-            "guest-session.js": (root / "src" / "OSSMDotNet.GuestWeb" / "wwwroot" / "guest-session.js").read_text(),
-            "connection-ui.js": (root / "src" / "OSSMDotNet.WebCommon" / "wwwroot" / "connection-ui.js").read_text(),
+            "guest-session.js": (
+                root / "src" / "OSSMDotNet.GuestWeb" / "wwwroot" / "guest-session.js"
+            ).read_text(),
+            "connection-ui.js": (
+                root / "src" / "OSSMDotNet.WebCommon" / "wwwroot" / "connection-ui.js"
+            ).read_text(),
         }
         controls = "".join(
             f'<input data-input="{name}" min="0" max="100" value="{value}">'
@@ -21,11 +25,20 @@ class GuestControlTests(unittest.TestCase):
             for name, value in (("speed", 10), ("stroke", 10), ("depth", 20))
         )
         html = f'<div id="app-boot-status"></div><div id="components-reconnect-modal" class="components-reconnect-hide"></div><main>{controls}<button data-send-button>Send</button><button data-stop-button>Stop</button><input data-auto-send type="checkbox"></main>'
-        self.page.route("https://guest-controls.invalid/**", lambda route: route.fulfill(
-            content_type="text/javascript" if route.request.url.endswith(".js") else "text/html",
-            body=modules[route.request.url.rsplit("/", 1)[1]] if route.request.url.endswith(".js") else html,
-            headers={"Content-Security-Policy": "default-src 'self'; script-src 'self'"},
-        ))
+        self.page.route(
+            "https://guest-controls.invalid/**",
+            lambda route: route.fulfill(
+                content_type="text/javascript"
+                if route.request.url.endswith(".js")
+                else "text/html",
+                body=modules[route.request.url.rsplit("/", 1)[1]]
+                if route.request.url.endswith(".js")
+                else html,
+                headers={
+                    "Content-Security-Policy": "default-src 'self'; script-src 'self'"
+                },
+            ),
+        )
         self.page.goto("https://guest-controls.invalid/join/test")
         self.page.evaluate("""async () => {
             window.module = await import("/guest-session.js");
@@ -89,11 +102,35 @@ class GuestControlTests(unittest.TestCase):
     def test_disconnect_disables_controls_and_new_authority_cannot_resume_them(self):
         self.page.evaluate("window.module.disconnect()")
         self.page.evaluate("window.module.updateAuthority(window.authority)")
-        expect(self.page.get_by_role("button", name="Send", exact=True)).to_be_disabled()
+        fallback = self.page.locator('main > [data-testid="guest-disconnected"]')
+        expect(fallback).to_be_visible()
+        expect(fallback).to_have_class("rw-inline-notification")
+        expect(
+            self.page.get_by_role("button", name="Send", exact=True)
+        ).to_be_disabled()
         expect(self.page.locator("[data-auto-send]")).to_be_disabled()
         self.page.clock.run_for(250)
         self.assertEqual([], self.page.evaluate("window.calls"))
         self.assertEqual(0, self.page.evaluate("window.stops"))
+
+    def test_disconnect_reveals_existing_inline_notice_in_main(self):
+        self.page.evaluate("""() => {
+            const notice = document.createElement('rw-alert');
+            notice.dataset.testid = 'guest-disconnected';
+            notice.className = 'rw-inline-notification';
+            notice.setAttribute('variant', 'danger');
+            notice.setAttribute('role', 'alert');
+            notice.textContent = 'Connection lost. Open the invitation link again.';
+            notice.hidden = true;
+            document.querySelector('main').prepend(notice);
+        }""")
+
+        self.page.evaluate("window.module.disconnect()")
+
+        notice = self.page.locator('main > [data-testid="guest-disconnected"]')
+        expect(notice).to_be_visible()
+        expect(notice).to_have_class("rw-inline-notification")
+        self.assertEqual(1, self.page.get_by_test_id("guest-disconnected").count())
 
     def test_native_reconnection_notifications_discard_guest_control_once(self):
         result = self.page.evaluate("""async () => {
@@ -110,8 +147,12 @@ class GuestControlTests(unittest.TestCase):
                      rejected: reconnect.classList.contains("components-reconnect-rejected"),
                      retries: connection.circuit.reconnectionOptions.maxRetries };
         }""")
-        self.assertEqual({"losses": 1, "bootHidden": True, "rejected": True, "retries": 3}, result)
-        expect(self.page.get_by_role("button", name="Send", exact=True)).to_be_disabled()
+        self.assertEqual(
+            {"losses": 1, "bootHidden": True, "rejected": True, "retries": 3}, result
+        )
+        expect(
+            self.page.get_by_role("button", name="Send", exact=True)
+        ).to_be_disabled()
         self.assertEqual(0, self.page.evaluate("window.stops"))
 
     def test_operator_reconnection_can_hide_the_notice_without_guest_authority(self):

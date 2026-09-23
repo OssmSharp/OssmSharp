@@ -5,9 +5,13 @@ using FastMoq.Providers;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
 using OneOf;
+using OSSMDotNet.Models;
 
 namespace OSSMDotNet.Tests;
 
+/// <summary>
+/// Checks device connection, state publication, dispatch, and disposal behavior through a controlled transport.
+/// </summary>
 public sealed class DeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisposable
 {
     protected override Action<Mocker> SetupMocksAction => mocks =>
@@ -250,6 +254,70 @@ public sealed class DeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisposab
         await device.SetMotionAsync(Settings(30), TestContext.Current.CancellationToken);
 
         Assert.Empty(changes);
+    }
+
+    [Fact]
+    public void StockFirmwareDepthChangePublishesSeparateSettingsError()
+    {
+        var device = Component;
+        var initial = StockFirmwareState(1, 20, 0);
+        var changed = StockFirmwareState(2, 21, 1.25);
+        device.ReportState(initial);
+        var changes = new List<OneOf<DeviceState, Exception>>();
+        device.DeviceStateChanged += changes.Add;
+
+        device.ReportState(changed);
+
+        Assert.Collection(
+            changes,
+            change => Assert.Same(changed, change.AsT0),
+            change =>
+            {
+                var error = Assert.IsType<UnexpectedMotionChangeException>(change.AsT1);
+                Assert.Equal(initial.MotionSettings, error.PreviousSettings);
+                Assert.Equal(changed.MotionSettings, error.CurrentSettings);
+                Assert.Null(error.PendingRequestedSettings);
+            });
+    }
+
+    [Fact]
+    public async Task MatchingPendingSpeedDoesNotExcuseUnexpectedDepthChange()
+    {
+        var device = Component;
+        var initial = Settings(10);
+        device.ReportState(State(initial, DateTime.UnixEpoch));
+        var requested = Settings(30) with { Depth = 50 };
+        await device.SetMotionAsync(requested, TestContext.Current.CancellationToken);
+        var reported = State(requested with { Depth = 51 }, DateTime.UnixEpoch.AddSeconds(1));
+        var changes = new List<OneOf<DeviceState, Exception>>();
+        device.DeviceStateChanged += changes.Add;
+
+        device.ReportState(reported);
+
+        Assert.Collection(
+            changes,
+            change => Assert.Same(reported, change.AsT0),
+            change => Assert.IsType<UnexpectedMotionChangeException>(change.AsT1));
+    }
+
+    [Fact]
+    public async Task OwnedFeedbackWithWrongTuplePublishesSettingsError()
+    {
+        var device = Component;
+        var initial = Settings(10);
+        device.ReportState(State(initial, DateTime.UnixEpoch));
+        var requested = Settings(30) with { Depth = 50 };
+        await device.SetMotionAsync(requested, TestContext.Current.CancellationToken);
+        var reported = State(requested with { Depth = 51 }, DateTime.UnixEpoch.AddSeconds(1));
+        var changes = new List<OneOf<DeviceState, Exception>>();
+        device.DeviceStateChanged += changes.Add;
+
+        device.ReportState(reported, true);
+
+        Assert.Collection(
+            changes,
+            change => Assert.Same(reported, change.AsT0),
+            change => Assert.IsType<UnexpectedMotionChangeException>(change.AsT1));
     }
 
     [Theory]
@@ -663,6 +731,17 @@ public sealed class DeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisposab
             VelocityMillimetresPerSecond = velocity,
         };
 
+    private static DeviceState StockFirmwareState(uint firmwareTimestamp, int depth, double position) =>
+        StateResponse.Parse(
+            $$"""
+            {"timestamp":{{firmwareTimestamp}},"state":"strokeEngine.idle","speed":0,"stroke":10,"sensation":50,"depth":{{depth}},"buffer":0,"pattern":0,"position":{{position}},"sessionId":""}
+            """,
+            DateTime.UnixEpoch.AddSeconds(firmwareTimestamp)).ToDeviceState();
+
+    /// <summary>
+    /// Simulates stock firmware speed matching while allowing a transport write to remain unsettled.
+    /// </summary>
+    /// <param name="timeProvider">The clock used for reported device state.</param>
     private sealed class StockSpeedTestDevice(FakeTimeProvider timeProvider)
         : DeviceBase(
             new StockOssmDeviceOptions

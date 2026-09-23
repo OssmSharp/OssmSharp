@@ -1,19 +1,11 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Net;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Hosting.Server;
-using Microsoft.AspNetCore.Hosting.Server.Features;
-using Microsoft.AspNetCore.Http.Connections;
-using Microsoft.AspNetCore.SignalR;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
-using OSSMDotNet.Models;
 
 namespace OSSMDotNet.ControlClient.Tests;
 
+/// <summary>
+/// Hosts a loopback SignalR hub that records client requests and controls callback timing.
+/// </summary>
 [SuppressMessage("Maintainability", "CA1506:Avoid excessive class coupling",
     Justification = "Test-only SignalR fixture must compose its integration-host dependencies.")]
 public sealed class LocalControlHubFixture : IAsyncDisposable
@@ -52,6 +44,10 @@ public sealed class LocalControlHubFixture : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Starts the hub on an ephemeral loopback port; dispose the returned fixture to stop it.
+    /// </summary>
+    /// <returns>The running hub fixture.</returns>
     public static async Task<LocalControlHubFixture> StartAsync(CancellationToken cancellationToken)
     {
         var fixture = new LocalControlHubFixture();
@@ -110,6 +106,10 @@ public sealed class LocalControlHubFixture : IAsyncDisposable
     public Task WaitForOrdinaryCallbackAttemptAsync(CancellationToken cancellationToken) =>
         _ordinaryCallbackAttempted.Task.WaitAsync(cancellationToken);
 
+    /// <summary>
+    /// Waits for an invocation of the named hub method, including one already recorded.
+    /// </summary>
+    /// <param name="method">The hub method to observe.</param>
     public Task WaitForInvocationAsync(string method, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(method);
@@ -135,6 +135,10 @@ public sealed class LocalControlHubFixture : IAsyncDisposable
             _rejections[method] = code;
     }
 
+    /// <summary>
+    /// Holds subsequent calls to a hub method until <see cref="Release"/> is called.
+    /// </summary>
+    /// <param name="method">The hub method to hold.</param>
     public void Hold(string method)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(method);
@@ -169,6 +173,10 @@ public sealed class LocalControlHubFixture : IAsyncDisposable
         await clients.Client(connectionId).SendAsync("resyncRequired", new ControlResyncRequired("fixture-resync"), cancellationToken);
     }
 
+    /// <summary>
+    /// Aborts the active connection, then attempts ordinary callbacks to test terminal delivery.
+    /// </summary>
+    /// <param name="role">The subscribed client role whose callbacks are attempted.</param>
     public async Task AbortAndAttemptOrdinaryCallbacksAsync(string role, CancellationToken cancellationToken)
     {
         await WaitForConnectionAsync(cancellationToken);
@@ -292,7 +300,7 @@ public sealed class LocalControlHubFixture : IAsyncDisposable
                     0,
                     true,
                     false,
-                    MotionSettings.Stopped,
+                    new(MotionDeviceState.StrokeEngineIdle, 0, 10, 50, 20, 0, MotionPattern.SimpleStroke, 0),
                     null,
                     new ControlLimits(1, 1),
                     1,

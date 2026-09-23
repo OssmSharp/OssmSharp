@@ -11,5 +11,16 @@
     <PackageReference Include="xunit.v3.mtp-v2" />
     <PackageReference Include="Microsoft.Testing.Platform" />
     <Using Include="Xunit" />
+    <Using Include="Microsoft.Extensions.DependencyInjection" />
+    <Using Include="Microsoft.AspNetCore.Builder" />
+    <Using Include="Microsoft.AspNetCore.Http.Json" />
+    <Using Include="Microsoft.AspNetCore.Routing" />
+    <Using Include="Microsoft.Extensions.Configuration" />
+    <Using Include="Microsoft.Extensions.Diagnostics.HealthChecks" />
+    <Using Include="Microsoft.Extensions.Hosting" />
+    <Using Include="Microsoft.Extensions.Options" />
+    <Using Include="OpenTelemetry.Metrics" />
+    <Using Include="OpenTelemetry.Trace" />
+    <Using Include="OSSMDotNet.ServiceDefaults.Models" />
   </ItemGroup>
 </Project>

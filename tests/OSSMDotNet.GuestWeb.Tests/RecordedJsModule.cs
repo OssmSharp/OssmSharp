@@ -1,5 +1,8 @@
 namespace OSSMDotNet.GuestWeb.Tests;
 
+/// <summary>
+/// Records guest JavaScript calls and supplies configurable invitation and copy results.
+/// </summary>
 internal sealed class RecordedJsModule : IJSObjectReference
 {
     private readonly object _gate = new();
@@ -11,6 +14,9 @@ internal sealed class RecordedJsModule : IJSObjectReference
     internal bool CopyResult { get; set; } = true;
     internal int DisposeCount { get; private set; }
 
+    /// <summary>
+    /// Gets a snapshot of calls recorded by the module.
+    /// </summary>
     internal IReadOnlyList<(string Identifier, IReadOnlyList<object?> Arguments)> Invocations
     {
         get
@@ -30,6 +36,11 @@ internal sealed class RecordedJsModule : IJSObjectReference
             return _invocations.Count(invocation => invocation.Identifier == identifier);
     }
 
+    /// <summary>
+    /// Waits until a named JavaScript call has been recorded at least the specified number of times.
+    /// </summary>
+    /// <param name="identifier">The JavaScript function name.</param>
+    /// <param name="expectedCount">The minimum number of calls.</param>
     internal Task WaitForInvocationCountAsync(
         string identifier,
         int expectedCount,

@@ -5,16 +5,42 @@
         <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
     </PropertyGroup>
     <ItemGroup>
+        <FrameworkReference Include="Microsoft.AspNetCore.App" />
         <ProjectReference Include="..\..\src\OSSMDotNet.AdminWeb\AdminWeb.csproj" />
-        <Compile Include="..\OSSMDotNet.GuestWeb.Tests\ComponentRenderer.cs" Link="Helpers\ComponentRenderer.cs" />
-        <Compile Include="..\OSSMDotNet.GuestWeb.Tests\RecordedJsRuntime.cs" Link="Helpers\RecordedJsRuntime.cs" />
-        <Compile Include="..\OSSMDotNet.GuestWeb.Tests\RecordedJsModule.cs" Link="Helpers\RecordedJsModule.cs" />
-        <Compile Include="..\OSSMDotNet.GuestWeb.Tests\PageHubInvocation.cs" Link="Helpers\PageHubInvocation.cs" />
-        <Compile Include="..\OSSMDotNet.GuestWeb.Tests\PageControlHub.cs" Link="Helpers\PageControlHub.cs" />
-        <Compile Include="..\OSSMDotNet.GuestWeb.Tests\PageControlHubFixture.cs" Link="Helpers\PageControlHubFixture.cs" />
+        <Compile Include="..\OSSMDotNet.GuestWeb.Tests\ComponentRenderer.cs"
+            Link="Helpers\ComponentRenderer.cs" />
+        <Compile Include="..\OSSMDotNet.GuestWeb.Tests\RecordedJsRuntime.cs"
+            Link="Helpers\RecordedJsRuntime.cs" />
+        <Compile Include="..\OSSMDotNet.GuestWeb.Tests\RecordedJsModule.cs"
+            Link="Helpers\RecordedJsModule.cs" />
+        <Compile Include="..\OSSMDotNet.GuestWeb.Tests\PageHubInvocation.cs"
+            Link="Helpers\PageHubInvocation.cs" />
+        <Compile Include="..\OSSMDotNet.GuestWeb.Tests\PageControlHub.cs"
+            Link="Helpers\PageControlHub.cs" />
+        <Compile Include="..\OSSMDotNet.GuestWeb.Tests\PageControlHubFixture.cs"
+            Link="Helpers\PageControlHubFixture.cs" />
         <PackageReference Include="xunit.v3.mtp-v2" />
         <PackageReference Include="Microsoft.Testing.Platform" />
         <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
         <Using Include="Xunit" />
+        <Using Include="OSSMDotNet.Abstractions.Models" />
+        <Using Include="OSSMDotNet.ControlClient.Clients" />
+        <Using Include="OSSMDotNet.ControlClient.Connections" />
+        <Using Include="OSSMDotNet.ControlClient.Models" />
+        <Using Include="OSSMDotNet.Models" />
+        <Using Include="Microsoft.AspNetCore.Builder" />
+        <Using Include="Microsoft.AspNetCore.Hosting" />
+        <Using Include="Microsoft.AspNetCore.Hosting.Server" />
+        <Using Include="Microsoft.AspNetCore.Hosting.Server.Features" />
+        <Using Include="Microsoft.AspNetCore.Http.Connections" />
+        <Using Include="Microsoft.AspNetCore.Components" />
+        <Using Include="Microsoft.AspNetCore.Components.Web" />
+        <Using Include="Microsoft.AspNetCore.Components.RenderTree" />
+        <Using Include="Microsoft.AspNetCore.SignalR" />
+        <Using Include="Microsoft.Extensions.DependencyInjection" />
+        <Using Include="Microsoft.Extensions.Hosting" />
+        <Using Include="Microsoft.Extensions.Logging" />
+        <Using Include="Microsoft.Extensions.Options" />
+        <Using Include="Microsoft.JSInterop" />
     </ItemGroup>
 </Project>

@@ -1,5 +1,10 @@
+using Microsoft.Extensions.Time.Testing;
+
 namespace OSSMDotNet.AdminWeb.Tests;
 
+/// <summary>
+/// Checks copy confirmation and the lifetime of operator success and error notices.
+/// </summary>
 public sealed class OperatorNoticeTests
 {
     [Fact]

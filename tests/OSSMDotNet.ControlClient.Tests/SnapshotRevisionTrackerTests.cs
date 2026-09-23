@@ -1,5 +1,8 @@
 namespace OSSMDotNet.ControlClient.Tests;
 
+/// <summary>
+/// Checks that snapshot revisions accept new state without replaying stale updates.
+/// </summary>
 public sealed class SnapshotRevisionTrackerTests
 {
     [Fact]

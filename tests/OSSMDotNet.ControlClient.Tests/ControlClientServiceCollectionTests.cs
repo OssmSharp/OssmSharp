@@ -4,6 +4,9 @@ using Microsoft.Extensions.Options;
 
 namespace OSSMDotNet.ControlClient.Tests;
 
+/// <summary>
+/// Checks client service registration and validation of configuration on resolution.
+/// </summary>
 public sealed class ControlClientServiceCollectionTests
 {
     private const string ValidKey = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaA";

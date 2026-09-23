@@ -1,13 +1,23 @@
 using System.ComponentModel.DataAnnotations;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
-using OSSMDotNet.ControlClient;
+using OSSMDotNet.ControlClient.Clients;
+using OSSMDotNet.ControlClient.Models;
 using OSSMDotNet.Models;
 
 namespace OSSMDotNet.Cli;
 
+/// <summary>
+/// Runs authenticated operator status and stop requests from the command line.
+/// </summary>
 internal static class ControlServiceClient
 {
+    /// <summary>
+    /// Subscribes to current status or requests Stop from the control service.
+    /// </summary>
+    /// <param name="origin">The validated control-service origin.</param>
+    /// <param name="operation">The status or stop command to execute.</param>
+    /// <returns>Zero on a confirmed result; one on missing credentials, rejection, cancellation, or unknown outcome.</returns>
     internal static async Task<int> SendAsync(Uri origin, string operation, CancellationToken cancellationToken)
     {
         var key = Environment.GetEnvironmentVariable("OSSM_CONTROL_CLIENT_SERVICE_KEY");

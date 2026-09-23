@@ -1,8 +1,11 @@
-using System.Text.Json;
 using System.Reflection;
+using System.Text.Json;
 
 namespace OSSMDotNet.DeviceCli.IntegrationTests;
 
+/// <summary>
+/// Exercises command runner output and failures against a real simulator host.
+/// </summary>
 public sealed class DeviceCommandRunnerTests
 {
     [Fact]

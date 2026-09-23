@@ -2,6 +2,9 @@ using OSSMDotNet.GuestWeb.Components.Pages;
 
 namespace OSSMDotNet.GuestWeb.Tests;
 
+/// <summary>
+/// Checks invitation admission, guest authority, and UI updates through the rendered join page.
+/// </summary>
 public sealed class JoinPageBehaviorTests
 {
     public static IEnumerable<object?[]> InvalidInvitations =>
@@ -43,6 +46,8 @@ public sealed class JoinPageBehaviorTests
         if (invitation is null || rejectJoin)
         {
             Assert.Contains("This invitation is invalid or has been replaced.", await GetTextContentAsync(renderer, componentId));
+            Assert.Null(renderer.GetElementAttributeValue(
+                componentId, "rw-alert", "data-testid", "guest-disconnected", "variant"));
             Assert.Equal(new BrowserReply(false, "not-joined"), await page.StopRun());
         }
     }
@@ -322,8 +327,36 @@ public sealed class JoinPageBehaviorTests
         Assert.Equal(new BrowserReply(false, "not-ready"), submit);
         Assert.Equal(new BrowserReply(false, "not-joined"), stop);
         Assert.Equal(invocationCount, fixture.Invocations.Count);
+        Assert.Equal("danger", renderer.GetElementAttributeValue(
+            componentId, "rw-alert", "data-testid", "guest-disconnected", "variant"));
+        Assert.Null(renderer.GetElementAttributeValue(
+            componentId, "rw-alert", "data-testid", "guest-disconnected", "hidden"));
+        Assert.True(renderer.HasAttributeValueContaining(componentId, "data-connection-lost", "true"));
+        Assert.DoesNotContain("Session ended.", await GetTextContentAsync(renderer, componentId));
+    }
+
+    [Fact]
+    public async Task DeliveryResyncEndsGuestWithoutClaimingBrowserConnectionLoss()
+    {
+        using var cancellationSource = CreateTimeout();
+        await using var fixture = await PageControlHubFixture.StartAsync(cancellationSource.Token);
+        await using var module = new RecordedJsModule { Invitation = "proof" };
+        await using var services = CreateServices(module, fixture.CreateGuestClient());
+        await using var renderer = new ComponentRenderer(services, services.GetRequiredService<ILoggerFactory>());
+        var (page, componentId) = await renderer.RenderComponentAsync<Join>(Parameters("session-1"));
+        await fixture.WaitForInvocationAsync("Join", cancellationSource.Token);
+        await PublishReadyStatusAsync(fixture, module, renderer, cancellationSource.Token);
+
+        Assert.Equal(0, fixture.DisconnectionCount);
+        using var disconnectDeadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationSource.Token);
+        disconnectDeadline.CancelAfter(TimeSpan.FromSeconds(2));
+        await fixture.SendResyncAsync("delivery-resync-required", cancellationSource.Token);
+
+        await fixture.WaitForDisconnectionAsync(disconnectDeadline.Token);
         await renderer.WaitForTextContentAsync(componentId, "Session ended. Open the invite link again to rejoin.", cancellationSource.Token);
-        Assert.Contains("Session ended. Open the invite link again to rejoin.", await GetTextContentAsync(renderer, componentId));
+        Assert.Equal(1, fixture.DisconnectionCount);
+        Assert.Equal(0, module.InvocationCount("disconnect"));
+        Assert.Equal(new BrowserReply(false, "not-joined"), await page.StopRun());
     }
 
     private static ServiceProvider CreateServices(RecordedJsModule module, GuestControlClient client) =>

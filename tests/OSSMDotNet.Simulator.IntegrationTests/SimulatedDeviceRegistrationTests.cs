@@ -1,9 +1,12 @@
+using System.Reflection;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using System.Reflection;
 
 namespace OSSMDotNet.Simulator.IntegrationTests;
 
+/// <summary>
+/// Verifies that simulator registration shares one device instance across its hosted and public contracts.
+/// </summary>
 public sealed class SimulatedDeviceRegistrationTests
 {
     [Fact]

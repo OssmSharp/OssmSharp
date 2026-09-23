@@ -1,16 +1,12 @@
 using System.ComponentModel.DataAnnotations;
 using System.Reflection;
 using System.Threading.Channels;
-using FastMoq;
-using FastMoq.Extensions;
-using FastMoq.Providers;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
-using OneOf;
 
 namespace OSSMDotNet.Tests;
 
+/// <summary>
+/// Checks stock device options, speed matching, and behavior when the BLE transport is unavailable.
+/// </summary>
 public sealed class StockOssmDeviceTests : MockerTestBase<StockOssmDevice>, IAsyncDisposable
 {
     protected override Action<Mocker> SetupMocksAction => mocks =>

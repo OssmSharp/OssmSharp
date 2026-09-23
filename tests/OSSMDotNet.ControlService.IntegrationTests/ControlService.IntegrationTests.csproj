@@ -8,16 +8,26 @@
         <AssemblyMetadata Include="RepositoryRoot" Value="$(MSBuildProjectDirectory)\..\.." />
         <ProjectReference Include="..\..\src\OSSMDotNet.ControlService\ControlService.csproj" />
         <ProjectReference Include="..\..\src\OSSMDotNet.ControlCore\ControlCore.csproj" />
+        <ProjectReference Include="..\..\src\OSSMDotNet.Simulator\OSSMDotNet.Simulator.csproj" />
         <ProjectReference
             Include="..\..\src\OSSMDotNet.Abstractions\OSSMDotNet.Abstractions.csproj" />
-        <Compile Include="..\OSSMDotNet.ControlCore.Tests\FakeBridge.cs"
-            Link="Helpers\FakeBridge.cs" />
-        <Compile Include="..\OSSMDotNet.ControlCore.Tests\BridgeCall.cs"
-            Link="Helpers\BridgeCall.cs" />
-        <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" />
+        <Using Include="OSSMDotNet.ControlService.Activity" />
+        <Using Include="OSSMDotNet.ControlService.Authority" />
+        <Using Include="OSSMDotNet.ControlService.Operations" />
         <PackageReference Include="xunit.v3.mtp-v2" />
         <PackageReference Include="Microsoft.Testing.Platform" />
         <Using Include="OSSMDotNet.Abstractions" />
+        <Using Include="OSSMDotNet.Abstractions.Models" />
+        <Using Include="OSSMDotNet.ControlCore" />
+        <Using Include="OSSMDotNet.ControlService" />
+        <Using Include="OSSMDotNet.ControlService.Models" />
+        <Using Include="OSSMDotNet.Models" />
+        <Using Include="OSSMDotNet.Simulator" />
+        <Using Include="OSSMDotNet.Simulator.Models" />
+        <Using Include="Microsoft.Extensions.Logging" />
+        <Using Include="Microsoft.Extensions.Logging.Abstractions" />
+        <Using Include="Microsoft.Extensions.Options" />
+        <Using Include="OneOf" />
         <Using Include="Xunit" />
     </ItemGroup>
 </Project>

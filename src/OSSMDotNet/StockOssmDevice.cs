@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Options;
+using OSSMDotNet.Models;
 
 namespace OSSMDotNet;
 
@@ -24,6 +25,14 @@ public sealed class StockOssmDevice : DeviceBase
     {
     }
 
+    /// <summary>
+    /// Checks whether a reported effective speed is consistent with the requested speed and prior knob limit.
+    /// </summary>
+    /// <param name="previousRequestedSpeed">The preceding requested percentage, if known.</param>
+    /// <param name="previousStateSpeed">The preceding reported effective percentage, if known.</param>
+    /// <param name="requestedSpeed">The current requested percentage.</param>
+    /// <param name="stateSpeed">The current reported effective percentage.</param>
+    /// <returns>Whether the reported speed can be attributed to this write, allowing firmware truncation.</returns>
     internal static bool IsCurrentStateCongruent(
         int? previousRequestedSpeed,
         int? previousStateSpeed,

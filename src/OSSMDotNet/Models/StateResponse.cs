@@ -3,6 +3,9 @@ using System.Text.Json;
 
 namespace OSSMDotNet.Models;
 
+/// <summary>
+/// Holds validated stock-firmware state with the UTC time at which it was received.
+/// </summary>
 internal sealed record StateResponse
 {
     private StateResponse(
@@ -17,14 +20,33 @@ internal sealed record StateResponse
         SessionId = sessionId;
     }
 
+    /// <summary>
+    /// Gets the device uptime timestamp, not a wall-clock time.
+    /// </summary>
     public uint FirmwareTimestamp { get; }
 
+    /// <summary>
+    /// Gets the UTC time at which this state was received.
+    /// </summary>
     public DateTime ReceivedAtUtc { get; }
 
+    /// <summary>
+    /// Gets the motion settings reported by the device.
+    /// </summary>
     public MotionSettings MotionSettings { get; }
 
+    /// <summary>
+    /// Gets the reported session identifier, if present.
+    /// </summary>
     public Guid SessionId { get; }
 
+    /// <summary>
+    /// Parses stock-firmware state without treating its uptime timestamp as a wall clock.
+    /// </summary>
+    /// <param name="payload">The JSON state reported by the firmware.</param>
+    /// <param name="receivedAtUtc">The UTC time at which the state was received.</param>
+    /// <returns>Validated state and receipt metadata.</returns>
+    /// <exception cref="InvalidDataException">The receipt time is not UTC or the state is malformed.</exception>
     public static StateResponse Parse(string payload, DateTime receivedAtUtc)
     {
         if (receivedAtUtc.Kind != DateTimeKind.Utc)
@@ -76,6 +98,10 @@ internal sealed record StateResponse
         }
     }
 
+    /// <summary>
+    /// Projects validated firmware state into a device state with its receipt time.
+    /// </summary>
+    /// <returns>The observed device state without an inferred velocity.</returns>
     public DeviceState ToDeviceState() =>
         new()
         {

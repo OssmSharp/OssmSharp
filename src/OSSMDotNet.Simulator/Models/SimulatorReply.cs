@@ -2,6 +2,15 @@ using System.Diagnostics.CodeAnalysis;
 
 namespace OSSMDotNet.Simulator.Models;
 
+/// <summary>
+/// Represents a simulator command response or unsolicited state event.
+/// </summary>
+/// <param name="V">The protocol version.</param>
+/// <param name="Id">The request correlation identifier, if this is a response.</param>
+/// <param name="Ok">Whether the command succeeded, if this is a response.</param>
+/// <param name="Error">The reported failure code, if any.</param>
+/// <param name="Event">The unsolicited event name, if this is an event.</param>
+/// <param name="State">The embedded simulator state, if present.</param>
 [SuppressMessage("Performance", "CA1812", Justification = "Instances are created by System.Text.Json.")]
 internal sealed record SimulatorReply(
     int V,
@@ -11,6 +20,10 @@ internal sealed record SimulatorReply(
     string? Event,
     SimulatorState? State)
 {
+    /// <summary>
+    /// Rejects malformed protocol envelopes and invalid embedded state.
+    /// </summary>
+    /// <exception cref="InvalidDataException">The response or its state violates the simulator protocol.</exception>
     internal void Validate()
     {
         if (V != 1)

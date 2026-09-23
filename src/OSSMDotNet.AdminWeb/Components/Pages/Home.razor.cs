@@ -1,11 +1,8 @@
-using Microsoft.AspNetCore.Components;
-using Microsoft.JSInterop;
-using OSSMDotNet.ControlClient;
-using OSSMDotNet.Models;
-
 namespace OSSMDotNet.AdminWeb.Components.Pages;
 
-/// <summary>Renders the loopback-only operator control page.</summary>
+/// <summary>
+/// Renders the loopback-only operator control page.
+/// </summary>
 public partial class Home
 {
     private const string PendingOperationStatusText = "Waiting for the device to settle.";
@@ -153,6 +150,18 @@ public partial class Home
         if (_module is null || _invitation is null)
             return;
         _notice.CopyCompleted(await _module.InvokeAsync<bool>("copy", _invitation.Url));
+        if (_notice.IsCopied)
+            _ = RefreshCopyAfterExpiryAsync();
+    }
+
+    private async Task RefreshCopyAfterExpiryAsync()
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(2), Time, _lifetime.Token);
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
     }
 
     private async Task RunAsync(Func<CancellationToken, Task<ControlAcknowledgement>> action, string? message = null)
@@ -252,7 +261,9 @@ public partial class Home
     [LoggerMessage(Level = LogLevel.Warning, Message = "Activity log cleanup did not complete.")]
     private static partial void LogActivityLogCleanupIncomplete(ILogger logger);
 
-    /// <summary>Releases the control connection and interactive resources.</summary>
+    /// <summary>
+    /// Releases the control connection and interactive resources.
+    /// </summary>
     public async ValueTask DisposeAsync()
     {
         try

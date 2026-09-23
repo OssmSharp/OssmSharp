@@ -2,6 +2,9 @@ using OSSMDotNet.Models;
 
 namespace OSSMDotNet.ControlClient.Tests;
 
+/// <summary>
+/// Checks operator command arguments, acknowledgements, and local subscription guards.
+/// </summary>
 public sealed class OperatorControlClientTests
 {
     [Fact]

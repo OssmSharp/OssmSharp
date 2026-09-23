@@ -12,6 +12,9 @@ using OSSMDotNet.Simulator.Models;
 
 namespace OSSMDotNet.Simulator.IntegrationTests;
 
+/// <summary>
+/// Exercises simulator process state, writes, external changes, and failure handling through the device contract.
+/// </summary>
 public sealed class SimulatedDeviceTests : MockerTestBase<SimulatedDevice>, IAsyncDisposable
 {
     private const string ValidEventJson =

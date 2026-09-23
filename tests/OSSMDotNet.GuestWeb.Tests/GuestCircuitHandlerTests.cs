@@ -2,6 +2,9 @@ using OSSMDotNet.GuestWeb.Services;
 
 namespace OSSMDotNet.GuestWeb.Tests;
 
+/// <summary>
+/// Checks that circuit loss disposes the joined client and prevents further guest commands.
+/// </summary>
 public sealed class GuestCircuitHandlerTests
 {
     [Theory]

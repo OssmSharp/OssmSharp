@@ -14,6 +14,8 @@
     <PackageReference Include="FastMoq.Core" />
     <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
     <Using Include="OSSMDotNet.Abstractions" />
+    <Using Include="OSSMDotNet.Abstractions.Models" />
+    <Using Include="OSSMDotNet.ControlCore.Tests.Helpers" />
     <Using Include="Xunit" />
   </ItemGroup>
 </Project>

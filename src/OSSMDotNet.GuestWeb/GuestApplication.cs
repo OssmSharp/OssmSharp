@@ -1,16 +1,17 @@
 using System.Net;
-using Microsoft.AspNetCore.Server.Kestrel.Core;
-using Microsoft.Extensions.Options;
-using OSSMDotNet.GuestWeb.Components;
-using OSSMDotNet.ServiceDefaults;
-using OSSMDotNet.WebCommon;
 
 namespace OSSMDotNet.GuestWeb;
 
-/// <summary>Configures the restricted guest web application.</summary>
+/// <summary>
+/// Configures the restricted guest web application.
+/// </summary>
 public static class GuestApplication
 {
-    /// <summary>Builds the guest application and maps its interactive control route.</summary>
+    /// <summary>
+    /// Builds the loopback guest application and maps its interactive control route.
+    /// </summary>
+    /// <param name="builder">The configured web application builder.</param>
+    /// <returns>The guest application, ready to run and dispose.</returns>
     public static WebApplication Build(WebApplicationBuilder builder)
     {
         builder.AddServiceDefaults();

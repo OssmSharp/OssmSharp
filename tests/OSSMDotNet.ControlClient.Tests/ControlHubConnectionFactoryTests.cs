@@ -6,6 +6,9 @@ using Microsoft.Extensions.Options;
 
 namespace OSSMDotNet.ControlClient.Tests;
 
+/// <summary>
+/// Checks service-key transport setup and validation of control hub connection options.
+/// </summary>
 public sealed class ControlHubConnectionFactoryTests
 {
     private const string ValidKey = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaA";

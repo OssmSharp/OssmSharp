@@ -2,10 +2,13 @@ using System.ComponentModel.DataAnnotations;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using OSSMDotNet.Simulator.Models;
 
 namespace OSSMDotNet.Simulator;
 
-/// <summary>Registers the native OSSM-RS simulator as the selected device implementation.</summary>
+/// <summary>
+/// Registers the native OSSM-RS simulator as the selected device implementation.
+/// </summary>
 public static class ServiceCollectionExtensions
 {
     /// <summary>
@@ -14,6 +17,7 @@ public static class ServiceCollectionExtensions
     /// <param name="services">The application service collection.</param>
     /// <param name="configure">Configures and validates the simulator executable.</param>
     /// <returns>The supplied service collection.</returns>
+    /// <exception cref="InvalidOperationException">Another <see cref="IOssmDevice"/> implementation is already registered.</exception>
     public static IServiceCollection AddOssmSimulator(
         this IServiceCollection services,
         Action<SimulatedDeviceOptions> configure)

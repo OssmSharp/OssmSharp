@@ -13,6 +13,16 @@
     <PackageReference Include="Microsoft.Testing.Platform" />
     <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
     <Using Include="OSSMDotNet.Abstractions" />
+    <Using Include="OSSMDotNet.Abstractions.Models" />
+    <Using Include="OSSMDotNet.Models" />
+    <Using Include="FastMoq" />
+    <Using Include="FastMoq.Extensions" />
+    <Using Include="FastMoq.Providers" />
+    <Using Include="Microsoft.Extensions.Time.Testing" />
+    <Using Include="Microsoft.Extensions.Logging" />
+    <Using Include="Microsoft.Extensions.Logging.Abstractions" />
+    <Using Include="Microsoft.Extensions.Options" />
+    <Using Include="OneOf" />
     <Using Include="Xunit" />
   </ItemGroup>
 </Project>

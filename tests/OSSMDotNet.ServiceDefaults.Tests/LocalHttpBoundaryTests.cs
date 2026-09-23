@@ -6,6 +6,9 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace OSSMDotNet.ServiceDefaults.Tests;
 
+/// <summary>
+/// Verifies loopback host and origin checks and security headers at the local HTTP boundary.
+/// </summary>
 public sealed class LocalHttpBoundaryTests
 {
     private const int Port = 5182;

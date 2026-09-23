@@ -3,6 +3,14 @@ using System.Text;
 
 namespace OSSMDotNet.Models;
 
+/// <summary>
+/// Describes the identity fields reported by the stock pairing characteristic.
+/// </summary>
+/// <param name="WifiMac">The normalized Wi-Fi MAC address.</param>
+/// <param name="Chip">The reported chip identifier.</param>
+/// <param name="WifiConnected">Whether the device reports a Wi-Fi connection.</param>
+/// <param name="SketchMd5">The reported firmware sketch digest.</param>
+/// <param name="Version">The reported firmware version.</param>
 internal sealed record PairingIdentity(
     string WifiMac,
     string Chip,
@@ -12,6 +20,12 @@ internal sealed record PairingIdentity(
 {
     private static readonly Encoding StrictUtf8 = new UTF8Encoding(false, true);
 
+    /// <summary>
+    /// Parses the semicolon-separated identity fields from the stock pairing characteristic.
+    /// </summary>
+    /// <param name="payload">The UTF-8 characteristic value.</param>
+    /// <returns>The reported identity with a normalized Wi-Fi MAC address.</returns>
+    /// <exception cref="InvalidDataException">The identity is malformed or is not valid UTF-8.</exception>
     internal static PairingIdentity Parse(ReadOnlySpan<byte> payload)
     {
         string value;

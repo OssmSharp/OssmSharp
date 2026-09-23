@@ -3,6 +3,9 @@ using System.Net.Sockets;
 
 namespace OSSMDotNet.GuestWeb.Tests;
 
+/// <summary>
+/// Checks guest host binding, HTTP protections, and the pages and assets it serves.
+/// </summary>
 public sealed class GuestApplicationTests
 {
     private static CancellationToken Cancellation => TestContext.Current.CancellationToken;
@@ -150,6 +153,9 @@ public sealed class GuestApplicationTests
 
     private static LocalHttpClient LocalClient(int port) => new(port);
 
+    /// <summary>
+    /// Sends loopback requests without a proxy and owns both its client and handler.
+    /// </summary>
     private sealed class LocalHttpClient : IDisposable
     {
         private readonly HttpClientHandler _handler = new() { UseProxy = false };

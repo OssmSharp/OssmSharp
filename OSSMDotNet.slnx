@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/OSSMDotNet.AdminWeb/AdminWeb.csproj" />
+    <Project Path="src/OSSMDotNet.Api/Api.csproj" />
     <Project Path="src/OSSMDotNet.AppHost/AppHost.csproj" />
     <Project Path="src/OSSMDotNet.ControlClient/ControlClient.csproj" />
     <Project Path="src/OSSMDotNet.ControlCore/ControlCore.csproj" />
@@ -17,6 +18,8 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/OSSMDotNet.AdminWeb.Tests/AdminWeb.Tests.csproj" />
+    <Project Path="tests/OSSMDotNet.Api.IntegrationTests/Api.IntegrationTests.csproj" />
+    <Project Path="tests/OSSMDotNet.Api.Tests/Api.Tests.csproj" />
     <Project Path="tests/OSSMDotNet.ControlClient.Tests/ControlClient.Tests.csproj" />
     <Project Path="tests/OSSMDotNet.Cli.Tests/Cli.Tests.csproj" />
     <Project Path="tests/OSSMDotNet.ControlCore.Tests/ControlCore.Tests.csproj" />

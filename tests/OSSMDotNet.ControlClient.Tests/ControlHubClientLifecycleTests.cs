@@ -2,6 +2,9 @@ using OSSMDotNet.Models;
 
 namespace OSSMDotNet.ControlClient.Tests;
 
+/// <summary>
+/// Checks terminal resync and callback serialization when a hub connection closes.
+/// </summary>
 public sealed class ControlHubClientLifecycleTests
 {
     [Theory]
@@ -67,6 +70,9 @@ public sealed class ControlHubClientLifecycleTests
         Assert.Equal(0, callbacks.ActivityCount);
     }
 
+    /// <summary>
+    /// Records callback order and concurrent delivery across operator and guest subscriptions.
+    /// </summary>
     private sealed class CallbackRecorder
     {
         private readonly TaskCompletionSource<ControlResyncRequired> _resync = new(TaskCreationOptions.RunContinuationsAsynchronously);

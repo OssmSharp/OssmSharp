@@ -2,6 +2,9 @@ using OSSMDotNet.Models;
 
 namespace OSSMDotNet.ControlClient.Tests;
 
+/// <summary>
+/// Checks guest join, command dispatch, and restrictions before or after admission.
+/// </summary>
 public sealed class GuestControlClientTests
 {
     [Fact]

@@ -2,6 +2,9 @@ using Microsoft.AspNetCore.WebUtilities;
 
 namespace OSSMDotNet.ServiceDefaults.Tests;
 
+/// <summary>
+/// Verifies canonical capability token hashing and rejection of malformed tokens.
+/// </summary>
 public sealed class CapabilityTokensTests
 {
     private const string Token = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8";

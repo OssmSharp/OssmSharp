@@ -1,16 +1,8 @@
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Http.Json;
-using Microsoft.AspNetCore.Routing;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Diagnostics.HealthChecks;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Options;
-using OpenTelemetry.Metrics;
-using OpenTelemetry.Trace;
-
 namespace OSSMDotNet.ServiceDefaults.Tests;
 
+/// <summary>
+/// Verifies shared service registration and guest and admin configuration validation.
+/// </summary>
 public sealed class ServiceDefaultsRegistrationTests
 {
     [Fact]

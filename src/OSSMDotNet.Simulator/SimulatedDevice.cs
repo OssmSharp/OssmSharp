@@ -184,11 +184,8 @@ public sealed class SimulatedDevice : DeviceBase
     /// <summary>
     /// Applies an external simulator state change for integration testing.
     /// </summary>
-    /// <param name="speed">The external speed percentage.</param>
-    /// <param name="stroke">The external stroke percentage.</param>
-    /// <param name="depth">The external depth percentage.</param>
-    /// <param name="cancellationToken">The token that cancels the operation.</param>
-    /// <returns>A task that completes after the simulator accepts the state change.</returns>
+    /// <param name="motionSettings">The complete external simulator settings.</param>
+    /// <returns>Completion after the simulator accepts the state change.</returns>
     internal Task InjectExternalAsync(
         MotionSettings motionSettings,
         CancellationToken cancellationToken)
@@ -216,8 +213,7 @@ public sealed class SimulatedDevice : DeviceBase
     /// Sets the simulator response delay for integration testing.
     /// </summary>
     /// <param name="milliseconds">The delay in milliseconds.</param>
-    /// <param name="cancellationToken">The token that cancels the operation.</param>
-    /// <returns>A task that completes after the simulator accepts the delay.</returns>
+    /// <returns>Completion after the simulator accepts the delay.</returns>
     internal Task SetDelayAsync(int milliseconds, CancellationToken cancellationToken)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(milliseconds);
@@ -229,16 +225,14 @@ public sealed class SimulatedDevice : DeviceBase
     /// Freezes or resumes simulator state updates for integration testing.
     /// </summary>
     /// <param name="freeze"><see langword="true"/> to freeze updates; otherwise, <see langword="false"/>.</param>
-    /// <param name="cancellationToken">The token that cancels the operation.</param>
-    /// <returns>A task that completes after the simulator accepts the setting.</returns>
+    /// <returns>Completion after the simulator accepts the setting.</returns>
     internal Task SetStaleAsync(bool freeze, CancellationToken cancellationToken) =>
         SendAsync("stale", null, cancellationToken, freeze ? 1 : 0);
 
     /// <summary>
     /// Disconnects the simulator for integration testing.
     /// </summary>
-    /// <param name="cancellationToken">The token that cancels the operation.</param>
-    /// <returns>A task that completes after the simulator disconnects.</returns>
+    /// <returns>Completion after the simulator disconnects.</returns>
     internal async Task DisconnectAsync(CancellationToken cancellationToken)
     {
         await SendAsync("disconnect", null, cancellationToken).ConfigureAwait(false);
@@ -248,8 +242,7 @@ public sealed class SimulatedDevice : DeviceBase
     /// <summary>
     /// Reconnects the simulator for integration testing.
     /// </summary>
-    /// <param name="cancellationToken">The token that cancels the operation.</param>
-    /// <returns>A task that completes after the simulator reconnects.</returns>
+    /// <returns>Completion after the simulator reconnects.</returns>
     internal async Task ReconnectAsync(CancellationToken cancellationToken)
     {
         await SendAsync("connect", null, cancellationToken).ConfigureAwait(false);

@@ -1,4 +1,5 @@
 using OneOf;
+using OSSMDotNet.Abstractions.Models;
 
 namespace OSSMDotNet.Abstractions;
 
@@ -15,13 +16,17 @@ public interface IOssmDevice : IAsyncDisposable
     /// <summary>
     /// Occurs when the device reports state or an asynchronous device fault is detected.
     /// </summary>
-    /// <remarks>Connection status alone is reported through <see cref="ConnectionStateChanged"/>, not this event.</remarks>
+    /// <remarks>
+    /// Connection status alone is reported through <see cref="ConnectionStateChanged"/>, not this event.
+    /// </remarks>
     event Action<OneOf<DeviceState, Exception>>? DeviceStateChanged;
 
     /// <summary>
     /// Gets the current connection status independently of device state updates.
     /// </summary>
-    /// <remarks>Reading this property does not start a connection or authorize motion.</remarks>
+    /// <remarks>
+    /// Reading this property does not start a connection or authorize motion.
+    /// </remarks>
     DeviceConnectionState ConnectionState { get; }
 
     /// <summary>
@@ -37,9 +42,8 @@ public interface IOssmDevice : IAsyncDisposable
     /// <summary>
     /// Sends the requested motion settings to the device.
     /// </summary>
-    /// <param name="motionSettings">The motion settings to write.</param>
-    /// <param name="cancellationToken"></param>
-    /// <returns>Completion after the write operation settles.</returns>
+    /// <param name="motionSettings">The settings to write, including zero speed for a stop request.</param>
+    /// <returns>Completion when the write settles, without establishing feedback or physical motion.</returns>
     Task SetMotionAsync(
         MotionSettings motionSettings,
         CancellationToken cancellationToken);

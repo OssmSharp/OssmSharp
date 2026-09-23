@@ -1,16 +1,16 @@
-using Microsoft.AspNetCore.Components;
-using Microsoft.JSInterop;
-using OSSMDotNet.ControlClient;
-using OSSMDotNet.Models;
-
 namespace OSSMDotNet.GuestWeb.Components.Pages;
 
-/// <summary>Renders and manages one guest control session for an invitation.</summary>
+/// <summary>
+/// Renders and manages one guest control session for an invitation.
+/// </summary>
 public partial class Join
 {
     [Inject] private GuestControlClient Client { get; set; } = null!;
     [Inject] private IJSRuntime JavaScript { get; set; } = null!;
     [Inject] private ILogger<Join> Logger { get; set; } = null!;
+    /// <summary>
+    /// Gets or sets the session identifier from the invitation route.
+    /// </summary>
     [Parameter] public string SessionId { get; set; } = "";
 
     private readonly CancellationTokenSource _lifetime = new();
@@ -24,6 +24,7 @@ public partial class Join
     private bool _joining;
     private bool _joined;
     private bool _everJoined;
+    private bool _connectionLost;
     private bool _attached;
     private bool _leaving;
     private bool _disposed;
@@ -85,6 +86,10 @@ public partial class Join
                 await PushAuthorityAsync();
             }
         }
+        catch (ControlClientException error) when (error.Code is "invalid-invitation" or "invitation-invalid" or "session-conflict")
+        {
+            await EndUiSessionAsync();
+        }
         catch (ControlClientException)
         {
             await HandleConnectionLossAsync();
@@ -106,7 +111,11 @@ public partial class Join
         }
     }
 
-    /// <summary>Accepts the latest browser-side display state.</summary>
+    /// <summary>
+    /// Accepts the latest browser-side display state without granting motion authority.
+    /// </summary>
+    /// <param name="display">The browser's current selection and bounded feedback text.</param>
+    /// <exception cref="ArgumentException">The display has missing values or feedback longer than 200 characters.</exception>
     [JSInvokable]
     public Task UpdateDisplay(GuestDisplayState display)
     {
@@ -119,7 +128,11 @@ public partial class Join
         return Task.CompletedTask;
     }
 
-    /// <summary>Validates and submits a guest motion request from the browser.</summary>
+    /// <summary>
+    /// Validates and submits a guest motion request from the untrusted browser.
+    /// </summary>
+    /// <param name="input">The versioned request with current grant, policy, and bounded settings.</param>
+    /// <returns>The accepted reply code, or a rejection or unknown-outcome code.</returns>
     [JSInvokable]
     public async Task<BrowserReply> SubmitRun(GuestInput input)
     {
@@ -153,7 +166,10 @@ public partial class Join
         }
     }
 
-    /// <summary>Stops guest motion without treating command acceptance as device verification.</summary>
+    /// <summary>
+    /// Stops guest motion without treating command acceptance as device verification.
+    /// </summary>
+    /// <returns>The accepted reply code, or a rejection or unknown-outcome code.</returns>
     [JSInvokable]
     public async Task<BrowserReply> StopRun()
     {
@@ -205,7 +221,20 @@ public partial class Join
         StateHasChanged();
     });
 
-    private Task ReceiveResyncAsync(ControlResyncRequired resync) => InvokeAsync(HandleConnectionLossAsync);
+    private Task ReceiveResyncAsync(ControlResyncRequired resync) =>
+        InvokeAsync(resync.Code == "delivery-resync-required" ? HandleEndedSessionAsync : HandleConnectionLossAsync);
+
+    private async Task HandleEndedSessionAsync()
+    {
+        if (_disposed)
+            return;
+        _status = null;
+        _joined = false;
+        _leaving = true;
+        await BrowserCallAsync("disarm");
+        await EndUiSessionAsync();
+        StateHasChanged();
+    }
 
     private async Task HandleConnectionLossAsync()
     {
@@ -214,6 +243,7 @@ public partial class Join
         _status = null;
         _joined = false;
         _leaving = true;
+        _connectionLost = true;
         await BrowserCallAsync("disconnect");
         StateHasChanged();
     }
@@ -270,7 +300,9 @@ public partial class Join
     [LoggerMessage(Level = LogLevel.Warning, Message = "Guest browser cleanup did not complete; its control connection is closed.")]
     private static partial void LogGuestBrowserCleanupIncomplete(ILogger logger);
 
-    /// <summary>Releases the guest session and browser interop resources.</summary>
+    /// <summary>
+    /// Releases the guest session and browser interop resources.
+    /// </summary>
     public async ValueTask DisposeAsync()
     {
         if (_disposed)

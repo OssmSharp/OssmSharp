@@ -3,20 +3,20 @@
 
 <PageTitle>Guest controls</PageTitle>
 
-@if (_initialized && !_joined && !_joining)
+@if (_initialized && !_joined && !_joining && !_connectionLost)
 {
     <InlineNotification Variant="danger" Role="alert" data-testid="@(_everJoined ? "guest-ended" : "guest-invalid")">
         @(_everJoined ? "Session ended. Open the invite link again to rejoin." : "This invitation is invalid or has been replaced.")
     </InlineNotification>
 }
-else if (!_joined)
+else if (!_joined && !_connectionLost)
 {
     <InlineNotification Variant="info" Role="status">Opening invite...</InlineNotification>
 }
 else
 {
-    <div @ref="_root" class="guest-session rw-stack">
-        <InlineNotification Variant="danger" Role="alert" data-testid="guest-disconnected" hidden>
+    <div @ref="_root" class="guest-session rw-stack" data-connection-lost="@(_connectionLost ? "true" : null)">
+        <InlineNotification Variant="danger" Role="alert" data-testid="guest-disconnected" hidden="@(!_connectionLost)">
             Connection lost. Open the invitation link again.
         </InlineNotification>
         <InlineNotification Variant="danger" Role="alert" data-browser-alert hidden="@(_display.Error is null)">

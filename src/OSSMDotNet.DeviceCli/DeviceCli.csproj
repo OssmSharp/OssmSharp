@@ -6,6 +6,11 @@
     <PackageReference Include="System.CommandLine" />
     <ProjectReference Include="..\OSSMDotNet.Abstractions\OSSMDotNet.Abstractions.csproj" />
     <ProjectReference Include="..\OSSMDotNet.Simulator\OSSMDotNet.Simulator.csproj" />
+    <Using Include="OSSMDotNet.Abstractions.Models" />
+    <Using Include="OSSMDotNet.DeviceCli.Commands" />
+    <Using Include="OSSMDotNet.DeviceCli.Models" />
+    <Using Include="OSSMDotNet.DeviceCli.Simulator" />
+    <Using Include="OSSMDotNet.DeviceCli.Simulator.Ipc" />
   </ItemGroup>
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />

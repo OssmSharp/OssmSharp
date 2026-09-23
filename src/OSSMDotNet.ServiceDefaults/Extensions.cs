@@ -2,21 +2,27 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using OpenTelemetry;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
 
 namespace OSSMDotNet.ServiceDefaults;
 
-/// <summary>Configures shared Aspire service defaults and development health endpoints.</summary>
+/// <summary>
+/// Configures shared Aspire service defaults and development health endpoints.
+/// </summary>
 public static class ServiceDefaultsExtensions
 {
     private const string HealthEndpointPath = "/health";
     private const string AlivenessEndpointPath = "/alive";
 
-    /// <summary>Registers shared telemetry, health checks, and service discovery.</summary>
+    /// <summary>
+    /// Registers shared telemetry, health checks, and service discovery without automatic HTTP retries.
+    /// </summary>
+    /// <param name="builder">The application host builder.</param>
+    /// <returns>The configured host builder.</returns>
     public static TBuilder AddServiceDefaults<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
     {
         builder.ConfigureOpenTelemetry();
@@ -31,7 +37,11 @@ public static class ServiceDefaultsExtensions
         return builder;
     }
 
-    /// <summary>Configures shared OpenTelemetry logging, metrics, tracing, and exporters.</summary>
+    /// <summary>
+    /// Configures shared OpenTelemetry logging, metrics, tracing, and exporters.
+    /// </summary>
+    /// <param name="builder">The application host builder.</param>
+    /// <returns>The configured host builder.</returns>
     public static TBuilder ConfigureOpenTelemetry<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
     {
         builder.Logging.AddOpenTelemetry(logging =>
@@ -76,7 +86,11 @@ public static class ServiceDefaultsExtensions
         return builder;
     }
 
-    /// <summary>Registers readiness and liveness health checks.</summary>
+    /// <summary>
+    /// Registers readiness and liveness health checks.
+    /// </summary>
+    /// <param name="builder">The application host builder.</param>
+    /// <returns>The configured host builder.</returns>
     public static TBuilder AddDefaultHealthChecks<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
     {
         builder.Services.AddHealthChecks()
@@ -86,7 +100,11 @@ public static class ServiceDefaultsExtensions
         return builder;
     }
 
-    /// <summary>Maps development-only readiness and liveness endpoints.</summary>
+    /// <summary>
+    /// Maps readiness and liveness endpoints only in development.
+    /// </summary>
+    /// <param name="app">The web application to configure.</param>
+    /// <returns>The configured web application.</returns>
     public static WebApplication MapDefaultEndpoints(this WebApplication app)
     {
         // Exposing health endpoints outside development can reveal service state.

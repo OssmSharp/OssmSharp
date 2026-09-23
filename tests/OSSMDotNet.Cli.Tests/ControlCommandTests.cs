@@ -2,6 +2,9 @@ using OSSMDotNet.ControlClient.Tests;
 
 namespace OSSMDotNet.Cli.Tests;
 
+/// <summary>
+/// Verifies that the control CLI accepts only valid local or secure remote service origins.
+/// </summary>
 public sealed class ControlCommandTests
 {
     [Theory]

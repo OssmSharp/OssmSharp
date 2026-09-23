@@ -5,6 +5,9 @@ using OneOf;
 
 namespace OSSMDotNet.Tests;
 
+/// <summary>
+/// Verifies the public device contract and validation of reported motion state.
+/// </summary>
 public sealed class DeviceContractTests
 {
     [Fact]

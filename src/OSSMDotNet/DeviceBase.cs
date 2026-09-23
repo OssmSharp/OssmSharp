@@ -1,6 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using Microsoft.Extensions.Hosting;
 using OneOf;
+using OSSMDotNet.Models;
 
 namespace OSSMDotNet;
 
@@ -15,6 +16,7 @@ public abstract class DeviceBase : BackgroundService, IOssmDevice, IAsyncDisposa
     private readonly TimeSpan _expectationLifetime;
     private readonly ILogger _logger;
     private MotionSettings? _lastRequestedMotion;
+    private MotionSettings? _lastStateMotion;
     private int? _lastStateSpeed;
     private DeviceConnectionState _connectionState = DeviceConnectionState.Disconnected;
     private DeviceInformation? _device;
@@ -209,39 +211,58 @@ public abstract class DeviceBase : BackgroundService, IOssmDevice, IAsyncDisposa
             throw new InvalidDataException(validationResults[0].ErrorMessage);
         }
 
-        UnexpectedSpeedChangeException? unexpected = null;
+        UnexpectedSpeedChangeException? unexpectedSpeed = null;
+        UnexpectedMotionChangeException? unexpectedSettings = null;
         lock (_stateGate)
         {
             var pending = GetValidPendingWrite();
-            var expected = isOwnWrite is true ||
+            var speedExpected = isOwnWrite is true ||
                 (isOwnWrite is not false && pending is not null &&
                  IsExpectedState(
                      pending.PreviousRequestedSpeed,
                      pending.PreviousStateSpeed,
                      pending.Settings.Speed,
                      state.MotionSettings.Speed));
+            var settingsExpected = pending is not null &&
+                isOwnWrite is not false &&
+                SameReportedControlSettings(pending.Settings, state.MotionSettings);
 
-            if (expected)
+            if (speedExpected)
             {
                 _pendingWrite = null;
             }
             else if (_lastStateSpeed is { } previousStateSpeed &&
                      previousStateSpeed != state.MotionSettings.Speed)
             {
-                unexpected = new UnexpectedSpeedChangeException(
+                unexpectedSpeed = new UnexpectedSpeedChangeException(
                     previousStateSpeed,
                     state.MotionSettings.Speed,
                     pending?.Settings.Speed,
                     state.Timestamp);
             }
 
+            if (!settingsExpected && _lastStateMotion is { } previousSettings &&
+                !SameReportedControlSettings(previousSettings, state.MotionSettings))
+            {
+                unexpectedSettings = new UnexpectedMotionChangeException(
+                    previousSettings,
+                    state.MotionSettings,
+                    pending?.Settings,
+                    state.Timestamp);
+            }
+
+            _lastStateMotion = state.MotionSettings;
             _lastStateSpeed = state.MotionSettings.Speed;
         }
 
         Publish(state);
-        if (unexpected is not null)
+        if (unexpectedSpeed is not null)
         {
-            Publish(unexpected);
+            Publish(unexpectedSpeed);
+        }
+        else if (unexpectedSettings is not null)
+        {
+            Publish(unexpectedSettings);
         }
     }
 
@@ -320,6 +341,12 @@ public abstract class DeviceBase : BackgroundService, IOssmDevice, IAsyncDisposa
         }
     }
 
+    private static bool SameReportedControlSettings(MotionSettings first, MotionSettings second) =>
+        first.Stroke == second.Stroke &&
+        first.Sensation == second.Sensation &&
+        first.Depth == second.Depth &&
+        first.Pattern == second.Pattern;
+
     private PendingWrite? GetValidPendingWrite()
     {
         if (_pendingWrite is { } pending &&
@@ -340,6 +367,7 @@ public abstract class DeviceBase : BackgroundService, IOssmDevice, IAsyncDisposa
             if (state == DeviceConnectionState.Disconnected)
             {
                 _lastRequestedMotion = null;
+                _lastStateMotion = null;
                 _lastStateSpeed = null;
                 _pendingWrite = null;
                 _matchingContextVersion++;

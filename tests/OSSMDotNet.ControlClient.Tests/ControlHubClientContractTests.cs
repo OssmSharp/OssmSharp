@@ -1,5 +1,8 @@
 namespace OSSMDotNet.ControlClient.Tests;
 
+/// <summary>
+/// Checks hub callback ordering, acknowledgement handling, and ambiguous command outcomes.
+/// </summary>
 public sealed class ControlHubClientContractTests
 {
     [Fact]

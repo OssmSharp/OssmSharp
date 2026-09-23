@@ -9,5 +9,6 @@
         <PackageReference Include="xunit.v3.mtp-v2" />
         <PackageReference Include="Microsoft.Testing.Platform" />
         <Using Include="Xunit" />
+        <Using Include="OSSMDotNet.DeviceCli.Models" />
     </ItemGroup>
 </Project>

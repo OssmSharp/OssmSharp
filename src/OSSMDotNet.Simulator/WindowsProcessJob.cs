@@ -23,6 +23,9 @@ internal sealed partial class WindowsProcessJob : IDisposable
         ExtendedLimitInformation = 9,
     }
 
+    /// <summary>
+    /// Closes the job handle, terminating the owned simulator process on Windows.
+    /// </summary>
     public void Dispose() => _handle.Dispose();
 
     /// <summary>

@@ -4,17 +4,22 @@ using System.Globalization;
 
 namespace OSSMDotNet.DeviceCli;
 
-/// <summary>Defines commands for exercising a local OSSM simulator without the control service.</summary>
+/// <summary>
+/// Defines commands for exercising a local OSSM simulator without the control service.
+/// </summary>
 public static class DeviceCommand
 {
-    /// <summary>Creates the root device diagnostic command.</summary>
+    /// <summary>
+    /// Creates the root command for the current user's persistent simulator host.
+    /// </summary>
+    /// <returns>The configured device diagnostic command.</returns>
     public static RootCommand Create() => Create(DeviceCommandRunner.RunAsync);
 
     /// <summary>
     /// Invokes the device diagnostic command with the supplied arguments.
     /// </summary>
     /// <param name="args">The command-line arguments to parse and execute.</param>
-    /// <returns>A task that completes with the command exit code.</returns>
+    /// <returns>The command exit code, or 2 for invalid arguments.</returns>
     internal static Task<int> InvokeAsync(string[] args) => InvokeAsync(
         args,
         DeviceCommandRunner.RunAsync,
@@ -25,7 +30,7 @@ public static class DeviceCommand
     /// </summary>
     /// <param name="args">The command-line arguments to parse and execute.</param>
     /// <param name="runAsync">The operation runner selected by the parsed command.</param>
-    /// <returns>A task that completes with the command exit code.</returns>
+    /// <returns>The command exit code, or 2 for invalid arguments.</returns>
     internal static async Task<int> InvokeAsync(
         string[] args,
         Func<DeviceCommandRequest, CancellationToken, Task<int>> runAsync,

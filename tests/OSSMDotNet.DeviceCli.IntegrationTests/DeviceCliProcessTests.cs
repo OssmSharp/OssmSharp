@@ -3,6 +3,9 @@ using System.Reflection;
 
 namespace OSSMDotNet.DeviceCli.IntegrationTests;
 
+/// <summary>
+/// Checks the device CLI process exit and error output when simulator startup fails.
+/// </summary>
 public sealed class DeviceCliProcessTests
 {
     [Fact]

@@ -1,6 +1,3 @@
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Time.Testing;
-
 namespace OSSMDotNet.Tests;
 
 /// <summary>

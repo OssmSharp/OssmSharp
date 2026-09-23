@@ -2,6 +2,9 @@ using System.Net;
 
 namespace OSSMDotNet.GuestWeb.Tests;
 
+/// <summary>
+/// Hosts a loopback control hub for guest page tests and records its calls.
+/// </summary>
 public sealed class PageControlHubFixture : IAsyncDisposable
 {
     internal const string ServiceKey = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaA";
@@ -34,6 +37,10 @@ public sealed class PageControlHubFixture : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Starts the hub on an ephemeral loopback port; dispose the fixture when finished.
+    /// </summary>
+    /// <returns>The running hub fixture.</returns>
     internal static async Task<PageControlHubFixture> StartAsync(CancellationToken cancellationToken)
     {
         var fixture = new PageControlHubFixture();
@@ -111,6 +118,10 @@ public sealed class PageControlHubFixture : IAsyncDisposable
             _rejections[method] = code;
     }
 
+    /// <summary>
+    /// Holds subsequent calls to a hub method until <see cref="Release"/> is called.
+    /// </summary>
+    /// <param name="method">The hub method to hold.</param>
     internal void Hold(string method)
     {
         lock (_gate)
@@ -176,6 +187,12 @@ public sealed class PageControlHubFixture : IAsyncDisposable
             : new(acknowledgement.Code, acknowledgement.Correlation) { Accepted = false };
     }
 
+    /// <summary>
+    /// Records a hub call before applying a configured hold or rejection and returning its acknowledgement.
+    /// </summary>
+    /// <param name="method">The hub method invoked by the client.</param>
+    /// <param name="arguments">The call arguments used to recover its correlation.</param>
+    /// <returns>The accepted or rejected acknowledgement for the recorded call.</returns>
     internal async Task<ControlAcknowledgement> RecordAsync(string method, object?[] arguments)
     {
         TaskCompletionSource? hold;
@@ -254,7 +271,7 @@ public sealed class PageControlHubFixture : IAsyncDisposable
                     0,
                     true,
                     false,
-                    MotionSettings.Stopped,
+                    new(MotionDeviceState.StrokeEngineIdle, 0, 10, 50, 20, 0, MotionPattern.SimpleStroke, 0),
                     null,
                     new ControlLimits(speedCap, maximumDepth),
                     7,

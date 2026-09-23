@@ -1,5 +1,8 @@
 namespace OSSMDotNet.DeviceCli.Tests;
 
+/// <summary>
+/// Verifies device CLI parsing and forwarding of bounded simulator commands.
+/// </summary>
 public sealed class DeviceCommandTests
 {
     [Fact]

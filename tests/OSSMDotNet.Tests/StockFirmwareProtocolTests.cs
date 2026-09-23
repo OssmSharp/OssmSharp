@@ -5,10 +5,16 @@ using OSSMDotNet.Models;
 
 namespace OSSMDotNet.Tests;
 
+/// <summary>
+/// Verifies parsing and validation of stock firmware state, identity, pattern, and acknowledgement payloads.
+/// </summary>
 public sealed class StockFirmwareProtocolTests
 {
     private static readonly DateTime ReceiptTime = new(2026, 9, 20, 1, 2, 3, DateTimeKind.Utc);
 
+    /// <summary>
+    /// Gets the firmware state names and their expected motion states.
+    /// </summary>
     public static TheoryData<string, MotionDeviceState> SupportedStates => new()
     {
         { "idle", MotionDeviceState.Idle },
@@ -46,6 +52,9 @@ public sealed class StockFirmwareProtocolTests
         { "restart", MotionDeviceState.Restart },
     };
 
+    /// <summary>
+    /// Gets the firmware pattern indices and their expected motion patterns.
+    /// </summary>
     public static TheoryData<int, MotionPattern> SupportedPatterns => new()
     {
         { 0, MotionPattern.SimpleStroke },

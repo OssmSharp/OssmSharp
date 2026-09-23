@@ -2,10 +2,15 @@ using System.CommandLine;
 
 namespace OSSMDotNet.Cli;
 
-/// <summary>Defines the direct command-line client for the authenticated control service.</summary>
+/// <summary>
+/// Defines the direct command-line client for the authenticated control service.
+/// </summary>
 public static class ControlCommand
 {
-    /// <summary>Creates the root command and its control subcommands.</summary>
+    /// <summary>
+    /// Creates the status and stop commands for a loopback HTTP or remote HTTPS control service.
+    /// </summary>
+    /// <returns>The root command with a required, path-free control-service origin.</returns>
     public static RootCommand Create()
     {
         var root = new RootCommand("OSSM control CLI. Configure OSSM_CONTROL_CLIENT_SERVICE_KEY before connecting.");

@@ -3,6 +3,10 @@ using OSSMDotNet.Models;
 
 namespace OSSMDotNet.ControlClient.Tests;
 
+/// <summary>
+/// Forwards client requests to the fixture so tests can observe and control hub responses.
+/// </summary>
+/// <param name="fixture">The fixture recording requests and producing responses.</param>
 public sealed class LocalControlHub(LocalControlHubFixture fixture) : Hub
 {
     public override Task OnConnectedAsync()

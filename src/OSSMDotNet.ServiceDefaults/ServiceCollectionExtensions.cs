@@ -1,20 +1,29 @@
+using System.Net;
+using System.Text.Json.Serialization;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Server.Kestrel.Core;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
-using System.Net;
-using System.Text.Json.Serialization;
+using OSSMDotNet.ServiceDefaults.Models;
 
 namespace OSSMDotNet.ServiceDefaults;
 
-/// <summary>Registers validated local host configuration and shared Blazor hosting services.</summary>
+/// <summary>
+/// Registers validated local host configuration and shared Blazor hosting services.
+/// </summary>
 public static class ServiceCollectionExtensions
 {
-    /// <summary>Registers and validates the loopback-only AdminWeb configuration.</summary>
+    /// <summary>
+    /// Registers and validates the loopback-only admin configuration at startup.
+    /// </summary>
+    /// <param name="services">The host service collection.</param>
+    /// <returns>The supplied service collection.</returns>
     public static IServiceCollection AddAdminConfiguration(this IServiceCollection services)
     {
         services.AddOptions<AdminOptions>()
@@ -28,7 +37,11 @@ public static class ServiceCollectionExtensions
         return services;
     }
 
-    /// <summary>Registers and validates the local guest service configuration.</summary>
+    /// <summary>
+    /// Registers and validates the guest listener configuration at startup.
+    /// </summary>
+    /// <param name="services">The host service collection.</param>
+    /// <returns>The supplied service collection.</returns>
     public static IServiceCollection AddGuestConfiguration(this IServiceCollection services)
     {
         services.AddOptions<GuestOptions>()
@@ -38,7 +51,11 @@ public static class ServiceCollectionExtensions
         return services;
     }
 
-    /// <summary>Registers the fixed loopback listener for the unauthenticated admin web host.</summary>
+    /// <summary>
+    /// Registers the fixed loopback listener for the unauthenticated admin web host.
+    /// </summary>
+    /// <param name="services">The host service collection.</param>
+    /// <returns>The supplied service collection.</returns>
     public static IServiceCollection AddAdminListener(this IServiceCollection services)
     {
         services.AddOptions<KestrelServerOptions>()
@@ -50,7 +67,11 @@ public static class ServiceCollectionExtensions
         return services;
     }
 
-    /// <summary>Registers the constrained interactive Blazor host defaults.</summary>
+    /// <summary>
+    /// Registers constrained interactive Blazor defaults with ephemeral data protection.
+    /// </summary>
+    /// <param name="services">The host service collection.</param>
+    /// <returns>The supplied service collection.</returns>
     public static IServiceCollection AddLocalBlazor(this IServiceCollection services)
     {
         services.AddProblemDetails();

@@ -6,6 +6,7 @@
     <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
   </PropertyGroup>
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference
       Include="..\..\src\OSSMDotNet.Abstractions\OSSMDotNet.Abstractions.csproj" />
     <ProjectReference Include="..\..\src\OSSMDotNet.GuestWeb\GuestWeb.csproj" />
@@ -13,6 +14,25 @@
     <PackageReference Include="Microsoft.Testing.Platform" />
     <PackageReference Include="Microsoft.Extensions.Diagnostics.Testing" />
     <Using Include="OSSMDotNet.Abstractions" />
+    <Using Include="OSSMDotNet.Abstractions.Models" />
+    <Using Include="OSSMDotNet.ControlClient.Clients" />
+    <Using Include="OSSMDotNet.ControlClient.Connections" />
+    <Using Include="OSSMDotNet.ControlClient.Models" />
+    <Using Include="OSSMDotNet.Models" />
+    <Using Include="Microsoft.AspNetCore.Builder" />
+    <Using Include="Microsoft.AspNetCore.Hosting" />
+    <Using Include="Microsoft.AspNetCore.Hosting.Server" />
+    <Using Include="Microsoft.AspNetCore.Hosting.Server.Features" />
+    <Using Include="Microsoft.AspNetCore.Http.Connections" />
+    <Using Include="Microsoft.AspNetCore.Components" />
+    <Using Include="Microsoft.AspNetCore.Components.RenderTree" />
+    <Using Include="Microsoft.AspNetCore.SignalR" />
+    <Using Include="Microsoft.Extensions.DependencyInjection" />
+    <Using Include="Microsoft.Extensions.Configuration" />
+    <Using Include="Microsoft.Extensions.Hosting" />
+    <Using Include="Microsoft.Extensions.Logging" />
+    <Using Include="Microsoft.Extensions.Options" />
+    <Using Include="Microsoft.JSInterop" />
     <Using Include="Xunit" />
   </ItemGroup>
 </Project>

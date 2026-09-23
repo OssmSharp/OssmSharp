@@ -1,5 +1,9 @@
 namespace OSSMDotNet.GuestWeb.Tests;
 
+/// <summary>
+/// Forwards page requests to the fixture so tests can record and control hub responses.
+/// </summary>
+/// <param name="fixture">The fixture recording requests and producing responses.</param>
 public sealed class PageControlHub(PageControlHubFixture fixture) : Hub
 {
     public override Task OnConnectedAsync()

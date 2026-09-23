@@ -1,8 +1,10 @@
-using System.Text.Json;
 using System.Reflection;
 
 namespace OSSMDotNet.DeviceCli.IntegrationTests;
 
+/// <summary>
+/// Verifies host persistence, motion limits, and lifecycle commands across simulator IPC requests.
+/// </summary>
 public sealed class PersistentSimulatorHostTests
 {
     [Fact]

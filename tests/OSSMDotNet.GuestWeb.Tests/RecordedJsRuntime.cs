@@ -1,5 +1,9 @@
 namespace OSSMDotNet.GuestWeb.Tests;
 
+/// <summary>
+/// Supplies the recorded guest module for JavaScript imports and rejects other runtime calls.
+/// </summary>
+/// <param name="module">The module returned for import calls.</param>
 internal sealed class RecordedJsRuntime(RecordedJsModule module) : IJSRuntime
 {
     public ValueTask<TValue> InvokeAsync<TValue>(string identifier, object?[]? args) =>

@@ -3,6 +3,11 @@ using System.Diagnostics.CodeAnalysis;
 namespace OSSMDotNet.GuestWeb.Tests;
 
 #pragma warning disable BL0006 // Test-only renderer intentionally inspects Blazor render-tree frames.
+/// <summary>
+/// Renders interactive guest components and exposes snapshots of their render-tree output.
+/// </summary>
+/// <param name="services">Services available to rendered components.</param>
+/// <param name="loggerFactory">The logger factory used by the renderer.</param>
 internal sealed class ComponentRenderer(IServiceProvider services, ILoggerFactory loggerFactory) : Renderer(services, loggerFactory)
 {
     public override Dispatcher Dispatcher { get; } = Dispatcher.CreateDefault();
@@ -16,6 +21,9 @@ internal sealed class ComponentRenderer(IServiceProvider services, ILoggerFactor
 
     internal int RenderCount => Volatile.Read(ref _renderCount);
 
+    /// <summary>
+    /// Gets whether renders complete normally; disable to simulate a canceled display update.
+    /// </summary>
     internal bool InvokeAfterRender { get; init; } = true;
 
     internal Task<(TComponent Component, int ComponentId)> RenderComponentAsync<TComponent>(
@@ -29,6 +37,11 @@ internal sealed class ComponentRenderer(IServiceProvider services, ILoggerFactor
             return (component, componentId);
         });
 
+    /// <summary>
+    /// Copies the current frames so later renders cannot change the inspected snapshot.
+    /// </summary>
+    /// <param name="componentId">The rendered component to inspect.</param>
+    /// <returns>A snapshot of its render-tree frames.</returns>
     internal IReadOnlyList<RenderTreeFrame> GetFrames(int componentId)
     {
         var frames = GetCurrentRenderTreeFrames(componentId);
@@ -86,6 +99,14 @@ internal sealed class ComponentRenderer(IServiceProvider services, ILoggerFactor
         return null;
     }
 
+    /// <summary>
+    /// Finds an event handler on an element whose subtree contains the specified text.
+    /// </summary>
+    /// <param name="componentId">The root component to search.</param>
+    /// <param name="elementName">The element to match.</param>
+    /// <param name="text">Text to find in the element's subtree.</param>
+    /// <param name="eventAttributeNames">Event attributes to check for a handler.</param>
+    /// <returns>The matching event handler identifier.</returns>
     internal ulong FindEventHandlerIdForElementText(
         int componentId,
         string elementName,
@@ -120,6 +141,15 @@ internal sealed class ComponentRenderer(IServiceProvider services, ILoggerFactor
         throw new InvalidOperationException($"Could not find the {elementName} element for '{text}'.");
     }
 
+    /// <summary>
+    /// Finds an event handler on an element identified by an attribute in a rendered component tree.
+    /// </summary>
+    /// <param name="componentId">The root component to search.</param>
+    /// <param name="elementName">The element to match.</param>
+    /// <param name="matchAttributeName">The attribute used to identify the element.</param>
+    /// <param name="matchAttributeValue">The required value of the identifying attribute.</param>
+    /// <param name="eventAttributeNames">Event attributes to check for a handler.</param>
+    /// <returns>The matching event handler identifier.</returns>
     internal ulong FindEventHandlerIdForElementAttribute(
         int componentId,
         string elementName,
@@ -155,6 +185,10 @@ internal sealed class ComponentRenderer(IServiceProvider services, ILoggerFactor
     internal Task DispatchEventAsync(ulong eventHandlerId, EventArgs eventArgs) =>
         Dispatcher.InvokeAsync(() => base.DispatchEventAsync(eventHandlerId, null, eventArgs));
 
+    /// <summary>
+    /// Waits until at least the requested number of display updates has occurred.
+    /// </summary>
+    /// <param name="expected">The minimum display update count.</param>
     internal Task WaitForRenderCountAsync(int expected, CancellationToken cancellationToken)
     {
         lock (_renderGate)
@@ -168,6 +202,11 @@ internal sealed class ComponentRenderer(IServiceProvider services, ILoggerFactor
         }
     }
 
+    /// <summary>
+    /// Waits for text in the component or any of its rendered descendants.
+    /// </summary>
+    /// <param name="componentId">The root component to observe.</param>
+    /// <param name="expectedText">The text to find.</param>
     internal async Task WaitForTextContentAsync(int componentId, string expectedText, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrEmpty(expectedText);

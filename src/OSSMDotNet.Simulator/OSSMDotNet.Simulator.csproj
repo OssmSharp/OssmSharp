@@ -4,11 +4,15 @@
     <RootNamespace>OSSMDotNet.Simulator</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="Api" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\OSSMDotNet.Abstractions\OSSMDotNet.Abstractions.csproj" />
     <ProjectReference Include="..\OSSMDotNet\OSSMDotNet.csproj" />
     <PackageReference Include="Microsoft.Extensions.Hosting" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
     <Using Include="Microsoft.Extensions.Logging" />
     <Using Include="OSSMDotNet.Abstractions" />
+    <Using Include="OSSMDotNet.Abstractions.Models" />
   </ItemGroup>
 </Project>

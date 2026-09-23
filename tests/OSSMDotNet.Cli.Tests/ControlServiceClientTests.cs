@@ -3,6 +3,9 @@ using OSSMDotNet.ControlClient.Tests;
 
 namespace OSSMDotNet.Cli.Tests;
 
+/// <summary>
+/// Verifies control CLI output, service key handling, and single-attempt behavior for uncertain commands.
+/// </summary>
 public sealed class ControlServiceClientTests
 {
     private static readonly SemaphoreSlim ConsoleGate = new(1, 1);

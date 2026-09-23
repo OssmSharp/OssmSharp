@@ -1,8 +1,12 @@
+using Microsoft.Extensions.Time.Testing;
 using OSSMDotNet.AdminWeb.Components.Pages;
 using OSSMDotNet.GuestWeb.Tests;
 
 namespace OSSMDotNet.AdminWeb.Tests;
 
+/// <summary>
+/// Checks operator-page notices, controls, and live state through rendered components.
+/// </summary>
 public sealed class HomePageBehaviorTests
 {
     [Fact]
@@ -315,12 +319,13 @@ public sealed class HomePageBehaviorTests
     public async Task CopyUsesTheInvitationUrlAndKeepsThePageSuccessStateInSyncWithTheButton()
     {
         using var cancellationSource = CreateTimeout();
+        var time = new FakeTimeProvider();
         await using var fixture = await PageControlHubFixture.StartAsync(cancellationSource.Token);
         const string invitationUrl = "http://127.0.0.1:5182/join/fixture#invite=public-link";
         var precondition = new AuthorityPrecondition("instance-1", 18, new GuestAdmission(null, null, "None"));
         fixture.OperatorStatus = PageControlHubFixture.OperatorStatusFor(precondition, sessionMode: "None", invitationUrl: invitationUrl);
         await using var module = new RecordedJsModule { CopyResult = true };
-        await using var services = CreateServices(module, fixture.CreateOperatorClient());
+        await using var services = CreateServices(module, fixture.CreateOperatorClient(), time);
         await using var renderer = new ComponentRenderer(services, services.GetRequiredService<ILoggerFactory>());
         var (_, componentId) = await renderer.RenderComponentAsync<Home>(ParameterView.Empty);
         await module.WaitForInvocationCountAsync("attachLog", 1, cancellationSource.Token);
@@ -335,12 +340,19 @@ public sealed class HomePageBehaviorTests
         Assert.Equal(invitationUrl, Assert.IsType<string>(copied.Arguments[0]));
         Assert.Contains("Copied", renderer.GetTextContent(componentId));
         Assert.True(renderer.HasAttributeValueContaining(componentId, "aria-label", "Copied"));
+        Assert.Equal("success", renderer.GetElementAttributeValue(componentId, "rw-button", "aria-label", "Copied", "variant"));
+
+        renderCount = renderer.RenderCount;
+        time.Advance(TimeSpan.FromSeconds(2));
+        await renderer.WaitForRenderCountAsync(renderCount + 1, cancellationSource.Token);
+
+        Assert.Equal("secondary", renderer.GetElementAttributeValue(componentId, "rw-button", "aria-label", "Copy", "variant"));
     }
 
-    private static ServiceProvider CreateServices(RecordedJsModule module, OperatorControlClient client) =>
+    private static ServiceProvider CreateServices(RecordedJsModule module, OperatorControlClient client, TimeProvider? time = null) =>
         new ServiceCollection()
             .AddLogging()
-            .AddSingleton<TimeProvider>(TimeProvider.System)
+            .AddSingleton(time ?? TimeProvider.System)
             .AddSingleton<IJSRuntime>(new RecordedJsRuntime(module))
             .AddSingleton(client)
             .AddSingleton(ResourceAssetCollection.Empty)

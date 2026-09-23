@@ -1,13 +1,21 @@
+using System.Text;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
-using System.Text;
 
 namespace OSSMDotNet.ServiceDefaults;
 
-/// <summary>Applies loopback, origin, and content-security-policy protections to a local web host.</summary>
+/// <summary>
+/// Applies loopback, origin, and content-security-policy protections to a local web host.
+/// </summary>
 public static class LocalHttpBoundary
 {
-    /// <summary>Configures the local HTTP boundary for the specified loopback port and allowed style hashes.</summary>
+    /// <summary>
+    /// Rejects non-loopback requests and disallowed origins, and sets response security headers.
+    /// </summary>
+    /// <param name="app">The local web application's middleware pipeline.</param>
+    /// <param name="port">The port expected in the loopback host and origin.</param>
+    /// <param name="styleHashes">Canonical Base64 SHA-256 hashes of inline styles permitted by the content security policy.</param>
+    /// <exception cref="ArgumentException">A style hash is not a canonical Base64 SHA-256 digest.</exception>
     public static void UseLocalBoundary(this IApplicationBuilder app, int port, IReadOnlyList<string>? styleHashes = null)
     {
         var styles = new StringBuilder("'self'");

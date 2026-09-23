@@ -1,5 +1,8 @@
 namespace OSSMDotNet.WebCommon.Tests;
 
+/// <summary>
+/// Checks shared motion feedback rendering with missing, live, and simulator readings.
+/// </summary>
 public sealed class MotionMonitorTests
 {
     [Fact]

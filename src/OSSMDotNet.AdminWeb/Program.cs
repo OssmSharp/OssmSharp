@@ -1,9 +1,3 @@
-using Microsoft.Extensions.Options;
-using OSSMDotNet.AdminWeb.Components;
-using OSSMDotNet.ControlClient;
-using OSSMDotNet.ServiceDefaults;
-using OSSMDotNet.WebCommon;
-
 var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
 builder.Services.AddAdminConfiguration().AddLocalBlazor().AddControlClient("OSSM:ControlClient").AddAdminListener();
