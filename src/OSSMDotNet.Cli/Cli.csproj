@@ -1,5 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup><OutputType>Exe</OutputType></PropertyGroup>
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="System.CommandLine" />
     <ProjectReference Include="../OSSMDotNet.ControlClient/ControlClient.csproj" />

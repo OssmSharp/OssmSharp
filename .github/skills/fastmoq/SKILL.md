@@ -199,8 +199,8 @@ mocks.AddKnownType<Microsoft.AspNetCore.Http.HttpContext>(
 
 ## Providers and migration
 
-Provider resolution uses an async-scoped `Push` override, an explicit default,
-a single discoverable non-reflection provider, or `reflection`. Reflection
+Provider resolution uses an async-scoped `Push` override, an explicit default, a
+single discoverable non-reflection provider, or `reflection`. Reflection
 verification is best-effort and compares only direct constant arguments with
 `Equals`; do not use it to prove captured-variable or rich matcher predicates.
 

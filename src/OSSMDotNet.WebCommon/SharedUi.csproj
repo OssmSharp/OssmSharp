@@ -6,11 +6,14 @@
         <FrameworkReference Include="Microsoft.AspNetCore.App" />
         <PackageReference Include="RetroWebUi.Blazor" GeneratePathProperty="true" />
     </ItemGroup>
-    <Target Name="VerifyRetroWidgetPackage" BeforeTargets="PrepareForBuild" Condition="'$(DesignTimeBuild)' != 'true'">
-        <GetFileHash Files="$(PkgRetroWebUi_Blazor)/retrowebui.blazor.0.2.0.nupkg" Algorithm="SHA256">
+    <Target Name="VerifyRetroWidgetPackage" BeforeTargets="PrepareForBuild"
+        Condition="'$(DesignTimeBuild)' != 'true'">
+        <GetFileHash Files="$(PkgRetroWebUi_Blazor)/retrowebui.blazor.0.2.0.nupkg"
+            Algorithm="SHA256">
             <Output TaskParameter="Items" ItemName="_RetroPackageHash" />
         </GetFileHash>
-        <Error Condition="'%(_RetroPackageHash.FileHash)' != 'D2F469173184A1E3B17F91BABAB096089E4BDD5A6667A9B6DD898999C91A6FC1'"
-               Text="The local RetroWebUi.Blazor package differs from the reviewed 0.2.0 artifact. Restore the documented artifact or review its widget styles and update the package/CSP hashes together." />
+        <Error
+            Condition="'%(_RetroPackageHash.FileHash)' != 'D2F469173184A1E3B17F91BABAB096089E4BDD5A6667A9B6DD898999C91A6FC1'"
+            Text="The local RetroWebUi.Blazor package differs from the reviewed 0.2.0 artifact. Restore the documented artifact or review its widget styles and update the package/CSP hashes together." />
     </Target>
 </Project>
