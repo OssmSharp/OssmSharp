@@ -4,7 +4,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference
-      Include="..\OSSMDotNet.Abstractions\OSSMDotNet.Abstractions.csproj" />
+      Include="../OSSMDotNet.Abstractions/OSSMDotNet.Abstractions.csproj" />
     <Using Include="OSSMDotNet.Abstractions" />
     <Using Include="OSSMDotNet.Abstractions.Models" />
   </ItemGroup>

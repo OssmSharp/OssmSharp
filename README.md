@@ -5,15 +5,15 @@ or remote access.** Use admin and guest tabs on the same computer.
 
 ## Quick start
 
-Requires .NET 10 and Rust/Cargo. The sibling `..\retro-webui` checkout must
+Requires .NET 10 and Rust/Cargo. The sibling `../retro-webui` checkout must
 contain its private widget package at
-`artifacts\packages\RetroWebUi.Blazor.0.2.0.nupkg`. See
+`artifacts/packages/RetroWebUi.Blazor.0.2.0.nupkg`. See
 [local widget setup](.docs/retro-widgets.md) if it is missing.
 
 Run from this repository:
 
 ```powershell
-dnx Aspire.Cli@13.5.3 -- run --project src\OSSMDotNet.AppHost\AppHost.csproj
+dnx Aspire.Cli@13.5.3 -- run --project src/OSSMDotNet.AppHost/AppHost.csproj
 ```
 
 Keep the terminal open. Aspire builds and starts the application.
@@ -42,12 +42,12 @@ Build the native bridge, then inspect or move the simulator without
 ControlCore, Aspire or either web application:
 
 ```powershell
-cargo build --locked --release --manifest-path tools\ossm-sim-bridge\Cargo.toml
-$simulatorPath = (Resolve-Path tools\ossm-sim-bridge\target\release\ossm-sim-bridge.exe).Path
-dotnet run --project src\OSSMDotNet.DeviceCli\DeviceCli.csproj -- start --simulator-path $simulatorPath
-dotnet run --project src\OSSMDotNet.DeviceCli\DeviceCli.csproj -- status
-dotnet run --project src\OSSMDotNet.DeviceCli\DeviceCli.csproj -- move --speed 20 --stroke 20 --depth 50 --seconds 3
-dotnet run --project src\OSSMDotNet.DeviceCli\DeviceCli.csproj -- stop
+cargo build --locked --release --manifest-path tools/ossm-sim-bridge/Cargo.toml
+$simulatorPath = (Resolve-Path tools/ossm-sim-bridge/target/release/ossm-sim-bridge.exe).Path
+dotnet run --project src/OSSMDotNet.DeviceCli/DeviceCli.csproj -- start --simulator-path $simulatorPath
+dotnet run --project src/OSSMDotNet.DeviceCli/DeviceCli.csproj -- status
+dotnet run --project src/OSSMDotNet.DeviceCli/DeviceCli.csproj -- move --speed 20 --stroke 20 --depth 50 --seconds 3
+dotnet run --project src/OSSMDotNet.DeviceCli/DeviceCli.csproj -- stop
 ```
 
 `start` launches one headless simulator host for the current user and is safe to

@@ -14,7 +14,7 @@
 - You may use Python with Playwright for browser regression checks and private
   widget CSP hash calculation. You must keep application builds and orchestration
   native to .NET/Aspire, manage Python with `uv`, and not use `python -m pip install`.
-- You must update `.docs\diagrams\architecture.html` when changing project
+- You must update `.docs/diagrams/architecture.html` when changing project
   structure. Each folder under `src` should typically have one box in the diagram;
   pure libraries may have none.
 - You must update `.docs/specs` at the start of making durable changes to
@@ -128,9 +128,9 @@
 - You should use these MTP v2 commands:
   ```powershell
   dotnet test OssmWebControls.slnx
-  dotnet test --project tests\OSSMDotNet.ControlCore.Tests\ControlCore.Tests.csproj
-  dotnet test --project tests\OSSMDotNet.ControlCore.Tests\ControlCore.Tests.csproj --filter-method '*MethodName'
-  dotnet test --project tests\OSSMDotNet.ControlCore.Tests\ControlCore.Tests.csproj --list-tests
+  dotnet test --project tests/OSSMDotNet.ControlCore.Tests/ControlCore.Tests.csproj
+  dotnet test --project tests/OSSMDotNet.ControlCore.Tests/ControlCore.Tests.csproj --filter-method '*MethodName'
+  dotnet test --project tests/OSSMDotNet.ControlCore.Tests/ControlCore.Tests.csproj --list-tests
   ```
 - You must never remove failing tests or claim unrun checks passed witout justification.
 - You must separate test projects into unit tests and integration tests, with

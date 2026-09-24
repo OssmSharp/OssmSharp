@@ -24,7 +24,7 @@ stays after the interactive `HeadOutlet` to provide a stable insertion sibling.
 Requires Python (verified with 3.14), installed Microsoft Edge, and Playwright:
 
 ```powershell
-uv run --with-requirements tests\browser\requirements.txt python -m playwright install firefox
+uv run --with-requirements tests/browser/requirements.txt python -m playwright install firefox
 ```
 
 The smaller browser-module tests use a fake interop boundary and Playwright's
@@ -33,7 +33,7 @@ between Send and acceptance, retaining only explicitly sent values, and
 fail-closed disconnection:
 
 ```powershell
-uv run --with-requirements tests\browser\requirements.txt python -m unittest discover -s tests\browser -p test_guest_controls.py
+uv run --with-requirements tests/browser/requirements.txt python -m unittest discover -s tests/browser -p test_guest_controls.py
 ```
 
 To check an already running simulator application, supply its local endpoints
@@ -45,7 +45,7 @@ instance:
     adminUrl = 'http://127.0.0.1:<admin-port>'
     guestOrigin = 'http://127.0.0.1:<guest-port>'
     browser = 'firefox' # or 'edge'
-} | ConvertTo-Json -Compress | uv run --with-requirements tests\browser\requirements.txt python tests\browser\control_smoke.py
+} | ConvertTo-Json -Compress | uv run --with-requirements tests/browser/requirements.txt python tests/browser/control_smoke.py
 ```
 
 For fast iteration on the operator layout contract, run only that browser scope.
@@ -55,5 +55,5 @@ It does not create a guest session:
 @{
     adminUrl = 'http://127.0.0.1:<admin-port>'
     scope = 'operator-layout'
-} | ConvertTo-Json -Compress | uv run --with-requirements tests\browser\requirements.txt python tests\browser\control_smoke.py
+} | ConvertTo-Json -Compress | uv run --with-requirements tests/browser/requirements.txt python tests/browser/control_smoke.py
 ```

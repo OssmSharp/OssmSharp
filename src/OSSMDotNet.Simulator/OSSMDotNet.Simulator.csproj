@@ -7,8 +7,8 @@
     <InternalsVisibleTo Include="Api" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\OSSMDotNet.Abstractions\OSSMDotNet.Abstractions.csproj" />
-    <ProjectReference Include="..\OSSMDotNet\OSSMDotNet.csproj" />
+    <ProjectReference Include="../OSSMDotNet.Abstractions/OSSMDotNet.Abstractions.csproj" />
+    <ProjectReference Include="../OSSMDotNet/OSSMDotNet.csproj" />
     <PackageReference Include="Microsoft.Extensions.Hosting" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
     <Using Include="Microsoft.Extensions.Logging" />

@@ -5,16 +5,16 @@
         <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
     </PropertyGroup>
     <ItemGroup>
-        <ProjectReference Include="..\..\src\OSSMDotNet.Api\Api.csproj" />
-        <ProjectReference Include="..\..\src\OSSMDotNet.ControlService\ControlService.csproj" />
-        <ProjectReference Include="..\..\src\OSSMDotNet.Abstractions\OSSMDotNet.Abstractions.csproj" />
+        <ProjectReference Include="../../src/OSSMDotNet.Api/Api.csproj" />
+        <ProjectReference Include="../../src/OSSMDotNet.ControlService/ControlService.csproj" />
+        <ProjectReference Include="../../src/OSSMDotNet.Abstractions/OSSMDotNet.Abstractions.csproj" />
         <FrameworkReference Include="Microsoft.AspNetCore.App" />
-        <Compile Include="..\OSSMDotNet.ControlCore.Tests\Helpers\BridgeCall.cs"
-            Link="Helpers\BridgeCall.cs" />
-        <Compile Include="..\OSSMDotNet.ControlCore.Tests\Helpers\FakeBridge.cs"
-            Link="Helpers\FakeBridge.cs" />
-        <Compile Include="..\OSSMDotNet.ControlCore.Tests\Helpers\TestMotion.cs"
-            Link="Helpers\TestMotion.cs" />
+        <Compile Include="../OSSMDotNet.ControlCore.Tests/Helpers/BridgeCall.cs"
+            Link="Helpers/BridgeCall.cs" />
+        <Compile Include="../OSSMDotNet.ControlCore.Tests/Helpers/FakeBridge.cs"
+            Link="Helpers/FakeBridge.cs" />
+        <Compile Include="../OSSMDotNet.ControlCore.Tests/Helpers/TestMotion.cs"
+            Link="Helpers/TestMotion.cs" />
         <Using Include="OSSMDotNet.ControlCore.Tests.Helpers" />
         <Using Include="OSSMDotNet.ControlService.Activity" />
         <Using Include="OSSMDotNet.ControlService.Authority" />

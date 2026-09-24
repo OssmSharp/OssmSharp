@@ -6,19 +6,19 @@
     </PropertyGroup>
     <ItemGroup>
         <FrameworkReference Include="Microsoft.AspNetCore.App" />
-        <ProjectReference Include="..\..\src\OSSMDotNet.AdminWeb\AdminWeb.csproj" />
-        <Compile Include="..\OSSMDotNet.GuestWeb.Tests\ComponentRenderer.cs"
-            Link="Helpers\ComponentRenderer.cs" />
-        <Compile Include="..\OSSMDotNet.GuestWeb.Tests\RecordedJsRuntime.cs"
-            Link="Helpers\RecordedJsRuntime.cs" />
-        <Compile Include="..\OSSMDotNet.GuestWeb.Tests\RecordedJsModule.cs"
-            Link="Helpers\RecordedJsModule.cs" />
-        <Compile Include="..\OSSMDotNet.GuestWeb.Tests\PageHubInvocation.cs"
-            Link="Helpers\PageHubInvocation.cs" />
-        <Compile Include="..\OSSMDotNet.GuestWeb.Tests\PageControlHub.cs"
-            Link="Helpers\PageControlHub.cs" />
-        <Compile Include="..\OSSMDotNet.GuestWeb.Tests\PageControlHubFixture.cs"
-            Link="Helpers\PageControlHubFixture.cs" />
+        <ProjectReference Include="../../src/OSSMDotNet.AdminWeb/AdminWeb.csproj" />
+        <Compile Include="../OSSMDotNet.GuestWeb.Tests/ComponentRenderer.cs"
+            Link="Helpers/ComponentRenderer.cs" />
+        <Compile Include="../OSSMDotNet.GuestWeb.Tests/RecordedJsRuntime.cs"
+            Link="Helpers/RecordedJsRuntime.cs" />
+        <Compile Include="../OSSMDotNet.GuestWeb.Tests/RecordedJsModule.cs"
+            Link="Helpers/RecordedJsModule.cs" />
+        <Compile Include="../OSSMDotNet.GuestWeb.Tests/PageHubInvocation.cs"
+            Link="Helpers/PageHubInvocation.cs" />
+        <Compile Include="../OSSMDotNet.GuestWeb.Tests/PageControlHub.cs"
+            Link="Helpers/PageControlHub.cs" />
+        <Compile Include="../OSSMDotNet.GuestWeb.Tests/PageControlHubFixture.cs"
+            Link="Helpers/PageControlHubFixture.cs" />
         <PackageReference Include="xunit.v3.mtp-v2" />
         <PackageReference Include="Microsoft.Testing.Platform" />
         <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />

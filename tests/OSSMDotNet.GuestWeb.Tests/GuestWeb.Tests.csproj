@@ -8,8 +8,8 @@
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference
-      Include="..\..\src\OSSMDotNet.Abstractions\OSSMDotNet.Abstractions.csproj" />
-    <ProjectReference Include="..\..\src\OSSMDotNet.GuestWeb\GuestWeb.csproj" />
+      Include="../../src/OSSMDotNet.Abstractions/OSSMDotNet.Abstractions.csproj" />
+    <ProjectReference Include="../../src/OSSMDotNet.GuestWeb/GuestWeb.csproj" />
     <PackageReference Include="xunit.v3.mtp-v2" />
     <PackageReference Include="Microsoft.Testing.Platform" />
     <PackageReference Include="Microsoft.Extensions.Diagnostics.Testing" />

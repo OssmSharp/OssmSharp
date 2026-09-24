@@ -3,10 +3,10 @@
     <RootNamespace>OSSMDotNet.AdminWeb</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\OSSMDotNet.ControlClient\ControlClient.csproj" />
-    <ProjectReference Include="..\OSSMDotNet.Models\OSSMDotNet.Models.csproj" />
-    <ProjectReference Include="..\OSSMDotNet.ServiceDefaults\ServiceDefaults.csproj" />
-    <ProjectReference Include="..\OSSMDotNet.WebCommon\SharedUi.csproj" />
+    <ProjectReference Include="../OSSMDotNet.ControlClient/ControlClient.csproj" />
+    <ProjectReference Include="../OSSMDotNet.Models/OSSMDotNet.Models.csproj" />
+    <ProjectReference Include="../OSSMDotNet.ServiceDefaults/ServiceDefaults.csproj" />
+    <ProjectReference Include="../OSSMDotNet.WebCommon/SharedUi.csproj" />
     <Using Include="OSSMDotNet.ControlClient.Clients" />
     <Using Include="OSSMDotNet.ControlClient.Models" />
     <Using Include="OSSMDotNet.ControlClient.DependencyInjection" />

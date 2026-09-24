@@ -40,7 +40,7 @@ public sealed class ControlServiceBoundaryTests
     public async Task CertificateConfigurationRejectsDirectHttpButAllowsDirectHttps()
     {
         using var services = CreateServices();
-        var options = new ControlServiceOptions { HttpsCertificatePath = @"C:\certificates\control-service.pfx" };
+        var options = new ControlServiceOptions { HttpsCertificatePath = @"/certificates/control-service.pfx" };
         var insecure = new DefaultHttpContext();
 
         var insecureReached = await InvokeAsync(services, insecure, options);

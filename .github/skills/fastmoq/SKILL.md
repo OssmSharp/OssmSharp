@@ -16,7 +16,7 @@ do not add VSTest adapters or replace the runner. Follow
 From the repository root:
 
 ```powershell
-dotnet test --project tests\ControlCore.Tests
+dotnet test --project tests/ControlCore.Tests
 ```
 
 For filters, reports, and project configuration, use
@@ -121,8 +121,8 @@ merely to fill an `IFileSystem` constructor slot.
 
 ```csharp
 var files = mocks.GetFileSystem();
-files.Directory.CreateDirectory(@"C:\tests");
-files.File.WriteAllText(@"C:\tests\input.txt", "data");
+files.Directory.CreateDirectory(@"/tests");
+files.File.WriteAllText(@"/tests/input.txt", "data");
 
 mocks.SetupOptions(new ClientOptions { RetryCount = 2 });
 mocks.WhenHttpRequestJson(HttpMethod.Get, "/items/42", "{\"id\":42}");

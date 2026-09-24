@@ -3,11 +3,11 @@
     <RootNamespace>OSSMDotNet.ControlService</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\OSSMDotNet.ControlCore\ControlCore.csproj" />
+    <ProjectReference Include="../OSSMDotNet.ControlCore/ControlCore.csproj" />
     <ProjectReference
-      Include="..\OSSMDotNet.Abstractions\OSSMDotNet.Abstractions.csproj" />
-    <ProjectReference Include="..\OSSMDotNet\OSSMDotNet.csproj" />
-    <ProjectReference Include="..\OSSMDotNet.Models\OSSMDotNet.Models.csproj" />
+      Include="../OSSMDotNet.Abstractions/OSSMDotNet.Abstractions.csproj" />
+    <ProjectReference Include="../OSSMDotNet/OSSMDotNet.csproj" />
+    <ProjectReference Include="../OSSMDotNet.Models/OSSMDotNet.Models.csproj" />
     <PackageReference Include="Microsoft.Extensions.Hosting" />
     <Using Include="OSSMDotNet.Abstractions" />
     <Using Include="OSSMDotNet.Abstractions.Models" />

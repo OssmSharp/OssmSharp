@@ -8,12 +8,12 @@ Consumers need only .NET and the prebuilt package.
 ## Private package distribution
 
 - `NuGet.Config` maps this package ID exclusively to
-  `..\retro-webui\artifacts\packages`. Other dependencies use nuget.org.
+  `../retro-webui/artifacts/packages`. Other dependencies use nuget.org.
 - `SharedUi.csproj` pins version `0.2.0` and checks the package's SHA-256:
   `D2F469173184A1E3B17F91BABAB096089E4BDD5A6667A9B6DD898999C91A6FC1`.
 - This private widget update adds a prominent tone-matched `rw-attention` glow
   with a moving gradient and reduced-motion and forced-colors-safe presentation.
-- The authorized widget changes are in `..\retro-webui`. Native `dotnet pack`
+- The authorized widget changes are in `../retro-webui`. Native `dotnet pack`
   links its canonical theme CSS; no Node tooling was run. All 18 JavaScript
   files and 17 declaration files match the reviewed `0.1.0` artifact, so Shadow
   DOM style hashes remain unchanged. Canonical theme CSS SHA-256 is
@@ -51,13 +51,13 @@ Use the Python inspector with an approved local `.nupkg`; it does not restore,
 download, publish, extract, or install the package:
 
 ```powershell
-uv run --with-requirements tests\browser\requirements.txt python tools\retro-widgets\style_hashes.py .artifacts\nuget-packages\retrowebui.blazor\0.2.0\retrowebui.blazor.0.2.0.nupkg
+uv run --with-requirements tests/browser/requirements.txt python tools/retro-widgets/style_hashes.py .artifacts/nuget-packages/retrowebui.blazor/0.2.0/retrowebui.blazor.0.2.0.nupkg
 ```
 
 The package in the private source feed can also be inspected directly:
 
 ```powershell
-uv run --with-requirements tests\browser\requirements.txt python tools\retro-widgets\style_hashes.py ..\retro-webui\artifacts\packages\RetroWebUi.Blazor.0.2.0.nupkg
+uv run --with-requirements tests/browser/requirements.txt python tools/retro-widgets/style_hashes.py ../retro-webui/artifacts/packages/RetroWebUi.Blazor.0.2.0.nupkg
 ```
 
 Prerequisites are `uv`, Python with the Playwright version pinned in
@@ -93,7 +93,7 @@ tool neither authorizes scripts nor changes application files or CSP.
 Run the focused regression checks with:
 
 ```powershell
-uv run --with-requirements tests\browser\requirements.txt python -m unittest discover -s tests/browser -p test_style_hashes.py
+uv run --with-requirements tests/browser/requirements.txt python -m unittest discover -s tests/browser -p test_style_hashes.py
 ```
 
 These checks use Edge for synthetic packages and compare Edge with Firefox for

@@ -1,8 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <ProjectReference
-      Include="..\OSSMDotNet.Abstractions\OSSMDotNet.Abstractions.csproj" />
-    <ProjectReference Include="..\OSSMDotNet.Models\OSSMDotNet.Models.csproj" />
+      Include="../OSSMDotNet.Abstractions/OSSMDotNet.Abstractions.csproj" />
+    <ProjectReference Include="../OSSMDotNet.Models/OSSMDotNet.Models.csproj" />
     <Using Include="OSSMDotNet.Abstractions" />
     <Using Include="OSSMDotNet.Abstractions.Models" />
   </ItemGroup>

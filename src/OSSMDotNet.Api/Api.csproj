@@ -3,7 +3,7 @@
         <RootNamespace>OSSMDotNet.Api</RootNamespace>
     </PropertyGroup>
     <ItemGroup>
-        <ProjectReference Include="..\OSSMDotNet.ControlService\ControlService.csproj" />
+        <ProjectReference Include="../OSSMDotNet.ControlService/ControlService.csproj" />
         <Using Include="OSSMDotNet.Api.Authentication" />
         <Using Include="OSSMDotNet.Api.Device" />
         <Using Include="OSSMDotNet.Api.Hosting" />
@@ -11,8 +11,8 @@
         <Using Include="OSSMDotNet.ControlService.Activity" />
         <Using Include="OSSMDotNet.ControlService.Authority" />
         <Using Include="OSSMDotNet.ControlService.Operations" />
-        <ProjectReference Include="..\OSSMDotNet.Simulator\OSSMDotNet.Simulator.csproj" />
-        <ProjectReference Include="..\OSSMDotNet.ServiceDefaults\ServiceDefaults.csproj" />
+        <ProjectReference Include="../OSSMDotNet.Simulator/OSSMDotNet.Simulator.csproj" />
+        <ProjectReference Include="../OSSMDotNet.ServiceDefaults/ServiceDefaults.csproj" />
     </ItemGroup>
     <ItemGroup>
         <InternalsVisibleTo Include="Api.Tests" />

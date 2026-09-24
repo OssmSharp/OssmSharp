@@ -5,12 +5,12 @@
         <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
     </PropertyGroup>
     <ItemGroup>
-        <AssemblyMetadata Include="RepositoryRoot" Value="$(MSBuildProjectDirectory)\..\.." />
-        <ProjectReference Include="..\..\src\OSSMDotNet.ControlService\ControlService.csproj" />
-        <ProjectReference Include="..\..\src\OSSMDotNet.ControlCore\ControlCore.csproj" />
-        <ProjectReference Include="..\..\src\OSSMDotNet.Simulator\OSSMDotNet.Simulator.csproj" />
+        <AssemblyMetadata Include="RepositoryRoot" Value="$(MSBuildProjectDirectory)/../.." />
+        <ProjectReference Include="../../src/OSSMDotNet.ControlService/ControlService.csproj" />
+        <ProjectReference Include="../../src/OSSMDotNet.ControlCore/ControlCore.csproj" />
+        <ProjectReference Include="../../src/OSSMDotNet.Simulator/OSSMDotNet.Simulator.csproj" />
         <ProjectReference
-            Include="..\..\src\OSSMDotNet.Abstractions\OSSMDotNet.Abstractions.csproj" />
+            Include="../../src/OSSMDotNet.Abstractions/OSSMDotNet.Abstractions.csproj" />
         <Using Include="OSSMDotNet.ControlService.Activity" />
         <Using Include="OSSMDotNet.ControlService.Authority" />
         <Using Include="OSSMDotNet.ControlService.Operations" />

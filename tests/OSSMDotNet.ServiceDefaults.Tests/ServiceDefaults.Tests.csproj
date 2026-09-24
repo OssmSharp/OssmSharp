@@ -6,7 +6,7 @@
     <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\src\OSSMDotNet.ServiceDefaults\ServiceDefaults.csproj" />
+    <ProjectReference Include="../../src/OSSMDotNet.ServiceDefaults/ServiceDefaults.csproj" />
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <PackageReference Include="xunit.v3.mtp-v2" />
     <PackageReference Include="Microsoft.Testing.Platform" />

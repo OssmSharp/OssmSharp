@@ -10,9 +10,9 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\OSSMDotNet.AdminWeb\AdminWeb.csproj" />
-    <ProjectReference Include="..\OSSMDotNet.Api\Api.csproj" />
-    <ProjectReference Include="..\OSSMDotNet.GuestWeb\GuestWeb.csproj" />
+    <ProjectReference Include="../OSSMDotNet.AdminWeb/AdminWeb.csproj" />
+    <ProjectReference Include="../OSSMDotNet.Api/Api.csproj" />
+    <ProjectReference Include="../OSSMDotNet.GuestWeb/GuestWeb.csproj" />
   </ItemGroup>
 
 </Project>

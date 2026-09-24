@@ -73,7 +73,7 @@ public sealed class ControlServiceOptionsTests
         var external = CreateValidOptions();
         external.BindAddress = "192.0.2.10";
         external.HostName = "control.example.test";
-        external.HttpsCertificatePath = @"C:\certificates\control-service.pfx";
+        external.HttpsCertificatePath = @"/certificates/control-service.pfx";
         external.GuestOrigin = "https://guest.example.test";
         Assert.Empty(ValidateValid(external));
 
