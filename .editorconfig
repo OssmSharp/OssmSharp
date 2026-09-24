@@ -8,6 +8,15 @@ end_of_line = crlf
 insert_final_newline = true
 trim_trailing_whitespace = true
 
+[*.{sh,bash,zsh}]
+end_of_line = lf
+
+[{.bashrc,.zshrc,.profile}]
+end_of_line = lf
+
+[*.{service,timer,socket}]
+end_of_line = lf
+
 [*.md]
 max_line_length = 80
 
