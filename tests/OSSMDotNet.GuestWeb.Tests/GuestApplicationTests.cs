@@ -120,7 +120,10 @@ public sealed class GuestApplicationTests
         Assert.Contains("rw-inline-notification", html);
         Assert.DoesNotContain("rw-notice rw-operation-notice", html);
         Assert.Contains("components-reconnect-modal", html);
-        Assert.DoesNotContain("Connection lost. Open the invitation link again.", html);
+        Assert.DoesNotContain("class=\"rw-notice", html);
+        Assert.Contains("rw-inline-notification rw-reconnect-failed", html);
+        Assert.Contains("Connection lost. Open the invitation link again.", html);
+        Assert.Matches("<rw-alert(?=[^>]*class=\"rw-inline-notification\")(?=[^>]*data-testid=\"guest-disconnected\")(?=[^>]*hidden)[^>]*>", html);
         Assert.DoesNotContain("Join simulator session", html);
         Assert.DoesNotContain("data-input", html);
         await app.StopAsync(Cancellation);

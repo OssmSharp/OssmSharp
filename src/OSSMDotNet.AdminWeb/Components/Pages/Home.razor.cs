@@ -36,19 +36,21 @@ public partial class Home
         Mode: "Initializing" or "Paused", SessionMode: "PendingApproval" or "Approved",
         Limits.SpeedCap: > 0, Limits.MaximumDepth: > 0
     };
-    private string SessionLabel => _status?.SessionMode switch
+    private string SessionLabel => (_status?.SessionMode, _status?.Mode) switch
     {
-        "PendingApproval" => "Guest waiting",
-        "Approved" => "Guest connected",
+        ("PendingApproval", _) => "Guest waiting",
+        ("Approved", "Ready") => "Guest connected",
+        ("Approved", _) => "Controls disabled",
         _ => "No guest"
     };
     private bool GuestWaiting => _status?.SessionMode == "PendingApproval";
     private bool GuestApprovalActionAvailable => GuestWaiting && CanAllow;
     private bool OperationPending => _status?.OperationPending == true;
-    private string SessionVariant => _status?.SessionMode switch
+    private string SessionVariant => (_status?.SessionMode, _status?.Mode) switch
     {
-        "PendingApproval" => "warning",
-        "Approved" => "success",
+        ("PendingApproval", _) => "warning",
+        ("Approved", "Ready") => "success",
+        ("Approved", _) => "warning",
         _ => "neutral"
     };
 

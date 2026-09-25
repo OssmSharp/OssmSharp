@@ -1,3 +1,4 @@
+import os
 import unittest
 from pathlib import Path
 
@@ -7,13 +8,19 @@ from playwright.sync_api import expect, sync_playwright
 class GuestControlTests(unittest.TestCase):
     def setUp(self):
         self.playwright = sync_playwright().start()
-        self.browser = self.playwright.chromium.launch(channel="msedge")
+        executable = os.environ.get("PLAYWRIGHT_CHROMIUM_EXECUTABLE")
+        self.browser = self.playwright.chromium.launch(
+            executable_path=executable, channel=None if executable else "msedge"
+        )
         self.page = self.browser.new_page()
         self.page.clock.install()
         root = Path(__file__).resolve().parents[2]
         modules = {
             "guest-session.js": (
                 root / "src" / "OSSMDotNet.GuestWeb" / "wwwroot" / "guest-session.js"
+            ).read_text(),
+            "guest.css": (
+                root / "src" / "OSSMDotNet.GuestWeb" / "wwwroot" / "guest.css"
             ).read_text(),
             "connection-ui.js": (
                 root / "src" / "OSSMDotNet.WebCommon" / "wwwroot" / "connection-ui.js"
@@ -24,15 +31,17 @@ class GuestControlTests(unittest.TestCase):
             f'<svg><line data-current-marker="{name}"/><line data-sent-marker="{name}"/></svg>'
             for name, value in (("speed", 10), ("stroke", 10), ("depth", 20))
         )
-        html = f'<div id="app-boot-status"></div><div id="components-reconnect-modal" class="components-reconnect-hide"></div><main>{controls}<button data-send-button>Send</button><button data-stop-button>Stop</button><input data-auto-send type="checkbox"></main>'
+        html = f'<link rel="stylesheet" href="/guest.css"><div id="app-boot-status"></div><div id="components-reconnect-modal" class="rw-connection-notice">Connection lost.</div><main><rw-alert class="rw-inline-notification" variant="danger" role="alert" data-testid="guest-disconnected" hidden>Connection lost. Open the invitation link again.</rw-alert><rw-alert class="rw-inline-notification" role="status">Opening invite...</rw-alert>{controls}<button data-send-button>Send</button><button data-stop-button>Stop</button><input data-auto-send type="checkbox"></main>'
         self.page.route(
             "https://guest-controls.invalid/**",
             lambda route: route.fulfill(
                 content_type="text/javascript"
                 if route.request.url.endswith(".js")
+                else "text/css"
+                if route.request.url.endswith(".css")
                 else "text/html",
                 body=modules[route.request.url.rsplit("/", 1)[1]]
-                if route.request.url.endswith(".js")
+                if route.request.url.endswith((".js", ".css"))
                 else html,
                 headers={
                     "Content-Security-Policy": "default-src 'self'; script-src 'self'"
@@ -102,9 +111,11 @@ class GuestControlTests(unittest.TestCase):
     def test_disconnect_disables_controls_and_new_authority_cannot_resume_them(self):
         self.page.evaluate("window.module.disconnect()")
         self.page.evaluate("window.module.updateAuthority(window.authority)")
-        fallback = self.page.locator('main > [data-testid="guest-disconnected"]')
-        expect(fallback).to_be_visible()
-        expect(fallback).to_have_class("rw-inline-notification")
+        notice = self.page.locator('main > [data-testid="guest-disconnected"]')
+        expect(notice).to_be_visible()
+        expect(notice).to_have_class("rw-inline-notification")
+        expect(self.page.locator(".rw-connection-notice")).to_be_hidden()
+        expect(self.page.get_by_text("Opening invite...")).to_be_hidden()
         expect(
             self.page.get_by_role("button", name="Send", exact=True)
         ).to_be_disabled()
@@ -115,14 +126,11 @@ class GuestControlTests(unittest.TestCase):
 
     def test_disconnect_reveals_existing_inline_notice_in_main(self):
         self.page.evaluate("""() => {
-            const notice = document.createElement('rw-alert');
-            notice.dataset.testid = 'guest-disconnected';
-            notice.className = 'rw-inline-notification';
-            notice.setAttribute('variant', 'danger');
-            notice.setAttribute('role', 'alert');
-            notice.textContent = 'Connection lost. Open the invitation link again.';
-            notice.hidden = true;
-            document.querySelector('main').prepend(notice);
+            const invalid = document.createElement('rw-alert');
+            invalid.dataset.testid = 'guest-invalid';
+            invalid.className = 'rw-inline-notification';
+            invalid.textContent = 'This invitation is invalid or has been replaced.';
+            document.querySelector('main').append(invalid);
         }""")
 
         self.page.evaluate("window.module.disconnect()")
@@ -131,6 +139,7 @@ class GuestControlTests(unittest.TestCase):
         expect(notice).to_be_visible()
         expect(notice).to_have_class("rw-inline-notification")
         self.assertEqual(1, self.page.get_by_test_id("guest-disconnected").count())
+        expect(self.page.get_by_test_id("guest-invalid")).to_be_hidden()
 
     def test_native_reconnection_notifications_discard_guest_control_once(self):
         result = self.page.evaluate("""async () => {

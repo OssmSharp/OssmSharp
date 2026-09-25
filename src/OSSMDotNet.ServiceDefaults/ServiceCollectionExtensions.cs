@@ -68,7 +68,7 @@ public static class ServiceCollectionExtensions
     }
 
     /// <summary>
-    /// Registers constrained interactive Blazor defaults with ephemeral data protection.
+    /// Registers constrained interactive Blazor defaults.
     /// </summary>
     /// <param name="services">The host service collection.</param>
     /// <returns>The supplied service collection.</returns>
@@ -77,7 +77,7 @@ public static class ServiceCollectionExtensions
         services.AddProblemDetails();
         services.Configure<RouteHandlerOptions>(options => options.ThrowOnBadRequest = false);
         services.TryAddSingleton(TimeProvider.System);
-        services.AddDataProtection().UseEphemeralDataProtectionProvider();
+        services.AddDataProtection();
         services.AddRazorComponents().AddInteractiveServerComponents(options =>
         {
             options.DetailedErrors = false;

@@ -5,7 +5,7 @@ namespace OSSMDotNet.WebCommon;
 /// </summary>
 public static class RetroWidgetAssets
 {
-    // Exact static Shadow DOM styles from the checksum-pinned private RetroWebUi.Blazor 0.2.0 package.
+    // Exact static Shadow DOM styles from the reviewed RetroWebUi.Blazor 0.2.0 package.
     /// <summary>
     /// Gets the reviewed inline style hashes required by the widget package.
     /// </summary>

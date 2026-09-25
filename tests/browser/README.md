@@ -5,8 +5,8 @@ and Edge profiles. It covers automatic reusable invitations, single-guest
 admission, rejoining after leave with fresh approval, operator End rotating the
 invitation, link cycling and revocation, invalid links, applied/draft slider
 markers, live limits without pausing, Stop and reload. It also checks shared
-responsive layout, top-right connection/error notices, button names/tooltips,
-grayscale disabled states, reduced-motion-safe approval glow and timed Copy
+responsive layout, inline connection/error notices, button names/tooltips,
+grayscale disabled states, green approval without an activation glow and timed Copy
 success styling. The journey also closes its own page's real WebSocket: guest
 control stays discarded, the invitation remains reusable, and operator transport
 recovery does not arm control. Browser page errors, console errors and
@@ -21,7 +21,8 @@ mutation ran, the native DOM method was restored, invitation rendering still
 works, and interactive navigation updates the page title. The guest stylesheet
 stays after the interactive `HeadOutlet` to provide a stable insertion sibling.
 
-Requires Python (verified with 3.14), installed Microsoft Edge, and Playwright:
+Requires Python (verified with 3.14), Playwright, and Microsoft Edge or Chromium
+(set `PLAYWRIGHT_CHROMIUM_EXECUTABLE` to the Chromium executable):
 
 ```powershell
 uv run --with-requirements tests/browser/requirements.txt python -m playwright install firefox

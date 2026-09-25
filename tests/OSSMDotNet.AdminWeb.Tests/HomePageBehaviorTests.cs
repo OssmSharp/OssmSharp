@@ -28,7 +28,9 @@ public sealed class HomePageBehaviorTests
             componentId, "rw-alert", "data-testid", "pending-guest-notice", "variant"));
         Assert.True(renderer.HasAttributeValueContaining(componentId, "class", "rw-inline-notification"));
         Assert.False(renderer.HasAttributeValueContaining(componentId, "class", "rw-notice"));
-        Assert.True(renderer.HasAttributeValueContaining(componentId, "class", "rw-attention"));
+        Assert.False(renderer.HasAttributeValueContaining(componentId, "class", "rw-attention"));
+        Assert.Equal("success", renderer.GetElementAttributeValue(
+            componentId, "rw-button", "aria-label", "Allow control", "variant"));
 
         var renderCount = renderer.RenderCount;
         await fixture.SendOperatorStateAsync(
@@ -45,6 +47,120 @@ public sealed class HomePageBehaviorTests
         Assert.DoesNotContain("A guest is waiting. Click Allow control to enable control.", renderer.GetTextContent(componentId));
         Assert.Null(renderer.GetElementAttributeValue(
             componentId, "rw-alert", "data-testid", "pending-guest-notice", "variant"));
+        Assert.False(renderer.HasAttributeValueContaining(componentId, "class", "rw-attention"));
+    }
+
+    [Fact]
+    public async Task ApprovedGuestShowsConnectedOnlyWhileControlIsReady()
+    {
+        using var cancellationSource = CreateTimeout();
+        await using var fixture = await PageControlHubFixture.StartAsync(cancellationSource.Token);
+        var approved = new AuthorityPrecondition("instance-1", 10, new GuestAdmission("session-1", "guest-1", "Approved"));
+        var paused = PageControlHubFixture.OperatorStatusFor(approved, sessionMode: "Approved");
+        fixture.OperatorStatus = paused;
+        await using var module = new RecordedJsModule();
+        await using var services = CreateServices(module, fixture.CreateOperatorClient());
+        await using var renderer = new ComponentRenderer(services, services.GetRequiredService<ILoggerFactory>());
+
+        var (_, componentId) = await renderer.RenderComponentAsync<Home>(ParameterView.Empty);
+        await module.WaitForInvocationCountAsync("attachLog", 1, cancellationSource.Token);
+
+        Assert.Contains("Controls disabled", renderer.GetTextContent(componentId));
+        Assert.Equal("warning", renderer.GetElementAttributeValue(componentId, "rw-badge", "data-testid", "session-mode", "variant"));
+        Assert.Equal("danger", renderer.GetElementAttributeValue(componentId, "rw-button", "aria-label", "Stop and end session", "variant"));
+
+        var ready = paused with
+        {
+            Authority = paused.Authority with
+            {
+                Snapshot = paused.Authority.Snapshot with { Mode = "Ready" },
+                SnapshotRevision = 2
+            }
+        };
+        var renderCount = renderer.RenderCount;
+        await fixture.SendOperatorStateAsync(ready, cancellationSource.Token);
+        await renderer.WaitForRenderCountAsync(renderCount + 1, cancellationSource.Token);
+
+        Assert.Contains("Guest connected", renderer.GetTextContent(componentId));
+        Assert.Equal("success", renderer.GetElementAttributeValue(componentId, "rw-badge", "data-testid", "session-mode", "variant"));
+
+        renderCount = renderer.RenderCount;
+        await fixture.SendOperatorStateAsync(paused with
+        {
+            Authority = paused.Authority with { SnapshotRevision = 3 }
+        }, cancellationSource.Token);
+        await renderer.WaitForRenderCountAsync(renderCount + 1, cancellationSource.Token);
+
+        Assert.Contains("Controls disabled", renderer.GetTextContent(componentId));
+        Assert.Equal("warning", renderer.GetElementAttributeValue(componentId, "rw-badge", "data-testid", "session-mode", "variant"));
+
+        var ended = approved with { AuthorityRevision = 11, GuestAdmission = new(null, null, "Ended") };
+        renderCount = renderer.RenderCount;
+        await fixture.SendOperatorStateAsync(PageControlHubFixture.OperatorStatusFor(ended, sessionMode: "Ended", snapshotRevision: 4), cancellationSource.Token);
+        await renderer.WaitForRenderCountAsync(renderCount + 1, cancellationSource.Token);
+
+        Assert.Contains("No guest", renderer.GetTextContent(componentId));
+        Assert.Equal("neutral", renderer.GetElementAttributeValue(componentId, "rw-badge", "data-testid", "session-mode", "variant"));
+
+        var rejoined = approved with { AuthorityRevision = 12, GuestAdmission = new("session-2", "guest-2", "PendingApproval") };
+        renderCount = renderer.RenderCount;
+        await fixture.SendOperatorStateAsync(PageControlHubFixture.OperatorStatusFor(rejoined, snapshotRevision: 5), cancellationSource.Token);
+        await renderer.WaitForRenderCountAsync(renderCount + 1, cancellationSource.Token);
+
+        Assert.Contains("Guest waiting", renderer.GetTextContent(componentId));
+        Assert.Equal("warning", renderer.GetElementAttributeValue(componentId, "rw-badge", "data-testid", "session-mode", "variant"));
+    }
+
+    [Fact]
+    public async Task AllowControlStaysGreenAcrossGuestDisconnectAndReconnect()
+    {
+        using var cancellationSource = CreateTimeout();
+        await using var fixture = await PageControlHubFixture.StartAsync(cancellationSource.Token);
+        var noGuest = new AuthorityPrecondition("instance-1", 10, new GuestAdmission(null, null, "None"));
+        fixture.OperatorStatus = PageControlHubFixture.OperatorStatusFor(noGuest, sessionMode: "None");
+        await using var module = new RecordedJsModule();
+        await using var services = CreateServices(module, fixture.CreateOperatorClient());
+        await using var renderer = new ComponentRenderer(services, services.GetRequiredService<ILoggerFactory>());
+
+        var (_, componentId) = await renderer.RenderComponentAsync<Home>(ParameterView.Empty);
+        await module.WaitForInvocationCountAsync("attachLog", 1, cancellationSource.Token);
+
+        Assert.Equal("success", renderer.GetElementAttributeValue(
+            componentId, "rw-button", "aria-label", "Allow control", "variant"));
+        Assert.Null(renderer.GetElementAttributeValue(
+            componentId, "rw-button", "aria-label", "Allow control", "class"));
+
+        var waiting = noGuest with
+        {
+            AuthorityRevision = 11,
+            GuestAdmission = new("session-1", "guest-1", "PendingApproval")
+        };
+        var renderCount = renderer.RenderCount;
+        await fixture.SendOperatorStateAsync(PageControlHubFixture.OperatorStatusFor(waiting, snapshotRevision: 2), cancellationSource.Token);
+        await renderer.WaitForRenderCountAsync(renderCount + 1, cancellationSource.Token);
+
+        Assert.Equal("success", renderer.GetElementAttributeValue(
+            componentId, "rw-button", "aria-label", "Allow control", "variant"));
+        Assert.Contains("A guest is waiting. Click Allow control to enable control.", renderer.GetTextContent(componentId));
+
+        renderCount = renderer.RenderCount;
+        await fixture.SendOperatorStateAsync(PageControlHubFixture.OperatorStatusFor(
+            noGuest with { AuthorityRevision = 12 }, sessionMode: "None", snapshotRevision: 3), cancellationSource.Token);
+        await renderer.WaitForRenderCountAsync(renderCount + 1, cancellationSource.Token);
+
+        Assert.Equal("success", renderer.GetElementAttributeValue(
+            componentId, "rw-button", "aria-label", "Allow control", "variant"));
+        Assert.DoesNotContain("A guest is waiting. Click Allow control to enable control.", renderer.GetTextContent(componentId));
+
+        renderCount = renderer.RenderCount;
+        await fixture.SendOperatorStateAsync(PageControlHubFixture.OperatorStatusFor(
+            waiting with { AuthorityRevision = 13, GuestAdmission = new("session-2", "guest-2", "PendingApproval") },
+            snapshotRevision: 4), cancellationSource.Token);
+        await renderer.WaitForRenderCountAsync(renderCount + 1, cancellationSource.Token);
+
+        Assert.Equal("success", renderer.GetElementAttributeValue(
+            componentId, "rw-button", "aria-label", "Allow control", "variant"));
+        Assert.Contains("A guest is waiting. Click Allow control to enable control.", renderer.GetTextContent(componentId));
         Assert.False(renderer.HasAttributeValueContaining(componentId, "class", "rw-attention"));
     }
 
@@ -93,7 +209,7 @@ public sealed class HomePageBehaviorTests
         Assert.Equal("SubscribeOperator", subscription.Method);
         Assert.Equal(0L, Assert.IsType<long>(subscription.Arguments[1]));
         Assert.Contains("Guest waiting", renderer.GetTextContent(componentId));
-        Assert.True(renderer.HasAttributeValueContaining(componentId, "class", "rw-attention"));
+        Assert.False(renderer.HasAttributeValueContaining(componentId, "class", "rw-attention"));
         Assert.Contains("Allow control", renderer.GetTextContent(componentId));
     }
 
@@ -168,6 +284,8 @@ public sealed class HomePageBehaviorTests
         await module.WaitForInvocationCountAsync("attachLog", 1, cancellationSource.Token);
 
         var apply = renderer.FindEventHandlerIdForElementText(componentId, "button", "Apply limits", "onclick");
+        Assert.Equal("success", renderer.GetElementAttributeValue(
+            componentId, "rw-button", "aria-label", "Allow control", "variant"));
         var renderCount = renderer.RenderCount;
         await renderer.DispatchEventAsync(apply, new MouseEventArgs());
         await fixture.WaitForInvocationAsync("SetLimits", cancellationSource.Token);

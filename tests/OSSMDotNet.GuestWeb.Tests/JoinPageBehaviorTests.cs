@@ -327,10 +327,6 @@ public sealed class JoinPageBehaviorTests
         Assert.Equal(new BrowserReply(false, "not-ready"), submit);
         Assert.Equal(new BrowserReply(false, "not-joined"), stop);
         Assert.Equal(invocationCount, fixture.Invocations.Count);
-        Assert.Equal("danger", renderer.GetElementAttributeValue(
-            componentId, "rw-alert", "data-testid", "guest-disconnected", "variant"));
-        Assert.Null(renderer.GetElementAttributeValue(
-            componentId, "rw-alert", "data-testid", "guest-disconnected", "hidden"));
         Assert.True(renderer.HasAttributeValueContaining(componentId, "data-connection-lost", "true"));
         Assert.DoesNotContain("Session ended.", await GetTextContentAsync(renderer, componentId));
     }

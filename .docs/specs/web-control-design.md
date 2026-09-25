@@ -515,9 +515,9 @@ estimates/previews must be labelled and stale data must not animate as live.
 
 Application notifications must be normal-flow, full-content-width above the
 widgets, without a fixed wrapper, popup, modal or outer widget border.
-Framework-managed connection/reconnection/fatal notices are the only fixed
-top-right notices and must remain outside interactive-route DOM. Connection
-failures take precedence over other notices.
+Framework-managed connection/reconnection/fatal notices must use the same inline
+notification and remain outside interactive-route DOM. Connection failures
+take precedence over other notices.
 
 On guest connection loss, show the standard danger `RwAlert`: **Connection lost.
 Open the invitation link again.** Grayscale the remaining guest interface and
@@ -528,7 +528,7 @@ credentials or framework traffic.
 Every button must have an accessible name and useful tooltip; icon-only buttons
 need explicit labels, never an HTML `alt` attribute. Adjacent inputs/buttons
 must match heights. Waiting is warning/gold; connection/success actions are
-green; **Stop and end session** is warning/yellow; disabled buttons are
+green; **Stop and end session** is danger/red; disabled buttons are
 grayscale. Copied text and temporary success styling share one timer.
 
 Shared widget styling changes belong in RetroWebUi and must be consumed through
@@ -541,10 +541,10 @@ Applications must not patch copied assets or duplicate shared widget states.
 | --- | --- |
 | OUI-01 | Feedback is collapsed by default and labelled **Live feedback**, without a redundant connection word. The action card heading remains **Controls**, not a transient readiness state. |
 | OUI-02 | Above the narrow breakpoint, Controls and **Invite a guest** are adjacent equal-width/equal-height cards. Narrow layouts stack in source/keyboard order without horizontal overflow. The page heading aligns with the widgets' left edge. |
-| OUI-03 | The shared site label is 1.4rem. SIMULATOR, when present, aligns at the page header's top-right with the label/widgets, not in Controls. The Controls guest-session indicator is right-aligned. Pending device I/O adds a preceding large recording-red dot with accessible text/tooltip **Waiting for the device to settle.**, not a normal-flow status message. |
+| OUI-03 | The shared site label is 1.4rem. SIMULATOR, when present, aligns at the page header's top-right with the label/widgets, not in Controls. The Controls guest-session indicator is right-aligned and shows **Controls disabled** rather than **Guest connected** when an approved guest needs Allow control. Pending device I/O adds a preceding large recording-red dot with accessible text/tooltip **Waiting for the device to settle.**, not a normal-flow status message. |
 | OUI-04 | **Session limits** spans the grid, with dirty status top-right. All operator/guest card headings render at 1.1rem without changing semantic levels; the limits landmark remains h2. |
 | OUI-05 | Speed/depth share one right-aligned **Apply limits** action and atomic policy operation, without selected/applied text rows. A primary/selected-colour phantom dot marks applied track position while drafts differ and disappears on equality after successful application. Refresh preserves unsent edits. |
-| OUI-06 | Both interfaces share the header/content template and inline notifications. An actionable pending guest shows persistent warning/gold **A guest is waiting. Click Allow control to enable control.** and green attention treatment on enabled Allow control. It clears when no longer actionable. The shared package supplies animated green gradient/glow, static reduced-motion treatment and disabled grayscale; readiness and safety checks still govern availability. |
+| OUI-06 | Both interfaces share the header/content template and inline notifications. An actionable pending guest shows persistent warning/gold **A guest is waiting. Click Allow control to enable control.** Allow control is green when actionable and grayscale when inactive, without an activation glow. It is enabled whenever the operator can safely allow control, including after guest connection changes. Readiness and safety checks still govern availability. |
 
 ### Guest presentation requirements
 

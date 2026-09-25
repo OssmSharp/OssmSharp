@@ -16,57 +16,58 @@ else if (!_joined && !_connectionLost)
 else
 {
     <div @ref="_root" class="guest-session rw-stack" data-connection-lost="@(_connectionLost ? "true" : null)">
-        <InlineNotification Variant="danger" Role="alert" data-testid="guest-disconnected" hidden="@(!_connectionLost)">
-            Connection lost. Open the invitation link again.
-        </InlineNotification>
         <InlineNotification Variant="danger" Role="alert" data-browser-alert hidden="@(_display.Error is null)">
             @_display.Error
         </InlineNotification>
         <div class="guest-interface rw-stack">
-        <InlineNotification Variant="@SessionMessageVariant" CssClass="guest-session-message" Role="status">@SessionMessage</InlineNotification>
-        <MotionMonitor Position="@_status?.Position" Velocity="@_status?.Velocity"
-                       Moving="@(_status?.DeviceMoving == true)" Enabled="@(_status?.DeviceEnabled == true)"
-                       Fresh="@(_status?.BridgeReady == true)" IsSimulator="@(_status?.IsSimulator == true)"
-                       Heading="Live Status" ShowReadings="false" ShowSimulator="true" />
-        <RwCard role="region" aria-label="Requested settings">
-            <div slot="heading" class="rw-card-heading">
-                <h2>Settings</h2>
-            </div>
-            <div class="settings-legend">
-                <span><i class="key selected" aria-hidden="true"></i>Selected</span>
-                <span><i class="key sent" aria-hidden="true"></i>Sent</span>
-                <span><i class="key current" aria-hidden="true"></i>Verified current</span>
-            </div>
-            <div class="slider-grid">
-                <VerticalSlider Name="speed" Label="Speed" Maximum="@SpeedCap" InitialValue="0"
-                                SelectedValue="@_display.Selected.Speed" SentValue="@_display.Sent?.Speed"
-                                CurrentValue="@_status?.Current?.Speed" Confirmed="@_display.Confirmed" />
-                <VerticalSlider Name="stroke" Label="Stroke" Minimum="1" Maximum="@MaximumDepth" InitialValue="10"
-                                SelectedValue="@_display.Selected.Stroke" SentValue="@_display.Sent?.Stroke"
-                                CurrentValue="@_status?.Current?.Stroke" Confirmed="@_display.Confirmed" />
-                <VerticalSlider Name="depth" Label="Depth" Minimum="1" Maximum="@MaximumDepth" InitialValue="20"
-                                SelectedValue="@_display.Selected.Depth" SentValue="@_display.Sent?.Depth"
-                                CurrentValue="@_status?.Current?.Depth" Confirmed="@_display.Confirmed" />
-            </div>
-            <div slot="footer" class="card-footer">
-                <div class="send-bar">
-                    <rw-toggle class="auto-send">
-                        <input slot="control" id="guest-auto-send" type="checkbox" data-auto-send disabled="@(!Ready)" />
-                        <label slot="label" for="guest-auto-send">Auto send</label>
-                    </rw-toggle>
-                    <RwButton Type="button" Variant="success" data-send-button Disabled="@(!Ready)"
-                              aria-label="Send" title="Send the selected settings">Send</RwButton>
-                    <RwButton Type="button" Variant="danger" data-stop-button
-                              aria-label="Stop" title="Stop motion and pause control">Stop</RwButton>
+            <InlineNotification Variant="@SessionMessageVariant" CssClass="guest-session-message" Role="status">
+                @SessionMessage</InlineNotification>
+                <MotionMonitor Position="@_status?.Position" Velocity="@_status?.Velocity"
+                               Moving="@(_status?.DeviceMoving == true)" Enabled="@(_status?.DeviceEnabled == true)"
+                               Fresh="@(_status?.BridgeReady == true)" IsSimulator="@(_status?.IsSimulator == true)" Heading="Live Status"
+                               ShowReadings="false" ShowSimulator="true" />
+                <RwCard role="region" aria-label="Requested settings">
+                    <div slot="heading" class="rw-card-heading">
+                        <h2>Settings</h2>
+                    </div>
+                    <div class="settings-legend">
+                        <span><i class="key selected" aria-hidden="true"></i>Selected</span>
+                        <span><i class="key sent" aria-hidden="true"></i>Sent</span>
+                        <span><i class="key current" aria-hidden="true"></i>Verified current</span>
+                    </div>
+                    <div class="slider-grid">
+                        <VerticalSlider Name="speed" Label="Speed" Maximum="@SpeedCap" InitialValue="0"
+                                        SelectedValue="@_display.Selected.Speed" SentValue="@_display.Sent?.Speed"
+                                        CurrentValue="@_status?.Current?.Speed" Confirmed="@_display.Confirmed" />
+                        <VerticalSlider Name="stroke" Label="Stroke" Minimum="1" Maximum="@MaximumDepth" InitialValue="10"
+                                        SelectedValue="@_display.Selected.Stroke" SentValue="@_display.Sent?.Stroke"
+                                        CurrentValue="@_status?.Current?.Stroke" Confirmed="@_display.Confirmed" />
+                        <VerticalSlider Name="depth" Label="Depth" Minimum="1" Maximum="@MaximumDepth" InitialValue="20"
+                                        SelectedValue="@_display.Selected.Depth" SentValue="@_display.Sent?.Depth"
+                                        CurrentValue="@_status?.Current?.Depth" Confirmed="@_display.Confirmed" />
+                    </div>
+                    <div slot="footer" class="card-footer">
+                        <div class="send-bar">
+                            <rw-toggle class="auto-send">
+                                <input slot="control" id="guest-auto-send" type="checkbox" data-auto-send
+                                       disabled="@(!Ready)" />
+                                <label slot="label" for="guest-auto-send">Auto send</label>
+                            </rw-toggle>
+                            <RwButton Type="button" Variant="success" data-send-button Disabled="@(!Ready)" aria-label="Send"
+                                      title="Send the selected settings">Send</RwButton>
+                            <RwButton Type="button" Variant="danger" data-stop-button aria-label="Stop"
+                                      title="Stop motion and pause control">Stop</RwButton>
+                        </div>
+                        @if (Ready)
+                        {
+                            <p data-send-status class="send-status" role="status">@_display.Status</p>
+                        }
+                    </div>
+                </RwCard>
+                <div class="rw-actions">
+                    <RwButton Type="button" Variant="secondary" OnClick="LeaveAsync" Disabled="@_leaving"
+                              aria-label="Leave session" title="Stop control and leave this session">Leave session</RwButton>
                 </div>
-                @if (Ready)
-                {
-                    <p data-send-status class="send-status" role="status">@_display.Status</p>
-                }
             </div>
-        </RwCard>
-        <div class="rw-actions"><RwButton Type="button" Variant="secondary" OnClick="LeaveAsync" Disabled="@_leaving"
-                                        aria-label="Leave session" title="Stop control and leave this session">Leave session</RwButton></div>
         </div>
-    </div>
-}
+    }

@@ -60,20 +60,9 @@ export function restoreDisconnected() {
 function showDisconnect() {
   document.documentElement.dataset.guestConnectionLost = "true";
   guestRoot?.setAttribute("data-connection-lost", "true");
-  const existing = document.querySelector("[data-testid='guest-disconnected']");
-  if (existing) {
-    existing.removeAttribute("hidden");
-    return;
-  }
-  const main = document.querySelector("main");
-  if (!main) return;
-  const fallback = document.createElement("rw-alert");
-  fallback.className = "rw-inline-notification";
-  fallback.setAttribute("variant", "danger");
-  fallback.setAttribute("role", "alert");
-  fallback.dataset.testid = "guest-disconnected";
-  fallback.textContent = "Connection lost. Open the invitation link again.";
-  main.prepend(fallback);
+  document
+    .querySelector("main > [data-testid='guest-disconnected']")
+    ?.removeAttribute("hidden");
 }
 
 class Controls {

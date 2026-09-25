@@ -9,8 +9,8 @@ Consumers need only .NET and the prebuilt package.
 
 - `NuGet.Config` maps this package ID exclusively to
   `../retro-webui/artifacts/packages`. Other dependencies use nuget.org.
-- `SharedUi.csproj` pins version `0.2.0` and checks the package's SHA-256:
-  `D2F469173184A1E3B17F91BABAB096089E4BDD5A6667A9B6DD898999C91A6FC1`.
+- `Directory.Packages.props` pins version `0.2.0`. Local builds do not pin the
+  NuGet archive's SHA-256, which can differ after repacking on another machine.
 - This private widget update adds a prominent tone-matched `rw-attention` glow
   with a moving gradient and reduced-motion and forced-colors-safe presentation.
 - The authorized widget changes are in `../retro-webui`. Native `dotnet pack`
@@ -23,9 +23,10 @@ Consumers need only .NET and the prebuilt package.
 - NuGet metadata commands can query all configured sources despite source
   mapping. Use the local source explicitly when inspecting this private package.
 
-If the artifact is missing, obtain the approved prebuilt package for the local
-feed. Do not replace an existing version with different content: use a new
-private version, review it, and update the pin/checksum together.
+For local development, pack the widgets in the sibling checkout into
+`artifacts/packages` and restore this solution. NuGet may keep a cached package
+with the same version; use a fresh package cache when checking a new local pack.
+Review widget style changes and update the CSP style hashes together.
 
 ## Browser integration
 
@@ -39,11 +40,11 @@ ordinary operation notices. Native Blazor reconnect states drive the display
 without moving or replacing interactive DOM.
 
 The library inserts constant styles into Shadow DOM. `RetroWidgetAssets`
-contains the exact style hashes for this pinned package. The HTTP boundary
+contains the reviewed style hashes for this package version. The HTTP boundary
 allows only those hashes, keeping arbitrary inline styles and scripts blocked.
 
-Package updates require reviewing the package/checksum/style hashes together. No
-widget build tooling is included in this repository.
+Widget style changes require reviewing the CSP style hashes. No widget build
+tooling is included in this repository.
 
 ### Inspect package style hashes
 

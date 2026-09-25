@@ -16,14 +16,14 @@ public sealed class DeviceOwnershipLockTests
     }
 
     [Fact]
-    public void SecondLeaseCannotBeAcquiredUntilTheFirstLeaseIsReleased()
+    public async Task SecondLeaseCannotBeAcquiredUntilTheFirstLeaseIsReleasedFromAnotherThread()
     {
         using var first = DeviceOwnershipLock.TryAcquire();
 
         Assert.NotNull(first);
         Assert.Null(DeviceOwnershipLock.TryAcquire());
 
-        first.Dispose();
+        await Task.Run(first.Dispose, TestContext.Current.CancellationToken);
         using var replacement = DeviceOwnershipLock.TryAcquire();
         Assert.NotNull(replacement);
     }

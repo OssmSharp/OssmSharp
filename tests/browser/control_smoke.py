@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import sys
 import traceback
@@ -46,11 +47,10 @@ def assert_button_accessibility(page):
             assert button["filter"] == "grayscale(1)"
 
 
-def assert_top_right(page, notice):
+def assert_connection_inline(notice):
     expect(notice).to_be_visible()
-    box = notice.bounding_box()
-    assert box and abs(box["y"] - 16) < 1
-    assert abs(page.viewport_size["width"] - box["x"] - box["width"] - 16) < 1
+    expect(notice).to_have_class(re.compile(r"\brw-inline-notification\b"))
+    assert notice.evaluate("element => getComputedStyle(element).position") == "static"
 
 
 def assert_inline_notification(page, notification):
@@ -94,7 +94,7 @@ def assert_connection_notices(page):
         ("rejected", "Connection lost."),
     ):
         notice.evaluate(
-            "(element, state) => element.className = 'rw-notice rw-connection-notice components-reconnect-' + state",
+            "(element, state) => element.className = 'rw-connection-notice components-reconnect-' + state",
             state,
         )
         message = notice.locator(
@@ -104,14 +104,14 @@ def assert_connection_notices(page):
         )
         expect(message).to_be_visible()
         expect(message).to_contain_text(text)
-        assert_top_right(page, notice)
+        assert_connection_inline(message)
         expect(page.locator(".rw-operation-notice:visible")).to_have_count(0)
     notice.evaluate(
-        "element => element.className = 'rw-notice rw-connection-notice components-reconnect-hide'"
+        "element => element.className = 'rw-connection-notice components-reconnect-hide'"
     )
     fatal = page.locator("#blazor-error-ui")
     fatal.evaluate("element => { element.style.display = 'block'; }")
-    assert_top_right(page, fatal)
+    assert_connection_inline(fatal)
     expect(page.locator(".rw-operation-notice:visible")).to_have_count(0)
     fatal.evaluate("element => element.style.removeProperty('display')")
     expect(fatal).to_be_hidden()
@@ -252,10 +252,7 @@ def assert_transport_loss(page, guest):
             re.compile(r"\bcomponents-reconnect-(rejected|failed|resume-failed)\b"),
             timeout=12000,
         )
-        assert_top_right(page, notice)
-        expect(notice.locator(".rw-reconnect-failed")).to_contain_text(
-            "Connection lost."
-        )
+        expect(notice).to_be_hidden()
         expect(page.locator(".rw-operation-notice:visible")).to_have_count(0)
     else:
         expect(page.locator("html")).to_have_attribute(
@@ -276,7 +273,12 @@ def main():
             if settings.get("browser") == "firefox":
                 browser = playwright.firefox.launch(headless=True)
             else:
-                browser = playwright.chromium.launch(channel="msedge", headless=True)
+                executable = os.environ.get("PLAYWRIGHT_CHROMIUM_EXECUTABLE")
+                browser = playwright.chromium.launch(
+                    executable_path=executable,
+                    channel=None if executable else "msedge",
+                    headless=True,
+                )
             context = browser.new_context(viewport={"width": 1280, "height": 1000})
             context.expose_binding(
                 "__recordCspViolation",
@@ -315,10 +317,26 @@ def main():
 
             watch(admin)
             watch(guest)
+            if settings.get("scope") == "connection-notices":
+                stage = "connection-notices"
+                admin.goto(settings["adminUrl"])
+                assert_connection_notices(admin)
+                assert not errors, "browser-error"
+                assert not csp_violations, "content-security-policy-violation"
+                browser.close()
+                print("Connection notice checks passed.")
+                return 0
+
             if settings.get("scope") == "operator-layout":
                 stage = "operator-layout"
                 admin.goto(settings["adminUrl"])
                 expect(admin.get_by_test_id("session-mode")).to_have_text("No guest")
+                allow = admin.get_by_role("button", name="Allow control", exact=True)
+                expect(allow).to_be_disabled()
+                assert (
+                    allow.evaluate("element => getComputedStyle(element).filter")
+                    == "grayscale(1)"
+                )
                 assert_page_title_layout(admin, "Operator controls")
                 assert_operator_layout(admin)
                 expect(
@@ -357,24 +375,14 @@ def main():
 
                 allow = admin.get_by_role("button", name="Allow control", exact=True)
                 expect(allow.locator("..")).to_have_attribute("variant", "success")
-                expect(allow).to_have_class(re.compile(r"\brw-attention\b"))
-                assert (
-                    allow.evaluate("element => getComputedStyle(element).animationName")
-                    != "none"
-                )
-                assert "linear-gradient" in allow.evaluate(
-                    "element => getComputedStyle(element).backgroundImage"
-                )
-                assert (
-                    allow.evaluate("element => getComputedStyle(element).boxShadow")
-                    != "none"
-                )
-                admin.emulate_media(reduced_motion="reduce")
+                expect(allow).not_to_have_class(re.compile(r"\brw-attention\b"))
                 assert (
                     allow.evaluate("element => getComputedStyle(element).animationName")
                     == "none"
                 )
-                admin.emulate_media(reduced_motion="no-preference")
+                assert "linear-gradient" not in allow.evaluate(
+                    "element => getComputedStyle(element).backgroundImage"
+                )
 
                 allow.click()
                 expect(admin.get_by_test_id("session-mode")).to_have_text(
@@ -418,22 +426,15 @@ def main():
 
                 allow = admin.get_by_role("button", name="Allow control", exact=True)
                 expect(allow).to_be_enabled()
-                expect(allow).to_have_class(re.compile(r"\brw-attention\b"))
+                expect(allow.locator("..")).to_have_attribute("variant", "success")
+                expect(allow).not_to_have_class(re.compile(r"\brw-attention\b"))
                 assert (
                     allow.evaluate("element => getComputedStyle(element).animationName")
-                    != "none"
-                )
-                assert "linear-gradient" in allow.evaluate(
-                    "element => getComputedStyle(element).backgroundImage"
-                )
-                admin.emulate_media(reduced_motion="reduce")
-                assert (
-                    admin.get_by_role(
-                        "button", name="Allow control", exact=True
-                    ).evaluate("element => getComputedStyle(element).animationName")
                     == "none"
                 )
-                admin.emulate_media(reduced_motion="no-preference")
+                assert "linear-gradient" not in allow.evaluate(
+                    "element => getComputedStyle(element).backgroundImage"
+                )
 
                 stage = "guest-session-ended-notification"
                 allow.click()
@@ -656,24 +657,14 @@ def main():
             allow = admin.get_by_role("button", name="Allow control", exact=True)
             expect(allow).to_be_enabled()
             expect(allow.locator("..")).to_have_attribute("variant", "success")
-            expect(allow).to_have_class(re.compile(r"\brw-attention\b"))
-            assert (
-                allow.evaluate("element => getComputedStyle(element).animationName")
-                != "none"
-            )
-            assert "linear-gradient" in allow.evaluate(
-                "element => getComputedStyle(element).backgroundImage"
-            )
-            assert (
-                allow.evaluate("element => getComputedStyle(element).boxShadow")
-                != "none"
-            )
-            admin.emulate_media(reduced_motion="reduce")
+            expect(allow).not_to_have_class(re.compile(r"\brw-attention\b"))
             assert (
                 allow.evaluate("element => getComputedStyle(element).animationName")
                 == "none"
             )
-            admin.emulate_media(reduced_motion="no-preference")
+            assert "linear-gradient" not in allow.evaluate(
+                "element => getComputedStyle(element).backgroundImage"
+            )
             assert_button_accessibility(admin)
             assert_button_accessibility(guest)
             assert (

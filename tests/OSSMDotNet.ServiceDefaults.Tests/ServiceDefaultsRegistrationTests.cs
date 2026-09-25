@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.DataProtection;
+
 namespace OSSMDotNet.ServiceDefaults.Tests;
 
 /// <summary>
@@ -5,6 +7,27 @@ namespace OSSMDotNet.ServiceDefaults.Tests;
 /// </summary>
 public sealed class ServiceDefaultsRegistrationTests
 {
+    [Fact]
+    public async Task LocalBlazorCanReadProtectedPayloadAfterHostRestart()
+    {
+        var firstBuilder = WebApplication.CreateBuilder();
+        firstBuilder.Services.AddLocalBlazor();
+        string payload;
+        await using (var firstHost = firstBuilder.Build())
+        {
+            payload = firstHost.Services.GetRequiredService<IDataProtectionProvider>()
+                .CreateProtector("antiforgery-restart-regression").Protect("guest-token");
+        }
+
+        var secondBuilder = WebApplication.CreateBuilder();
+        secondBuilder.Services.AddLocalBlazor();
+        await using var secondHost = secondBuilder.Build();
+        var value = secondHost.Services.GetRequiredService<IDataProtectionProvider>()
+            .CreateProtector("antiforgery-restart-regression").Unprotect(payload);
+
+        Assert.Equal("guest-token", value);
+    }
+
     [Fact]
     public async Task ValidGuestConfigurationResolvesHealthAndLocalBlazorSafetyServices()
     {

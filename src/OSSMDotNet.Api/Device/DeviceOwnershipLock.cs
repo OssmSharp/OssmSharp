@@ -1,18 +1,20 @@
 namespace OSSMDotNet.Api.Device;
 
 /// <summary>
-/// Owns the OS-wide control-device lease for the lifetime of one API host.
+/// Owns the cross-process control-device lease for the lifetime of one API host.
 /// </summary>
 internal sealed class DeviceOwnershipLock : IDisposable
 {
     private const string LocalName = "ossm-web-controls-device";
-    private readonly Semaphore _semaphore;
+    private readonly Semaphore? _semaphore;
+    private readonly FileStream? _file;
     private int _disposed;
 
     private DeviceOwnershipLock(Semaphore semaphore) => _semaphore = semaphore;
+    private DeviceOwnershipLock(FileStream file) => _file = file;
 
     /// <summary>
-    /// Gets the OS-wide semaphore name used for the current platform.
+    /// Gets the semaphore name on Windows and the lock-file stem on Unix.
     /// </summary>
     internal static string Name => OperatingSystem.IsWindows() ? $@"Global\{LocalName}" : LocalName;
 
@@ -24,6 +26,19 @@ internal sealed class DeviceOwnershipLock : IDisposable
     {
         try
         {
+            if (!OperatingSystem.IsWindows())
+            {
+                var path = Path.Combine(Path.GetTempPath(), $"{LocalName}.lock");
+                try
+                {
+                    return new(new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None));
+                }
+                catch (IOException)
+                {
+                    return null;
+                }
+            }
+
             var semaphore = new Semaphore(initialCount: 1, maximumCount: 1, Name, out _);
             if (!semaphore.WaitOne(TimeSpan.Zero))
             {
@@ -47,8 +62,15 @@ internal sealed class DeviceOwnershipLock : IDisposable
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
 
-        try { _semaphore.Release(); }
-        finally { _semaphore.Dispose(); }
+        if (_semaphore is not null)
+        {
+            try { _semaphore.Release(); }
+            finally { _semaphore.Dispose(); }
+        }
+        else
+        {
+            _file?.Dispose();
+        }
         GC.SuppressFinalize(this);
     }
 }

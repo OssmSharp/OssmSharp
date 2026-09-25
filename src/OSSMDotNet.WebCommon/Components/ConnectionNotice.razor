@@ -1,10 +1,10 @@
-<RwAlert id="app-boot-status" class="rw-notice rw-boot-notice" Variant="info" role="status">
+<InlineNotification id="app-boot-status" CssClass="rw-boot-notice" Variant="info" Role="status">
     <span data-boot-text>Connecting...</span>
-</RwAlert>
-<div id="components-reconnect-modal" class="rw-notice rw-connection-notice components-reconnect-hide" role="status">
-    <RwAlert class="rw-reconnect-pending" Variant="warning">Rejoining the server...</RwAlert>
-    <RwAlert class="rw-reconnect-failed" Variant="danger">Connection lost.</RwAlert>
+</InlineNotification>
+<div id="components-reconnect-modal" class="rw-connection-notice components-reconnect-hide" role="status">
+    <InlineNotification CssClass="rw-reconnect-pending" Variant="warning">Rejoining the server...</InlineNotification>
+    <InlineNotification CssClass="rw-reconnect-failed" Variant="danger">Connection lost.</InlineNotification>
 </div>
-<div id="blazor-error-ui" class="rw-notice rw-fatal-notice" role="alert">
-    <RwAlert Variant="danger">Connection lost.</RwAlert>
-</div>
+<InlineNotification id="blazor-error-ui" CssClass="rw-fatal-notice" Variant="danger" Role="alert">
+    Connection lost.
+</InlineNotification>

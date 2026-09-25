@@ -20,6 +20,8 @@
 - You must update `.docs/specs` at the start of making durable changes to
   requirements. You must double-check before proceeding that the user's intent
   is honoured and the change does not mask or enshrine the wrong behaviour.
+- You must implement with cross-platform support for Windows 11 and macOS 26+.
+
 
 ## Coding
 
@@ -53,9 +55,11 @@
   assets or introduce app-specific versions of shared widget states.
 - You must use named semantic styles: waiting must be warning/gold, connected
   and successful actions must be success/green, and **Stop and end session** must
-  be warning/yellow. Disabled buttons must be grayscale. An available **Allow
-  control** action for a waiting guest must have a green attention glow; you
-  must respect reduced motion and preserve device-readiness and safety checks.
+  be warning/yellow. Disabled buttons must be grayscale. **Allow control** must
+  be green when actionable and grayscale when inactive, without an activation
+  glow; it must be enabled whenever it is safe for the operator to press,
+  including after guest connection changes. Preserve device-readiness and safety
+  checks.
 - Every button must have an accessible name and a useful tooltip. Icon-only
   buttons must have an explicit accessible label; you must not use an HTML `alt`
   attribute on buttons. Adjacent text inputs and buttons must have matching

@@ -50,6 +50,9 @@ main:focus { outline: none; }
 .guest-session[data-connection-lost] .guest-interface { filter: grayscale(1); }
 .guest-session[data-connection-lost] .guest-session-message { display: none; }
 .guest-session[data-connection-lost] [data-browser-alert] { display: none; }
+html[data-guest-connection-lost] main > .rw-inline-notification:not([data-testid="guest-disconnected"]),
+html[data-guest-connection-lost] .rw-connection-notice,
+html[data-guest-connection-lost] .rw-fatal-notice { display: none !important; }
 
 @media (max-width: 520px) {
     .slider-grid { gap: .45rem; }

@@ -23,13 +23,13 @@ a:focus-visible { outline: 2px solid var(--rw-focus); outline-offset: 3px; }
 
 .rw-page-header {
     width: 100%;
-    max-width: 900px;
+    max-width: 1000px;
     margin-inline: auto;
     padding-inline: clamp(1rem, 3vw, 2rem);
 }
 
 .rw-page-header { margin-block: 1.5rem 0; }
-.rw-page { margin-block: 1.25rem 2rem; }
+.rw-page { max-width: 1000px; margin-block: 1.25rem 2rem; }
 .rw-inline-notification { inline-size: 100%; }
 [slot="heading"], [slot="heading"] h2 { font-size: 1.1rem; }
 
