@@ -419,15 +419,15 @@
       <div class="view-heading">
         <span class="view-number" aria-hidden="true">03</span>
         <div>
-          <h2 id="projects-heading">Logical component dependencies</h2>
-          <p>The view follows runtime responsibility rather than every project reference: user-facing hosts invoke ApiService, its ControlService library owns application policy, and the standalone device libraries provide the sole device path.</p>
+          <h2 id="projects-heading">Source projects &amp; component dependencies</h2>
+          <p>Every source project is shown once. Arrows trace the main runtime and device paths; supporting references are summarized below.</p>
         </div>
       </div>
       <figure>
         <div class="viewport" role="region" tabindex="0" aria-label="Source project dependency diagram. Scroll horizontally on narrow screens.">
-          <svg viewBox="0 0 1472 1064" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="projects-title projects-desc">
-            <title id="projects-title">OSSM logical component dependencies</title>
-            <desc id="projects-desc">A top-to-bottom logical architecture showing AdminWeb and GuestWeb invoking ControlClient in process; DeviceCli managing a persistent per-user diagnostic host that invokes the standalone device libraries directly; ControlClient using SignalR over HTTPS and WSS to call ApiService; ApiService hosting the ControlService library, ControlCore and selected device implementation; OSSMDotNet.Simulator communicating with the external ossm-sim-bridge process through JSON-lines over standard input and output; and Models and ServiceDefaults shown as shared supporting projects.</desc>
+          <svg viewBox="0 0 1472 1272" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="projects-title projects-desc">
+            <title id="projects-title">OSSM source projects and logical dependencies</title>
+            <desc id="projects-desc">The 14 source projects are grouped by web surfaces, service, control contracts, device libraries, and host support. AdminWeb and GuestWeb use ControlClient to reach ApiService over SignalR; ApiService hosts ControlService, which uses ControlCore and device libraries. DeviceCli uses device libraries directly. Simulator uses the external ossm-sim-bridge process. AppHost orchestrates the three web processes.</desc>
             <defs>
               <marker id="projects-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#667085"/></marker>
               <marker id="projects-arrow-cyan" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#53d6ff"/></marker>
@@ -450,34 +450,37 @@
                 .projects-rule { stroke: #252b36; stroke-width: 1; }
               </style>
             </defs>
-            <rect width="1472" height="1064" class="projects-bg"/>
+            <rect width="1472" height="1272" class="projects-bg"/>
 
             <!-- Layer zones -->
-            <rect x="40" y="64" width="1072" height="288" rx="8" class="projects-zone"/>
-            <rect x="40" y="400" width="1072" height="184" rx="8" class="projects-zone"/>
-            <rect x="40" y="632" width="1072" height="176" rx="8" class="projects-zone"/>
-            <rect x="40" y="856" width="1072" height="136" rx="8" class="projects-zone"/>
-            <rect x="1144" y="64" width="288" height="192" rx="8" class="projects-zone"/>
+            <rect x="40" y="64" width="1072" height="320" rx="8" class="projects-zone"/>
+            <rect x="40" y="424" width="1072" height="160" rx="8" class="projects-zone"/>
+            <rect x="40" y="624" width="1072" height="192" rx="8" class="projects-zone"/>
+            <rect x="40" y="856" width="1072" height="344" rx="8" class="projects-zone"/>
+            <rect x="1144" y="64" width="288" height="272" rx="8" class="projects-zone"/>
             <text x="64" y="96" class="projects-layer">WEB &amp; COMMAND SURFACES</text>
-            <text x="64" y="432" class="projects-layer">CORRESPONDING SERVICES</text>
-            <text x="64" y="664" class="projects-layer">CONTROL, BRIDGE &amp; SHARED CONTRACTS</text>
-            <text x="64" y="888" class="projects-layer">OSSM / EXTERNAL PROCESS</text>
-            <text x="1168" y="96" class="projects-layer">SHARED HOST SUPPORT</text>
+            <text x="64" y="456" class="projects-layer">SERVICE HOST &amp; APPLICATION POLICY</text>
+            <text x="64" y="656" class="projects-layer">CONTROL &amp; SHARED CONTRACTS</text>
+            <text x="64" y="888" class="projects-layer">STANDALONE DEVICE LIBRARIES &amp; SIMULATOR</text>
+            <text x="1168" y="96" class="projects-layer">HOST SUPPORT</text>
 
-            <!-- Logical dependencies: orthogonal routes, fanned ports, no overlap. -->
-            <path d="M 200 208 V 216 Q 200 224 208 224 H 512 Q 520 224 520 232 V 240" class="projects-edge"/>
-            <path d="M 576 208 V 240" class="projects-edge"/>
-            <path d="M 576 320 V 440" class="projects-edge-runtime"/>
-            <path d="M 936 208 V 608 Q 936 616 928 616 H 664 Q 656 616 656 624 V 696" class="projects-edge"/>
-            <path d="M 512 536 V 608 Q 512 616 504 616 H 240 Q 232 616 232 624 V 696" class="projects-edge"/>
-            <path d="M 576 536 V 696" class="projects-edge"/>
-            <path d="M 576 792 V 904" class="projects-edge-runtime"/>
+            <!-- Primary runtime path and standalone device path. -->
+            <path d="M 232 208 V 232 Q 232 240 240 240 H 376 Q 384 240 384 248 V 272" class="projects-edge"/>
+            <path d="M 568 208 V 232 Q 568 240 560 240 H 472 Q 464 240 464 248 V 272" class="projects-edge"/>
+            <path d="M 424 352 V 400 Q 424 408 432 408 H 496 Q 504 408 504 416 V 480" class="projects-edge-runtime"/>
+            <path d="M 584 520 H 672" class="projects-edge"/>
+            <path d="M 736 560 V 608 Q 736 616 728 616 H 232 Q 224 616 224 624 V 696" class="projects-edge"/>
+            <path d="M 224 776 V 928" class="projects-edge"/>
+            <path d="M 352 968 H 456" class="projects-edge"/>
+            <path d="M 696 968 H 784" class="projects-edge"/>
+            <path d="M 904 1048 V 1120" class="projects-edge-runtime"/>
+            <path d="M 1024 168 H 1064 Q 1072 168 1072 176 V 952 Q 1072 960 1064 960 H 1024" class="projects-edge"/>
 
             <!-- Transport labels only. -->
-            <rect x="600" y="364" width="96" height="12" rx="2" class="projects-label-mask"/>
-            <text x="648" y="373" text-anchor="middle" class="projects-edge-label">SIGNALR/WSS</text>
-            <rect x="608" y="816" width="96" height="12" rx="2" class="projects-label-mask"/>
-            <text x="656" y="825" text-anchor="middle" class="projects-edge-label">JSONL/STDIO</text>
+            <rect x="440" y="388" width="96" height="12" rx="2" class="projects-label-mask"/>
+            <text x="488" y="397" text-anchor="middle" class="projects-edge-label">SIGNALR/WSS</text>
+            <rect x="920" y="1072" width="96" height="12" rx="2" class="projects-label-mask"/>
+            <text x="968" y="1081" text-anchor="middle" class="projects-edge-label">JSONL/STDIO</text>
 
             <!-- Web and command surfaces -->
             <g data-project="AdminWeb">
@@ -486,66 +489,88 @@
               <text x="128" y="184" class="projects-text projects-name">AdminWeb</text>
             </g>
             <g data-project="GuestWeb">
-              <rect x="472" y="128" width="208" height="80" rx="6" class="projects-node"/>
-              <text x="488" y="152" class="projects-meta">GUEST UI</text>
-              <text x="488" y="184" class="projects-text projects-name">GuestWeb</text>
+              <rect x="448" y="128" width="240" height="80" rx="6" class="projects-node"/>
+              <text x="464" y="152" class="projects-meta">GUEST UI</text>
+              <text x="464" y="184" class="projects-text projects-name">GuestWeb</text>
             </g>
             <g data-project="ControlClient">
-              <rect x="464" y="240" width="224" height="80" rx="6" class="projects-node"/>
-              <text x="480" y="264" class="projects-meta">SIGNALR CLIENT</text>
-              <text x="480" y="296" class="projects-text projects-name">ControlClient</text>
+              <rect x="280" y="272" width="224" height="80" rx="6" class="projects-node"/>
+              <text x="296" y="296" class="projects-meta">SIGNALR CLIENT</text>
+              <text x="296" y="328" class="projects-text projects-name">ControlClient</text>
             </g>
             <g data-project="DeviceCli">
-              <rect x="832" y="128" width="208" height="80" rx="6" class="projects-node"/>
-              <text x="848" y="152" class="projects-meta">DEVICE DIAGNOSTICS</text>
-              <text x="848" y="184" class="projects-text projects-name">DeviceCli</text>
-              <text x="848" y="200" class="projects-meta">PRIVATE PER-USER HOST</text>
+              <rect x="784" y="128" width="240" height="80" rx="6" class="projects-node"/>
+              <text x="800" y="152" class="projects-meta">DEVICE DIAGNOSTICS</text>
+              <text x="800" y="184" class="projects-text projects-name">DeviceCli</text>
+              <text x="800" y="200" class="projects-meta">PRIVATE PER-USER HOST</text>
+            </g>
+            <g data-project="WebCommon">
+              <rect x="616" y="272" width="240" height="80" rx="6" class="projects-node-shared"/>
+              <text x="632" y="296" class="projects-meta">SHARED WEB UI</text>
+              <text x="632" y="328" class="projects-text projects-name">WebCommon</text>
             </g>
 
             <!-- Service tier -->
             <g data-project="ApiService">
-              <rect x="448" y="440" width="256" height="96" rx="6" class="projects-node-focal"/>
-              <text x="464" y="472" class="projects-meta">SIGNALR + DEVICE HOST</text>
-              <text x="464" y="504" class="projects-text projects-name">ApiService</text>
-              <text x="464" y="524" class="projects-meta">hosts ControlService library</text>
+              <rect x="328" y="480" width="256" height="80" rx="6" class="projects-node-focal"/>
+              <text x="344" y="504" class="projects-meta">SIGNALR + DEVICE HOST</text>
+              <text x="344" y="536" class="projects-text projects-name">ApiService</text>
+            </g>
+            <g data-project="ControlService">
+              <rect x="672" y="480" width="256" height="80" rx="6" class="projects-node"/>
+              <text x="688" y="504" class="projects-meta">HOSTED BUSINESS LOGIC LIBRARY</text>
+              <text x="688" y="536" class="projects-text projects-name">ControlService</text>
             </g>
             <!-- Control, bridge, and contract tier -->
             <g data-project="ControlCore">
-              <rect x="112" y="696" width="240" height="96" rx="6" class="projects-node"/>
-              <text x="128" y="728" class="projects-meta">CONTROL DOMAIN</text>
-              <text x="128" y="760" class="projects-text projects-name">ControlCore</text>
-              <text x="128" y="780" class="projects-meta">engine / safety policy</text>
-            </g>
-            <g data-project="DeviceLibraries">
-              <rect x="456" y="696" width="240" height="96" rx="6" class="projects-node"/>
-              <text x="472" y="728" class="projects-meta">STANDALONE .NET FEATURE</text>
-              <text x="472" y="760" class="projects-text projects-name">Device libraries</text>
-              <text x="472" y="780" class="projects-meta">contracts / stock / simulator</text>
+              <rect x="112" y="696" width="240" height="80" rx="6" class="projects-node"/>
+              <text x="128" y="720" class="projects-meta">CONTROL DOMAIN</text>
+              <text x="128" y="752" class="projects-text projects-name">ControlCore</text>
             </g>
             <g data-project="Models">
-              <rect x="800" y="696" width="240" height="96" rx="6" class="projects-node-shared"/>
-              <text x="816" y="728" class="projects-meta">SHARED CONTRACTS</text>
-              <text x="816" y="760" class="projects-text projects-name">Models</text>
-              <text x="816" y="780" class="projects-meta">state / requests / replies</text>
+              <rect x="456" y="696" width="240" height="80" rx="6" class="projects-node-shared"/>
+              <text x="472" y="720" class="projects-meta">SHARED CONTRACTS</text>
+              <text x="472" y="752" class="projects-text projects-name">Models</text>
+            </g>
+
+            <!-- Device implementation tier -->
+            <g data-project="Abstractions">
+              <rect x="112" y="928" width="240" height="80" rx="6" class="projects-node-shared"/>
+              <text x="128" y="952" class="projects-meta">DEVICE INTERFACES</text>
+              <text x="128" y="984" class="projects-text projects-name">OSSMDotNet.Abstractions</text>
+            </g>
+            <g data-project="OSSMDotNet">
+              <rect x="456" y="928" width="240" height="80" rx="6" class="projects-node"/>
+              <text x="472" y="952" class="projects-meta">STOCK DEVICE LIBRARY</text>
+              <text x="472" y="984" class="projects-text projects-name">OSSMDotNet</text>
+            </g>
+            <g data-project="Simulator">
+              <rect x="784" y="928" width="240" height="120" rx="6" class="projects-node"/>
+              <text x="800" y="960" class="projects-meta">NATIVE SIMULATOR ADAPTER</text>
+              <text x="800" y="992" class="projects-text projects-name">Simulator</text>
+              <text x="800" y="1016" class="projects-meta">SELECTED IN LOCAL APPHOST</text>
             </g>
 
             <!-- Shared host support -->
-            <g data-project="ServiceDefaults">
-              <rect x="1168" y="128" width="240" height="96" rx="6" class="projects-node-shared"/>
-              <text x="1184" y="160" class="projects-meta">SHARED HOST CONFIG</text>
-              <text x="1184" y="192" class="projects-text projects-name">ServiceDefaults</text>
-              <text x="1184" y="212" class="projects-meta">telemetry / health</text>
+            <g data-project="AppHost">
+              <rect x="1168" y="128" width="240" height="80" rx="6" class="projects-node-shared"/>
+              <text x="1184" y="152" class="projects-meta">ASPIRE ORCHESTRATION</text>
+              <text x="1184" y="184" class="projects-text projects-name">AppHost</text>
             </g>
-
+            <g data-project="ServiceDefaults">
+              <rect x="1168" y="240" width="240" height="80" rx="6" class="projects-node-shared"/>
+              <text x="1184" y="264" class="projects-meta">TELEMETRY / HEALTH</text>
+              <text x="1184" y="296" class="projects-text projects-name">ServiceDefaults</text>
+            </g>
             <!-- External device process -->
             <g data-project="ossm-sim-bridge">
-              <rect x="384" y="904" width="384" height="72" rx="6" class="projects-node-external"/>
-              <text x="400" y="936" class="projects-meta">EXTERNAL RUST PROCESS / JSON-LINES</text>
-              <text x="400" y="960" class="projects-text projects-name">ossm-sim-bridge · OSSM-RS simulator</text>
+              <rect x="656" y="1120" width="384" height="64" rx="6" class="projects-node-external"/>
+              <text x="672" y="1144" class="projects-meta">EXTERNAL RUST PROCESS / JSON-LINES</text>
+              <text x="672" y="1168" class="projects-text projects-name">ossm-sim-bridge · OSSM-RS simulator</text>
             </g>
           </svg>
         </div>
-        <figcaption>Only application transport boundaries are labelled: ControlClient reaches ApiService through SignalR over WSS, and OSSMDotNet.Simulator reaches the native simulator through JSON-lines over standard input/output. DeviceCli manages one persistent per-user software diagnostic host through private local process IPC; that IPC is not an application control transport or authority boundary. The device libraries are independently buildable and consumable; ApiService hosts one ControlService/controller/device lifetime.</figcaption>
+        <figcaption>AdminWeb and GuestWeb share WebCommon and Models as well as ControlClient. AppHost orchestrates the three web processes; ServiceDefaults supports their hosting. ControlService composes ControlCore, device contracts and the selected adapter inside ApiService. DeviceCli uses the standalone device libraries directly, outside application control. Only application transport boundaries are labelled: ControlClient uses SignalR/WSS, while Simulator uses JSON-lines over standard input/output.</figcaption>
       </figure>
     </section>
 
