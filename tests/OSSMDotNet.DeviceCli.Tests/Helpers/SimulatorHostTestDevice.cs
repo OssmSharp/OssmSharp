@@ -1,0 +1,45 @@
+using Microsoft.Extensions.Logging.Abstractions;
+using OSSMDotNet.Abstractions.Models;
+using OSSMDotNet.Models;
+
+namespace OSSMDotNet.DeviceCli.Tests.Helpers;
+
+internal sealed class SimulatorHostTestDevice()
+    : DeviceBase(new StockOssmDeviceOptions(), TimeProvider.System, NullLogger<SimulatorHostTestDevice>.Instance)
+{
+    private DeviceState? _state;
+
+    internal bool Disposed { get; private set; }
+    internal int MotionCount { get; private set; }
+    internal MotionSettings? LastMotion { get; private set; }
+
+    internal void Disconnect() => PublishDisconnected();
+
+    protected override async Task ConnectAsync(CancellationToken cancellationToken)
+    {
+        PublishConnected(new DeviceInformation("test", "test", null, [MotionPattern.SimpleStroke]));
+        _state = new DeviceState
+        {
+            Timestamp = DateTime.UtcNow,
+            MotionSettings = new MotionSettings(MotionDeviceState.StrokeEngineIdle, 0, 20, 50, 50, 0, MotionPattern.SimpleStroke, 0),
+            SessionId = Guid.NewGuid(),
+        };
+        PublishState(_state, isOwnWrite: true);
+        await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+    }
+
+    protected override Task DispatchMotionAsync(MotionSettings motionSettings, CancellationToken cancellationToken)
+    {
+        MotionCount++;
+        LastMotion = motionSettings;
+        _state = _state! with { Timestamp = DateTime.UtcNow, MotionSettings = motionSettings };
+        PublishState(_state, isOwnWrite: true);
+        return Task.CompletedTask;
+    }
+
+    protected override ValueTask DisposeCoreAsync()
+    {
+        Disposed = true;
+        return base.DisposeCoreAsync();
+    }
+}

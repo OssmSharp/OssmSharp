@@ -1,3 +1,12 @@
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
+using OSSMDotNet;
+using OSSMDotNet.Simulator;
+using OSSMDotNet.Simulator.Models;
+
 namespace OSSMDotNet.DeviceCli.Simulator;
 
 /// <summary>
@@ -25,7 +34,18 @@ internal static class SimulatorHost
             return 1;
         }
 
-        await using var session = new SimulatorHostSession(simulatorPath, endpoint);
+        var builder = Host.CreateApplicationBuilder();
+        builder.Logging.ClearProviders();
+        builder.Services.AddScoped<DeviceBase>(_ => new SimulatedDevice(
+            Options.Create(new SimulatedDeviceOptions { ExecutablePath = simulatorPath }),
+            TimeProvider.System,
+            NullLogger<SimulatedDevice>.Instance));
+        builder.Services.AddScoped(services => new SimulatorHostSession(
+            simulatorPath, endpoint, services.GetRequiredService<DeviceBase>()));
+
+        using var host = builder.Build();
+        await using var scope = host.Services.CreateAsyncScope();
+        var session = scope.ServiceProvider.GetRequiredService<SimulatorHostSession>();
         return await session.RunAsync(cancellationToken).ConfigureAwait(false);
     }
 

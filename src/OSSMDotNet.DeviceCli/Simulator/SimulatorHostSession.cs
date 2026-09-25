@@ -1,8 +1,5 @@
 using System.IO.Pipes;
-using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
-using OSSMDotNet.Simulator;
-using OSSMDotNet.Simulator.Models;
+using OSSMDotNet;
 
 namespace OSSMDotNet.DeviceCli.Simulator;
 
@@ -11,18 +8,59 @@ namespace OSSMDotNet.DeviceCli.Simulator;
 /// </summary>
 internal sealed class SimulatorHostSession : IAsyncDisposable
 {
+    /// <summary>
+    /// Bounds startup, device operations, and IPC writes so an unresponsive simulator cannot hold the host indefinitely.
+    /// </summary>
     private static readonly TimeSpan OperationTimeout = TimeSpan.FromSeconds(5);
-    private readonly SimulatedDevice _device;
+
+    /// <summary>
+    /// Supplies motion control and status while the host retains ownership of the device.
+    /// </summary>
+    private readonly DeviceBase _device;
+
+    /// <summary>
+    /// Identifies the private pipe clients use to send commands to this session.
+    /// </summary>
     private readonly SimulatorEndpoint _endpoint;
+
+    /// <summary>
+    /// Identifies this host's executable so later start requests cannot silently switch simulators.
+    /// </summary>
     private readonly string _simulatorPath;
+
+    /// <summary>
+    /// Serializes requests and scheduled stops to prevent conflicting motion commands.
+    /// </summary>
     private readonly SemaphoreSlim _serial = new(1, 1);
-    private readonly TaskCompletionSource<DeviceState> _firstState =
-        new(TaskCreationOptions.RunContinuationsAsynchronously);
-    private readonly TaskCompletionSource<Exception> _backgroundFailure =
-        new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>
+    /// Holds the first device state or startup error so requests are not served before the device is ready.
+    /// </summary>
+    private readonly TaskCompletionSource<DeviceState> _firstState = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>
+    /// Retains device and scheduled-stop failures so the host reports failure instead of a successful exit.
+    /// </summary>
+    private readonly TaskCompletionSource<Exception> _backgroundFailure = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>
+    /// Links caller shutdown and device failure to pipe serving and scheduled motion stops.
+    /// </summary>
     private CancellationTokenSource? _hostCancellation;
+
+    /// <summary>
+    /// Cancels the previous scheduled stop when new motion or an explicit stop supersedes it.
+    /// </summary>
     private CancellationTokenSource? _movementCancellation;
+
+    /// <summary>
+    /// Tracks the scheduled stop so it finishes before its cancellation source is disposed or motion is replaced.
+    /// </summary>
     private Task _movementStop = Task.CompletedTask;
+
+    /// <summary>
+    /// Holds the latest device state for command responses and zero-speed settlement at shutdown.
+    /// </summary>
     private DeviceState? _latestState;
     private long _movementGeneration;
     private bool _connectionStarted;
@@ -33,27 +71,27 @@ internal sealed class SimulatorHostSession : IAsyncDisposable
     /// </summary>
     /// <param name="simulatorPath">The native simulator executable path.</param>
     /// <param name="endpoint">The endpoint to serve.</param>
-    internal SimulatorHostSession(string simulatorPath, SimulatorEndpoint endpoint)
+    /// <param name="device">The device owned by the host.</param>
+    internal SimulatorHostSession(string simulatorPath, SimulatorEndpoint endpoint, DeviceBase device)
     {
         _simulatorPath = simulatorPath;
         _endpoint = endpoint;
-        _device = new SimulatedDevice(
-            Options.Create(new SimulatedDeviceOptions { ExecutablePath = simulatorPath }),
-            TimeProvider.System,
-            NullLogger<SimulatedDevice>.Instance);
+        _device = device ?? throw new ArgumentNullException(nameof(device));
         _device.ConnectionStateChanged += OnConnectionStateChanged;
         _device.DeviceStateChanged += OnDeviceStateChanged;
     }
 
     /// <summary>
-    /// Releases the simulator device and the session's cancellation and serialization resources.
+    /// Releases the session's cancellation and serialization resources.
     /// </summary>
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync()
     {
+        _device.ConnectionStateChanged -= OnConnectionStateChanged;
+        _device.DeviceStateChanged -= OnDeviceStateChanged;
         _serial.Dispose();
         _movementCancellation?.Dispose();
         _hostCancellation?.Dispose();
-        await _device.DisposeAsync().ConfigureAwait(false);
+        return ValueTask.CompletedTask;
     }
 
     /// <summary>
