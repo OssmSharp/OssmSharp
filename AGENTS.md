@@ -4,12 +4,13 @@
 
 - You must use .NET 10, C#, and **ASP.NET Core Blazor Interactive Server + minimal APIs**.
 - You must use **xUnit v3 + MTP v2**, not MSTest, xUnit v2 or VSTest.
-- You must use **Aspire AppHost + ServiceDefaults** and follow the
-  [first-app guide](https://aspire.dev/get-started/first-app/?aspire-lang=csharp).
-- You must use `aspire run` to build and orchestrate services; you must not use
-  a custom service launcher.
-- You should prefer native .NET/Aspire best practices and remove redundant
-  boilerplate.
+- You must use **Aspire AppHost** only for optional local development and test
+  orchestration. Services must build, start and operate without AppHost or Aspire.
+- When using AppHost locally, use `aspire run`; do not add a custom orchestrator.
+- Logging, metrics, tracing and health must work through standard .NET hosting,
+  `ILogger<T>` and OpenTelemetry without Aspire or its dashboard. ServiceDefaults
+  may share configuration; startup must not require a telemetry collector.
+- You should prefer native .NET best practices and remove redundant boilerplate.
 - You must not use Node.js tooling or scripts.
 - You may use Python with Playwright for browser regression checks and private
   widget CSP hash calculation. You must keep application builds and orchestration
@@ -28,8 +29,20 @@
 - You must use `OSSMDotNet.*` for reusable namespaces and the web-specific
   namespaces `OSSMDotNet.AdminWeb`, `OSSMDotNet.GuestWeb`,
   `OSSMDotNet.ControlService`, and `OSSMDotNet.WebCommon`.
-- `OSSMDotNet.DeviceCli` must use the standalone device libraries directly and
-  remain unrelated to the control service and web frontend system.
+- `OSSMDotNet.DeviceCli` must be an executable consumer of `ControlClient`,
+  communicating with the independently runnable `ControlService` over SignalR.
+  It must not host adapters or depend on ApiService, either web host or AppHost.
+- ApiService must consume ControlClient, not host or reference ControlService,
+  ControlCore or concrete device adapters. AdminWeb and GuestWeb call ApiService.
+- ControlService must be the device-side executable. It must host ControlCore
+  and inject exactly one `IOssmDevice` implementation: OSSMDotNet for hardware
+  or OSSMDotNet.Simulator. ControlCore depends on Abstractions, not adapters.
+- The simulator must start independently. Neither the CLI nor a device adapter
+  may launch, own or terminate its process.
+- You must preserve independent service startup, deployment and lifetimes.
+  Library separation within one process does not satisfy a service boundary.
+  Ask before changing these boundaries; do not derive requirements from a
+  conflicting implementation or present a target diagram as completed work.
 
 ## User interface conventions
 
@@ -79,19 +92,21 @@
 
 ## Authority and safety
 
-- You must keep GuestWeb, AdminWeb, and ControlService as **separate processes**.
+- You must keep GuestWeb, AdminWeb, ApiService and ControlService as
+  **separate processes**. The backend must operate with all frontend services absent.
 - ControlService must exclusively own sessions, policy, timers, the single writer
-  and device bridge. AdminWeb and GuestWeb must call it through `/hubs/control/v1`.
+  and device connection. ApiService and DeviceCli must use ControlClient to reach
+  its SignalR endpoint `/hubs/control/v1`; neither may bypass its writer.
 - AdminWeb must remain unauthenticated and bound to `127.0.0.1`; you must retain
   Host/Origin protection and must not expose/proxy it remotely. It must authenticate
   server-to-server with its generated service key.
 - AdminWeb listener configuration must not add/replace endpoints through
   Kestrel, hosting URL precedence or configuration reload; use
   `OSSM:Admin:AdminPort`.
-- ControlService must authenticate AdminWeb and GuestWeb with distinct generated
-  service keys. Guest invitation/session capabilities and expiry must remain
-  independently enforced; service authentication must not weaken guest
-  authorization or arm motion.
+- Host authentication and operator/guest role separation must survive the
+  ApiService hop and be enforced by ControlService. Guest invitation/session
+  capabilities and expiry must remain independently enforced; service or CLI
+  authentication must not weaken guest authorization or arm motion.
 - GuestWeb must expose only Join/input/Stop/leave/scoped status, with no
   operator/device access. Browser and Blazor state must never authorize motion.
 - ControlService must support an explicitly configured remote HTTPS/WSS endpoint;
@@ -100,7 +115,8 @@
 - Browser and Blazor state must be treated as untrusted; neither may authorize motion.
 - You must use one-box, accountless capabilities and one-click invitations;
   you must not add accounts, a database or cloud services.
-- You must reuse `ossm-rs`'s `ossm-motion` through the admin-owned Rust adapter.
+- You must reuse `ossm-rs`'s `ossm-motion` through the simulator adapter consumed
+  by ControlService, without taking ownership of the simulator process.
 - You must work in the simulator only; you must not edit sibling repositories,
   flash firmware, or perform hardware or physical qualification.
 - Stop/lock must override pending input. Only admin may unlock, into **paused**.
@@ -140,6 +156,10 @@
   dotnet test --project tests/OSSMDotNet.ControlCore.Tests/ControlCore.Tests.csproj --list-tests
   ```
 - You must never remove failing tests or claim unrun checks passed witout justification.
+- Before claiming the service split is implemented, verify authorized DeviceCli
+  operations through ControlClient and ControlService with ApiService, both web
+  hosts and AppHost absent. Verify logging and configured telemetry without
+  Aspire, and that client shutdown does not terminate the backend or simulator.
 - You must separate test projects into unit tests and integration tests, with
   shared test helpers. Integration test projects must be named with the assembly
   they're testing followed by ".IntegrationTests". Unit test projects the same, but
