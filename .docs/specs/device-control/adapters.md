@@ -55,9 +55,12 @@ motion settles at zero, and Stop settles zero before ending the simulator
 process. The stock library includes strict codecs for the pinned identity and
 pattern metadata payloads; its BLE motion transport remains deferred. The
 standalone CLI now has an opt-in macOS-targeted, Shiny-backed read-only `identify`
-command. It matches a selected platform locator during a bounded service scan,
-reads the live identity and disconnects without any GATT writes. This does not
-implement candidate listing, enrollment, normal stock-device startup or motion.
+command. Without a locator, it collects up to 64 distinct service-advertising
+candidates during a five-second scan, shows numbered names and platform locators
+on an interactive terminal, and requires a numeric choice. An explicitly supplied
+locator uses a direct bounded scan. It reads only the selected device's live
+identity and disconnects without any GATT writes. This does not implement
+enrollment, normal stock-device startup or motion.
 Only a compile-only native check has passed; the full Xcode-backed build and
 device behavior remain unverified.
 

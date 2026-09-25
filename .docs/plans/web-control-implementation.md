@@ -8,7 +8,7 @@ does not establish full design conformance or physical qualification.
 
 ## Goal and scope
 
-Separate the SignalR host into `OSSMDotNet.Api`, make
+Separate the SignalR host into `OSSMDotNet.Api` (now `OSSMDotNet.ApiService`), make
 `OSSMDotNet.ControlService` the transport-neutral application library, and keep
 device execution independently usable in ControlCore. AdminWeb and GuestWeb
 remain separate Blazor hosts using the existing ControlClient contract. Api
@@ -211,18 +211,19 @@ increment; intermediate states need not be independently deployable.
 - **Acceptance:** Invite → approve → Send → Stop works through both web hosts.
   Draft edits survive refresh without being sent; loss clears authority and
   requires fresh admission. Restart, reconnect and new invitations never arm
-  motion. CLI consumers retain the compatible service path, not a second writer.
+  motion. The device CLI uses the standalone device libraries, not the service.
 - **Verification:** `HomePageBehaviorTests`, `JoinPageBehaviorTests`,
   `GuestCircuitHandlerTests` and client lifecycle tests first; existing browser
   module checks next; then the focused integrated simulator journey. Check
-  applicable OUI/GUI requirements and existing CLI behavior. Use Aspire for
+  applicable OUI/GUI requirements and device CLI behavior. Use Aspire for
   application orchestration, not a custom launcher.
 - **Documentation:** Update the diagram to show Api hosting ControlService only
   after cutover works. Record actual evidence, unresolved conformance gaps and
   task completion here; do not retain a second checklist in the design.
 - **Evidence:** The final focused MTP runs passed `AdminWeb.Tests` 15/15,
-  `GuestWeb.Tests` 26/26, `Cli.Tests` 21/21, `DeviceCli.Tests` 12/12, and
-  `DeviceCli.IntegrationTests` 8/8. `ControlClient.Tests` passed 56/56 at
+  `GuestWeb.Tests` 26/26, `Cli.Tests` 21/21 (now retired),
+  `DeviceCli.Tests` 12/12, and `DeviceCli.IntegrationTests` 8/8.
+  `ControlClient.Tests` passed 56/56 at
   cutover. With Python 3.13.15 in the local uv environment, the guest browser
   modules passed 6/6 and lifecycle modules 2/2. The isolated Aspire
   `control`, `admin` and `guest` services became healthy; focused operator

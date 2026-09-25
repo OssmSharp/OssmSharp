@@ -6,6 +6,33 @@ namespace OSSMDotNet.DeviceCli.Tests;
 
 public sealed class SimulatorHostSessionTests
 {
+    [Fact]
+    public async Task HostFailureEmitsConnectionLifecycleLogs()
+    {
+        var endpoint = new SimulatorEndpoint(
+            Guid.NewGuid().ToString("N"),
+            Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.lock"));
+        var invalidSimulator = Path.GetTempFileName();
+        using var output = new StringWriter();
+        var originalOutput = Console.Out;
+
+        try
+        {
+            Console.SetOut(output);
+
+            await Assert.ThrowsAsync<IOException>(() => SimulatorHost.RunAsync(
+                invalidSimulator, endpoint, TestContext.Current.CancellationToken));
+        }
+        finally
+        {
+            Console.SetOut(originalOutput);
+            File.Delete(invalidSimulator);
+        }
+
+        Assert.Contains("Device connection changed from Disconnected to Connecting.", output.ToString());
+        Assert.Contains("Device connection failed.", output.ToString());
+    }
+
     [Theory]
     [InlineData(0, 20, 50, 100)]
     [InlineData(101, 20, 50, 100)]

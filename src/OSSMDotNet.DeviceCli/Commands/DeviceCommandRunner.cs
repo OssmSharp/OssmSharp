@@ -75,7 +75,12 @@ internal static class DeviceCommandRunner
             if (request.Operation == DeviceCommandOperation.Identify)
             {
 #if MACOS
-                var identity = await StockIdentityReader.ReadAsync(request.PeripheralId!, cancellationToken)
+                var identity = await StockIdentityReader.ReadAsync(
+                    request.PeripheralId,
+                    Console.In,
+                    error,
+                    !Console.IsInputRedirected && !Console.IsErrorRedirected,
+                    cancellationToken)
                     .ConfigureAwait(false);
                 await output.WriteLineAsync(identity.AsMemory(), cancellationToken).ConfigureAwait(false);
                 return 0;

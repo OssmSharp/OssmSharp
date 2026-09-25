@@ -13,7 +13,7 @@ var simulatorBuild = builder.AddExecutable("simulator-build", "cargo", simulator
 var adminServiceKey = builder.AddParameter("admin-web-service-key", NewToken, secret: true);
 var guestServiceKey = builder.AddParameter("guest-web-service-key", NewToken, secret: true);
 
-var control = builder.AddProject<Projects.Api>("control")
+var control = builder.AddProject<Projects.ApiService>("control")
     .WithEnvironment("DOTNET_ENVIRONMENT", "Development")
     .WithHttpEndpoint(env: "OSSM__Control__ControlPort", isProxied: false)
     .WithEndpoint("http", endpoint => endpoint.TargetHost = "127.0.0.1")

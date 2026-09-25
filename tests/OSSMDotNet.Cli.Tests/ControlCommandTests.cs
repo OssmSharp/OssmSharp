@@ -1,3 +1,4 @@
+using System.CommandLine;
 using OSSMDotNet.ControlClient.Tests;
 
 namespace OSSMDotNet.Cli.Tests;
@@ -16,10 +17,23 @@ public sealed class ControlCommandTests
         var command = ControlCommand.Create();
         Assert.Equal("OSSM control CLI. Configure OSSM_CONTROL_CLIENT_SERVICE_KEY before connecting.", command.Description);
 
-        var parse = command.Parse(["--control-origin", origin, "status"]);
+        var parse = command.Parse(["--endpoint", origin, "status"]);
 
         Assert.Empty(parse.Errors);
         Assert.Empty(parse.UnmatchedTokens);
+    }
+
+    [Theory]
+    [InlineData("status")]
+    [InlineData("stop")]
+    public void ParserDefaultsToLoopbackEndpoint(string operation)
+    {
+        var command = ControlCommand.Create();
+        var parse = command.Parse([operation]);
+        var endpoint = Assert.IsType<Option<Uri>>(Assert.Single(command.Options, option => option.Name == "--endpoint"));
+
+        Assert.Empty(parse.Errors);
+        Assert.Equal(new Uri("http://127.0.0.1/"), parse.GetValue(endpoint));
     }
 
     [Theory]
@@ -37,7 +51,7 @@ public sealed class ControlCommandTests
         cancellationSource.CancelAfter(TimeSpan.FromSeconds(5));
         await using var fixture = await LocalControlHubFixture.StartAsync(cancellationSource.Token);
 
-        var parse = ControlCommand.Create().Parse(["--control-origin", origin, "status"]);
+        var parse = ControlCommand.Create().Parse(["--endpoint", origin, "status"]);
 
         var error = Assert.Single(parse.Errors);
         Assert.Equal("Provide a path-free loopback HTTP or remote HTTPS control-service origin without credentials.",
@@ -46,9 +60,9 @@ public sealed class ControlCommandTests
     }
 
     [Fact]
-    public void ParserRejectsMissingOriginBeforeTheStatusActionCanRun()
+    public void ParserRejectsLegacyOriginOption()
     {
-        var parse = ControlCommand.Create().Parse(["status"]);
+        var parse = ControlCommand.Create().Parse(["--control-origin", "http://127.0.0.1:5181/", "status"]);
 
         Assert.NotEmpty(parse.Errors);
         Assert.Contains(parse.Errors, error => error.Message.Contains("--control-origin", StringComparison.Ordinal));

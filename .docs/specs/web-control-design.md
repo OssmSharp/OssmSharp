@@ -10,8 +10,9 @@ former core-composition and application specifications. Their retained
 requirements remain obligations; the proposed project split is not a claim of
 implementation or approval of every design detail.
 
-The requester selected SignalR instead of REST and confirmed
-`OSSMDotNet.Api` as the host name. The requested `OSSMDotNet.ControlService`
+The requester selected SignalR instead of REST and originally confirmed
+`OSSMDotNet.Api` as the host name. The approved executable rename changes it to
+`OSSMDotNet.ApiService`. The requested `OSSMDotNet.ControlService`
 is a business-logic library, not another executable. This design covers those
 two components and `OSSMDotNet.AdminWeb` and `OSSMDotNet.GuestWeb`.
 
@@ -30,8 +31,8 @@ responsibilities below describe the proposed change.
 ## Background and intended outcomes
 
 Before the split, `OSSMDotNet.ControlService` was an executable. The host
-responsibilities now belong to [`OSSMDotNet.Api`](../../src/OSSMDotNet.Api/Program.cs):
-its [`ControlHub`](../../src/OSSMDotNet.Api/ControlHub.cs) delegates operations
+responsibilities now belong to [`OSSMDotNet.ApiService`](../../src/OSSMDotNet.ApiService/Program.cs):
+its [`ControlHub`](../../src/OSSMDotNet.ApiService/SignalR/ControlHub.cs) delegates operations
 rather than writing the device directly. Both web hosts use
 `OSSMDotNet.ControlClient` and `/hubs/control/v1`; there is no REST control API.
 
@@ -81,18 +82,18 @@ inability. Firmware facts remain descriptive.
 | --- | --- | --- |
 | `OSSMDotNet.AdminWeb` | Loopback-only Blazor operator pages, drafts, UI actions and an operator-scoped service client | Invitations, policy decisions, controller/device instances or native permissions |
 | `OSSMDotNet.GuestWeb` | Blazor invitation redemption, guest presentation, browser sending state and a guest-scoped service client | Operator operations, approval, grants, policy changes or device access |
-| `OSSMDotNet.Api` | ASP.NET Core process, listeners, host authentication/role enforcement, SignalR hub, strict wire validation, connection delivery and composition root | A second copy of application policy, session state or device scheduling |
+| `OSSMDotNet.ApiService` | ASP.NET Core process, listeners, host authentication/role enforcement, SignalR hub, strict wire validation, connection delivery and composition root | A second copy of application policy, session state or device scheduling |
 | `OSSMDotNet.ControlService` | In-process application operations, invitation/session authority, policy versions, grants, expiry, scoped projections and coordination with the controller | ASP.NET Core, SignalR hub/context types, listeners, UI components or concrete adapters |
 
 There must still be **three application processes**: AdminWeb, GuestWeb and
-Api. ControlService runs inside Api. Api's host must own the lifetime of one
+ApiService. ControlService runs inside ApiService. ApiService's host must own the lifetime of one
 ControlService authority, one controller and one selected device. A hub instance
 or browser circuit must not create its own authority or device.
 
 The existing shared components have specific reasons to remain:
 
-- `ControlClient` owns the remote boundary used by both web hosts and existing
-  application clients. It must contain no authority or device execution.
+- `ControlClient` owns the remote boundary used by both web hosts. It must
+  contain no authority or device execution.
 - `WebCommon` owns the shared page layout and application widgets; RetroWebUi
   owns reusable widget styles and interaction treatments.
 - `Models` carries immutable data, units and outcomes, not mutable authority,
@@ -116,11 +117,11 @@ this draft does not claim the current assembly already satisfies PST-03.
 ### Calls, state and lifetime
 
 The guest browser communicates only with GuestWeb, and the operator browser
-with AdminWeb. Each web host calls Api through its server-side ControlClient.
-Browser-to-Blazor circuits and web-host-to-Api SignalR connections are distinct
+with AdminWeb. Each web host calls ApiService through its server-side ControlClient.
+Browser-to-Blazor circuits and web-host-to-ApiService SignalR connections are distinct
 boundaries. No service key is sent to a browser.
 
-For an operation, Api authenticates the host and permitted role, validates the
+For an operation, ApiService authenticates the host and permitted role, validates the
 wire shape, and supplies its authoritative connection identity to ControlService.
 The library validates application authority, mutates the single serialized
 session slot, and supplies trusted execution guards to ControlCore. The core
@@ -128,33 +129,33 @@ rechecks guards at execution and owns the single device writer. Replies report
 acceptance, not physical completion.
 
 For feedback, device observations flow through ControlCore to ControlService's
-immutable, role-scoped projection. Api delivers that projection through the
+immutable, role-scoped projection. ApiService delivers that projection through the
 ordered push path; ControlClient updates UI state without inventing authority.
-Only Api owns SignalR connection objects and delivery subscriptions. The library
+Only ApiService owns SignalR connection objects and delivery subscriptions. The library
 must accept connection-loss notifications as ordinary application operations
-and expose revocation to Api without depending on transport types. Revocation
+and expose revocation to ApiService without depending on transport types. Revocation
 must become effective before transport closure and must not await an outbound
 notification or guest acknowledgement.
 
-The existing push dispatcher and wire-size checks belong in Api. ControlService
+The existing push dispatcher and wire-size checks belong in ApiService. ControlService
 must determine which application transitions invalidate or supersede earlier
 authority; delivery must consume that decision, not derive a second lifecycle
-policy from presentation strings. Api owns connection bookkeeping and how those
+policy from presentation strings. ApiService owns connection bookkeeping and how those
 decisions are delivered. This internal boundary requires no new wire fields.
 
-One guest admission must remain bound to one authoritative Api connection.
+One guest admission must remain bound to one authoritative ApiService connection.
 GuestWeb must not share that binding between unrelated browser circuits. Browser
 loss must stop its sending loop and notify the application when detected;
 server timers must not keep its motion alive while its circuit is absent.
 
-The library must own application deadlines and state transitions; Api must own
+The library must own application deadlines and state transitions; ApiService must own
 delivery/backpressure and the host lifetime. Slow delivery must remain bounded
 and must not block Stop, expiry or rotation. Overflow must fail closed rather
 than grow an unbounded replay queue. Exact queue implementation stays local to
 the existing delivery boundary.
 
 Components must use constructor injection and owner-provided
-`IServiceCollection` registrations. Api selects the concrete adapter at its
+`IServiceCollection` registrations. ApiService selects the concrete adapter at its
 composition root; the library consumes only the reusable controller contract.
 The host owns asynchronous disposal. Request cancellation must propagate where
 applicable, but accepted work and unsettled device I/O remain owned until their
@@ -250,15 +251,15 @@ or an engine socket for device access.
 
 The operator must use `aspire run`. AppHost must own build, startup, port
 allocation, health and shutdown; there must be no custom service launcher.
-AppHost must start Api rather than the former ControlService executable once
+AppHost must start ApiService rather than the former ControlService executable once
 the split is implemented. In simulator mode it prepares the native executable;
-the Api-owned device adapter owns the only simulator child. Physical mode must
-neither build/launch that child nor require Rust tooling. AppHost and Api DI
+the ApiService-owned device adapter owns the only simulator child. Physical mode must
+neither build/launch that child nor require Rust tooling. AppHost and ApiService DI
 must use the same startup selection.
 
 AppHost must generate distinct 256-bit service keys for AdminWeb and GuestWeb
-and supply them through resource configuration to Api and the corresponding
-host. Api authenticates hosts, not humans; ControlService must independently
+and supply them through resource configuration to ApiService and the corresponding
+host. ApiService authenticates hosts, not humans; ControlService must independently
 validate guest capabilities. The authenticated local dashboard must display
 the plain local operator URL. Keys must never be persisted by application code,
 placed in process arguments, logged or exposed to browsers.
@@ -276,9 +277,9 @@ native permissions. GuestWeb must not access privileged bootstrap storage or
 native device permissions. A compromised guest host can forge input within a
 capability it possesses, but cannot bypass service policy, grants or core limits.
 
-Api must exclusively own controller/device lifetime. Shutdown must target only
+ApiService must exclusively own controller/device lifetime. Shutdown must target only
 its managed resources, never unrelated processes or a browser callback.
-Api's composition root must retain the existing cross-process device-ownership
+ApiService's composition root must retain the existing cross-process device-ownership
 lease, using the same exclusion scope across the host rename. A competing host
 must fail before starting device access; the owner must retain the lease through
 managed device shutdown. One singleton per process alone is insufficient.
@@ -345,7 +346,7 @@ Join must atomically validate the current generation/proof and move a vacant
 slot to pending. Concurrent joins admit exactly one connection. Join returns
 only a private connection-bound bootstrap admission proof, not a snapshot or
 grant. Every guest operation must validate proof, session, generation and the
-authoritative Api connection binding, whether the proof is carried explicitly
+authoritative ApiService connection binding, whether the proof is carried explicitly
 or resolved from that binding.
 
 Pending sessions expire after 60 seconds; approved sessions after 30 minutes.
@@ -401,7 +402,7 @@ reply is acknowledgement-only.
 ## Service transport
 
 SignalR at `/hubs/control/v1` remains the only application control transport.
-The host split must not introduce REST, named-pipe control, browser-to-Api
+The host split must not introduce REST, named-pipe control, browser-to-ApiService
 access or an alternate device writer. Existing client method names, wire
 representations and error meanings must remain compatible; moving projects is
 not a reason to change the protocol.
@@ -453,7 +454,7 @@ simultaneous upgrade is introduced.
 
 Version-2 input must contain `v = 2`, session/connection proof, control epoch,
 policy version, grant ID and grant sequence, a strictly increasing positive
-safe-integer `seq`, `run = true`, and a complete valid tuple. Api's connection
+safe-integer `seq`, `run = true`, and a complete valid tuple. ApiService's connection
 identity is authoritative. Version-1 hold inputs, nonincreasing sequences,
 replays and expired/superseded/cross-session/epoch grants must reject without
 writes or lease renewal.
@@ -561,7 +562,7 @@ Applications must not patch copied assets or duplicate shared widget states.
 | Retain SignalR; name the host Api | REST commands with a separate server-push/lifetime mechanism | The requester selected SignalR. It already supplies connection-bound admission and ordered live delivery; REST would require redesign without a stated user benefit. |
 | Extract the business library from the executable | Keep the current executable with internally separated classes | The current seam reduces extraction work, but leaves policy coupled to an ASP.NET host assembly. A library makes the requested independent test/use boundary explicit, at the cost of moving code and references. |
 | Retain ControlCore separately | Merge application/session policy and execution into ControlService | Standalone controller/device consumers must not acquire remote-session or host requirements. Keeping this boundary preserves that contract; it does not justify duplicating authority in both libraries. |
-| Keep three processes, not four | Host everything together, or run the business library as another service | One process would remove required listener/role separation. A fourth adds a hop and failure boundary without a new owner. Api hosts the library and the sole device lifetime. |
+| Keep three processes, not four | Host everything together, or run the business library as another service | One process would remove required listener/role separation. A fourth adds a hop and failure boundary without a new owner. ApiService hosts the library and the sole device lifetime. |
 | Retain the existing client and shared UI owners | Direct SignalR calls and copied widgets in each UI | Two real consumers justify these boundaries. They avoid duplicated transport behavior and widget ownership; no generic provider/transport framework is needed. |
 
 The retained single writer, bounded pending work, execution guards, grants and
@@ -626,11 +627,10 @@ runner. No browser or physical device is required for core conformance.
 | Boundary | Required evidence before declaring the design implemented |
 | --- | --- |
 | Application library | One admitted connection; proof/generation binding; exact approval; atomic rotation with unsettled I/O; session expiry; policy/grant invalidation without lease extension; stale callbacks cannot revoke replacement guests |
-| Api and ControlClient | Service-role separation; closed schemas and envelope bounds; ordered initial/live push; unchanged projections do not republish; expired authority closes the guest connection; loss and cancellation do not revive motion |
+| ApiService and ControlClient | Service-role separation; closed schemas and envelope bounds; ordered initial/live push; unchanged projections do not republish; expired authority closes the guest connection; loss and cancellation do not revive motion |
 | Local host | Wrong Host and missing/foreign mutation Origin reject; listener overrides cannot expose AdminWeb; a second authority host cannot acquire device ownership; one-box startup works without external networking |
 | Controller/device | DC safeguards tested by reference: one writer, execution-time guards, Stop priority, unconfirmed I/O and paused recovery; adapter checks remain host-independent |
 | UI/components | OUI/GUI contracts, responsive keyboard order and focus, reduced motion, send/draft separation, freshness labels, clipboard fallback, connection-loss precedence and restart behavior |
-| Existing CLI consumers | Compatible service calls, help, invalid-input exit codes, redirected output and cancellation; no guest secrets in arguments or diagnostics |
 
 Use the lowest test level that proves each behavior, with focused browser checks
 for high-value cross-boundary flows. Tests must not predominantly validate Aspire
@@ -648,7 +648,7 @@ Software conformance must never be presented as hardware safety.
 
 - **SignalR, not REST:** the requester changed the initial REST brief to retain
   SignalR. This keeps the existing live connection and authority semantics.
-- **Host name:** the requester selected `OSSMDotNet.Api` instead of RestApi.
+- **Host name:** the requester originally selected `OSSMDotNet.Api` instead of RestApi; the approved executable name is now `OSSMDotNet.ApiService`.
 - **Library role:** ControlService is the requested business-logic library. The
   detailed extraction and retained core boundary remain subject to design review.
 - **Public .NET moves (22 September 2026):** the requester selected coordinated

@@ -10,12 +10,22 @@ using Shiny.BluetoothLE;
 namespace OSSMDotNet.DeviceCli.Commands;
 
 /// <summary>
-/// Reads the live stock identity of one explicitly selected macOS peripheral.
+/// Reads the live stock identity of one selected macOS peripheral.
 /// </summary>
 internal static class StockIdentityReader
 {
-    internal static async Task<string> ReadAsync(string peripheralId, CancellationToken cancellationToken)
+    internal static async Task<string> ReadAsync(
+        string? peripheralId,
+        TextReader input,
+        TextWriter prompt,
+        bool isInteractive,
+        CancellationToken cancellationToken)
     {
+        if (peripheralId is null && !isInteractive)
+        {
+            throw new InvalidOperationException("Interactive selection requires a terminal. Supply --peripheral-id instead.");
+        }
+
         using var dispatchQueue = new DispatchQueue("org.ossm.devicecli.identify");
         using var services = new ServiceCollection()
             .AddLogging()
@@ -36,11 +46,9 @@ internal static class StockIdentityReader
             }
 
             var service = StockFirmwareProfile.Service.ToString();
-            var selected = await manager.Scan(new ScanConfig(service))
-                .Where(result => string.Equals(result.Peripheral.Uuid, peripheralId, StringComparison.OrdinalIgnoreCase))
-                .Select(result => result.Peripheral)
-                .Take(1)
-                .ToTask(timeout.Token).ConfigureAwait(false);
+            var selected = await SelectPeripheralAsync(
+                manager, service, peripheralId, input, prompt, isInteractive, timeout, cancellationToken)
+                .ConfigureAwait(false);
 
             try
             {
@@ -71,6 +79,47 @@ internal static class StockIdentityReader
         {
             throw new TimeoutException("Read-only identification timed out.");
         }
+    }
+
+    private static async Task<IPeripheral> SelectPeripheralAsync(
+        IBleManager manager,
+        string service,
+        string? peripheralId,
+        TextReader input,
+        TextWriter prompt,
+        bool isInteractive,
+        CancellationTokenSource timeout,
+        CancellationToken cancellationToken)
+    {
+        if (peripheralId is not null)
+        {
+            return await manager.Scan(new ScanConfig(service))
+                .Where(result => string.Equals(result.Peripheral.Uuid, peripheralId, StringComparison.OrdinalIgnoreCase))
+                .Select(result => result.Peripheral)
+                .Take(1)
+                .ToTask(timeout.Token).ConfigureAwait(false);
+        }
+
+        var candidates = await manager.Scan(new ScanConfig(service))
+            .Where(result => result.AdvertisementData.ServiceUuids?.Any(uuid =>
+                string.Equals(uuid, service, StringComparison.OrdinalIgnoreCase)) == true)
+            .Distinct(result => result.Peripheral.Uuid)
+            .Take(64)
+            .Buffer(TimeSpan.FromSeconds(5))
+            .Take(1)
+            .ToTask(timeout.Token).ConfigureAwait(false);
+
+        timeout.CancelAfter(Timeout.InfiniteTimeSpan);
+        var selectedId = await DeviceSelection.SelectAsync(
+            candidates.Select(result => (
+                result.AdvertisementData.LocalName ?? result.Peripheral.Name ?? "Unnamed device",
+                result.Peripheral.Uuid)).ToList(),
+            input,
+            prompt,
+            isInteractive,
+            cancellationToken).ConfigureAwait(false);
+        timeout.CancelAfter(TimeSpan.FromSeconds(30));
+        return candidates.First(result => result.Peripheral.Uuid == selectedId).Peripheral;
     }
 }
 #endif

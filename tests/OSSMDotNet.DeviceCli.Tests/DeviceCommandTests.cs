@@ -111,6 +111,85 @@ public sealed class DeviceCommandTests
     }
 
     [Fact]
+    public async Task IdentifyPromptsForANumberAndSelectsOnlyThatLocator()
+    {
+        using var input = new StringReader("2\n");
+        using var prompt = new StringWriter();
+
+        var selected = await DeviceSelection.SelectAsync(
+            [("Device One", "id-one"), ("Device Two", "id-two")],
+            input,
+            prompt,
+            true,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal("id-two", selected);
+        Assert.Contains("1. Device One (id-one)", prompt.ToString(), StringComparison.Ordinal);
+        Assert.Contains("2. Device Two (id-two)", prompt.ToString(), StringComparison.Ordinal);
+        Assert.Contains("Select a device by number and press Enter:", prompt.ToString(), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("0\n")]
+    [InlineData("3\n")]
+    [InlineData("no\n")]
+    [InlineData("")]
+    public async Task IdentifyRejectsAnInvalidSelection(string response)
+    {
+        using var input = new StringReader(response);
+        using var prompt = new StringWriter();
+
+        await Assert.ThrowsAsync<ArgumentException>(() => DeviceSelection.SelectAsync(
+            [("Device One", "id-one"), ("Device Two", "id-two")],
+            input,
+            prompt,
+            true,
+            TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task IdentifyRefusesToPromptWithoutAnInteractiveTerminal()
+    {
+        using var input = new StringReader("1\n");
+        using var prompt = new StringWriter();
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => DeviceSelection.SelectAsync(
+            [("Device One", "id-one")],
+            input,
+            prompt,
+            false,
+            TestContext.Current.CancellationToken));
+
+        Assert.Contains("--peripheral-id", exception.Message, StringComparison.Ordinal);
+        Assert.Equal(string.Empty, prompt.ToString());
+    }
+
+    [Fact]
+    public async Task IdentifyReportsAnEmptyScanWithoutPrompting()
+    {
+        using var input = new StringReader("1\n");
+        using var prompt = new StringWriter();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => DeviceSelection.SelectAsync(
+            [], input, prompt, true, TestContext.Current.CancellationToken));
+
+        Assert.Equal(string.Empty, prompt.ToString());
+    }
+
+    [Fact]
+    public async Task IdentifyDoesNotAllowAdvertisedNamesToAddTerminalLines()
+    {
+        using var input = new StringReader("1\n");
+        using var prompt = new StringWriter();
+
+        await DeviceSelection.SelectAsync(
+            [("Other\nDevice", "id-one")], input, prompt, true, TestContext.Current.CancellationToken);
+
+        Assert.Contains("1. Other Device (id-one)", prompt.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("\nDevice", prompt.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task IdentifyDoesNotUseTheSimulatorHost()
     {
         using var output = new StringWriter();

@@ -1,7 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/OSSMDotNet.AdminWeb/AdminWeb.csproj" />
-    <Project Path="src/OSSMDotNet.Api/Api.csproj" />
+    <Project Path="src/OSSMDotNet.ApiService/ApiService.csproj" />
     <Project Path="src/OSSMDotNet.AppHost/AppHost.csproj" />
     <Project Path="src/OSSMDotNet.ControlClient/ControlClient.csproj" />
     <Project Path="src/OSSMDotNet.ControlCore/ControlCore.csproj" />
@@ -12,16 +12,14 @@
     <Project Path="src/OSSMDotNet/OSSMDotNet.csproj" />
     <Project Path="src/OSSMDotNet.GuestWeb/GuestWeb.csproj" />
     <Project Path="src/OSSMDotNet.Models/OSSMDotNet.Models.csproj" />
-    <Project Path="src/OSSMDotNet.Cli/Cli.csproj" />
     <Project Path="src/OSSMDotNet.ServiceDefaults/ServiceDefaults.csproj" />
     <Project Path="src/OSSMDotNet.WebCommon/SharedUi.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/OSSMDotNet.AdminWeb.Tests/AdminWeb.Tests.csproj" />
-    <Project Path="tests/OSSMDotNet.Api.IntegrationTests/Api.IntegrationTests.csproj" />
-    <Project Path="tests/OSSMDotNet.Api.Tests/Api.Tests.csproj" />
+    <Project Path="tests/OSSMDotNet.ApiService.IntegrationTests/ApiService.IntegrationTests.csproj" />
+    <Project Path="tests/OSSMDotNet.ApiService.Tests/ApiService.Tests.csproj" />
     <Project Path="tests/OSSMDotNet.ControlClient.Tests/ControlClient.Tests.csproj" />
-    <Project Path="tests/OSSMDotNet.Cli.Tests/Cli.Tests.csproj" />
     <Project Path="tests/OSSMDotNet.ControlCore.Tests/ControlCore.Tests.csproj" />
     <Project
       Path="tests/OSSMDotNet.ControlService.IntegrationTests/ControlService.IntegrationTests.csproj" />

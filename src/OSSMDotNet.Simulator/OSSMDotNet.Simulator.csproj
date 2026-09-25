@@ -4,7 +4,8 @@
     <RootNamespace>OSSMDotNet.Simulator</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
-    <InternalsVisibleTo Include="Api" />
+    <InternalsVisibleTo Include="OSSMDotNet.ApiService" />
+    <InternalsVisibleTo Include="OSSMDotNet.Simulator.IntegrationTests" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../OSSMDotNet.Abstractions/OSSMDotNet.Abstractions.csproj" />

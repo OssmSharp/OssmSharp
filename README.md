@@ -28,6 +28,8 @@ The device API is split into three independently buildable libraries:
 - `OSSMDotNet.Simulator` contains the native-process `SimulatedDevice`.
 
 These libraries do not depend on ControlService, Aspire, or either web host.
+`OSSMDotNet.DeviceCli` is the only CLI; it uses the device libraries directly,
+not the control service.
 
 `OSSMDotNet.Simulator` requires the separately built
 [`ossm-sim-bridge`](tools/ossm-sim-bridge/README.md) executable at runtime. The
@@ -60,8 +62,9 @@ software diagnostic path, not physical-device qualification.
 
 ### Real-device CLI (read-only preview)
 
-The opt-in macOS CLI can scan for an **explicitly selected platform peripheral
-ID**, connect without auto-reconnect and read the stock pairing characteristic.
+The opt-in macOS CLI can scan for stock devices and ask for a numbered selection,
+or scan for an **explicitly supplied platform peripheral ID**. It connects
+without auto-reconnect and reads the stock pairing characteristic.
 It prints the reported Wi-Fi MAC, chip and firmware details. It sends no GATT
 writes, does not start the simulator and cannot issue physical motion. The
 stock-device motion adapter remains unimplemented; physical operation requires
@@ -71,12 +74,14 @@ With .NET 10, the `macos` workload and a full Xcode installation selected
 (Command Line Tools alone are insufficient), the intended command is:
 
 ```sh
-dotnet run --project src/OSSMDotNet.DeviceCli/DeviceCli.csproj --property:EnableStockBle=true -- identify --peripheral-id YOUR_SELECTED_MACOS_PERIPHERAL_ID
+dotnet run --project src/OSSMDotNet.DeviceCli/DeviceCli.csproj --property:EnableStockBle=true -- identify
 ```
 
-Obtain the macOS peripheral ID independently; this preview does not list
-candidates or enroll an identity. Never substitute a name, signal strength or
-discovery order for an explicitly selected ID. Confirm the live Wi-Fi MAC and
+The command lists `Device name (platform ID)` with numbers, then asks for a
+number and Enter. It requires an interactive terminal; supply
+`--peripheral-id YOUR_SELECTED_MACOS_PERIPHERAL_ID` for noninteractive use.
+The preview does not enroll an identity. Never select a device automatically by
+name, signal strength or discovery order. Confirm the live Wi-Fi MAC and
 firmware version before saving the locator and expected MAC in local
 configuration. On every later connection, verify both again. Discovery and
 connection must not arm or restore motion; only qualified physical control may

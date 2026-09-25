@@ -228,7 +228,7 @@ public sealed class ControlServiceClientTests
             Console.SetOut(standardOutput);
             Console.SetError(standardError);
             var exitCode = await ControlCommand.Create()
-                .Parse(["--control-origin", fixture.ControlOrigin, operation])
+                .Parse(["--endpoint", fixture.ControlOrigin, operation])
                 .InvokeAsync(cancellationToken: cancellationToken);
             return new(exitCode, standardOutput.ToString(), standardError.ToString());
         }

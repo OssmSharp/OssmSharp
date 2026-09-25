@@ -1,7 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using OSSMDotNet;
 using OSSMDotNet.Simulator;
@@ -35,11 +34,10 @@ internal static class SimulatorHost
         }
 
         var builder = Host.CreateApplicationBuilder();
-        builder.Logging.ClearProviders();
-        builder.Services.AddScoped<DeviceBase>(_ => new SimulatedDevice(
+        builder.Services.AddScoped<DeviceBase>(services => new SimulatedDevice(
             Options.Create(new SimulatedDeviceOptions { ExecutablePath = simulatorPath }),
             TimeProvider.System,
-            NullLogger<SimulatedDevice>.Instance));
+            services.GetRequiredService<ILogger<SimulatedDevice>>()));
         builder.Services.AddScoped(services => new SimulatorHostSession(
             simulatorPath, endpoint, services.GetRequiredService<DeviceBase>()));
 

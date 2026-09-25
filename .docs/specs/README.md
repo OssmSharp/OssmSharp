@@ -21,7 +21,7 @@ not establish completed implementation, hardware safety or authorization to
 operate a device.
 
 The replacement [web-control design](web-control-design.md#scope-and-ownership)
-is DRAFT. It proposes `OSSMDotNet.Api` as the executable SignalR host and
+is DRAFT. It proposes `OSSMDotNet.ApiService` as the executable SignalR host and
 `OSSMDotNet.ControlService` as a business logic library. The historical approvals
 above do not approve this split or the replacement design as a whole, and the
 draft does not establish implementation.

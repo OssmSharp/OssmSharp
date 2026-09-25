@@ -28,9 +28,8 @@
 - You must use `OSSMDotNet.*` for reusable namespaces and the web-specific
   namespaces `OSSMDotNet.AdminWeb`, `OSSMDotNet.GuestWeb`,
   `OSSMDotNet.ControlService`, and `OSSMDotNet.WebCommon`.
-- `OSSMDotNet.Cli` must use the control library and remain unrelated to the
-  guest and admin frontend system; it must not have references to terms such as
-  "admin".
+- `OSSMDotNet.DeviceCli` must use the standalone device libraries directly and
+  remain unrelated to the control service and web frontend system.
 
 ## User interface conventions
 

@@ -1,0 +1,56 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <IsTestProject>true</IsTestProject>
+        <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+    </PropertyGroup>
+    <ItemGroup>
+        <AssemblyMetadata Include="RepositoryRoot" Value="$(MSBuildProjectDirectory)/../.." />
+        <ProjectReference Include="../../src/OSSMDotNet.ApiService/ApiService.csproj" />
+        <ProjectReference Include="../../src/OSSMDotNet.ControlService/ControlService.csproj" />
+        <ProjectReference Include="../../src/OSSMDotNet.ControlCore/ControlCore.csproj" />
+        <ProjectReference Include="../../src/OSSMDotNet.Simulator/OSSMDotNet.Simulator.csproj" />
+        <ProjectReference Include="../../src/OSSMDotNet.Abstractions/OSSMDotNet.Abstractions.csproj" />
+        <Compile Include="../OSSMDotNet.ControlCore.Tests/Helpers/FakeBridge.cs"
+            Link="Helpers/FakeBridge.cs" />
+        <Compile Include="../OSSMDotNet.ControlCore.Tests/Helpers/BridgeCall.cs"
+            Link="Helpers/BridgeCall.cs" />
+        <Compile Include="../OSSMDotNet.ControlCore.Tests/Helpers/TestMotion.cs"
+            Link="Helpers/TestMotion.cs" />
+        <Using Include="OSSMDotNet.ControlCore.Tests.Helpers" />
+        <Using Include="OSSMDotNet.ControlService.Activity" />
+        <Using Include="OSSMDotNet.ControlService.Authority" />
+        <Using Include="OSSMDotNet.ControlService.Operations" />
+        <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" />
+        <PackageReference Include="xunit.v3.mtp-v2" />
+        <PackageReference Include="Microsoft.Testing.Platform" />
+        <Using Include="OSSMDotNet.Abstractions" />
+        <Using Include="OSSMDotNet.Abstractions.Models" />
+        <Using Include="OSSMDotNet.ControlCore" />
+        <Using Include="OSSMDotNet.ApiService" />
+        <Using Include="OSSMDotNet.ApiService.Authentication" />
+        <Using Include="OSSMDotNet.ApiService.Device" />
+        <Using Include="OSSMDotNet.ApiService.Hosting" />
+        <Using Include="OSSMDotNet.ApiService.Models" />
+        <Using Include="OSSMDotNet.ApiService.SignalR" />
+        <Using Include="OSSMDotNet.ControlService" />
+        <Using Include="OSSMDotNet.Models" />
+        <Using Include="OSSMDotNet.Simulator" />
+        <Using Include="OSSMDotNet.Simulator.Models" />
+        <Using Include="Microsoft.AspNetCore.Builder" />
+        <Using Include="Microsoft.AspNetCore.Hosting" />
+        <Using Include="Microsoft.AspNetCore.Http.Connections" />
+        <Using Include="Microsoft.AspNetCore.Hosting.Server" />
+        <Using Include="Microsoft.AspNetCore.Hosting.Server.Features" />
+        <Using Include="Microsoft.AspNetCore.SignalR" />
+        <Using Include="Microsoft.AspNetCore.SignalR.Client" />
+        <Using Include="Microsoft.Extensions.Logging" />
+        <Using Include="Microsoft.Extensions.Logging.Abstractions" />
+        <Using Include="Microsoft.Extensions.DependencyInjection" />
+        <Using Include="Microsoft.Extensions.Hosting" />
+        <Using Include="Microsoft.Extensions.Options" />
+        <Using Include="OSSMDotNet.ControlService.Models" />
+        <Using Include="OneOf" />
+        <Using Include="Xunit" />
+    </ItemGroup>
+</Project>

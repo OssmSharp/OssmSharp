@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+    <PropertyGroup>
+        <RootNamespace>OSSMDotNet.ApiService</RootNamespace>
+        <AssemblyName>OSSMDotNet.ApiService</AssemblyName>
+    </PropertyGroup>
+    <ItemGroup>
+        <ProjectReference Include="../OSSMDotNet.ControlService/ControlService.csproj" />
+        <Using Include="OSSMDotNet.ApiService.Authentication" />
+        <Using Include="OSSMDotNet.ApiService.Device" />
+        <Using Include="OSSMDotNet.ApiService.Hosting" />
+        <Using Include="OSSMDotNet.ApiService.SignalR" />
+        <Using Include="OSSMDotNet.ControlService.Activity" />
+        <Using Include="OSSMDotNet.ControlService.Authority" />
+        <Using Include="OSSMDotNet.ControlService.Operations" />
+        <ProjectReference Include="../OSSMDotNet.Simulator/OSSMDotNet.Simulator.csproj" />
+        <ProjectReference Include="../OSSMDotNet.ServiceDefaults/ServiceDefaults.csproj" />
+    </ItemGroup>
+    <ItemGroup>
+        <InternalsVisibleTo Include="ApiService.Tests" />
+        <InternalsVisibleTo Include="ApiService.IntegrationTests" />
+    </ItemGroup>
+</Project>
