@@ -32,6 +32,10 @@
 
 ## User interface conventions
 
+- You must keep equivalent widgets consistent across operator and guest pages:
+  reuse shared components, slot markup, typography, spacing, sizing, semantic
+  variants and accessible behavior. Compare counterpart widgets before adding
+  local markup or styles; keep differences only when their purpose is clear.
 - Operator and guest pages must share `ControlLayout`, control sizing, spacing
   and notification behavior. You must not create parallel page shells or
   duplicate guest headings.

@@ -52,8 +52,8 @@ a:focus-visible { outline: 2px solid var(--rw-focus); outline-offset: 3px; }
 
 .monitor-status-badges { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
 .row h2 { font-size: inherit; }
-.motion-reading h2 { font-size: clamp(2rem, 6vw, 3.25rem); line-height: 1.1; color: var(--rw-muted); }
-.motion-reading h2.moving { color: var(--rw-success); }
+.motion-reading p { font-size: clamp(2rem, 6vw, 3.25rem); line-height: 1.1; color: var(--rw-muted); }
+.motion-reading p.moving { color: var(--rw-success); }
 .telemetry { display: flex; align-items: baseline; gap: .35rem; }
 .telemetry strong { font-size: 1.7rem; font-variant-numeric: tabular-nums; }
 .telemetry span, .monitor-footer { color: var(--rw-muted); font-size: .8rem; }

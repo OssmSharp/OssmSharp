@@ -29,7 +29,9 @@ else
                        Fresh="@(_status?.BridgeReady == true)" IsSimulator="@(_status?.IsSimulator == true)"
                        Heading="Live Status" ShowReadings="false" ShowSimulator="true" />
         <RwCard role="region" aria-label="Requested settings">
-            <h2 slot="heading">Settings</h2>
+            <div slot="heading" class="rw-card-heading">
+                <h2>Settings</h2>
+            </div>
             <div class="settings-legend">
                 <span><i class="key selected" aria-hidden="true"></i>Selected</span>
                 <span><i class="key sent" aria-hidden="true"></i>Sent</span>

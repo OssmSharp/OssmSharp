@@ -77,7 +77,9 @@
                 else if (_status.SessionMode is "None" or "Ended") { <p class="hint">Waiting for a guest to join.</p> }
             </RwCard>
             <RwCard data-testid="guest-invitation-card" role="region" aria-labelledby="invite-heading">
-                <h2 slot="heading" id="invite-heading">Invite a guest</h2>
+                <div slot="heading" class="rw-card-heading">
+                    <h2 id="invite-heading">Invite a guest</h2>
+                </div>
                 @if (_invitation is not null)
                 {
                     <div class="invite-row rw-controls-row">
@@ -132,7 +134,9 @@
             </RwCard>
         </div>
         <RwCard class="activity-panel" role="region" aria-labelledby="activity-heading">
-            <h2 slot="heading" id="activity-heading">Activity log</h2>
+            <div slot="heading" class="rw-card-heading">
+                <h2 id="activity-heading">Activity log</h2>
+            </div>
             <div class="live-log" @ref="_logElement" role="log" aria-live="polite" aria-relevant="additions" tabindex="0">
                 <div class="log-lines">
                     @if (_logs.Count == 0) { <p class="log-empty">Waiting for activity.</p> }

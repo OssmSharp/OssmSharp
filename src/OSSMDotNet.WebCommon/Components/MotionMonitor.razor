@@ -1,8 +1,8 @@
 <RwCard class="@(Fresh ? "motion-monitor" : "motion-monitor offline")" role="region" aria-label="Live device feedback">
     @if (ShowHeading)
     {
-        <div slot="heading" class="monitor-heading">
-            <span>@Heading</span>
+        <div slot="heading" class="rw-card-heading monitor-heading">
+            <h2>@Heading</h2>
             <div class="monitor-status-badges">
                 @if (ShowSimulator && IsSimulator) { <RwBadge Variant="info" data-testid="simulator-mode">SIMULATOR</RwBadge> }
                 <RwBadge Variant="@(Fresh ? "success" : "warning")" data-testid="feedback-mode">@(Fresh ? "Connected" : "Device feedback unavailable")</RwBadge>
@@ -10,7 +10,7 @@
         </div>
     }
     <div class="motion-reading">
-        <h2 class="@(Fresh && (Enabled || Moving) ? "moving" : "")" role="status">@(Fresh ? Enabled || Moving ? "RUNNING" : "IDLE" : "OFFLINE")</h2>
+        <p class="@(Fresh && (Enabled || Moving) ? "moving" : "")" role="status">@(Fresh ? Enabled || Moving ? "RUNNING" : "IDLE" : "OFFLINE")</p>
         @if (ShowReadings)
         {
             <div class="telemetry"><strong data-testid="live-position">@FormatReading(Position)</strong><span>mm</span></div>

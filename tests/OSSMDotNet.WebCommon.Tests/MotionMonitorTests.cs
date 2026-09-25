@@ -71,9 +71,9 @@ public sealed class MotionMonitorTests
             showReadings: false,
             showSimulator: true);
 
-        Assert.Contains("Live Status", html);
+        Assert.Contains("<h2>Live Status</h2>", html);
         Assert.Contains("SIMULATOR", html);
-        Assert.Contains(">RUNNING<", html);
+        Assert.Contains("role=\"status\">RUNNING</p>", html);
         Assert.Contains("motion-rail", html);
         Assert.Contains("class=\"carriage\"", html);
         Assert.DoesNotContain("data-testid=\"live-position\"", html);
