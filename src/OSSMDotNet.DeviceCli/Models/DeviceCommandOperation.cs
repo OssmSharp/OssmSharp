@@ -21,4 +21,9 @@ internal enum DeviceCommandOperation
     /// Stops simulator movement.
     /// </summary>
     Stop,
+
+    /// <summary>
+    /// Reads the identity of an explicitly selected stock device.
+    /// </summary>
+    Identify,
 }

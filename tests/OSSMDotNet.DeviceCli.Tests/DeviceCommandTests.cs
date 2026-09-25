@@ -1,3 +1,5 @@
+using OSSMDotNet.DeviceCli.Commands;
+
 namespace OSSMDotNet.DeviceCli.Tests;
 
 /// <summary>
@@ -66,6 +68,66 @@ public sealed class DeviceCommandTests
         {
             File.Delete(path);
         }
+    }
+
+    [Fact]
+    public async Task IdentifyAllowsDiscoveryWithoutAnIdButRejectsABlankId()
+    {
+        DeviceCommandRequest? request = null;
+        var command = DeviceCommand.Create((value, _) =>
+        {
+            request = value;
+            return Task.FromResult(0);
+        });
+
+        Assert.NotEmpty(command.Parse(["identify", "--peripheral-id", " "]).Errors);
+        var exitCode = await command.Parse(["identify"])
+            .InvokeAsync(cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(0, exitCode);
+        Assert.NotNull(request);
+        Assert.Equal(DeviceCommandOperation.Identify, request.Operation);
+        Assert.Null(request.PeripheralId);
+    }
+
+    [Fact]
+    public async Task IdentifyForwardsOnlyTheSelectedPeripheral()
+    {
+        DeviceCommandRequest? request = null;
+        var command = DeviceCommand.Create((value, _) =>
+        {
+            request = value;
+            return Task.FromResult(0);
+        });
+
+        var exitCode = await command.Parse(["identify", "--peripheral-id", "selected-device"])
+            .InvokeAsync(cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(0, exitCode);
+        Assert.NotNull(request);
+        Assert.Equal(DeviceCommandOperation.Identify, request.Operation);
+        Assert.Equal("selected-device", request.PeripheralId);
+        Assert.Null(request.SimulatorPath);
+    }
+
+    [Fact]
+    public async Task IdentifyDoesNotUseTheSimulatorHost()
+    {
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        var endpoint = SimulatorEndpoint.CreateDefault();
+
+        var exitCode = await DeviceCommandRunner.RunAsync(
+            new DeviceCommandRequest(DeviceCommandOperation.Identify, PeripheralId: "selected-device"),
+            output,
+            error,
+            endpoint,
+            (_, _) => throw new InvalidOperationException("Simulator startup is forbidden."),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains("macOS", error.ToString(), StringComparison.Ordinal);
+        Assert.Equal(string.Empty, output.ToString());
     }
 
     [Theory]

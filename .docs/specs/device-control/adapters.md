@@ -53,7 +53,13 @@ the diagnostic process; it is not an application control transport, remote
 endpoint or authority boundary. Start never restores prior motion, bounded
 motion settles at zero, and Stop settles zero before ending the simulator
 process. The stock library includes strict codecs for the pinned identity and
-pattern metadata payloads; BLE transport remains deferred.
+pattern metadata payloads; its BLE motion transport remains deferred. The
+standalone CLI now has an opt-in macOS-targeted, Shiny-backed read-only `identify`
+command. It matches a selected platform locator during a bounded service scan,
+reads the live identity and disconnects without any GATT writes. This does not
+implement candidate listing, enrollment, normal stock-device startup or motion.
+Only a compile-only native check has passed; the full Xcode-backed build and
+device behavior remain unverified.
 
 Application composition and controller consumers still need integration with
 that API. The existence of standalone adapter tests is not evidence that the

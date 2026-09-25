@@ -58,6 +58,36 @@ speed and ends the host. The bridge has no UI; the separate OSSM-RS `ossm-sim`
 project contains a browser UI, but it is not this library integration. This is a
 software diagnostic path, not physical-device qualification.
 
+### Real-device CLI (read-only preview)
+
+The opt-in macOS CLI can scan for an **explicitly selected platform peripheral
+ID**, connect without auto-reconnect and read the stock pairing characteristic.
+It prints the reported Wi-Fi MAC, chip and firmware details. It sends no GATT
+writes, does not start the simulator and cannot issue physical motion. The
+stock-device motion adapter remains unimplemented; physical operation requires
+[device qualification](.docs/specs/device-control/spec.md#physical-qualification).
+
+With .NET 10, the `macos` workload and a full Xcode installation selected
+(Command Line Tools alone are insufficient), the intended command is:
+
+```sh
+dotnet run --project src/OSSMDotNet.DeviceCli/DeviceCli.csproj --property:EnableStockBle=true -- identify --peripheral-id YOUR_SELECTED_MACOS_PERIPHERAL_ID
+```
+
+Obtain the macOS peripheral ID independently; this preview does not list
+candidates or enroll an identity. Never substitute a name, signal strength or
+discovery order for an explicitly selected ID. Confirm the live Wi-Fi MAC and
+firmware version before saving the locator and expected MAC in local
+configuration. On every later connection, verify both again. Discovery and
+connection must not arm or restore motion; only qualified physical control may
+issue bounded commands and verify Stop.
+
+The macOS BLE source has passed a compile-only check, but this machine lacks
+full Xcode, so the native app build and device behavior have **not** been
+validated. No hardware was accessed. See the
+[device adapter design](.docs/specs/device-control/adapters.md#physical-device-selection-and-connection)
+for the remaining enrollment and integration requirements.
+
 ## Use it
 
 1. Open the **Dashboard** URL printed in the terminal. Use the complete link,

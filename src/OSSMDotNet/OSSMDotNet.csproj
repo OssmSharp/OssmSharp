@@ -4,6 +4,7 @@
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="OSSMDotNet.Tests" />
+    <InternalsVisibleTo Include="DeviceCli" />
     <ProjectReference Include="../OSSMDotNet.Abstractions/OSSMDotNet.Abstractions.csproj" />
     <PackageReference Include="Microsoft.Extensions.Hosting" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />

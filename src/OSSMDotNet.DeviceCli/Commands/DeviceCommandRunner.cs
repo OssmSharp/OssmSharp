@@ -72,6 +72,20 @@ internal static class DeviceCommandRunner
 
         try
         {
+            if (request.Operation == DeviceCommandOperation.Identify)
+            {
+#if MACOS
+                var identity = await StockIdentityReader.ReadAsync(request.PeripheralId!, cancellationToken)
+                    .ConfigureAwait(false);
+                await output.WriteLineAsync(identity.AsMemory(), cancellationToken).ConfigureAwait(false);
+                return 0;
+#else
+                await error.WriteLineAsync("Read-only BLE identification requires the macOS-targeted CLI build.")
+                    .ConfigureAwait(false);
+                return 1;
+#endif
+            }
+
             var ipcRequest = ToIpcRequest(request);
             var response = request.Operation == DeviceCommandOperation.Start
                 ? await StartAsync(
@@ -103,7 +117,9 @@ internal static class DeviceCommandRunner
         {
             throw;
         }
-        catch (Exception exception) when (exception is IOException or TimeoutException)
+        catch (Exception exception) when (
+            request.Operation != DeviceCommandOperation.Identify &&
+            exception is IOException or TimeoutException)
         {
             await error.WriteLineAsync(
                 "The simulator host is not running. Run 'start --simulator-path <path>' first.")

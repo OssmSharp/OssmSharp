@@ -129,10 +129,31 @@ public static class DeviceCommand
             new DeviceCommandRequest(DeviceCommandOperation.Stop),
             cancellationToken));
 
+        var peripheralId = new Option<string>("--peripheral-id")
+        {
+            Description = "Platform-specific locator of the selected stock device.",
+            CustomParser = result =>
+            {
+                if (result.Tokens.Count != 1 || string.IsNullOrWhiteSpace(result.Tokens[0].Value))
+                {
+                    result.AddError("Provide one nonempty peripheral ID.");
+                    return null;
+                }
+
+                return result.Tokens[0].Value;
+            },
+        };
+        var identify = new Command("identify", "Read the selected stock device's identity without motion writes.");
+        identify.Options.Add(peripheralId);
+        identify.SetAction((parse, cancellationToken) => runAsync(
+            new DeviceCommandRequest(DeviceCommandOperation.Identify, PeripheralId: parse.GetValue(peripheralId)),
+            cancellationToken));
+
         root.Subcommands.Add(start);
         root.Subcommands.Add(status);
         root.Subcommands.Add(move);
         root.Subcommands.Add(stop);
+        root.Subcommands.Add(identify);
         return root;
     }
 

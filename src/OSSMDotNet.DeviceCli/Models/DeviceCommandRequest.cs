@@ -9,10 +9,12 @@ namespace OSSMDotNet.DeviceCli.Models;
 /// <param name="Stroke">The requested stroke length.</param>
 /// <param name="Depth">The requested depth.</param>
 /// <param name="Duration">The requested run duration.</param>
+/// <param name="PeripheralId">The selected stock-device locator.</param>
 internal sealed record DeviceCommandRequest(
     DeviceCommandOperation Operation,
     string? SimulatorPath = null,
     int Speed = 0,
     int Stroke = 20,
     int Depth = 50,
-    TimeSpan Duration = default);
+    TimeSpan Duration = default,
+    string? PeripheralId = null);
