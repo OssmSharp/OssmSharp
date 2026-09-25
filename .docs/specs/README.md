@@ -1,30 +1,71 @@
-# OSSM control specifications
+# OssmSharp control specifications
 
 ## Scope
 
-The system provides a reusable device/control core and a separately composed
-remote-control application. The core covers the controller, device library,
-device abstractions and shared models. Higher-order services and user interfaces
-consume those contracts; they do not define the core's packaging or
-dependencies.
+The system provides reusable device libraries, a standalone interactive CLI and
+a separately composed web-control application. Device contracts, providers and
+execution mechanics do not depend on web sessions, UI hosts or development
+orchestration.
 
-Component names in these specifications are logical roles, not fixed project,
-assembly or namespace names. A project rename must not change requirement
-meaning. Public API names, protocol fields, configuration keys and external
-dependency names remain explicit where they are part of a technical contract.
+Retained requirement IDs describe logical responsibilities; the target project
+and namespace names are fixed by the design and migration map. Renaming a
+project must not change the meaning of its requirements. Public API names,
+protocol fields, configuration keys and external dependency names remain
+explicit where they are part of a technical contract.
 
-The approved scope is simulator-first, with one device and one explicitly
-approved remote guest. Physical use remains subject to qualification. The
-simulator-first direction/dependencies were approved on 14 September 2026, and
-the separate service/SignalR direction on 16 September 2026. These approvals do
-not establish completed implementation, hardware safety or authorization to
-operate a device.
+The accepted MVP is one computer, one device, one local device user (the admin)
+and one explicitly approved remote guest. Simulator-first implementation and
+physical qualification gates remain. Earlier process-split decisions are
+superseded by the direct-device design accepted on 25 September 2026; accepting
+that design does not establish implementation or authorize hardware operation.
 
-The replacement [web-control design](web-control-design.md#scope-and-ownership)
-is DRAFT. It proposes `OSSMDotNet.ApiService` as the executable SignalR host and
-`OSSMDotNet.ControlService` as a business logic library. The historical approvals
-above do not approve this split or the replacement design as a whole, and the
-draft does not establish implementation.
+## Accepted runtime boundaries
+
+The [web-control design](web-control-design.md#scope-and-ownership) owns the
+accepted packaging and deployment decisions; the
+[architecture diagram](../diagrams/architecture.html) depicts that target, not
+completed implementation.
+
+The [direct-device migration plan](../plans/direct-device-migration.md) owns the
+unstarted implementation sequence, including repository instructions and the
+OSSMDotNet-to-OssmSharp repository/project/namespace rename. The current root
+AGENTS.md still contains superseded rules; M0 explicitly replaces them before
+any code migration. This documentation update does not edit those instructions
+or authorize starting implementation.
+
+- `Web.Api` is the device-owning web backend. It hosts the web application
+	policy and selects one device provider through DI. `Web.AdminWeb` and
+	`Web.GuestWeb` remain separate Blazor processes that call it over SignalR.
+- `Cli` is an alternative direct device owner: an interactive prompt with a
+	persistent connection, three motion inputs plus pattern, help, Stop and quit.
+	It has no web controller, guest session, authentication or service-client
+	dependency. Handled exit paths make a bounded, awaited best-effort Stop before
+	disconnecting and releasing ownership.
+- One machine-wide ownership lock excludes concurrent cooperating CLI/API
+	owners. Detected external parameter changes latch an interruption; only the
+	local admin can acknowledge it, into paused state. In the CLI this is an
+	explicit local command, not a call to an admin website.
+- `Device.Stock` and `Device.Simulator` implement the same device contract.
+	Provider-specific packages are isolated by build/publish profiles. Neither
+	the CLI nor the simulator adapter starts, owns or terminates the simulator.
+- `Defaults` configures shared host-neutral logging and telemetry;
+	`Web.ServiceDefaults` adds web-only defaults. Neither requires Aspire, its
+	dashboard or a running collector. Device primitives depend on neither.
+- AppHost is optional local development/test orchestration with convenient
+	simulated/actual arrangements. It is not a production dependency or a device
+	writer.
+
+This deliberately couples web API and web device-connection lifetimes for MVP
+simplicity. It does not claim an independently deployable device service. The
+standalone ControlService/ControlClient topology is superseded, as is the
+adapter-owned simulator child-process arrangement. Existing requirement IDs
+remain; the owning documents distinguish web policy from direct CLI mechanics.
+
+Migration acceptance must exercise the CLI with every web executable and
+AppHost absent, and the API without either UI host or AppHost. Verify configured
+logging/telemetry, provider dependency isolation, cross-process exclusion,
+latched interruption, shutdown Stop attempts and independent simulator lifetime.
+Documentation changes and compilation do not establish these outcomes.
 
 ## Specification owners
 
@@ -34,7 +75,7 @@ that overlap DC requirements are references, not parallel contracts.
 
 | Specification                                            | Owns                                                                                                                                        | IDs                                                                                             |
 | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| [Web-control design (DRAFT)](web-control-design.md)       | Core boundaries, shared models, dependency direction, session authority, grants, transport, deployment, interfaces and conformance          | CC-01 through CC-11; PST-01 through PST-04; DEP-01; SESSION-01/02; OUI-01 through OUI-06; GUI-01 through GUI-03 |
+| [Web-control design](web-control-design.md) | Accepted architecture, project mapping, CLI composition, web authority, transport, deployment and verification | CC-01 through CC-11; PST-01 through PST-04; DEP-01; SESSION-01/02; OUI-01 through OUI-06; GUI-01 through GUI-03 |
 | [Device contracts and execution](device-control/spec.md) | Device API, stock/simulator implementation, controller lifecycle, single writer, Stop, limits, feedback, lockout and physical qualification | DC-01 through DC-09                                                                             |
 
 The [requirement terms](web-control-design.md#scope-and-ownership) define must,
@@ -43,7 +84,7 @@ development and approvals; requirements do not authorize branches, commits,
 dependencies, deployment or physical operation.
 
 The [device adapter design](device-control/adapters.md) records Shiny BLE,
-native simulation, DI selection, proposed enrollment/configuration and
+native simulation, DI selection, selected enrollment/configuration and
 integration gates. It supports the device specification without adding another
 owner for DC-01 through DC-09.
 
@@ -65,11 +106,10 @@ controller consumes device abstractions and shared models; device
 implementations consume their abstractions. The reusable core must not depend on
 application services, transports, UI frameworks or the orchestrator.
 
-The draft application's three-process packaging and one-box option are specified
-in [application ownership](web-control-design.md#scope-and-ownership) and
-[DEP-01](web-control-design.md#dep-01-local-one-box-operation). The existing
-[architecture views](../diagrams/architecture.html) illustrate deployment and
-enforcement; their current project labels are not normative packaging rules.
+The runtime boundaries are specified above and illustrated in the
+[architecture diagram](../diagrams/architecture.html). The three web processes
+and alternative CLI owner are intentional; DEP-01 remains the one-computer
+operation requirement. Device libraries remain reusable without web hosts.
 
 ## Implementation references and exclusions
 
@@ -90,8 +130,8 @@ unattended use, persistent motion profiles, media and automatic motion
 resumption remain out of scope. Accounts, databases and cloud services are not
 required for the approved local application.
 
-The [implementation plan](../plans/web-control-implementation.md) owns the task
-list and acceptance evidence for the host/library split. The
-[resolved decisions](web-control-design.md#resolved-direction-and-review) record
-the selected rolling rate limit and coordinated public-type migration; neither
-decision establishes completed implementation.
+The [earlier implementation plan](../plans/web-control-implementation.md)
+retains historical host/library-extraction evidence, not acceptance of this
+migration. The [resolved decisions](web-control-design.md#resolved-direction-and-review)
+record current decisions and compatibility constraints. Implementation remains
+separately authorized work.

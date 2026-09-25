@@ -2,9 +2,11 @@
 
 Date: 22 September 2026
 
-Status: Tasks 1-6 are implemented and focused-verified. This is the authoritative task list for the
-[web-control design](../specs/web-control-design.md). Recorded focused evidence
-does not establish full design conformance or physical qualification.
+Status: historical extraction record. Tasks 1-6 retain their recorded results
+below; this is no longer the active migration task list. The accepted
+25 September 2026 architecture and rename are planned in
+[direct-device migration](direct-device-migration.md). Historical focused
+evidence does not establish that migration's conformance or physical qualification.
 
 ## Goal and scope
 

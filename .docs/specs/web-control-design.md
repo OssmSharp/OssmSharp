@@ -1,37 +1,39 @@
-# Web control: Guest, Admin, API and service library
+# OssmSharp: direct-device CLI and web control
 
 Give a local operator and one invited guest a consistent control experience,
 with all application authority in one testable library and one device owner.
 
 ## Status and scope
 
-**Status: draft for review, 22 September 2026.** This document replaces the
-former core-composition and application specifications. Their retained
-requirements remain obligations; the proposed project split is not a claim of
-implementation or approval of every design detail.
+**Status: accepted architecture, 25 September 2026; migration not implemented.**
+The requester accepted the single-computer direct-device model and an
+interactive CLI, replacing the earlier separate device-service proposal. The
+device user is the local admin; the MVP has one device and one remote guest.
+Repository, project, assembly and namespace identities move from `OSSMDotNet`
+to `OssmSharp`. This is a WIP migration with no backwards-compatibility shims.
 
-The requester selected SignalR instead of REST and originally confirmed
-`OSSMDotNet.Api` as the host name. The approved executable rename changes it to
-`OSSMDotNet.ApiService`. The requested `OSSMDotNet.ControlService`
-is a business-logic library, not another executable. This design covers those
-two components and `OSSMDotNet.AdminWeb` and `OSSMDotNet.GuestWeb`.
+`OssmSharp.Web.Api` is the device-owning web backend, not a gateway to another
+device service. `OssmSharp.Cli` is an alternative direct owner of the same
+device. The machine-wide lock makes these ownership modes mutually exclusive.
+Both web UIs remain separately runnable processes. API restart also restarts
+web device ownership; that shared lifetime is an accepted MVP trade-off.
 
 The audience is application/UI implementers, device-library maintainers and the
-operator configuring a one-box installation. Review should settle the ownership
-split and the [open issues](#open-issues) before implementation. No dependencies,
-deployment, hardware operation or code changes are authorized by this draft.
+admin configuring the computer. The detailed choices below close the design
+questions; physical/platform claims remain subject to evidence. Only design
+documentation and migration planning are authorized now, not implementation,
+dependencies, deployment or hardware operation.
 
 Related contracts are the [specification index](README.md),
 [device execution requirements](device-control/spec.md) and
 [adapter design](device-control/adapters.md). DC-01 through DC-09 remain owned
 by the device specification. The [architecture view](../diagrams/architecture.html)
-records the pre-split architecture, not implementation conformance; the target
-responsibilities below describe the proposed change.
+shows the accepted target, not implementation conformance.
 
 ## Background and intended outcomes
 
-Before the split, `OSSMDotNet.ControlService` was an executable. The host
-responsibilities now belong to [`OSSMDotNet.ApiService`](../../src/OSSMDotNet.ApiService/Program.cs):
+At the inspected migration baseline, host responsibilities belong to
+[`OSSMDotNet.ApiService`](../../src/OSSMDotNet.ApiService/Program.cs):
 its [`ControlHub`](../../src/OSSMDotNet.ApiService/SignalR/ControlHub.cs) delegates operations
 rather than writing the device directly. Both web hosts use
 `OSSMDotNet.ControlClient` and `/hubs/control/v1`; there is no REST control API.
@@ -39,7 +41,7 @@ rather than writing the device directly. Both web hosts use
 The pre-split application/execution separation was incomplete: invitation,
 admission and guest-input operations lived in
 [`ControlEngine`](../../src/OSSMDotNet.ControlCore/ControlEngine.cs).
-[`ControlAuthority`](../../src/OSSMDotNet.ControlService/ControlAuthority.cs)
+[`ControlAuthority`](../../src/OSSMDotNet.ControlService/Authority/ControlAuthority.cs)
 now owns that application state. These source observations do not establish
 full design conformance.
 
@@ -50,19 +52,24 @@ The intended outcomes are:
 - Guests see only their allowed controls and accurate, scoped feedback.
 - Application rules can be tested without Kestrel, SignalR or a browser.
 - Device execution remains independently usable and never trusts UI state.
-- The split preserves wire behavior, bounded work and fail-closed recovery.
+- The CLI works with all web hosts and AppHost absent, without web policy.
+- Provider-specific packages are excluded from deployments that do not use them.
+- Configured logging and telemetry work without Aspire or a collector.
+- The migration preserves bounded work and fail-closed recovery.
 
-Non-goals are REST endpoints, another service process, accounts, persistence,
-multiple devices/guests, automatic remote exposure, a plug-in framework, a new
-command bus, a device-library rewrite or new physical qualification. Existing
-command-line consumers remain consumers of the service contract; their UI and
-the standalone device diagnostic tool are not being redesigned.
+Non-goals are REST control endpoints, a standalone ControlService, a device
+service client in the CLI, accounts, persistent sessions, multiple
+computers/devices/guests, automatic remote exposure, a plug-in framework, a new
+command bus, another motion engine or physical qualification in this migration.
 
 ## Scenarios
 
 | Scenario | Action and observable result |
 | --- | --- |
-| Start locally | The operator runs `aspire run`. AdminWeb displays the validated invitation automatically. Device control starts disarmed at zero; page load and invitation retrieval do not arm it. |
+| Start locally | Start the three web executables directly or use the optional simulated AppHost arrangement. AdminWeb displays the validated invitation automatically. Device control starts disarmed at zero; page load and invitation retrieval do not arm it. |
+| Use the software remote | Start the simulator independently, then start Cli with provider options. One prompt retains the device connection and ownership lock across help, status, motion, Stop and quit. No web process or guest session exists. |
+| Compete for ownership | CLI or Web.Api fails before device access when the other holds the machine-wide lock. It never steals ownership or silently starts another simulator. |
+| Exit the CLI | Quit, EOF, Ctrl+C and handled shutdown inhibit new motion, prioritize a bounded awaited Stop, disconnect and release the lock last. Report unconfirmed Stop rather than successful stopping. |
 | Admit and approve | A guest opens the invitation. Exactly one connection becomes pending. AdminWeb shows the waiting notice. **Allow control** approves that exact guest and arms only when stopped feedback and valid limits permit it. Motion still requires a new guest Send. |
 | Send and edit | Send commits the selected tuple. Further slider edits remain drafts unless Auto send is enabled. The active browser can renew only explicitly sent values with fresh grants; status refresh never sends drafts. |
 | Change limits | The operator applies speed/depth together. Compatible limits take effect without pausing or rearming; conflicting limits reject atomically with guidance to Stop and wait for stopped feedback. |
@@ -76,94 +83,104 @@ the standalone device diagnostic tool are not being redesigned.
 and **can** capability. **Must not** denotes prohibition; **cannot** describes
 inability. Firmware facts remain descriptive.
 
-### Proposed component boundaries
+### Target component boundaries
 
 | Component | Owns | Must not own |
 | --- | --- | --- |
-| `OSSMDotNet.AdminWeb` | Loopback-only Blazor operator pages, drafts, UI actions and an operator-scoped service client | Invitations, policy decisions, controller/device instances or native permissions |
-| `OSSMDotNet.GuestWeb` | Blazor invitation redemption, guest presentation, browser sending state and a guest-scoped service client | Operator operations, approval, grants, policy changes or device access |
-| `OSSMDotNet.ApiService` | ASP.NET Core process, listeners, host authentication/role enforcement, SignalR hub, strict wire validation, connection delivery and composition root | A second copy of application policy, session state or device scheduling |
-| `OSSMDotNet.ControlService` | In-process application operations, invitation/session authority, policy versions, grants, expiry, scoped projections and coordination with the controller | ASP.NET Core, SignalR hub/context types, listeners, UI components or concrete adapters |
+| `OssmSharp.Cli` executable | Interactive direct-device remote; validated commands; one connection and ownership lifetime | Web policy/controller, sessions, authentication, UI hosts or simulator process startup |
+| `OssmSharp.Web.AdminWeb` executable | Loopback-only admin Blazor UI, drafts and operator-scoped Web.Client | Authority, device instances or BLE permissions |
+| `OssmSharp.Web.GuestWeb` executable | Guest Blazor UI and guest-scoped Web.Client | Operator methods, policy or device access |
+| `OssmSharp.Web.Api` executable | SignalR endpoint, host-role enforcement, strict wire validation, delivery and composition of one application/controller/device lifetime | UI components or a second authority/writer |
+| `OssmSharp.Web.Application` library | Web sessions, invitations, grants, policy, projections and execution controller; absorbs ControlService and the web-policy controller from ControlCore | ASP.NET/SignalR contexts, UI, concrete adapters or the CLI |
+| `OssmSharp.Web.Client` library | Server-side SignalR client used only by the two web UIs | Device implementations, authority or backend startup |
+| `OssmSharp.Web.Contracts` library | Web DTOs, request/result values and error contracts | Mutable authority, clients, hosts or UI components |
+| `OssmSharp.Web.Common` library | Shared Blazor layout/widgets using RetroWebUi | API authority, native I/O or provider selection |
+| `OssmSharp.Device.Primitives` library | IOssmDevice, device values/units, intrinsic validation and semantic errors | Hosting/defaults, application models, transport packages or controller policy |
+| `OssmSharp.Device.Runtime` library | Shared provider-neutral DeviceBase, serialized I/O coordination, ownership lease, interruption latch and bounded Stop/cleanup mechanics | Web sessions/grants, HTTP, BLE packages or simulator process ownership |
+| `OssmSharp.Device.Stock` library | Stock codecs, profile mapping and Shiny/native BLE integration | Simulator, web policy or UI |
+| `OssmSharp.Device.Simulator` library | Loopback simulator connection and native-data mapping | Stock provider, BLE, web policy or process launch/kill |
+| `OssmSharp.Defaults` library | Common configurable logging, metrics and tracing through standard .NET hosting | ASP.NET Core, UI, device providers or required Aspire/service discovery |
+| `OssmSharp.Web.ServiceDefaults` library | Web-only hosting/health configuration layered on Defaults | Device implementations or mandatory Aspire runtime |
+| `OssmSharp.AppHost` executable | Optional local development/test resource orchestration | Production dependency, device connection or motion authority |
 
-There must still be **three application processes**: AdminWeb, GuestWeb and
-ApiService. ControlService runs inside ApiService. ApiService's host must own the lifetime of one
-ControlService authority, one controller and one selected device. A hub instance
-or browser circuit must not create its own authority or device.
+There are three web processes, an alternative CLI owner and an independently
+started simulator when selected. Libraries are in-process code, not services.
+Web.Api owns the same device lifetime as its web application library; a hub or
+browser circuit must not create a controller/device instance. The CLI must not
+reference Web.Application or another `OssmSharp.Web.*` project.
 
-The existing shared components have specific reasons to remain:
+Device.Runtime is extracted shared behavior, not a new service or general
+framework. It prevents both duplicate lifecycle/lock implementations and a
+Simulator-to-Stock dependency. The web controller keeps its desired-state slot,
+grant deadlines, limits and application guards; the shared runtime provides
+the single transport operation gate and immediate Stop/interruption inhibition.
+It must not add a second desired-state queue or web arming policy to the CLI.
 
-- `ControlClient` owns the remote boundary used by both web hosts. It must
-  contain no authority or device execution.
-- `WebCommon` owns the shared page layout and application widgets; RetroWebUi
-  owns reusable widget styles and interaction treatments.
-- `Models` carries immutable data, units and outcomes, not mutable authority,
-  service implementations or native handles. Operation interfaces belong with
-  the operation owner, not in the shared data assembly.
-- `ControlCore` retains reusable execution safeguards. Its independent device
-  consumer boundary is not replaced by an application-session service.
-- `ServiceDefaults` and AppHost retain shared host configuration, telemetry and
-  orchestration. They are not dependencies of the business or device core.
+Runtime's owner session is the sole interruption latch/revision owner, separate
+from DeviceBase's protocol publication. Web.Application exposes that state in
+its projection; it must not maintain an independently clearable lock flag.
+Admin acknowledgement validates role and application authority revision, then
+delegates to Runtime with the observed interruption revision. Cli invokes the
+same mechanical acknowledgement directly. Application authority revision and
+interruption revision have different scopes; neither substitutes for the other.
+A new interruption racing acknowledgement prevents it from clearing.
 
-These supporting boundaries are retained, not a request for more assemblies or
-a prescribed class/file inventory. Namespace and type organization must follow
-their owner; public domain types must have XML documentation and one type per
-file. External package namespaces must remain unchanged.
-
-Today, `IControlOperations` is in `Models`, despite describing application
-operations rather than data. Moving it to the operation owner is part of the
-proposed extraction, subject to the public-type compatibility decision below;
-this draft does not claim the current assembly already satisfies PST-03.
+Web.Client is the renamed existing web transport client, not the rejected
+API-to-device-service hop. Web.Contracts splits the former mixed Models project:
+device data belongs in Primitives; application-private execution types and
+operation interfaces belong in Web.Application. Web.Common is not an API
+dependency. External package namespaces remain unchanged.
 
 ### Calls, state and lifetime
 
 The guest browser communicates only with GuestWeb, and the operator browser
-with AdminWeb. Each web host calls ApiService through its server-side ControlClient.
-Browser-to-Blazor circuits and web-host-to-ApiService SignalR connections are distinct
+with AdminWeb. Each web host calls Web.Api through its server-side Web.Client.
+Browser-to-Blazor circuits and web-host-to-Web.Api SignalR connections are distinct
 boundaries. No service key is sent to a browser.
 
-For an operation, ApiService authenticates the host and permitted role, validates the
-wire shape, and supplies its authoritative connection identity to ControlService.
+For an operation, Web.Api authenticates the host and permitted role, validates the
+wire shape, and supplies its authoritative connection identity to Web.Application.
 The library validates application authority, mutates the single serialized
-session slot, and supplies trusted execution guards to ControlCore. The core
+session slot, and supplies trusted execution guards to its controller. The controller
 rechecks guards at execution and owns the single device writer. Replies report
 acceptance, not physical completion.
 
-For feedback, device observations flow through ControlCore to ControlService's
-immutable, role-scoped projection. ApiService delivers that projection through the
-ordered push path; ControlClient updates UI state without inventing authority.
-Only ApiService owns SignalR connection objects and delivery subscriptions. The library
+For feedback, device observations flow through the controller to Web.Application's
+immutable, role-scoped projection. Web.Api delivers that projection through the
+ordered push path; Web.Client updates UI state without inventing authority.
+Only Web.Api owns SignalR connection objects and delivery subscriptions. The library
 must accept connection-loss notifications as ordinary application operations
-and expose revocation to ApiService without depending on transport types. Revocation
+and expose revocation to Web.Api without depending on transport types. Revocation
 must become effective before transport closure and must not await an outbound
 notification or guest acknowledgement.
 
-The existing push dispatcher and wire-size checks belong in ApiService. ControlService
+The existing push dispatcher and wire-size checks belong in Web.Api. Web.Application
 must determine which application transitions invalidate or supersede earlier
 authority; delivery must consume that decision, not derive a second lifecycle
-policy from presentation strings. ApiService owns connection bookkeeping and how those
+policy from presentation strings. Web.Api owns connection bookkeeping and how those
 decisions are delivered. This internal boundary requires no new wire fields.
 
-One guest admission must remain bound to one authoritative ApiService connection.
+One guest admission must remain bound to one authoritative Web.Api connection.
 GuestWeb must not share that binding between unrelated browser circuits. Browser
 loss must stop its sending loop and notify the application when detected;
 server timers must not keep its motion alive while its circuit is absent.
 
-The library must own application deadlines and state transitions; ApiService must own
+The library must own application deadlines and state transitions; Web.Api must own
 delivery/backpressure and the host lifetime. Slow delivery must remain bounded
 and must not block Stop, expiry or rotation. Overflow must fail closed rather
 than grow an unbounded replay queue. Exact queue implementation stays local to
 the existing delivery boundary.
 
 Components must use constructor injection and owner-provided
-`IServiceCollection` registrations. ApiService selects the concrete adapter at its
-composition root; the library consumes only the reusable controller contract.
+`IServiceCollection` registrations. Web.Api and Cli select their concrete adapter
+at their composition roots; application logic consumes only device contracts.
 The host owns asynchronous disposal. Request cancellation must propagate where
 applicable, but accepted work and unsettled device I/O remain owned until their
 outcome is known. A timeout or disconnect is not proof of rollback or settlement.
 
 Arming and applying limits must use core operations that atomically check and
 commit execution-side preconditions, not a snapshot read followed by a separate
-write. ControlService must serialize the associated admission, policy and grant
+write. Web.Application must serialize the associated admission, policy and grant
 transition around that outcome. Rejection must leave policy, grants and intent
 unchanged. Lock acquisition must remain one-way from application authority into
 the core; core code must not reacquire application authority while holding a
@@ -173,31 +190,90 @@ second copy of pending device state.
 
 ### Reusable core boundary
 
-The controller, device abstractions, implementations and shared data must remain
-usable without a web host, guest session, CLI or orchestrator. The application
-supplies trusted authorization; the core enforces it at execution, including
-after awaits and immediately before writes. The core must not infer authority
-from UI state or implement invitation/guest policy.
+Device contracts, providers and shared execution mechanics must remain usable
+without a web host, guest session, CLI executable or orchestrator. In web use,
+the application supplies trusted authorization and rechecks it at execution,
+including after awaits and immediately before writes. The CLI uses explicit
+local commands and the shared device mechanics, never the full web controller.
 
 | Unit | Permitted dependencies and responsibility |
 | --- | --- |
-| Device abstractions | No core/application implementation dependencies; own `IOssmDevice`, `DeviceState`, `MotionSettings` and device enums |
-| Stock implementation | Device abstractions; shared adapter behavior, private protocol records and native connection ownership |
-| Simulator implementation | Stock library's shared device base and abstractions; native engine integration and observation assessment |
-| Shared models | Device abstractions where a core value is required; immutable data, explicit units and result/state variants only |
-| Controller | Device abstractions and shared models; lifecycle, limits, scheduling, execution guards, Stop and lockout; never concrete adapters |
+| Device.Primitives | IOssmDevice, DeviceState, MotionSettings, device enums and intrinsic validation; no hosting or Defaults |
+| Device.Runtime | Primitives and standard .NET hosting/logging/options/time APIs; shared base, one I/O gate, ownership and interruption/Stop mechanics |
+| Device.Stock | Primitives and Runtime plus the selected native BLE dependency; private firmware wire types and connection ownership |
+| Device.Simulator | Primitives and Runtime plus existing native protocol; no Stock/BLE reference |
+| Web.Contracts | Primitives only where a device value is part of a DTO; pure application data |
+| Web.Application | Primitives, Runtime and Web.Contracts; controller and session policy; never concrete providers |
 
 Stock and simulator adapters must satisfy the same observable contract, with
-shared behavior in the stock library's device base. Stock must not depend on
-simulation, and consumers must not branch on simulation. API composition may
-select the implementation; that dependency must not reach the controller or
-ControlService library. Device integration tests must work without application
+shared behavior in Device.Runtime. Neither provider may depend on the other;
+ordinary consumers must not branch on simulation. Executable composition may
+select the implementation; that dependency must not reach the web controller or
+application library. Device integration tests must work without application
 hosts. The [adapter design](device-control/adapters.md#composition-and-ownership)
 owns the implementation selection details.
 
 Framework hosting, logging, options and timing libraries may support core
 lifetime management. ASP.NET Core, SignalR, Blazor, Aspire and UI packages must
-remain outside the core and ControlService business logic.
+remain outside device libraries and web application business logic.
+
+### CLI command and lifetime contract
+
+The CLI is a persistent software remote, not a one-shot sender or background
+daemon. Startup options select an available provider and validated connection
+settings. After exclusive ownership and connection/readiness checks, the prompt
+accepts `help [command]`, `status`, `set <speed> <stroke> <depth> <pattern>`,
+`stop`, `acknowledge` and `quit`. Reuse System.CommandLine for command parsing;
+do not evaluate shell code. Invalid commands report an error and return to the
+prompt without writing, reconnecting or changing the last accepted intent.
+
+Speed, stroke and depth are integer percentages; pattern uses the defined
+device identifiers/names and must be supported by the selected provider. The
+three-input convenience mapping fixes sensation to 50 and buffer to 0; position
+is report-only. Reject invalid tuples and unsupported patterns without
+clamping or substituting Simple Stroke. Provider discovery is not physical
+qualification; the hardware release gate remains separate. There are no guest
+grants, session credentials, Allow control steps or web-policy speed caps in the
+CLI. Device validity, Stop precedence and interruption checks still apply.
+
+One prompt owns one device and lock. `stop` writes zero and retains the prompt
+and connection. Motion interrupted by an external change stays inhibited until
+`acknowledge` succeeds against the current interruption revision and stopped
+baseline; acknowledgement leaves paused. Only a new explicit `set` can move.
+Help, status, Stop and quit remain available while interrupted. No automatic
+motion retries or replay occur on reconnect. Loss reports the failure and
+requires explicit restart of the CLI; it does not silently connect to another
+device or simulator.
+
+Quit, EOF, Ctrl+C, SIGTERM and catchable terminal-close/hangup events share one exit path:
+reject new motion, discard pending intent, wait for already-issued I/O to settle,
+then prioritize zero before disconnecting and releasing ownership last. Give
+cleanup its own validated finite budget (default five seconds), not the already
+cancelled input token. Retry only zero-speed Stop after the preceding attempt
+has actually settled and within the same budget; never issue a concurrent write
+or retry motion. Expiry reports unconfirmed Stop and a nonzero exit; do not
+claim success because disposal or cancellation completed. An OS kill, crash or
+power loss can prevent cleanup. A completed zero write is not physical-stop
+confirmation. Register the appropriate macOS SIGINT/SIGTERM/SIGQUIT/SIGHUP and
+Windows console-close/shutdown handlers; do not rely on asynchronous work in
+ProcessExit. Platform termination may shorten the available cleanup time, so
+the five-second budget is a ceiling, not an OS guarantee. Signal handlers request
+the one owner shutdown path rather than writing the device concurrently.
+
+Web.Api uses this same Runtime shutdown path from its hosted owner, after
+revoking web authority and before adapter teardown. Configure its normal host
+shutdown allowance above the cleanup budget (default ten seconds for a
+five-second device budget). Test ordered Stop, disconnect and lock release on
+both owners, including early host cancellation and shortened OS deadlines.
+
+Normal quit/EOF returns 0 after successful command cleanup, startup/connection
+or unconfirmed-shutdown failure returns 1, startup usage errors return 2, and
+Ctrl+C returns 130 unless cleanup failed (1). Interactive usage errors do not
+exit. Redirected stdin uses the same line-command parser without interactive
+prompts; EOF still stops before exit. It cannot supply missing startup options
+through an interactive selection. `--help`/`--version` need no device. Prompts/diagnostics go to stderr, command
+results/help to stdout. Use standard ILogger diagnostics, with no independent
+logging system or web dependency.
 
 ## Requirement ownership
 
@@ -217,8 +293,8 @@ IDs are retained for traceability, not new parallel versions of device rules.
 | CC-10 | Unexpected-change detection and trusted-owner recovery follow [DC-09](device-control/spec.md#dc-09-external-parameter-changes-latch-an-admin-only-lockout); no less restrictive recovery path is permitted. |
 | CC-11 | Faults, logical timeouts and disposal follow [DC-07](device-control/spec.md#dc-07-feedback-loss-and-disposal), retaining unsettled I/O ownership and never reviving motion. |
 | PST-01 | Source/test organization matches namespaces and ownership. Logical requirements survive project renames; this design's target host/library names do not rename external packages. |
-| PST-02 | Host defaults own shared host configuration, local HTTP protection and capability-token helpers; the reusable core must not depend on host support. Application capability decisions remain in ControlService. |
-| PST-03 | Models are pure data. Clients and orchestration remain separate from models/controller; clients cannot become alternate device owners. |
+| PST-02 | Defaults owns common host-neutral logging/telemetry; Web.ServiceDefaults adds web-only hosting. Device libraries depend on neither. Web.Application owns capabilities. |
+| PST-03 | Models are pure data. Web clients/orchestration own no device. Cli is the explicitly approved alternative direct device owner, excluded concurrently by the shared machine lock. |
 | PST-04 | Device abstractions and implementations remain independently buildable/consumable with no controller, application-model, service or UI dependency. |
 
 DEP-01, SESSION-01/02 and OUI/GUI IDs are defined in their sections below.
@@ -227,10 +303,15 @@ DEP-01, SESSION-01/02 and OUI/GUI IDs are defined in their sections below.
 
 ### DEP-01: Local one-box operation
 
-All three application processes, browser and device adapter must be able to run
+All three web processes, browser and device adapter must be able to run
 on one supported computer without another server, proxy, tunnel, public DNS,
 cloud identity or internet access after installation. Runtime assets must be
 local. Local and remote guests must use the same policy and execution path.
+Cli must run with all web executables absent; Web.Api must run with both UI
+hosts absent. Neither deployment requires AppHost. One device user is the admin;
+the remote guest is the only separate application role. API/device lifetime
+is intentionally shared; preserving a device connection across API deployment
+is outside the MVP, not an independence claim.
 
 AdminWeb must bind exclusively to `127.0.0.1`, remain deliberately
 unauthenticated and require neither an operator token nor access timeout. It
@@ -249,20 +330,37 @@ or an engine socket for device access.
 
 ### Local bootstrap root of trust
 
-The operator must use `aspire run`. AppHost must own build, startup, port
-allocation, health and shutdown; there must be no custom service launcher.
-AppHost must start ApiService rather than the former ControlService executable once
-the split is implemented. In simulator mode it prepares the native executable;
-the ApiService-owned device adapter owns the only simulator child. Physical mode must
-neither build/launch that child nor require Rust tooling. AppHost and ApiService DI
-must use the same startup selection.
+Use one optional AppHost with named `Simulated` and `Actual` launch/debug
+configurations, defaulting to Simulated. It starts the three web executables;
+Simulated also starts the native simulator as an independent resource and
+supplies its loopback endpoint. Actual selects the Stock build/profile and
+requires neither simulator assets nor Rust. AppHost never owns BLE or calls
+device operations. For CLI-only development, start the simulator independently
+and the CLI directly; do not launch Web.Api as another device owner. A runtime
+launch profile does not replace provider selection before restore/publish.
 
-AppHost must generate distinct 256-bit service keys for AdminWeb and GuestWeb
-and supply them through resource configuration to ApiService and the corresponding
-host. ApiService authenticates hosts, not humans; ControlService must independently
-validate guest capabilities. The authenticated local dashboard must display
-the plain local operator URL. Keys must never be persisted by application code,
-placed in process arguments, logged or exposed to browsers.
+Use the MSBuild property `DeviceProvider=Simulator|Stock`, default Simulator,
+consistently across a solution restore/build. Establish profile-specific
+artifacts and intermediate/restore directories before SDK evaluation; for
+example, separate `artifacts/Simulator` and `artifacts/Stock` trees retain their
+own project.assets.json and generated files. Never use no-restore outputs from
+another profile. The Actual run/debug configuration invokes a Stock build of
+AppHost and its provider-consuming projects; runtime options must match that
+build. CI builds/tests both profiles on Windows and macOS where native tooling
+is required; simulator acceptance does not wait for physical qualification.
+
+Outside Aspire, start executables using standard .NET hosting and explicit
+configuration. No custom orchestrator is required. Device.Simulator only
+connects; the process starter, including AppHost in development, owns simulator
+shutdown. A client disconnect must leave the simulator process alive at zero.
+
+AdminWeb and GuestWeb must have distinct 256-bit service keys. AppHost may
+generate/inject these for development; without it, the admin supplies matching
+keys through environment/protected host configuration. Missing keys fail
+startup; do not generate independently mismatching keys or require a dashboard.
+Web.Api authenticates hosts, not humans; Web.Application separately validates
+guest capabilities. Keys must never appear in process arguments, routine logs
+or browsers. The CLI requires no service keys or application authentication.
 
 Typed configuration must use options, DataAnnotations, cross-field validation
 where needed, `ValidateDataAnnotations()` and `ValidateOnStart()`. Shared host
@@ -277,12 +375,33 @@ native permissions. GuestWeb must not access privileged bootstrap storage or
 native device permissions. A compromised guest host can forge input within a
 capability it possesses, but cannot bypass service policy, grants or core limits.
 
-ApiService must exclusively own controller/device lifetime. Shutdown must target only
-its managed resources, never unrelated processes or a browser callback.
-ApiService's composition root must retain the existing cross-process device-ownership
-lease, using the same exclusion scope across the host rename. A competing host
-must fail before starting device access; the owner must retain the lease through
-managed device shutdown. One singleton per process alone is insufficient.
+Web.Api or Cli must exclusively own its device lifetime. Both must acquire the
+same machine-wide ownership lease before discovery, connection or writes and
+retain it through managed shutdown. Put the lease in Device.Runtime, not a web
+assembly or per-user CLI daemon. Use a crash-released exclusive OS file lock in
+a provisioned machine-wide runtime directory, with one stable device-owner key,
+not a per-user temp path. Keep the file in place after release to avoid unlink/
+recreate races. Provision access only to intended local operator identities;
+missing permissions fail clearly, without fallback to a weaker lock. This
+excludes cooperating software on one computer, not the physical remote or
+arbitrary compromised local code. Do not steal a lock on a timeout.
+
+Resolve the lock as `OssmSharp/runtime/device.lock` beneath Windows common
+application data (`ProgramData`) or the macOS system-domain
+`Library/Application Support` directory, not a user Library or temporary
+directory. Installation/setup documentation must provision the directory and
+grant the intended local admin identity access; neither running owner escalates
+privileges automatically. There is no production option/environment override
+for the lock path. Internal test helpers may inject isolated directories for
+unit/helper-process tests; tests of the real CLI/API use the production path on
+dedicated test machines, never steal or terminate an operator's existing owner.
+
+Unexpected observed parameter changes must latch an interruption, invalidate
+pending motion/guest authority and request serialized Stop. Never restore the
+prior tuple to counteract physical input. AdminWeb acknowledgement or the CLI's
+local `acknowledge` command clears only into paused state under DC-09. The same
+human is the device user and admin; no extra identity/account is introduced.
+Heuristics cannot detect every remote action or establish physical stopping.
 Physical-use limits remain in the
 [qualification contract](device-control/spec.md#physical-qualification).
 
@@ -293,7 +412,7 @@ personal identities, a user database or an external identity provider. Operator
 is a local management role; guest means scoped capability possession, not a
 verified identity.
 
-Only ControlService may create guest capabilities. Session secrets must be
+Only Web.Application may create guest capabilities. Session secrets must be
 independent 256-bit CSPRNG values with fixed expiries and server-enforced scopes.
 Guest credentials must not authorize invitation creation, limits, device
 selection, approval, arming, unlocking or management.
@@ -309,7 +428,7 @@ authority; there is no session backup or restoration path.
 
 ### SESSION-01: Automatic reusable invitation
 
-After advertised-origin validation, ControlService must create one high-entropy,
+After advertised-origin validation, Web.Application must create one high-entropy,
 non-expiring invitation in memory. AdminWeb must automatically show its complete
 URL with Copy and selectable fallback text. Retrieval, reload and compatible
 creation retries must not change authority, write the device or create extra
@@ -343,10 +462,12 @@ operator projection and Cycle command.
 ### Admission and session lifetime
 
 Join must atomically validate the current generation/proof and move a vacant
-slot to pending. Concurrent joins admit exactly one connection. Join returns
-only a private connection-bound bootstrap admission proof, not a snapshot or
-grant. Every guest operation must validate proof, session, generation and the
-authoritative ApiService connection binding, whether the proof is carried explicitly
+slot to pending. Concurrent joins admit exactly one connection. The internal
+application Join result contains a private connection-bound admission proof;
+the API retains it and the hub reply only acknowledges. No snapshot, grant or
+private proof is returned to the browser. Every guest operation must validate
+proof, session, generation and the
+authoritative Web.Api connection binding, whether the proof is carried explicitly
 or resolved from that binding.
 
 Pending sessions expire after 60 seconds; approved sessions after 30 minutes.
@@ -370,7 +491,7 @@ guest or revive the old invitation. Restart also replaces the invitation.
 
 ### Approval and control authority
 
-ControlService must approve the exact admitted guest before arming. **Allow
+Web.Application must approve the exact admitted guest before arming. **Allow
 control** explicitly approves and prepares/arms only the stopped session when
 fresh supported-profile feedback and limits satisfy CC-01. Opening pages,
 retrieving/redeeming invitations and sending guest input never constitute
@@ -402,21 +523,22 @@ reply is acknowledgement-only.
 ## Service transport
 
 SignalR at `/hubs/control/v1` remains the only application control transport.
-The host split must not introduce REST, named-pipe control, browser-to-ApiService
-access or an alternate device writer. Existing client method names, wire
-representations and error meanings must remain compatible; moving projects is
-not a reason to change the protocol.
+The endpoint belongs to Web.Api; the two web hosts use Web.Client. Do not add
+an API-to-ControlService hop, REST control or browser-to-Web.Api access. The
+CLI uses device libraries, not this service transport. The simulator connection
+is a separate device transport, not an application authority endpoint.
 
-Compatibility does not grandfather behavior that violates a retained safety or
-authorization requirement. Characterization must distinguish contract-preserving
-packaging changes from existing defects. Any fix that changes supported client
-behavior needs a separately reviewed compatibility decision, not an undocumented
-change hidden in the extraction.
+The requester waived backwards compatibility for this WIP. Update repository
+consumers together; retain no forwarding types, old command daemon, legacy
+stdio mode or parallel compatibility stack. Preserve the current web method
+names, bounded payloads and errors because no accepted behavior requires
+changing them, not to maintain an old product version. Keep existing safety
+regressions and distinguish behavior corrections from mechanical renames.
 
 | Caller | Allowed operation family | Result path |
 | --- | --- | --- |
 | AdminWeb service role | Subscribe operator state/logs, read invitation, Stop, Cycle/operator End, approve/Allow control, arm, apply limits, recover/unlock | Mutations acknowledge acceptance/rejection; invitation, state and safe logs arrive through ordered operator push |
-| GuestWeb service role before admission | Stage subscription and Join using invitation proof | Join returns private admission proof only; no grant or state in the reply |
+| GuestWeb service role before admission | Stage subscription and Join using invitation proof | Hub reply acknowledges only; the application admission proof stays private in the connection registry |
 | Bound admitted guest | Scoped status, complete input, Stop and Leave | Acknowledgements plus the single authorized guest push path |
 
 Guest exposure must exclude raw commands, enumeration, arbitrary invocation,
@@ -443,23 +565,24 @@ clients must resynchronize rather than automatically retry authority-changing
 commands. Only documented side-effect-free invitation retries and the guarded
 explicitly-sent input retry above are permitted by this design.
 
-Published schema versions retain units, interpretation and errors. Added fields
-require a new supported version or explicitly negotiated closed-schema
-extension. Participants must establish a common contract and required
-capabilities before arming. Incompatibility fails closed without weakening Stop,
-freshness or authorization. No speculative compatibility framework or assumed
-simultaneous upgrade is introduced.
+Closed schemas retain explicit units, interpretation and errors. Update current
+repository participants together when an accepted change alters that contract;
+older WIP clients need not coexist. Unknown or mismatched payloads still fail
+closed without weakening Stop, freshness or authorization. Do not add a
+compatibility framework or relax validation to conceal version mismatches.
 
 ### Guest input and grant freshness
 
-Version-2 input must contain `v = 2`, session/connection proof, control epoch,
-policy version, grant ID and grant sequence, a strictly increasing positive
-safe-integer `seq`, `run = true`, and a complete valid tuple. ApiService's connection
-identity is authoritative. Version-1 hold inputs, nonincreasing sequences,
+Version-2 input must contain `v = 2`, control epoch, policy version, grant ID,
+a strictly increasing positive safe-integer `seq`, `run = true`, and a complete
+valid tuple. The server resolves the private session/connection proof and grant
+record from the authenticated Web.Api binding. Grant sequence, issuance and
+expiry are authoritative server-side metadata, not required additional input
+fields. Web.Api's connection identity is authoritative. Version-1 hold inputs, nonincreasing sequences,
 replays and expired/superseded/cross-session/epoch grants must reject without
 writes or lease renewal.
 
-ControlService issues an initial grant on explicit arming and one every 250 ms
+Web.Application issues an initial grant on explicit arming and one every 250 ms
 while armed. Each contains session, connection, epoch, policy version, strictly
 increasing grant sequence, issuance timestamp and expiry 750 ms after service
 issuance, regardless of arrival. One unexpired grant may authorize increasing
@@ -472,8 +595,8 @@ accepted in any rolling monotonic one-second window. Over-limit attempts must
 not advance sequence, refresh authority, replace pending work or reach the
 controller. Status, Stop and Leave do not consume that capacity; all retain the
 envelope bound. The requester selected this rolling rule over the existing
-20-capacity bucket; the [resolved decision](#resolved-direction-and-review)
-requires a separately verified behavior correction, not a silent extraction change.
+20-capacity bucket in the earlier extraction. The current rolling behavior is
+baseline behavior to preserve; this migration must not reintroduce that bucket.
 
 Session, policy and grant must be rechecked through the execution guard.
 Server/circuit timers, heartbeat, ping/pong, status, retained UI state and probes
@@ -514,10 +637,9 @@ estimates/previews must be labelled and stale data must not animate as live.
 
 ### Shared notifications and styling
 
-Application notifications must be normal-flow, full-content-width above the
-widgets, without a fixed wrapper, popup, modal or outer widget border.
-Framework-managed connection/reconnection/fatal notices must use the same inline
-notification and remain outside interactive-route DOM. Connection failures
+Application notices stay at the top right outside normal layout flow, consistent
+with the existing repository UI contract. Framework-managed connection notices
+remain outside interactive-route DOM. Connection failures
 take precedence over other notices.
 
 On guest connection loss, show the standard danger `RwAlert`: **Connection lost.
@@ -529,7 +651,7 @@ credentials or framework traffic.
 Every button must have an accessible name and useful tooltip; icon-only buttons
 need explicit labels, never an HTML `alt` attribute. Adjacent inputs/buttons
 must match heights. Waiting is warning/gold; connection/success actions are
-green; **Stop and end session** is danger/red; disabled buttons are
+green; **Stop and end session** is warning/yellow; disabled buttons are
 grayscale. Copied text and temporary success styling share one timer.
 
 Shared widget styling changes belong in RetroWebUi and must be consumed through
@@ -545,7 +667,7 @@ Applications must not patch copied assets or duplicate shared widget states.
 | OUI-03 | The shared site label is 1.4rem. SIMULATOR, when present, aligns at the page header's top-right with the label/widgets, not in Controls. The Controls guest-session indicator is right-aligned and shows **Controls disabled** rather than **Guest connected** when an approved guest needs Allow control. Pending device I/O adds a preceding large recording-red dot with accessible text/tooltip **Waiting for the device to settle.**, not a normal-flow status message. |
 | OUI-04 | **Session limits** spans the grid, with dirty status top-right. All operator/guest card headings render at 1.1rem without changing semantic levels; the limits landmark remains h2. |
 | OUI-05 | Speed/depth share one right-aligned **Apply limits** action and atomic policy operation, without selected/applied text rows. A primary/selected-colour phantom dot marks applied track position while drafts differ and disappears on equality after successful application. Refresh preserves unsent edits. |
-| OUI-06 | Both interfaces share the header/content template and inline notifications. An actionable pending guest shows persistent warning/gold **A guest is waiting. Click Allow control to enable control.** Allow control is green when actionable and grayscale when inactive, without an activation glow. It is enabled whenever the operator can safely allow control, including after guest connection changes. Readiness and safety checks still govern availability. |
+| OUI-06 | Both interfaces share the header/content template and top-right notification behavior. An actionable pending guest shows persistent warning/gold **A guest is waiting. Click Allow control to enable control.** Allow control is green when actionable and grayscale when inactive, without an activation glow. It is enabled whenever the operator can safely allow control, including after guest connection changes. Readiness and safety checks still govern availability. |
 
 ### Guest presentation requirements
 
@@ -553,17 +675,18 @@ Applications must not patch copied assets or duplicate shared widget states.
 | --- | --- |
 | GUI-01 | The shared main region has no initial visible focus outline; keyboard focus remains visible when used. The status card is **Live Status**, with state and applicable SIMULATOR badges in its right-aligned heading group and no numeric position, velocity or source-caption rows. |
 | GUI-02 | Non-wrapping **Auto send** immediately precedes green **Send**; Auto send, Send and Stop are right-aligned together. Paused uses warning/gold without duplicate operator-disabled guidance. Terminated sessions say **Session ended. Open the invite link again to rejoin.** |
-| GUI-03 | Invitation-required, interactive guest and operator routes share the page layout and standard inline notification, with normal-flow full-width content and no fixed application-notification container. |
+| GUI-03 | Invitation-required, interactive guest and operator routes share the page layout and top-right notices outside layout flow. The connection-loss danger alert remains above live feedback, with connection failures taking precedence. |
 
 ## Decisions and alternatives
 
 | Decision | Strongest practical alternative | Deciding trade-off |
 | --- | --- | --- |
-| Retain SignalR; name the host Api | REST commands with a separate server-push/lifetime mechanism | The requester selected SignalR. It already supplies connection-bound admission and ordered live delivery; REST would require redesign without a stated user benefit. |
-| Extract the business library from the executable | Keep the current executable with internally separated classes | The current seam reduces extraction work, but leaves policy coupled to an ASP.NET host assembly. A library makes the requested independent test/use boundary explicit, at the cost of moving code and references. |
-| Retain ControlCore separately | Merge application/session policy and execution into ControlService | Standalone controller/device consumers must not acquire remote-session or host requirements. Keeping this boundary preserves that contract; it does not justify duplicating authority in both libraries. |
-| Keep three processes, not four | Host everything together, or run the business library as another service | One process would remove required listener/role separation. A fourth adds a hop and failure boundary without a new owner. ApiService hosts the library and the sole device lifetime. |
-| Retain the existing client and shared UI owners | Direct SignalR calls and copied widgets in each UI | Two real consumers justify these boundaries. They avoid duplicated transport behavior and widget ownership; no generic provider/transport framework is needed. |
+| Web.Api owns the device for the MVP | Separate device executable and SignalR client hop | Accepted for one computer/device/admin/guest: fewer lifecycles and credentials. API restart also disrupts device ownership. Revisit only for a concrete remote-host or independent-restart requirement. |
+| CLI is a direct interactive remote | Web-controller/service client or send-and-exit tool | No web policy/dependencies; a persistent prompt retains exclusive ownership and can strongly attempt Stop before exit. |
+| Separate Primitives, Runtime and providers | Keep the shared base in Stock or put web policy in Primitives | Runtime serves two real providers/consumers and isolates BLE; web authority/controller stays in Web.Application. |
+| DI plus selected-provider build profiles | Ship every provider and select at runtime | Runtime options do not prune package dependencies. Stock and Simulator artifacts contain only their selected provider. |
+| Independent loopback simulator | Adapter-owned child, native ABI or network service | Retain Rust motion and bounded JSONL, move it to loopback TCP, keep the process alive across client exit. No additional engine or remote-service auth is required in the trusted-local MVP. |
+| Defaults plus Web.ServiceDefaults | Give the CLI ASP.NET/service-discovery dependencies | Share logging configuration without pulling web hosting into the direct remote. |
 
 The retained single writer, bounded pending work, execution guards, grants and
 timeouts cover real device I/O and authority-loss failure modes. Removing them
@@ -578,8 +701,9 @@ and `TimeProvider` elapsed-time APIs. Wall-clock changes must not renew authorit
 or freshness. Reuse existing pinned packages; this design requests no new
 dependency or external service.
 
-The local operator observes host health in the authenticated Aspire dashboard
-and application availability/faults in the UIs. Liveness must not imply device
+The local admin observes standard logs and web health/UI state without Aspire.
+An optional development dashboard is another consumer, not an operational
+prerequisite. Liveness must not imply device
 readiness. Application logs use `ILogger<T>` and shared OpenTelemetry, with
 bounded structured event names and fields. Startup/lifetime events are
 informational; rejected authority, lost connections and device faults must be
@@ -594,18 +718,19 @@ measure those contracts; they do not establish a physical stopping time.
 
 Application authority is memory-only. The design adds no persistent user data,
 backups or external telemetry destination. Any configured diagnostic export
-must have reviewed access/retention and exclude secrets before use; this draft
+must have reviewed access/retention and exclude secrets before use; this design
 does not claim an existing retention policy. The split adds no new licensing
 selection or clearance and does not replace physical qualification obligations.
 
 ## Delivery and verification
 
 Implementation is subsequent work. The
-[implementation plan](../plans/web-control-implementation.md) owns the ordered
-tasks, prerequisites and focused acceptance evidence. Keep the hub path and wire
-contracts stable during extraction; record existing contract failures and explicit
-behavior corrections separately. The split is incomplete until standalone core
-use needs no guest session and the application library needs no transport host.
+[migration plan](../plans/direct-device-migration.md) owns the ordered tasks,
+rename inventory, repository-instruction updates and acceptance evidence. The
+[earlier extraction plan](../plans/web-control-implementation.md) is historical
+evidence only. Record behavior corrections separately from moves. Completion
+requires a CLI with no web dependencies and independently started simulator,
+plus the API path and configured telemetry working without AppHost.
 
 Restart during cutover discards authority and starts paused/disarmed; it must
 not migrate live sessions or resume accepted input. Reverting packaging likewise
@@ -614,7 +739,7 @@ performance gain or deployment authorization is implied.
 
 ### Implementation and verification
 
-ControlService tests must exercise application authority without ASP.NET or
+Web.Application tests must exercise application authority without ASP.NET or
 SignalR. Core tests use deterministic device and clock fakes; direct adapter
 integration tests do not start application hosts. Test observable outcomes,
 ordering, bounded work and resource ownership rather than private class layouts.
@@ -627,9 +752,11 @@ runner. No browser or physical device is required for core conformance.
 | Boundary | Required evidence before declaring the design implemented |
 | --- | --- |
 | Application library | One admitted connection; proof/generation binding; exact approval; atomic rotation with unsettled I/O; session expiry; policy/grant invalidation without lease extension; stale callbacks cannot revoke replacement guests |
-| ApiService and ControlClient | Service-role separation; closed schemas and envelope bounds; ordered initial/live push; unchanged projections do not republish; expired authority closes the guest connection; loss and cancellation do not revive motion |
+| Web.Api and Web.Client | Service-role separation; closed schemas and envelope bounds; ordered initial/live push; unchanged projections do not republish; expired authority closes the guest connection; loss and cancellation do not revive motion |
 | Local host | Wrong Host and missing/foreign mutation Origin reject; listener overrides cannot expose AdminWeb; a second authority host cannot acquire device ownership; one-box startup works without external networking |
 | Controller/device | DC safeguards tested by reference: one writer, execution-time guards, Stop priority, unconfirmed I/O and paused recovery; adapter checks remain host-independent |
+| Cli and shared runtime | Persistent prompt without any web executable; complete tuple/pattern validation; CLI/API cross-process exclusion; interruption acknowledgment into paused; strong bounded Stop on all handled exits; simulator remains alive at zero |
+| Packaging/defaults | Simulator publish has no BLE/native platform dependency; Stock has no simulator/Rust dependency; CLI has no ASP.NET/UI/Aspire/application-policy dependency; logs/export work without Aspire and startup works without a collector |
 | UI/components | OUI/GUI contracts, responsive keyboard order and focus, reduced motion, send/draft separation, freshness labels, clipboard fallback, connection-loss precedence and restart behavior |
 
 Use the lowest test level that proves each behavior, with focused browser checks
@@ -637,29 +764,41 @@ for high-value cross-boundary flows. Tests must not predominantly validate Aspir
 or other dependencies. Simulator fault injection stays operator/test-only.
 Software conformance must never be presented as hardware safety.
 
-## Open issues
+## Resolved implementation questions
 
-| Question | Impact and options | Next step and blocking scope |
-| --- | --- | --- |
-| Which grant metadata must cross the wire? | Current DTOs lack the specified grant sequence and explicit timestamps; issuance-based expiry exists internally. Keep logical metadata internal where the contract permits, or introduce a separately versioned wire change where explicit fields are required. Input sequence is not grant sequence. | The project owner must reconcile the schema requirements before grant-conformance work. Compatible host/library extraction is not blocked; full grant-schema conformance remains unproven. |
-| Which Join boundary returns the private proof? | The internal application result supplies a proof retained against the connection; the current hub reply is acknowledgement-only. Clarify the application/wire distinction rather than exposing a secret to satisfy ambiguous wording. | Clarify the requirement with the project owner before changing the Join schema. Preserve the existing bound proof validation and hub receipt during extraction. |
+| Question | Decision |
+| --- | --- |
+| Must another device service exist? | No. Web.Api owns the web device lifetime; the CLI is an alternative direct owner. |
+| Where does controller code go? | Shared mechanics move to Device.Runtime; the full controller and web authority live in Web.Application. Neither is folded into Primitives. |
+| Which grant metadata crosses the wire? | Retain grant ID/epoch/policy plus input sequence; resolve grant sequence, issuance and monotonic expiry from server records. Status/grant publication cannot extend accepted motion. No extra public fields are needed. |
+| Which Join boundary returns the proof? | The application returns the private proof to the API registry; the hub acknowledges only. The proof never becomes browser data merely to satisfy wording. |
+| Does an invitation survive API restart? | No. It is non-expiring within the process lifetime, reused until explicit rotation, and replaced after restart. All authority is memory-only. |
+| Simulator connection and lifetime? | Bounded JSONL over IPv4 loopback TCP, one controller connection, explicit configured endpoint, independently started/stopped process. Connection loss zeros the simulator and clears pending input; it does not exit. |
+| CLI lifetime and interruption? | Persistent REPL; explicit local acknowledgement; Stop retains the prompt; handled exit awaits bounded cleanup without web policy. |
+| How are providers selected? | Stock/Simulator build profiles prune references before restore; typed options configure the one available provider. Missing/unavailable provider is a startup error. |
+| What does the rename include? | Repository identity, solution/workspace, project/folder/assembly/package names, namespaces, tests, friend assemblies and owned documentation links. Do not rename stock protocol fields/UUIDs, external packages or the ossm-rs engine. |
+| What compatibility is required? | None for this WIP. Update consumers/configuration together, remove superseded paths, and retain no aliases or legacy daemon/stdio interface. |
+| Can implementation start? | No. This change publishes design and a migration plan only. Repository instructions are updated in the first separately authorized implementation task. |
 
 ### Resolved direction and review
 
 - **SignalR, not REST:** the requester changed the initial REST brief to retain
   SignalR. This keeps the existing live connection and authority semantics.
-- **Host name:** the requester originally selected `OSSMDotNet.Api` instead of RestApi; the approved executable name is now `OSSMDotNet.ApiService`.
-- **Library role:** ControlService is the requested business-logic library. The
-  detailed extraction and retained core boundary remain subject to design review.
+- **MVP ownership (25 September 2026):** the requester accepted Web.Api as the
+  web device owner and a direct standalone CLI. The previous separate-service
+  requirement is superseded deliberately, not considered already satisfied.
+- **Rename (25 September 2026):** the requester replaced OSSMDotNet repository,
+  project and namespace identities with OssmSharp.
+- **Compatibility (25 September 2026):** the requester waived backwards
+  compatibility for this WIP migration. No compatibility layer is planned.
 - **Public .NET moves (22 September 2026):** the requester selected coordinated
-  repository-consumer updates without source/binary compatibility shims. This
-  resolves the public-type migration question; SignalR compatibility still holds.
+  repository-consumer updates without source/binary compatibility shims for the
+  earlier extraction. The broader 25 September WIP waiver governs this migration.
 - **Rolling limit (22 September 2026):** the requester selected 10 authenticated
-  run-input attempts in any rolling monotonic second, replacing the tested
-  20-capacity bucket. The bucket's burst allowance is not equivalent. Prove the
-  regression first and update its tests as a separate behavior correction.
+  run-input attempts in any rolling monotonic second; the prior plan records
+  its implementation. Preserve that baseline and its tests; a 20-capacity bucket
+  is not equivalent.
 
-Start review with the project owner on the scenarios and ownership split, then
-seek focused device-boundary and UI feedback as needed. Keep comments and
-resolutions with this document and its version history. An AI review or silence
-is not approval; unresolved grant-schema and Join-boundary questions remain visible.
+No architecture question remains deferred to an implementer. Platform BLE
+support, feedback adequacy and physical stopping remain evidence gates in the
+device contract, not permission to weaken it or claim that review proved it.

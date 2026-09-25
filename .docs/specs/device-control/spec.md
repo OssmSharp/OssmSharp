@@ -19,7 +19,7 @@ their lifetimes. These components must not require guest sessions, web hosts, UI
 routes or a particular orchestration application.
 
 The [adapter design](adapters.md) records the accepted Shiny/native-simulator
-direction, DI composition, proposed device-selection configuration and remaining
+direction, DI composition, selected device-selection configuration and remaining
 integration gates. The device contract and DC requirements remain owned here.
 
 The [web-control design](../web-control-design.md#requirement-ownership) owns
@@ -28,6 +28,22 @@ checks must feed the core execution guard; the core must not infer authority
 from presentation state. The device contract must be usable directly without
 the controller, while an application composing a controller must not allow
 callers to bypass its writer.
+
+The accepted 25 September 2026 composition has two alternative local owners:
+Web.Api with its full web controller, or the standalone Cli REPL. Shared
+Device.Runtime mechanics own the single transport gate, machine-wide lease,
+interruption revision and Stop/cleanup path. Device.Primitives owns values and
+contracts, not hosting or policy. Neither provider depends on the other; the
+simulator is independently started. These are target requirements, not claims
+that the current projects have migrated.
+
+DC IDs remain stable. DC-01 readiness, DC-03 intrinsic validity, DC-04/05 owned
+I/O and Stop, DC-06 valid transitions, DC-07 honest feedback/cleanup, DC-08
+replaceability and DC-09 interruption mechanics apply to both owners. Web
+grants, policy limits and application authority guards are supplied only by the
+web controller. The CLI's explicit local command and current execution revision
+provide local intent; it must not acquire guest sessions, web arming workflows
+or the full web controller to use the device.
 
 ## Device profile, identity and feedback
 
@@ -55,10 +71,16 @@ The following are pinned firmware facts, not additional requirement copies:
 
 ### Initial parameter mapping
 
-The initial application profile must use Simple Stroke (pattern `0`), fixed
+The initial web application profile must use Simple Stroke (pattern `0`), fixed
 sensation `50`, no inversion and integer percentages in `[0,100]`. Nonzero speed
 must require positive stroke. Other reported patterns may be identified but must
 not enter the physical qualified allowlist without evidence.
+
+The CLI exposes three inputs (speed, stroke, depth) plus pattern and validates
+the selected provider's implemented capabilities. Its convenience mapping uses
+sensation `50` and buffer `0`; it must not silently replace an unsupported
+pattern with Simple Stroke. A reported/implemented pattern is not physical
+qualification or authorization to operate unqualified hardware.
 
 [Simple Stroke][firmware-patterns] targets depth and depth minus stroke, while
 [mode mapping][firmware-mode] scales against measured travel and the
@@ -169,7 +191,7 @@ manufacture feedback. Cached reads, write completion and successful liveness
 probes must not be published as new motion state. Required-feedback tracking and
 freshness deadlines belong to the controller under DC-07.
 
-`OssmDeviceBase` in the stock library must own common state publication,
+`DeviceBase` in Device.Runtime must own common state publication,
 model-validation enforcement, pending-write expectation registration before
 dispatch, operation settlement, semantic fault reporting, subscriber isolation
 and repeated cleanup. It must not retain complete `DeviceState` instances or
@@ -179,6 +201,12 @@ dispatch and implementation-specific state assessment. The stock implementation
 must assess knob scaling and integer truncation; the simulator must use direct
 engine evidence. The base must not add controller authority, arming, persistent
 lockout, Stop priority or a second desired-state queue.
+
+The Runtime owner session, separate from this publication base, owns the shared
+interruption latch and serialized Stop coordination. Web policy consumes that
+one latch; it must not maintain another independently clearable lock. Shared
+runtime options must be provider-neutral, not Stock options inherited by the
+simulator. No device project depends on Defaults or Web.ServiceDefaults.
 
 Concrete implementations must receive their own validated `IOptions<TOptions>`
 and own connection startup and shutdown. Composition must register one concrete
@@ -259,20 +287,24 @@ Motion-only simulation without stock-firmware or BLE emulation is accepted for
 the current scope. The [adapter design](adapters.md#transparent-simulator-data)
 describes the mapping and limits.
 
-Shared speed/expectation bookkeeping may live in the stock implementation with
-overridable operations. The simulator must use direct engine
-settings/position/velocity and may override stock transport and inference. Reuse
+Shared speed/expectation bookkeeping lives in Device.Runtime with narrow
+provider hooks. The simulator must use direct engine
+settings/position/velocity without depending on stock transport or inference. Reuse
 must not require BLE caching, knob estimation, polling or a strategy/factory
 layer per method.
 
-- Lifetime must use `BackgroundService` and validated typed options. The
-  configured executable must start once, with no command-line arguments. The
-  background task must remain alive with its reader, and shutdown cancellation
-  must reach owned work. Hosted-service and device-interface registration must
-  use the same instance, not two child owners.
-- Transport must use bounded redirected UTF-8 JSON Lines over stdin/stdout and
-  separately drained stderr. Outstanding requests must be bounded. Private IDs
-  may correlate replies without becoming public contract fields.
+- Lifetime must use standard .NET hosting and validated typed endpoint options.
+  The simulator process is started by the operator or optional development
+  AppHost, not by an adapter or CLI. Hosted-service and device-interface
+  registration must use the same connection instance. Disposal closes that
+  connection, never launches, kills or sends a process-shutdown operation.
+- Transport is UTF-8 JSON Lines over IPv4 loopback TCP with a 4 KiB frame bound
+  and at most eight pending adapter requests. No wildcard/remote binding or
+  fallback discovery is allowed. Private IDs correlate replies, not public
+  motion authority. The server accepts one controller connection; disconnect
+  clears its pending work, zeros the engine and leaves the process available
+  for a fresh connection without replay. Delayed old-connection work cannot run
+  in the next connection's generation.
 - Zero-speed `SetMotionAsync` must use the existing engine zero-speed operation.
   Completion must settle the operation; the resulting reported state must be
   published separately. Engine settlement required by safe transitions must
@@ -284,10 +316,10 @@ layer per method.
 - Identity must use the known simulator profile. Operator/test-only injection
   must cover unexpected speed changes (P0), other settings (P2), delayed
   completion, frozen feedback and disconnect. No guest control may expose it.
-- Process exit/protocol failure must settle pending requests with errors, update
+- Server exit/protocol failure must settle pending requests with errors, update
   connection state and be diagnosed through lifecycle logs. It must not publish
   a `DeviceStateChanged` error. Disposal must release readers, streams and the
-  child. Simulation must not open BLE or drive physical hardware.
+  connection only. Simulation must not open BLE or drive physical hardware.
 
 ## Controller execution requirements
 
@@ -470,6 +502,17 @@ and dispose the device. The core must remain reachable to internal Stop after
 the initiating request ends. Process failure may skip graceful shutdown and
 cannot waive independent physical-stop requirements.
 
+Both Web.Api and Cli must use the same Runtime cleanup path. Default its
+validated overall budget to five seconds, independently of the cancelled
+command token; normal web host shutdown must allow more time (ten seconds by
+default). Do not renew the budget per retry. Retry only a settled zero write,
+never concurrent I/O or motion. Handle quit/EOF/Ctrl+C, graceful termination and
+catchable terminal-close events; OS deadlines may shorten the budget. If I/O
+does not settle, report unconfirmed Stop and retain ownership until shutdown
+terminates the owner rather than admitting a new writer within that process.
+Release the machine-wide lock last. An independently started simulator remains
+alive after its client leaves, and must zero on connection loss.
+
 Cleanup must use stored callback identities, unsubscribe, cancel timers, stop
 notifications and release owned resources after successful use, failure or
 partial initialization. Registry removal must have one owner. Repeated cleanup
@@ -496,11 +539,15 @@ negotiation belongs to the application, not the device library.
 Here, admin means the trusted owner, not a particular web host. P0 detection
 must atomically lock with `external-parameter-change` when timely reported
 effective speed changes without an explaining pending speed write, including
-detected knob/remote decreases to zero. Other settings/mode detection is P2 and
-must use this same lock when implemented, but must not block P0 delivery.
+detected knob/remote decreases to zero. Every detected unexplained writable-
+setting or mode change uses this same latch. Speed detection retains P0 test
+priority and other settings retain P2; priority does not permit an observed
+override to bypass interruption.
 Ordinary position/time changes must not count as overrides.
 
-The controller must own the lock independently of application sessions. Locking
+The Runtime owner session must own the interruption latch independently of
+application sessions; the web controller projects and consumes it rather than
+owning a second flag. Locking
 must revoke current authority, advance execution generation, clear pending
 intent and invoke DC-05. After issued I/O settles, only the stopping operation
 may follow; the controller must not restore previous parameters to correct the
@@ -553,7 +600,9 @@ advance the revision and retain the lock; stale/unresolved feedback must not
 clear it.
 
 Success must leave paused, with separate arming and new valid input required for
-motion. Repeated successful Unlock must be an idempotent no-op without motion or
+web motion. The CLI needs no web arm or session; after its explicit local
+`acknowledge`, a new valid `set` command supplies local intent. Repeated
+successful acknowledgement must be an idempotent no-op without motion or
 new authority. Parameter return, policy edits, new application sessions,
 successful Stop, faults or reconnect must not clear the lock. Restart must start
 disarmed, discard old authority and require explicit trusted recovery; this does

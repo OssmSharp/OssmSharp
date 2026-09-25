@@ -4,588 +4,496 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="referrer" content="no-referrer">
-  <title>OSSM system architecture</title>
+  <title>OssmSharp architecture</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='4' fill='%232d3142'/%3E%3Cpath d='M8 16H24M16 8V24' stroke='%23f5f5f5' stroke-width='4'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500&amp;family=Instrument+Serif&amp;display=swap">
   <style>
     :root {
       color-scheme: light;
       --paper: #f5f5f5;
-      --paper-2: #ececec;
       --surface: #ffffff;
       --ink: #2d3142;
       --muted: #4f5d75;
-      --soft: #7a8399;
-      --rule: rgba(45, 49, 66, 0.12);
-      --rule-solid: #bfc0c0;
-      --accent: #eb6c36;
-      --accent-tint: rgba(235, 108, 54, 0.08);
-      --link: #2e5aa8;
+      --rule: #bfc0c0;
+      --library: #eceff1;
+      --blue: #2e5aa8;
+      --orange: #a4481b;
       --sans: "Geist", system-ui, sans-serif;
       --serif: "Instrument Serif", Georgia, serif;
       --mono: "Geist Mono", ui-monospace, monospace;
     }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      padding: 48px 32px;
-      background: var(--paper);
-      color: var(--ink);
-      font: 400 16px/1.6 var(--sans);
-    }
-    main { max-width: 1280px; margin: 0 auto; }
-    header, .view-heading, figcaption, .constraints, footer { margin-inline: 40px; }
-    .eyebrow {
-      margin: 0 0 8px;
-      font: 500 12px/24px var(--mono);
-      color: var(--muted);
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-    }
+    * { box-sizing: border-box; letter-spacing: 0; }
+    body { margin: 0; padding: 40px 24px; background: var(--paper); color: var(--ink); font: 400 16px/1.6 var(--sans); }
+    main { max-width: 1400px; margin-inline: auto; }
+    header, .section-heading, figcaption, .notes, footer { margin-inline: 40px; }
+    .eyebrow { margin: 0 0 8px; color: var(--muted); font: 500 12px/1.6 var(--mono); text-transform: uppercase; }
     h1 { margin: 0; font: 400 40px/1.2 var(--serif); }
-    .lead { margin: 16px 0 24px; max-width: 880px; font-size: 20px; line-height: 1.5; color: var(--muted); }
-    nav { display: flex; flex-wrap: wrap; gap: 24px; margin-top: 24px; }
-    a { color: var(--link); text-underline-offset: 4px; }
-    nav a { font-weight: 500; text-decoration: none; border-bottom: 1px solid var(--rule-solid); padding-bottom: 8px; }
-    nav a:hover { border-color: var(--link); }
-    :focus-visible { outline: 2px solid var(--link); outline-offset: 4px; }
-    .view { margin-top: 56px; scroll-margin-top: 24px; }
-    .view-heading { display: grid; grid-template-columns: 48px 1fr; gap: 16px; align-items: start; }
-    .view-number { font: 400 24px/32px var(--mono); color: var(--muted); }
-    h2 { font-size: 24px; line-height: 32px; margin: 0 0 8px; font-weight: 600; }
-    .view-heading p { margin: 0; color: var(--muted); max-width: 960px; }
+    .lead { max-width: 960px; margin: 16px 0; font-size: 20px; line-height: 1.5; }
+    .status { max-width: 1000px; margin: 24px 0 0; padding-left: 16px; border-left: 3px solid var(--orange); color: var(--muted); font-size: 14px; }
+    a { color: var(--blue); text-underline-offset: 4px; }
+    :focus-visible { outline: 2px solid var(--blue); outline-offset: 4px; }
+    section { margin-top: 40px; }
+    h2 { margin: 0 0 8px; font-size: 24px; line-height: 1.4; font-weight: 600; }
+    .section-heading p { margin: 0; color: var(--muted); }
     figure { margin: 16px 0 0; }
-    .viewport { overflow-x: auto; overscroll-behavior-x: contain; scrollbar-gutter: stable; }
-    svg { width: 100%; min-width: 1120px; display: block; height: auto; }
+    .viewport { overflow-x: auto; overscroll-behavior-x: contain; }
+    svg { display: block; width: 100%; min-width: 1120px; height: auto; }
     svg text { fill: var(--ink); font-family: var(--sans); }
-    .name { font-size: 24px; font-weight: 600; }
-    .name-small { font-size: 20px; font-weight: 600; }
-    .body { font-size: 16px; fill: var(--muted); }
-    .body-strong { font-size: 16px; font-weight: 600; }
-    .tech { font-family: var(--mono); font-size: 12px; fill: var(--muted); }
-    .boundary-name { font-size: 12px; font-family: var(--mono); font-weight: 500; letter-spacing: 0.04em; fill: var(--muted); }
-    .boundary { fill: rgba(45, 49, 66, 0.02); stroke: var(--rule-solid); stroke-width: 1.2; stroke-dasharray: 8 4; }
-    .node-bg { fill: var(--paper); }
-    .node { fill: var(--surface); stroke: var(--ink); stroke-width: 1.2; }
-    .client { fill: rgba(79, 93, 117, 0.08); stroke: var(--muted); }
-    .focal { fill: var(--accent-tint); stroke: var(--accent); }
-    .hardware { fill: var(--paper-2); stroke: var(--muted); }
-    .outcome { fill: var(--paper-2); stroke: var(--rule-solid); }
-    .mask { fill: var(--paper); }
-    .edge { fill: none; stroke: var(--muted); stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round; }
-    .network { stroke: var(--link); }
-    .deny { stroke-dasharray: 4 4; }
-    .rule { stroke: var(--rule-solid); stroke-width: 0.8; }
-    figcaption { color: var(--muted); line-height: 1.5; padding-top: 8px; }
-    .constraints { margin-top: 32px; border-top: 1px solid var(--rule-solid); padding-top: 24px; }
-    .constraints p { margin: 8px 0 0; max-width: 1040px; color: var(--muted); }
-    .constraints strong { color: var(--ink); font-weight: 600; }
-    footer { margin-top: 40px; border-top: 1px solid var(--rule); padding-top: 24px; font-size: 12px; color: var(--muted); }
-    footer p { margin: 0 0 8px; }
+    .canvas { fill: var(--paper); }
+    .project-box { fill: var(--surface); stroke: var(--ink); stroke-width: 1.5; }
+    .api-box { stroke: var(--blue); stroke-width: 2; }
+    .control-box { stroke: var(--orange); stroke-width: 2; }
+    .library-box { fill: var(--library); stroke: var(--rule); stroke-width: 1; }
+    .client-box { fill: #edf3fc; stroke: var(--blue); stroke-width: 1.5; }
+    .flow-anchor { fill: none; stroke: none; }
+    .external-box { fill: #edf2ed; stroke: #42664b; stroke-width: 1.5; stroke-dasharray: 6 4; }
+    .project-name { font-size: 24px; font-weight: 600; }
+    .library-name { font-size: 16px; font-weight: 600; }
+    .description { font-size: 14px; fill: var(--muted); }
+    .tag, .transport { font: 500 12px var(--mono); fill: var(--muted); }
+    .edge { fill: none; stroke: var(--muted); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+    .signalr { stroke: var(--blue); stroke-width: 2; }
+    .reference { stroke-dasharray: 6 4; stroke-width: 1.2; }
+    .project-fill { fill: var(--surface); }
+    .project-outline { fill: none; }
+    .rule { stroke: var(--rule); stroke-width: 1; }
+    figcaption { padding-top: 8px; color: var(--muted); font-size: 14px; }
+    .notes { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; border-top: 1px solid var(--rule); padding-top: 24px; }
+    .notes h2 { font-size: 18px; }
+    .notes p { margin: 0; color: var(--muted); }
+    footer { margin-top: 32px; padding-top: 16px; border-top: 1px solid var(--rule); font-size: 12px; color: var(--muted); }
+    footer p { margin: 4px 0; }
     @media (max-width: 768px) {
       body { padding: 24px 16px; }
-      header, .view-heading, figcaption, .constraints, footer { margin-inline: 0; }
+      header, .section-heading, figcaption, .notes, footer { margin-inline: 0; }
+      h1 { font-size: 32px; }
       .lead { font-size: 16px; }
-      .view { margin-top: 40px; }
-      .view-heading { grid-template-columns: 32px 1fr; gap: 12px; }
-      .view-number { font-size: 20px; }
-      h2 { font-size: 20px; }
-      nav { gap: 16px; }
+      .notes { grid-template-columns: 1fr; gap: 24px; }
     }
     @media print {
       body { padding: 0; }
-      nav { display: none; }
-      header, .view-heading, figcaption, .constraints, footer { margin-inline: 0; }
+      header, .section-heading, figcaption, .notes, footer { margin-inline: 0; }
       .viewport { overflow: visible; }
       svg { min-width: 0; }
-      .view { break-inside: avoid; }
-      #enforcement { break-before: page; }
+      figure { break-inside: avoid; }
+      #support { break-before: page; }
     }
   </style>
 </head>
 <body>
   <main>
     <header>
-        <p class="eyebrow">Current architecture reference / .NET 10</p>
-      <h1>OSSM system architecture</h1>
-      <p>Task 5 of the <a href="../specs/web-control-design.md">replacement web-control design</a> is implemented:
-        <code>OSSMDotNet.ApiService</code> hosts <code>OSSMDotNet.ControlService</code> as a business logic library, not a fourth process.
-        SignalR remains the control transport; there is no REST control surface.</p>
-      <p class="lead">AdminWeb and GuestWeb are server-side Blazor hosts. ApiService is the SignalR and device-owning process; its ControlService library owns sessions, policy and application operations.</p>
-      <nav aria-label="Architecture views">
-        <a href="#deployment">01 &nbsp; Deployment &amp; connections</a>
-        <a href="#enforcement">02 &nbsp; Control enforcement</a>
-        <a href="#projects">03 &nbsp; Source-project dependencies</a>
-      </nav>
+      <p class="eyebrow">Accepted MVP architecture / .NET 10</p>
+      <h1>OssmSharp architecture</h1>
+      <p class="lead">One computer, one device, one admin and one guest. Web.Api owns the device during web use. Cli is an alternative direct owner, without web policy.</p>
+      <p class="status"><strong>Accepted target, not completed implementation.</strong> The OssmSharp rename, library separation, interactive CLI and independent simulator transport are planned. API and device lifetimes are intentionally shared. The machine-wide lock prevents cooperating CLI and API processes from owning the device concurrently.</p>
     </header>
 
-    <section class="view" id="deployment" aria-labelledby="deployment-heading">
-      <div class="view-heading">
-        <span class="view-number" aria-hidden="true">01</span>
-        <div>
-          <h2 id="deployment-heading">Deployment &amp; connections</h2>
-          <p>Separately hostable web hosts call one ApiService. Remote access ends at GuestWeb; AdminWeb is deliberately unauthenticated and loopback-only.</p>
-        </div>
+    <section id="control-path" aria-labelledby="control-path-heading">
+      <div class="section-heading">
+        <h2 id="control-path-heading">Application &amp; device path</h2>
+        <p>Boxes are planned C# projects, with class libraries inside their consuming executable. Unboxed annotations describe internal code. Solid arrows show calls; dashed arrows show library references.</p>
       </div>
       <figure>
-        <div class="viewport" role="region" tabindex="0" aria-label="Deployment diagram. Scroll horizontally on narrow screens.">
-          <svg viewBox="0 0 1280 720" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="dep-title dep-desc">
-            <desc id="dep-desc">A guest browser connects to GuestWeb over HTTPS and WSS. GuestWeb and AdminWeb are server-side Blazor hosts that call ApiService through the SignalR endpoint /hubs/control/v1 over HTTPS and WSS. AdminWeb and GuestWeb use separately generated service keys; those keys authenticate the hosts, while the hosted ControlService library independently validates invitation and session capabilities for guest operations. AdminWeb is unauthenticated for its local human operator and bound to 127.0.0.1 with Host/Origin protection. Only ApiService's selected device adapter reaches OSSM in this web-control deployment. Local one-box mode places the same browser and all hosts on one computer without changing guest authorization. No named-pipe or REST control surface exists.</desc>
+        <div class="viewport" role="region" tabindex="0" aria-label="Application and device architecture">
+          <svg viewBox="0 0 1400 1744" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="runtime-title runtime-desc">
+            <title id="runtime-title">Web request flow and supporting library references</title>
+            <desc id="runtime-desc">Solid arrows trace page actions in either Web.GuestWeb or Web.AdminWeb through their Web.Client, across SignalR to the Web.Api hub, then through Web.Application, Device.Runtime and exactly one selected provider to OSSM hardware or the independent simulator. Dashed arrows show supporting references to Web.Common, Web.Contracts, Web.ServiceDefaults, Defaults and Device.Primitives. They are not extra execution hops. Project boundaries contain in-process modules. This is the accepted target architecture, not proof of implementation.</desc>
             <defs>
-              <marker id="dep-arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M 0 0 L 8 4 L 0 8 Z" fill="#4f5d75"/></marker>
-              <marker id="dep-arrow-accent" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M 0 0 L 8 4 L 0 8 Z" fill="#eb6c36"/></marker>
-              <marker id="dep-arrow-link" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M 0 0 L 8 4 L 0 8 Z" fill="#2e5aa8"/></marker>
+              <marker id="runtime-arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M 0 0 L 8 4 L 0 8 Z" fill="#4f5d75"/></marker>
+              <marker id="runtime-blue-arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M 0 0 L 8 4 L 0 8 Z" fill="#2e5aa8"/></marker>
             </defs>
-            <rect width="1280" height="720" fill="#f5f5f5"/>
-            <g data-boundary="service-host">
-              <rect x="352" y="64" width="688" height="560" rx="8" class="boundary"/>
-              <rect x="368" y="52" width="352" height="24" class="mask"/>
-              <text x="376" y="68" class="boundary-name">SERVICE HOST / ONE COMPUTER</text>
-            </g>
-            <text x="376" y="120" class="body-strong">Separately hostable processes.</text>
-            <text x="376" y="200" class="body">Only GuestWeb may be exposed.</text>
-            <text x="376" y="224" class="body">AdminWeb stays loopback-only.</text>
-            <text x="376" y="256" class="tech">No public proxy route to AdminWeb.</text>
+            <rect width="1400" height="1744" class="canvas"/>
+            <rect x="40" y="40" width="624" height="424" rx="8" class="project-fill"/>
+            <rect x="736" y="40" width="624" height="424" rx="8" class="project-fill"/>
+            <rect x="248" y="576" width="904" height="848" rx="8" class="project-fill"/>
 
-            <g data-edge="dep-public" data-from="dep-guest" data-to="dep-web">
-              <path d="M 248 408 H 392" class="edge network" marker-end="url(#dep-arrow-link)"/>
+            <g data-edge="guest-command-client" data-from="guest-command" data-to="guest-client" data-relationship="request">
+              <path d="M 196 200 V 264" class="edge" marker-end="url(#runtime-arrow)"/>
             </g>
-            <g data-edge="dep-control" data-from="dep-web" data-to="dep-admin">
-              <path d="M 616 408 H 760" class="edge" marker-end="url(#dep-arrow)"/>
+            <g data-edge="admin-command-client" data-from="admin-command" data-to="admin-client" data-relationship="request">
+              <path d="M 892 200 V 264" class="edge" marker-end="url(#runtime-arrow)"/>
             </g>
-            <g data-edge="dep-local-admin" data-from="dep-operator" data-to="dep-admin">
-              <path d="M 880 248 V 320" class="edge" marker-end="url(#dep-arrow)"/>
+            <g data-edge="guest-api" data-from="guest-client" data-to="api-hub" data-relationship="request">
+              <path d="M 196 344 V 720 Q 196 728 204 728 H 280" class="edge signalr" marker-end="url(#runtime-blue-arrow)"/>
             </g>
-            <g data-edge="dep-ble" data-from="dep-admin" data-to="dep-device">
-              <path d="M 1000 408 H 1104" class="edge" marker-end="url(#dep-arrow)"/>
+            <g data-edge="admin-api" data-from="admin-client" data-to="api-hub" data-relationship="request">
+              <path d="M 892 344 V 488 Q 892 496 884 496 H 840 Q 832 496 832 504 V 744 Q 832 752 824 752 H 800" class="edge signalr" marker-end="url(#runtime-blue-arrow)"/>
             </g>
-
-            <g data-label="dep-public">
-              <rect x="256" y="376" width="128" height="24" class="mask"/>
-              <text x="320" y="392" text-anchor="middle" class="tech">HTTPS / WSS</text>
+            <g data-edge="hub-application" data-from="api-hub" data-to="web-application" data-relationship="request">
+              <path d="M 540 784 V 848" class="edge" marker-end="url(#runtime-arrow)"/>
             </g>
-            <g data-label="dep-control">
-              <rect x="624" y="376" width="128" height="24" class="mask"/>
-              <text x="688" y="392" text-anchor="middle" class="tech">HTTPS / WSS</text>
+            <g data-edge="application-runtime" data-from="web-application" data-to="web-runtime" data-relationship="request">
+              <path d="M 540 960 V 1056" class="edge" marker-end="url(#runtime-arrow)"/>
             </g>
-            <g data-label="dep-control-key">
-              <rect x="624" y="424" width="128" height="24" class="mask"/>
-              <text x="688" y="440" text-anchor="middle" class="tech">GuestWeb service key</text>
+            <g data-edge="runtime-stock" data-from="web-runtime" data-to="web-stock" data-relationship="request">
+              <path d="M 460 1168 V 1192 Q 460 1200 468 1200 H 472 Q 480 1200 480 1208 V 1264" class="edge" marker-end="url(#runtime-arrow)"/>
             </g>
-            <g data-label="dep-local-admin">
-              <rect x="888" y="272" width="136" height="24" class="mask"/>
-              <text x="896" y="288" class="tech">Loopback + AdminWeb key</text>
+            <g data-edge="runtime-simulator" data-from="web-runtime" data-to="web-simulator" data-relationship="request">
+              <path d="M 700 1168 V 1224 Q 700 1232 708 1232 H 920 Q 928 1232 928 1240 V 1264" class="edge" marker-end="url(#runtime-arrow)"/>
             </g>
-            <g data-label="dep-ble">
-              <rect x="1008" y="376" width="88" height="24" class="mask"/>
-              <text x="1052" y="392" text-anchor="middle" class="tech">BLE</text>
+            <g data-edge="stock-hardware" data-from="web-stock" data-to="ossm-hardware" data-relationship="request">
+              <path d="M 480 1376 V 1496" class="edge" marker-end="url(#runtime-arrow)"/>
             </g>
-
-            <g data-node="dep-guest">
-              <rect x="40" y="320" width="208" height="208" rx="8" class="node-bg"/>
-              <rect x="40" y="320" width="208" height="208" rx="8" class="node client"/>
-              <text x="64" y="352" class="tech">CLIENT</text>
-              <text x="64" y="388" class="name-small">Guest browser</text>
-              <text x="64" y="424" class="body">Untrusted UI</text>
-              <text x="64" y="460" class="body">Join, input, Stop</text>
-              <text x="64" y="488" class="body">Show returned state</text>
+            <g data-edge="simulator-device" data-from="web-simulator" data-to="ossm-simulator" data-relationship="request">
+              <path d="M 928 1376 V 1496" class="edge" marker-end="url(#runtime-arrow)"/>
             </g>
-            <g data-node="dep-web">
-              <rect x="392" y="320" width="224" height="208" rx="8" class="node-bg"/>
-              <rect x="392" y="320" width="224" height="208" rx="8" class="node"/>
-              <text x="416" y="352" class="tech">PROCESS 01</text>
-              <text x="416" y="388" class="name">GuestWeb</text>
-              <text x="416" y="420" class="tech">ASP.NET Core 10</text>
-              <text x="416" y="456" class="body">Blazor server UI</text>
-              <text x="416" y="484" class="body">Guest hub operations only</text>
-              <text x="416" y="508" class="tech">No admin or device I/O</text>
+            <g data-edge="guest-common" data-from="guest-command" data-to="guest-common" data-relationship="reference">
+              <path d="M 328 168 H 376" class="edge reference" marker-end="url(#runtime-arrow)"/>
             </g>
-            <g data-node="dep-admin">
-              <rect x="760" y="320" width="240" height="208" rx="8" class="node-bg"/>
-              <rect x="760" y="320" width="240" height="208" rx="8" class="node focal"/>
-              <text x="784" y="352" class="tech">PROCESS 03 / API</text>
-              <text x="784" y="388" class="name">ApiService</text>
-              <text x="784" y="420" class="tech">.NET 10 / SIGNALR</text>
-              <text x="784" y="456" class="body">Hosts ControlService + ControlCore</text>
-              <text x="784" y="484" class="body">Single device owner</text>
-              <text x="784" y="508" class="tech">Includes .NET bridge</text>
+            <g data-edge="guest-contracts" data-from="guest-client" data-to="guest-contracts" data-relationship="reference">
+              <path d="M 328 304 H 376" class="edge reference" marker-end="url(#runtime-arrow)"/>
             </g>
-            <g data-node="dep-operator">
-              <rect x="712" y="160" width="288" height="88" rx="8" class="node-bg"/>
-              <rect x="712" y="160" width="288" height="88" rx="8" class="node client"/>
-              <text x="736" y="184" class="tech">PROCESS 02 / ADMINWEB</text>
-              <text x="736" y="216" class="name-small">Local operator host</text>
+            <g data-edge="guest-defaults" data-from="guest-web" data-to="guest-defaults" data-relationship="reference">
+              <path d="M 664 400 H 640" class="edge reference" marker-end="url(#runtime-arrow)"/>
             </g>
-            <g data-node="dep-device">
-              <rect x="1104" y="352" width="136" height="152" rx="8" class="node hardware"/>
-              <text x="1120" y="376" class="tech">DEVICE</text>
-              <text x="1120" y="412" class="name">OSSM</text>
-              <text x="1120" y="448" class="body">Stock</text>
-              <text x="1120" y="472" class="body">firmware</text>
+            <g data-edge="admin-common" data-from="admin-command" data-to="admin-common" data-relationship="reference">
+              <path d="M 1024 168 H 1072" class="edge reference" marker-end="url(#runtime-arrow)"/>
+            </g>
+            <g data-edge="admin-contracts" data-from="admin-client" data-to="admin-contracts" data-relationship="reference">
+              <path d="M 1024 304 H 1072" class="edge reference" marker-end="url(#runtime-arrow)"/>
+            </g>
+            <g data-edge="admin-defaults" data-from="admin-web" data-to="admin-defaults" data-relationship="reference">
+              <path d="M 1360 400 H 1336" class="edge reference" marker-end="url(#runtime-arrow)"/>
+            </g>
+            <g data-edge="hub-contracts" data-from="api-hub" data-to="web-contracts" data-relationship="reference">
+              <path d="M 800 728 H 824 a 8 8 0 0 1 16 0 H 864" class="edge reference" marker-end="url(#runtime-arrow)"/>
+            </g>
+            <g data-edge="application-contracts" data-from="web-application" data-to="web-contracts" data-relationship="reference">
+              <path d="M 800 888 H 816 Q 824 888 824 880 V 824 Q 824 816 832 816 H 988 Q 996 816 996 808 V 784" class="edge reference" marker-end="url(#runtime-arrow)"/>
+            </g>
+            <g data-edge="api-defaults" data-from="api-service" data-to="web-host-defaults" data-relationship="reference">
+              <path d="M 1152 880 H 1128" class="edge reference" marker-end="url(#runtime-arrow)"/>
+            </g>
+            <g data-edge="web-shared-defaults" data-from="web-host-defaults" data-to="web-defaults" data-relationship="reference">
+              <path d="M 996 912 V 960" class="edge reference" marker-end="url(#runtime-arrow)"/>
+            </g>
+            <g data-edge="application-primitives" data-from="web-application" data-to="web-primitives" data-relationship="reference">
+              <path d="M 744 960 V 1024 Q 744 1032 752 1032 H 976 Q 984 1032 984 1040 V 1056" class="edge reference" marker-end="url(#runtime-arrow)"/>
+            </g>
+            <g data-edge="runtime-primitives" data-from="web-runtime" data-to="web-primitives" data-relationship="reference">
+              <path d="M 800 1112 H 864" class="edge reference" marker-end="url(#runtime-arrow)"/>
             </g>
 
-            <text x="40" y="568" class="body-strong">No direct route to</text>
-            <text x="40" y="592" class="body">admin, bridge or device.</text>
-            <text x="376" y="568" class="body-strong">Local one-box mode</text>
-            <text x="376" y="596" class="body">The same browser runs here too, using loopback.</text>
-            <text x="1104" y="552" class="body-strong">Physical Stop</text>
-            <text x="1104" y="576" class="body">and knob</text>
+            <g data-label="guest-api">
+              <rect x="64" y="492" width="116" height="28" class="canvas"/>
+              <text x="76" y="512" class="transport">SIGNALR</text>
+            </g>
+            <g data-label="admin-api">
+              <rect x="844" y="520" width="116" height="28" class="canvas"/>
+              <text x="856" y="540" class="transport">SIGNALR</text>
+            </g>
+            <g data-label="stock-hardware">
+              <rect x="496" y="1448" width="64" height="28" class="canvas"/>
+              <text x="508" y="1468" class="transport">BLE</text>
+            </g>
+            <g data-label="simulator-device">
+              <rect x="944" y="1448" width="160" height="28" class="canvas"/>
+              <text x="956" y="1468" class="transport">JSONL / TCP</text>
+            </g>
 
-            <g data-legend="deployment">
-              <line x1="40" y1="664" x2="1240" y2="664" class="rule"/>
-              <rect x="40" y="684" width="24" height="16" rx="4" fill="none" stroke="#bfc0c0" stroke-dasharray="4 4"/>
-              <text x="80" y="696" class="tech">Machine boundary</text>
-              <rect x="336" y="680" width="24" height="24" rx="4" fill="#ffffff" stroke="#2d3142"/>
-              <text x="376" y="696" class="tech">Separate process / endpoint</text>
-              <path d="M 712 692 H 752" class="edge" marker-end="url(#dep-arrow)"/>
-              <text x="768" y="696" class="tech">Request direction; replies use the same channel</text>
+            <g id="guest-web" data-project="Web.GuestWeb" data-kind="host">
+              <rect x="40" y="40" width="624" height="424" rx="8" class="project-box project-outline"/>
+              <text x="64" y="72" class="tag">WEB HOST / GUEST</text>
+              <text x="64" y="104" class="project-name">Web.GuestWeb</text>
+              <g id="guest-command" data-node="page-actions" data-kind="internal-code">
+                <rect x="64" y="136" width="264" height="64" class="flow-anchor"/>
+                <text x="80" y="163" class="library-name">Page actions</text>
+                <text x="80" y="187" class="description">Join / input / Stop / leave</text>
+              </g>
+              <g id="guest-client" data-library="Web.Client">
+                <title>OssmSharp.Web.Client.csproj - planned class library</title>
+                <rect x="64" y="264" width="264" height="80" rx="4" class="client-box"/>
+                <text x="80" y="294" class="library-name">Web.Client</text>
+                <text x="80" y="322" class="description">Guest-scoped SignalR client</text>
+              </g>
+              <g id="guest-common" data-library="Web.Common">
+                <title>OssmSharp.Web.Common.csproj - planned class library</title>
+                <rect x="376" y="136" width="264" height="64" rx="4" class="library-box"/>
+                <text x="392" y="163" class="library-name">Web.Common</text>
+                <text x="392" y="187" class="description">Shared Blazor UI</text>
+              </g>
+              <g id="guest-contracts" data-library="Web.Contracts">
+                <title>OssmSharp.Web.Contracts.csproj - planned class library</title>
+                <rect x="376" y="264" width="264" height="80" rx="4" class="library-box"/>
+                <text x="392" y="294" class="library-name">Web.Contracts</text>
+                <text x="392" y="322" class="description">Requests / returned state</text>
+              </g>
+              <g id="guest-defaults" data-library="Web.ServiceDefaults">
+                <title>OssmSharp.Web.ServiceDefaults.csproj - planned class library</title>
+                <rect x="376" y="368" width="264" height="64" rx="4" class="library-box"/>
+                <text x="392" y="395" class="library-name">Web.ServiceDefaults</text>
+                <text x="392" y="419" class="description">Hosting / uses Defaults</text>
+              </g>
+              <text x="376" y="452" class="description">No direct device access</text>
+            </g>
+
+            <g id="admin-web" data-project="Web.AdminWeb" data-kind="host">
+              <rect x="736" y="40" width="624" height="424" rx="8" class="project-box project-outline"/>
+              <text x="760" y="72" class="tag">WEB HOST / LOCAL DEVICE USER</text>
+              <text x="760" y="104" class="project-name">Web.AdminWeb</text>
+              <g id="admin-command" data-node="page-actions" data-kind="internal-code">
+                <rect x="760" y="136" width="264" height="64" class="flow-anchor"/>
+                <text x="776" y="163" class="library-name">Page actions</text>
+                <text x="776" y="187" class="description">Approve / limits / Stop / unlock</text>
+              </g>
+              <g id="admin-client" data-library="Web.Client">
+                <title>OssmSharp.Web.Client.csproj - planned class library</title>
+                <rect x="760" y="264" width="264" height="80" rx="4" class="client-box"/>
+                <text x="776" y="294" class="library-name">Web.Client</text>
+                <text x="776" y="322" class="description">Admin-scoped SignalR client</text>
+              </g>
+              <g id="admin-common" data-library="Web.Common">
+                <title>OssmSharp.Web.Common.csproj - planned class library</title>
+                <rect x="1072" y="136" width="264" height="64" rx="4" class="library-box"/>
+                <text x="1088" y="163" class="library-name">Web.Common</text>
+                <text x="1088" y="187" class="description">Shared Blazor UI</text>
+              </g>
+              <g id="admin-contracts" data-library="Web.Contracts">
+                <title>OssmSharp.Web.Contracts.csproj - planned class library</title>
+                <rect x="1072" y="264" width="264" height="80" rx="4" class="library-box"/>
+                <text x="1088" y="294" class="library-name">Web.Contracts</text>
+                <text x="1088" y="322" class="description">Requests / returned state</text>
+              </g>
+              <g id="admin-defaults" data-library="Web.ServiceDefaults">
+                <title>OssmSharp.Web.ServiceDefaults.csproj - planned class library</title>
+                <rect x="1072" y="368" width="264" height="64" rx="4" class="library-box"/>
+                <text x="1088" y="395" class="library-name">Web.ServiceDefaults</text>
+                <text x="1088" y="419" class="description">Hosting / uses Defaults</text>
+              </g>
+              <text x="1072" y="452" class="description">Loopback-only / local admin</text>
+            </g>
+
+            <g id="api-service" data-project="Web.Api" data-kind="host">
+              <title>OssmSharp.Web.Api.csproj - planned executable project</title>
+              <rect x="248" y="576" width="904" height="848" rx="8" class="project-box api-box project-outline"/>
+              <text x="280" y="608" class="tag">EXECUTABLE PROJECT / DEVICE OWNER</text>
+              <text x="280" y="644" class="project-name">Web.Api</text>
+              <text x="280" y="672" class="description">SignalR endpoint /hubs/control/v1</text>
+              <g id="api-hub" data-node="signalr-hub" data-kind="internal-code">
+                <rect x="280" y="704" width="520" height="80" class="flow-anchor"/>
+                <text x="304" y="736" class="library-name">Hub dispatch within Web.Api</text>
+                <text x="304" y="764" class="description">Authenticate host / validate payload / dispatch</text>
+              </g>
+              <g id="web-application" data-library="Web.Application">
+                <title>OssmSharp.Web.Application.csproj - planned class library</title>
+                <rect x="280" y="848" width="520" height="112" rx="4" class="library-box"/>
+                <text x="304" y="880" class="library-name">Web.Application</text>
+                <text x="304" y="912" class="description">Sessions / permissions / grants / policy</text>
+                <text x="304" y="940" class="description">Full web controller / execution-time authority checks</text>
+              </g>
+              <g id="web-runtime" data-library="Device.Runtime">
+                <title>OssmSharp.Device.Runtime.csproj - planned class library</title>
+                <rect x="280" y="1056" width="520" height="112" rx="4" class="library-box"/>
+                <text x="304" y="1088" class="library-name">Device.Runtime</text>
+                <text x="304" y="1120" class="description">Ownership / interruption / serialized I/O / Stop</text>
+                <text x="304" y="1148" class="description">Invoke the selected implementation through IOssmDevice</text>
+              </g>
+              <g id="web-contracts" data-library="Web.Contracts">
+                <title>OssmSharp.Web.Contracts.csproj - planned class library</title>
+                <rect x="864" y="704" width="264" height="80" rx="4" class="library-box"/>
+                <text x="880" y="736" class="library-name">Web.Contracts</text>
+                <text x="880" y="764" class="description">Web request / response data</text>
+              </g>
+              <g id="web-host-defaults" data-library="Web.ServiceDefaults">
+                <title>OssmSharp.Web.ServiceDefaults.csproj - planned class library</title>
+                <rect x="864" y="848" width="264" height="64" rx="4" class="library-box"/>
+                <text x="880" y="875" class="library-name">Web.ServiceDefaults</text>
+                <text x="880" y="899" class="description">Web hosting / health</text>
+              </g>
+              <g id="web-defaults" data-library="Defaults">
+                <title>OssmSharp.Defaults.csproj - planned class library</title>
+                <rect x="864" y="960" width="264" height="64" rx="4" class="library-box"/>
+                <text x="880" y="987" class="library-name">Defaults</text>
+                <text x="880" y="1011" class="description">Logging / telemetry</text>
+              </g>
+              <g id="web-primitives" data-library="Device.Primitives">
+                <title>OssmSharp.Device.Primitives.csproj - planned class library</title>
+                <rect x="864" y="1056" width="264" height="112" rx="4" class="library-box"/>
+                <text x="880" y="1088" class="library-name">Device.Primitives</text>
+                <text x="880" y="1120" class="description">IOssmDevice / values / units</text>
+                <text x="880" y="1148" class="description">Not a request stage</text>
+              </g>
+              <text x="864" y="1212" class="tag">ONE SELECTED PROVIDER</text>
+              <g id="web-stock" data-library="Device.Stock">
+                <title>OssmSharp.Device.Stock.csproj - planned class library</title>
+                <rect x="280" y="1264" width="400" height="112" rx="4" class="library-box"/>
+                <text x="304" y="1296" class="library-name">Device.Stock</text>
+                <text x="304" y="1328" class="description">Firmware mapping / native BLE dispatch</text>
+                <text x="304" y="1356" class="description">Hardware alternative</text>
+              </g>
+              <g id="web-simulator" data-library="Device.Simulator">
+                <title>OssmSharp.Device.Simulator.csproj - planned class library</title>
+                <rect x="728" y="1264" width="400" height="112" rx="4" class="library-box"/>
+                <text x="752" y="1296" class="library-name">Device.Simulator</text>
+                <text x="752" y="1328" class="description">Native protocol / loopback transport dispatch</text>
+                <text x="752" y="1356" class="description">Simulator alternative / no BLE</text>
+              </g>
+            </g>
+
+            <g id="ossm-hardware" data-kind="external">
+              <rect x="280" y="1496" width="400" height="112" rx="8" class="external-box"/>
+              <text x="304" y="1528" class="tag">HARDWARE ALTERNATIVE</text>
+              <text x="304" y="1564" class="project-name">OSSM device</text>
+              <text x="304" y="1592" class="description">Stock firmware / BLE</text>
+            </g>
+            <g id="ossm-simulator" data-kind="external">
+              <rect x="728" y="1496" width="400" height="112" rx="8" class="external-box"/>
+              <text x="752" y="1528" class="tag">INDEPENDENT SIMULATOR PROCESS</text>
+              <text x="752" y="1564" class="project-name">OSSM simulator</text>
+              <text x="752" y="1592" class="description">ossm-sim-bridge / OSSM-RS</text>
+            </g>
+
+            <g data-legend="runtime">
+              <line x1="40" y1="1656" x2="1360" y2="1656" class="rule"/>
+              <rect x="40" y="1684" width="24" height="16" rx="4" class="project-box"/>
+              <text x="80" y="1698" class="description">Executable project</text>
+              <rect x="264" y="1684" width="24" height="16" rx="4" class="library-box"/>
+              <text x="304" y="1698" class="description">Class-library project</text>
+              <rect x="544" y="1684" width="24" height="16" rx="4" class="external-box"/>
+              <text x="584" y="1698" class="description">Device / process</text>
+              <path d="M 824 1692 H 864" class="edge" marker-end="url(#runtime-arrow)"/>
+              <text x="880" y="1698" class="description">Request flow</text>
+              <path d="M 1096 1692 H 1136" class="edge reference" marker-end="url(#runtime-arrow)"/>
+              <text x="1152" y="1698" class="description">Library reference</text>
             </g>
           </svg>
         </div>
-        <figcaption>One-box means one computer, not one process. GuestWeb exposes no operator operation or device access. AdminWeb and GuestWeb authenticate to ApiService with distinct generated keys over HTTPS/WSS; the hosted ControlService library independently validates the guest invitation/session capability. The keys are host credentials, not human authentication. AdminWeb, GuestWeb and ApiService are the three service processes; AdminWeb remains unauthenticated and loopback-only, which does not isolate compromised code running as the same user. A local operator can generate a session link in one click; that link points to GuestWeb, never ApiService.</figcaption>
+        <figcaption>Each named library box maps to a planned OssmSharp C# project in the migration plan; nesting means that the executable consumes the library, not that it is source code in the executable's project. Page actions and hub dispatch are internal code, shown without boxes. Solid arrows trace calls through the active libraries; dashed arrows show supporting references. Both providers reuse Runtime and Primitives, never each other. Replies and state return over the same connections. Hardware support remains subject to qualification.</figcaption>
       </figure>
     </section>
 
-    <section class="view" id="enforcement" aria-labelledby="enforcement-heading">
-      <div class="view-heading">
-        <span class="view-number" aria-hidden="true">02</span>
-        <div>
-          <h2 id="enforcement-heading">Control enforcement</h2>
-          <p>ApiService authenticates and validates each hub command; ControlService decides application authority and ControlCore checks again at execution.</p>
-        </div>
+    <section id="support" aria-labelledby="support-heading">
+      <div class="section-heading">
+        <h2 id="support-heading">Standalone remote &amp; development</h2>
+        <p>The same project and arrow notation applies to Cli. Command dispatch is internal CLI code, not another project.</p>
       </div>
       <figure>
-        <div class="viewport" role="region" tabindex="0" aria-label="Enforcement diagram. Scroll horizontally on narrow screens.">
-          <svg viewBox="0 0 1280 720" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="ctl-title ctl-desc">
-            <title id="ctl-title">ControlService authorization, execution and priority Stop</title>
-            <desc id="ctl-desc">A hub command at /hubs/control/v1 enters ControlService. ControlService validates the calling host key, guest capability where required, session, allowed operation, schema and sequence, then checks arming, lockout, grant freshness, configured limits and the complete tuple. Ordinary command replies acknowledge acceptance or rejection only; state is sent over one ordered push path. The single-writer controller rechecks current authority before calling the private device bridge. Stop, expiry, transport loss and detected external parameter changes revoke authority. Stop advances authority revision so a stale authority-restoring operator request fails. External changes additionally latch a lock that only explicit AdminWeb operator unlock can clear; unlock leaves the device paused. No reconnect, replay or rearm path exists.</desc>
-            <defs>
-              <marker id="ctl-arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M 0 0 L 8 4 L 0 8 Z" fill="#4f5d75"/></marker>
-              <marker id="ctl-arrow-accent" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M 0 0 L 8 4 L 0 8 Z" fill="#eb6c36"/></marker>
-              <marker id="ctl-arrow-link" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M 0 0 L 8 4 L 0 8 Z" fill="#2e5aa8"/></marker>
-            </defs>
-            <rect width="1280" height="720" fill="#f5f5f5"/>
-            <g data-boundary="admin-process">
-              <rect x="312" y="56" width="928" height="512" rx="8" class="boundary"/>
-              <rect x="328" y="44" width="456" height="24" class="mask"/>
-              <text x="336" y="60" class="boundary-name">API HOST + CONTROLSERVICE / AUTHORITATIVE ENFORCEMENT</text>
+        <div class="viewport" role="region" tabindex="0" aria-label="Orchestration and standalone diagnostics">
+          <svg viewBox="0 0 1400 1152" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="support-title support-desc">
+            <title id="support-title">CLI request flow and library references</title>
+            <desc id="support-desc">Solid arrows trace a device command from the CLI command dispatcher through Device.Runtime and the selected Device.Stock or Device.Simulator provider to hardware or the independent simulator. Help stays local; quit uses Runtime's Stop and cleanup. Dashed arrows show references to Device.Primitives and host-neutral Defaults, not additional request stages. AppHost references Aspire.Hosting outside the request path and is only for local development or testing. CLI and Web.Api remain alternative exclusive device owners.</desc>
+            <defs><marker id="support-arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M 0 0 L 8 4 L 0 8 Z" fill="#4f5d75"/></marker></defs>
+            <rect width="1400" height="1152" class="canvas"/>
+            <rect x="40" y="40" width="688" height="728" rx="8" class="project-fill"/>
+            <rect x="800" y="40" width="560" height="352" rx="8" class="project-fill"/>
+
+            <g data-edge="cli-command-runtime" data-from="cli-command" data-to="cli-runtime" data-relationship="request">
+              <path d="M 236 248 V 336" class="edge" marker-end="url(#support-arrow)"/>
+            </g>
+            <g data-edge="cli-runtime-provider" data-from="cli-runtime" data-to="cli-provider" data-relationship="request">
+              <path d="M 236 448 V 576" class="edge" marker-end="url(#support-arrow)"/>
+            </g>
+            <g data-edge="cli-provider-device" data-from="cli-provider" data-to="cli-device" data-relationship="request">
+              <path d="M 236 688 V 880" class="edge" marker-end="url(#support-arrow)"/>
+            </g>
+            <g data-edge="cli-defaults" data-from="cli" data-to="cli-defaults" data-relationship="reference">
+              <path d="M 728 208 H 704" class="edge reference" marker-end="url(#support-arrow)"/>
+            </g>
+            <g data-edge="cli-runtime-primitives" data-from="cli-runtime" data-to="cli-primitives" data-relationship="reference">
+              <path d="M 408 392 H 496" class="edge reference" marker-end="url(#support-arrow)"/>
+            </g>
+            <g data-edge="cli-provider-primitives" data-from="cli-provider" data-to="cli-primitives" data-relationship="reference">
+              <path d="M 408 624 H 456 Q 464 624 464 616 V 440 Q 464 432 472 432 H 496" class="edge reference" marker-end="url(#support-arrow)"/>
+            </g>
+            <g data-edge="apphost-aspire" data-from="apphost" data-to="aspire-hosting" data-relationship="reference">
+              <path d="M 800 200 H 824" class="edge reference" marker-end="url(#support-arrow)"/>
+            </g>
+            <g data-label="cli-command-runtime">
+              <rect x="248" y="276" width="200" height="28" class="project-fill"/>
+              <text x="260" y="296" class="transport">DEVICE COMMAND</text>
+            </g>
+            <g data-label="cli-provider-device">
+              <rect x="248" y="792" width="296" height="28" class="canvas"/>
+              <text x="260" y="812" class="transport">BLE OR LOOPBACK TCP</text>
             </g>
 
-            <g data-edge="ctl-input" data-from="ctl-request" data-to="ctl-access">
-              <path d="M 264 288 H 352" class="edge network" marker-end="url(#ctl-arrow-link)"/>
+            <g id="apphost" data-project="AppHost" data-kind="host">
+              <rect x="800" y="40" width="560" height="352" rx="8" class="project-box project-outline"/>
+              <text x="824" y="72" class="tag">OPTIONAL DEVELOPMENT / TEST ONLY</text>
+              <text x="824" y="108" class="project-name">AppHost</text>
+              <g id="aspire-hosting" data-package="Aspire.Hosting">
+                <title>Aspire.Hosting - external package, not an OssmSharp project</title>
+                <rect x="824" y="152" width="512" height="96" rx="4" class="library-box"/>
+                <text x="840" y="184" class="library-name">Aspire.Hosting</text>
+                <text x="840" y="220" class="description">External package / resource orchestration</text>
+              </g>
+              <text x="824" y="288" class="description">Simulated: native server + three web processes</text>
+              <text x="824" y="316" class="description">Actual: three web processes / Stock profile</text>
+              <text x="824" y="360" class="description">No BLE connection / not on the request path</text>
             </g>
-            <g data-edge="ctl-access-pass" data-from="ctl-access" data-to="ctl-policy">
-              <path d="M 584 288 H 664" class="edge" marker-end="url(#ctl-arrow)"/>
+            <g id="cli" data-project="Cli" data-kind="host">
+              <rect x="40" y="40" width="688" height="728" rx="8" class="project-box control-box project-outline"/>
+              <text x="64" y="72" class="tag">STANDALONE INTERACTIVE EXECUTABLE</text>
+              <text x="64" y="108" class="project-name">Cli</text>
+              <text x="64" y="136" class="description">Persistent prompt / one device connection / no web controller</text>
+              <g id="cli-command" data-node="command-dispatch" data-kind="internal-code">
+                <rect x="64" y="168" width="344" height="80" class="flow-anchor"/>
+                <text x="80" y="200" class="library-name">Command dispatch</text>
+                <text x="80" y="228" class="description">Parse / validate / execute</text>
+              </g>
+              <g id="cli-runtime" data-library="Device.Runtime">
+                <title>OssmSharp.Device.Runtime.csproj - planned class library</title>
+                <rect x="64" y="336" width="344" height="112" rx="4" class="library-box"/>
+                <text x="80" y="368" class="library-name">Device.Runtime</text>
+                <text x="80" y="400" class="description">Ownership / interruption / serialized I/O</text>
+                <text x="80" y="428" class="description">Stop and shutdown cleanup</text>
+              </g>
+              <g id="cli-provider" data-library="SelectedProvider">
+                <title>Choose OssmSharp.Device.Stock.csproj or OssmSharp.Device.Simulator.csproj</title>
+                <rect x="64" y="576" width="344" height="112" rx="4" class="library-box"/>
+                <text x="80" y="608" class="library-name">Device.Stock OR Device.Simulator</text>
+                <text x="80" y="640" class="description">One selected implementation</text>
+                <text x="80" y="668" class="description">Protocol mapping / transport dispatch</text>
+              </g>
+              <g id="cli-primitives" data-library="Device.Primitives">
+                <title>OssmSharp.Device.Primitives.csproj - planned class library</title>
+                <rect x="496" y="336" width="208" height="112" rx="4" class="library-box"/>
+                <text x="512" y="368" class="library-name">Device.Primitives</text>
+                <text x="512" y="400" class="description">Contracts / values</text>
+                <text x="512" y="428" class="description">Not a request stage</text>
+              </g>
+              <g id="cli-defaults" data-library="Defaults">
+                <title>OssmSharp.Defaults.csproj - planned class library</title>
+                <rect x="496" y="168" width="208" height="80" rx="4" class="library-box"/>
+                <text x="512" y="200" class="library-name">Defaults</text>
+                <text x="512" y="228" class="description">Host-neutral logging</text>
+              </g>
             </g>
-            <g data-edge="ctl-policy-pass" data-from="ctl-policy" data-to="ctl-writer">
-              <path d="M 896 288 H 976" class="edge" marker-end="url(#ctl-arrow)"/>
+            <g id="cli-device" data-kind="external">
+              <rect x="64" y="880" width="640" height="112" rx="8" class="external-box"/>
+              <text x="88" y="916" class="library-name">OSSM hardware OR independently started simulator</text>
+              <text x="88" y="952" class="description">Same alternatives as web mode; one software owner at a time.</text>
             </g>
-            <g data-edge="ctl-stop-path" data-from="ctl-stop" data-to="ctl-writer">
-              <path d="M 896 132 H 1084 Q 1092 132 1092 140 V 208" class="edge" marker-end="url(#ctl-arrow)"/>
-            </g>
-            <g data-edge="ctl-access-deny" data-from="ctl-access" data-to="ctl-denied">
-              <path d="M 468 368 V 448" class="edge deny" marker-end="url(#ctl-arrow)"/>
-            </g>
-            <g data-edge="ctl-policy-deny" data-from="ctl-policy" data-to="ctl-denied">
-              <path d="M 780 368 V 448" class="edge deny" marker-end="url(#ctl-arrow)"/>
-            </g>
-            <g data-edge="ctl-writer-deny" data-from="ctl-writer" data-to="ctl-denied">
-              <path d="M 976 344 H 936 Q 928 344 928 352 V 480 Q 928 488 920 488 H 896" class="edge deny" marker-end="url(#ctl-arrow)"/>
-            </g>
-            <g data-edge="ctl-write" data-from="ctl-writer" data-to="ctl-bridge">
-              <path d="M 1092 368 V 448" class="edge" marker-end="url(#ctl-arrow)"/>
-            </g>
-            <g data-edge="ctl-ble" data-from="ctl-bridge" data-to="ctl-device">
-              <path d="M 1092 544 V 600" class="edge" marker-end="url(#ctl-arrow)"/>
-            </g>
-
-            <g data-label="ctl-input">
-              <rect x="272" y="256" width="72" height="24" class="mask"/>
-              <text x="308" y="272" text-anchor="middle" class="tech">SIGNALR</text>
-            </g>
-            <g data-label="ctl-access-pass">
-              <rect x="592" y="256" width="64" height="24" class="mask"/>
-              <text x="624" y="272" text-anchor="middle" class="tech">PASS</text>
-            </g>
-            <g data-label="ctl-policy-pass">
-              <rect x="904" y="256" width="64" height="24" class="mask"/>
-              <text x="936" y="272" text-anchor="middle" class="tech">PASS</text>
-            </g>
-            <g data-label="ctl-stop-path">
-              <rect x="920" y="100" width="144" height="24" class="mask"/>
-              <text x="992" y="116" text-anchor="middle" class="tech">PRIORITY STOP</text>
-            </g>
-            <g data-label="ctl-access-deny">
-              <rect x="380" y="392" width="80" height="24" class="mask"/>
-              <text x="420" y="408" text-anchor="middle" class="tech">DENY</text>
-            </g>
-            <g data-label="ctl-policy-deny">
-              <rect x="788" y="392" width="88" height="24" class="mask"/>
-              <text x="832" y="408" text-anchor="middle" class="tech">DENY</text>
-            </g>
-            <g data-label="ctl-writer-deny">
-              <rect x="936" y="392" width="80" height="24" class="mask"/>
-              <text x="976" y="408" text-anchor="middle" class="tech">DENY</text>
-            </g>
-            <g data-label="ctl-write">
-              <rect x="1100" y="392" width="88" height="24" class="mask"/>
-              <text x="1144" y="408" text-anchor="middle" class="tech">WRITE</text>
-            </g>
-            <g data-label="ctl-ble">
-              <rect x="1100" y="568" width="72" height="24" class="mask"/>
-              <text x="1136" y="584" text-anchor="middle" class="tech">BLE</text>
-            </g>
-
-            <g data-node="ctl-request">
-              <rect x="40" y="208" width="224" height="160" rx="8" class="node-bg"/>
-              <rect x="40" y="208" width="224" height="160" rx="8" class="node client"/>
-              <text x="64" y="240" class="tech">GUESTWEB / HUB CLIENT</text>
-              <text x="64" y="276" class="name-small">Hub command</text>
-              <text x="64" y="316" class="body">Service key + capability</text>
-              <text x="64" y="344" class="body">and current input</text>
-            </g>
-            <g data-node="ctl-stop">
-              <rect x="352" y="96" width="544" height="72" rx="8" class="node-bg"/>
-              <rect x="352" y="96" width="544" height="72" rx="8" class="node focal"/>
-              <text x="376" y="124" class="name-small">Stop / override / expiry / transport loss</text>
-              <text x="376" y="152" class="body">Stop advances revision. External override latches LOCKED.</text>
-            </g>
-            <g data-node="ctl-access">
-              <rect x="352" y="208" width="232" height="160" rx="8" class="node-bg"/>
-              <rect x="352" y="208" width="232" height="160" rx="8" class="node"/>
-              <text x="376" y="240" class="tech">1 / ACCESS</text>
-              <text x="376" y="276" class="name-small">Validate request</text>
-              <text x="376" y="304" class="body">Token + session</text>
-              <text x="376" y="328" class="body">Allowed operation</text>
-              <text x="376" y="352" class="body">Schema + sequence</text>
-            </g>
-            <g data-node="ctl-policy">
-              <rect x="664" y="208" width="232" height="160" rx="8" class="node-bg"/>
-              <rect x="664" y="208" width="232" height="160" rx="8" class="node focal"/>
-              <text x="688" y="240" class="tech">2 / POLICY</text>
-              <text x="688" y="276" class="name-small">Authorize motion</text>
-              <text x="688" y="304" class="body">Armed + no lockout</text>
-              <text x="688" y="328" class="body">Fresh grant + limits</text>
-              <text x="688" y="352" class="body">Valid tuple + revision</text>
-            </g>
-            <g data-node="ctl-writer">
-              <rect x="976" y="208" width="232" height="160" rx="8" class="node-bg"/>
-              <rect x="976" y="208" width="232" height="160" rx="8" class="node"/>
-              <text x="1000" y="240" class="tech">3 / EXECUTION</text>
-              <text x="1000" y="276" class="name-small">Recheck + serialize</text>
-              <text x="1000" y="304" class="body">Policy, grant, generation</text>
-              <text x="1000" y="328" class="body">One in-flight operation</text>
-              <text x="1000" y="352" class="body">One desired-state slot</text>
-            </g>
-            <g data-node="ctl-denied">
-              <rect x="352" y="448" width="544" height="80" rx="8" class="node-bg"/>
-              <rect x="352" y="448" width="544" height="80" rx="8" class="node outcome"/>
-              <text x="376" y="480" class="name-small">Rejected request: no motion write</text>
-              <text x="376" y="508" class="body">Return a reason. Do not extend the grant.</text>
-            </g>
-            <g data-node="ctl-bridge">
-              <rect x="976" y="448" width="232" height="96" rx="8" class="node-bg"/>
-              <rect x="976" y="448" width="232" height="96" rx="8" class="node"/>
-              <text x="1000" y="476" class="tech">PRIVATE .NET ADAPTER</text>
-              <text x="1000" y="508" class="name-small">Device adapter</text>
-              <text x="1000" y="528" class="body">Protocol + native I/O</text>
-            </g>
-            <g data-node="ctl-device">
-              <rect x="976" y="600" width="232" height="56" rx="8" class="node hardware"/>
-              <text x="1092" y="636" text-anchor="middle" class="name-small">Stock OSSM</text>
-            </g>
-
-            <text x="40" y="416" class="body-strong">No trusted decision</text>
-            <text x="40" y="444" class="body">arrives from guest web.</text>
-            <text x="352" y="608" class="body-strong">Every device write has one owner.</text>
-            <text x="352" y="636" class="body">Stop cannot recall I/O already issued to the device.</text>
-
-            <g data-legend="enforcement">
-              <line x1="40" y1="672" x2="1240" y2="672" class="rule"/>
-              <path d="M 40 696 H 80" class="edge" marker-end="url(#ctl-arrow)"/>
-              <text x="96" y="700" class="tech">Accepted operation</text>
-              <path d="M 352 696 H 392" class="edge deny" marker-end="url(#ctl-arrow)"/>
-              <text x="408" y="700" class="tech">Denied request</text>
-              <rect x="680" y="684" width="24" height="24" rx="4" fill="rgba(235,108,54,0.08)" stroke="#eb6c36"/>
-              <text x="720" y="700" class="tech">Authoritative policy / revocation</text>
+            <g data-legend="cli">
+              <line x1="40" y1="1040" x2="1360" y2="1040" class="rule"/>
+              <path d="M 64 1072 H 104" class="edge" marker-end="url(#support-arrow)"/>
+              <text x="120" y="1078" class="description">Request flow</text>
+              <path d="M 344 1072 H 384" class="edge reference" marker-end="url(#support-arrow)"/>
+              <text x="400" y="1078" class="description">Library reference</text>
+              <text x="64" y="1120" class="description">Project labels omit OssmSharp and .csproj. Unboxed text is internal code, not another project.</text>
             </g>
           </svg>
         </div>
-        <figcaption>Hub command replies are acknowledgement-only; initial and live state use one ordered push path, including bounded cursor-log batches. Stop uses the same single writer, ahead of pending motion, and invalidates stale authority-restoring operator actions by advancing authority revision. A detected physical-control change also latches a lockout: no restoration of prior settings, and no guest unlock. Explicit AdminWeb operator unlock leaves the device paused; rearming is separate.</figcaption>
+        <figcaption>Device commands follow the solid path; help stays local and quit invokes Runtime's Stop/cleanup path. The CLI consumes no web controller or service client. Dashed references supply contracts and hosting defaults, not extra execution hops. Provider-to-Runtime code reuse is represented by the active Runtime stage; this is a request-flow view, not an exhaustive project-reference graph. The simulator remains independently owned, and configured telemetry works without AppHost.</figcaption>
       </figure>
     </section>
 
-    <section class="view" id="projects" aria-labelledby="projects-heading">
-      <div class="view-heading">
-        <span class="view-number" aria-hidden="true">03</span>
-        <div>
-          <h2 id="projects-heading">Source projects &amp; component dependencies</h2>
-          <p>Every source project is shown once. Arrows trace the main runtime and device paths; supporting references are summarized below.</p>
-        </div>
+    <section class="notes" aria-label="Architecture constraints and migration status">
+      <div>
+        <h2>Interruption Requires Acknowledgement</h2>
+        <p>Detected external changes, including physical remote input, latch interruption and inhibit pending motion. The local admin acknowledges into paused state through AdminWeb or an explicit CLI command. Only new explicit input may resume. Heuristics and completed writes do not prove physical stopping.</p>
       </div>
-      <figure>
-        <div class="viewport" role="region" tabindex="0" aria-label="Source project dependency diagram. Scroll horizontally on narrow screens.">
-          <svg viewBox="0 0 1472 1272" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="projects-title projects-desc">
-            <title id="projects-title">OSSM source projects and logical dependencies</title>
-            <desc id="projects-desc">The 14 source projects are grouped by web surfaces, service, control contracts, device libraries, and host support. AdminWeb and GuestWeb use ControlClient to reach ApiService over SignalR; ApiService hosts ControlService, which uses ControlCore and device libraries. DeviceCli uses device libraries directly. Simulator uses the external ossm-sim-bridge process. AppHost orchestrates the three web processes.</desc>
-            <defs>
-              <marker id="projects-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#667085"/></marker>
-              <marker id="projects-arrow-cyan" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#53d6ff"/></marker>
-              <style>
-                .projects-bg { fill: #090b0f; }
-                .projects-text { fill: #f4f7fb; font-family: Geist, system-ui, sans-serif; }
-                .projects-name { font-size: 16px; font-weight: 600; }
-                .projects-meta { fill: #a7b0c0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10px; letter-spacing: .04em; }
-                .projects-layer { fill: #8e9aaa; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10px; font-weight: 500; letter-spacing: .12em; }
-                .projects-zone { fill: #10141b; stroke: #252b36; stroke-width: 1; }
-                .projects-node { fill: #151a22; stroke: #3a4352; stroke-width: 1; }
-                .projects-node-shared { fill: #121821; stroke: #536174; stroke-width: 1; }
-                .projects-node-focal { fill: #0c2630; stroke: #53d6ff; stroke-width: 1.2; }
-                .projects-node-external { fill: #17120d; stroke: #b4884b; stroke-width: 1; stroke-dasharray: 4 3; }
-                .projects-edge { fill: none; stroke: #667085; stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#projects-arrow); }
-                .projects-edge-runtime { fill: none; stroke: #53d6ff; stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#projects-arrow-cyan); }
-                .projects-edge-support { fill: none; stroke: #8e9aaa; stroke-width: 1; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#projects-arrow); }
-                .projects-label-mask { fill: #090b0f; }
-                .projects-edge-label { fill: #a7b0c0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 8px; letter-spacing: .06em; }
-                .projects-rule { stroke: #252b36; stroke-width: 1; }
-              </style>
-            </defs>
-            <rect width="1472" height="1272" class="projects-bg"/>
-
-            <!-- Layer zones -->
-            <rect x="40" y="64" width="1072" height="320" rx="8" class="projects-zone"/>
-            <rect x="40" y="424" width="1072" height="160" rx="8" class="projects-zone"/>
-            <rect x="40" y="624" width="1072" height="192" rx="8" class="projects-zone"/>
-            <rect x="40" y="856" width="1072" height="344" rx="8" class="projects-zone"/>
-            <rect x="1144" y="64" width="288" height="272" rx="8" class="projects-zone"/>
-            <text x="64" y="96" class="projects-layer">WEB &amp; COMMAND SURFACES</text>
-            <text x="64" y="456" class="projects-layer">SERVICE HOST &amp; APPLICATION POLICY</text>
-            <text x="64" y="656" class="projects-layer">CONTROL &amp; SHARED CONTRACTS</text>
-            <text x="64" y="888" class="projects-layer">STANDALONE DEVICE LIBRARIES &amp; SIMULATOR</text>
-            <text x="1168" y="96" class="projects-layer">HOST SUPPORT</text>
-
-            <!-- Primary runtime path and standalone device path. -->
-            <path d="M 232 208 V 232 Q 232 240 240 240 H 376 Q 384 240 384 248 V 272" class="projects-edge"/>
-            <path d="M 568 208 V 232 Q 568 240 560 240 H 472 Q 464 240 464 248 V 272" class="projects-edge"/>
-            <path d="M 424 352 V 400 Q 424 408 432 408 H 496 Q 504 408 504 416 V 480" class="projects-edge-runtime"/>
-            <path d="M 584 520 H 672" class="projects-edge"/>
-            <path d="M 736 560 V 608 Q 736 616 728 616 H 232 Q 224 616 224 624 V 696" class="projects-edge"/>
-            <path d="M 224 776 V 928" class="projects-edge"/>
-            <path d="M 352 968 H 456" class="projects-edge"/>
-            <path d="M 696 968 H 784" class="projects-edge"/>
-            <path d="M 904 1048 V 1120" class="projects-edge-runtime"/>
-            <path d="M 1024 168 H 1064 Q 1072 168 1072 176 V 952 Q 1072 960 1064 960 H 1024" class="projects-edge"/>
-
-            <!-- Transport labels only. -->
-            <rect x="440" y="388" width="96" height="12" rx="2" class="projects-label-mask"/>
-            <text x="488" y="397" text-anchor="middle" class="projects-edge-label">SIGNALR/WSS</text>
-            <rect x="920" y="1072" width="96" height="12" rx="2" class="projects-label-mask"/>
-            <text x="968" y="1081" text-anchor="middle" class="projects-edge-label">JSONL/STDIO</text>
-
-            <!-- Web and command surfaces -->
-            <g data-project="AdminWeb">
-              <rect x="112" y="128" width="208" height="80" rx="6" class="projects-node"/>
-              <text x="128" y="152" class="projects-meta">OPERATOR UI</text>
-              <text x="128" y="184" class="projects-text projects-name">AdminWeb</text>
-            </g>
-            <g data-project="GuestWeb">
-              <rect x="448" y="128" width="240" height="80" rx="6" class="projects-node"/>
-              <text x="464" y="152" class="projects-meta">GUEST UI</text>
-              <text x="464" y="184" class="projects-text projects-name">GuestWeb</text>
-            </g>
-            <g data-project="ControlClient">
-              <rect x="280" y="272" width="224" height="80" rx="6" class="projects-node"/>
-              <text x="296" y="296" class="projects-meta">SIGNALR CLIENT</text>
-              <text x="296" y="328" class="projects-text projects-name">ControlClient</text>
-            </g>
-            <g data-project="DeviceCli">
-              <rect x="784" y="128" width="240" height="80" rx="6" class="projects-node"/>
-              <text x="800" y="152" class="projects-meta">DEVICE DIAGNOSTICS</text>
-              <text x="800" y="184" class="projects-text projects-name">DeviceCli</text>
-              <text x="800" y="200" class="projects-meta">PRIVATE PER-USER HOST</text>
-            </g>
-            <g data-project="WebCommon">
-              <rect x="616" y="272" width="240" height="80" rx="6" class="projects-node-shared"/>
-              <text x="632" y="296" class="projects-meta">SHARED WEB UI</text>
-              <text x="632" y="328" class="projects-text projects-name">WebCommon</text>
-            </g>
-
-            <!-- Service tier -->
-            <g data-project="ApiService">
-              <rect x="328" y="480" width="256" height="80" rx="6" class="projects-node-focal"/>
-              <text x="344" y="504" class="projects-meta">SIGNALR + DEVICE HOST</text>
-              <text x="344" y="536" class="projects-text projects-name">ApiService</text>
-            </g>
-            <g data-project="ControlService">
-              <rect x="672" y="480" width="256" height="80" rx="6" class="projects-node"/>
-              <text x="688" y="504" class="projects-meta">HOSTED BUSINESS LOGIC LIBRARY</text>
-              <text x="688" y="536" class="projects-text projects-name">ControlService</text>
-            </g>
-            <!-- Control, bridge, and contract tier -->
-            <g data-project="ControlCore">
-              <rect x="112" y="696" width="240" height="80" rx="6" class="projects-node"/>
-              <text x="128" y="720" class="projects-meta">CONTROL DOMAIN</text>
-              <text x="128" y="752" class="projects-text projects-name">ControlCore</text>
-            </g>
-            <g data-project="Models">
-              <rect x="456" y="696" width="240" height="80" rx="6" class="projects-node-shared"/>
-              <text x="472" y="720" class="projects-meta">SHARED CONTRACTS</text>
-              <text x="472" y="752" class="projects-text projects-name">Models</text>
-            </g>
-
-            <!-- Device implementation tier -->
-            <g data-project="Abstractions">
-              <rect x="112" y="928" width="240" height="80" rx="6" class="projects-node-shared"/>
-              <text x="128" y="952" class="projects-meta">DEVICE INTERFACES</text>
-              <text x="128" y="984" class="projects-text projects-name">OSSMDotNet.Abstractions</text>
-            </g>
-            <g data-project="OSSMDotNet">
-              <rect x="456" y="928" width="240" height="80" rx="6" class="projects-node"/>
-              <text x="472" y="952" class="projects-meta">STOCK DEVICE LIBRARY</text>
-              <text x="472" y="984" class="projects-text projects-name">OSSMDotNet</text>
-            </g>
-            <g data-project="Simulator">
-              <rect x="784" y="928" width="240" height="120" rx="6" class="projects-node"/>
-              <text x="800" y="960" class="projects-meta">NATIVE SIMULATOR ADAPTER</text>
-              <text x="800" y="992" class="projects-text projects-name">Simulator</text>
-              <text x="800" y="1016" class="projects-meta">SELECTED IN LOCAL APPHOST</text>
-            </g>
-
-            <!-- Shared host support -->
-            <g data-project="AppHost">
-              <rect x="1168" y="128" width="240" height="80" rx="6" class="projects-node-shared"/>
-              <text x="1184" y="152" class="projects-meta">ASPIRE ORCHESTRATION</text>
-              <text x="1184" y="184" class="projects-text projects-name">AppHost</text>
-            </g>
-            <g data-project="ServiceDefaults">
-              <rect x="1168" y="240" width="240" height="80" rx="6" class="projects-node-shared"/>
-              <text x="1184" y="264" class="projects-meta">TELEMETRY / HEALTH</text>
-              <text x="1184" y="296" class="projects-text projects-name">ServiceDefaults</text>
-            </g>
-            <!-- External device process -->
-            <g data-project="ossm-sim-bridge">
-              <rect x="656" y="1120" width="384" height="64" rx="6" class="projects-node-external"/>
-              <text x="672" y="1144" class="projects-meta">EXTERNAL RUST PROCESS / JSON-LINES</text>
-              <text x="672" y="1168" class="projects-text projects-name">ossm-sim-bridge · OSSM-RS simulator</text>
-            </g>
-          </svg>
-        </div>
-        <figcaption>AdminWeb and GuestWeb share WebCommon and Models as well as ControlClient. AppHost orchestrates the three web processes; ServiceDefaults supports their hosting. ControlService composes ControlCore, device contracts and the selected adapter inside ApiService. DeviceCli uses the standalone device libraries directly, outside application control. Only application transport boundaries are labelled: ControlClient uses SignalR/WSS, while Simulator uses JSON-lines over standard input/output.</figcaption>
-      </figure>
+      <div>
+        <h2>Migration Is Separate Work</h2>
+        <p>The accepted design replaces the separate device-service proposal. No compatibility layer is required for this WIP. The migration plan includes repository instruction updates, project and namespace moves, independent simulator transport, provider packaging and verification before any completion claim.</p>
+      </div>
     </section>
-
-    <aside class="constraints" aria-labelledby="constraints-heading">
-      <h2 id="constraints-heading">What these boundaries do &mdash; and do not &mdash; guarantee</h2>
-      <p><strong>No accounts.</strong> AdminWeb is deliberately unauthenticated on loopback; AdminWeb/GuestWeb host keys and guest invitation/session capabilities are separate credentials. Creating a session link does not approve a guest, arm the device or start motion.</p>
-      <p><strong>No direct guest control.</strong> GuestWeb cannot invoke operator methods or obtain device permissions. ApiService and ControlService still constrain input from a compromised guest host that possesses a valid guest capability.</p>
-      <p><strong>Physical overrides take precedence.</strong> Device parameter changes not explained by an owned command trigger lockout and Stop. Expected command readback is distinguished from external changes. The physical remote's detectability and stopping behavior must be demonstrated on the selected firmware.</p>
-      <p><strong>Physical release remains gated.</strong> ControlService, OS or bridge failure can prevent a software Stop. Independent stopping on the selected hardware/firmware must be demonstrated; a completed write or readback is not physical stop confirmation. The 750 ms grant and tunable 1 s/3 s loss detection are not hardware qualification or real-time safety guarantees.</p>
-    </aside>
 
     <footer>
-      <p>Api/ControlService split implemented 23 September 2026; executable renamed ApiService 25 September 2026 &middot; This view does not establish full design conformance or hardware qualification.</p>
-      <p>Source: <a href="../specs/README.md">architecture and requirements</a> &middot; <a href="../specs/device-control/spec.md">device-control contract</a> &middot; <a href="../specs/README.md#logical-modules">logical modules</a>.</p>
-      <p>Overview omits proxy/tunnel setup, service-key provisioning and native bridge provisioning. ApiService's hub is <code>/hubs/control/v1</code>; there is no named-pipe or REST control surface. The bridge implementation remains subject to host-platform qualification. Fonts use local fallbacks when offline.</p>
+      <p>Accepted target &middot; 25 September 2026 &middot; Documentation only; no runtime migration or hardware qualification.</p>
+      <p><a href="../specs/README.md">Specification index</a> &middot; <a href="../specs/web-control-design.md">Accepted design</a> &middot; <a href="../plans/direct-device-migration.md">Detailed migration plan</a> &middot; <a href="../specs/device-control/spec.md">Device contracts: DC-01 through DC-09</a></p>
+      <p>Fonts use local fallbacks when offline.</p>
     </footer>
   </main>
 </body>
