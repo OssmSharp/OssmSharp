@@ -215,6 +215,7 @@ public sealed class AuthorityPolicyTests
             rig.Submit(first with { Seq = sequence });
         Assert.Equal("rate-limited", Assert.Throws<ControlRejectedException>(() =>
             rig.Submit(first with { Seq = 11 })).Code);
+        Assert.Equal("Approved", rig.Engine.Snapshot.SessionMode);
 
         rig.Engine.GuestStop(rig.Guest.SessionId, rig.Guest.GuestToken, rig.Guest.ConnectionId);
         rig.Engine.Leave(rig.Guest.SessionId, rig.Guest.GuestToken, rig.Guest.ConnectionId);

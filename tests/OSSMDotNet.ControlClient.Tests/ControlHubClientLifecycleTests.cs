@@ -16,11 +16,12 @@ public sealed class ControlHubClientLifecycleTests
         cancellationSource.CancelAfter(TimeSpan.FromSeconds(5));
         var cancellationToken = cancellationSource.Token;
         await using var fixture = await LocalControlHubFixture.StartAsync(cancellationToken);
+        var logger = new RecordedLogger<ControlHubConnectionFactory>();
         var callbacks = new CallbackRecorder(role);
 
         if (role == "operator")
         {
-            await using var client = fixture.CreateOperatorClient();
+            await using var client = fixture.CreateOperatorClient(logger: logger);
             await client.SubscribeAsync(
                 new(callbacks.OperatorStateReceivedAsync, callbacks.OperatorActivityReceivedAsync, callbacks.ResyncRequiredAsync),
                 0,
@@ -29,7 +30,7 @@ public sealed class ControlHubClientLifecycleTests
         }
         else
         {
-            await using var client = fixture.CreateGuestClient();
+            await using var client = fixture.CreateGuestClient(logger: logger);
             await client.JoinAsync(
                 new(callbacks.GuestStateReceivedAsync, callbacks.ResyncRequiredAsync),
                 new GuestJoinRequest("fixture", "session", "proof"),
@@ -40,6 +41,11 @@ public sealed class ControlHubClientLifecycleTests
         Assert.Equal(1, callbacks.ResyncCount);
         Assert.Equal(["resync:connection-closed"], callbacks.Events);
         Assert.Equal(1, callbacks.MaximumConcurrentCallbacks);
+        var entry = Assert.Single(logger.Entries);
+        Assert.Equal(LogLevel.Warning, entry.Level);
+        Assert.Equal(1900, entry.EventId);
+        Assert.Null(entry.Exception);
+        Assert.DoesNotContain(LocalControlHubFixture.ServiceKeyValue, entry.Message, StringComparison.Ordinal);
     }
 
     private static async Task AssertClosedConnectionAsync(

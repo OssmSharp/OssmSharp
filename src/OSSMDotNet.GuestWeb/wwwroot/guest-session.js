@@ -128,7 +128,7 @@ class Controls {
       if (!root.isConnected) this.destroy();
     });
     this.observer.observe(document.body, { childList: true, subtree: true });
-    this.interval = setInterval(() => this.tick(), 100);
+    this.interval = setInterval(() => this.tick(), 150);
     this.constrainStroke();
     this.render();
   }
@@ -277,7 +277,11 @@ class Controls {
         run: true,
         desired,
       });
-      if (!reply?.ok && reply?.code !== "policy-invalid") {
+      if (
+        !reply?.ok &&
+        reply?.code !== "policy-invalid" &&
+        reply?.code !== "rate-limited"
+      ) {
         this.showError(
           "Settings were rejected. Check the limits and try again.",
         );

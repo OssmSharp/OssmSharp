@@ -18,6 +18,14 @@ dnx Aspire.Cli@13.5.3 -- run --project src/OSSMDotNet.AppHost/AppHost.csproj
 
 Keep the terminal open. Aspire builds and starts the application.
 
+The admin, guest and control-service hosts also write structured JSON logs to
+`%LOCALAPPDATA%\OSSMDotNet\logs\<application>-YYYYMMDD.json` on Windows.
+Files roll daily and at 10 MiB; at most seven files per application are kept,
+and files older than seven days are removed. Frequent size rolls may therefore
+shorten the effective history. Set `Logging__File__Directory` to an absolute
+path to change the directory, or `Logging__File__Enabled=false` to disable file
+logging. Console output and Aspire telemetry remain available.
+
 ## Device libraries
 
 The device API is split into three independently buildable libraries:

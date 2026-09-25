@@ -1,4 +1,7 @@
+using System.Diagnostics;
+using System.Text.Json;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.Extensions.Logging;
 
 namespace OSSMDotNet.ServiceDefaults.Tests;
 
@@ -26,6 +29,66 @@ public sealed class ServiceDefaultsRegistrationTests
             .CreateProtector("antiforgery-restart-regression").Unprotect(payload);
 
         Assert.Equal("guest-token", value);
+    }
+
+    [Fact]
+    public async Task SharedLoggingWritesStructuredEventsToConfiguredDirectory()
+    {
+        var logDirectory = Path.Combine(Path.GetTempPath(), $"ossm-logs-{Guid.NewGuid():N}");
+
+        try
+        {
+            var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+            {
+                Args = [],
+                ApplicationName = "FileLoggingTest",
+                EnvironmentName = Environments.Development
+            });
+            builder.Configuration["Logging:File:Directory"] = logDirectory;
+            builder.AddServiceDefaults();
+
+            await using (var app = builder.Build())
+            {
+                var logger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("FileLoggingTest");
+                var writeEntry = LoggerMessage.Define<int>(LogLevel.Information, new EventId(1), "Log entry {OperationId}");
+                writeEntry(logger, 42, null);
+
+                var activeLog = Assert.Single(Directory.GetFiles(logDirectory, "FileLoggingTest-*.json"));
+                using var activeStream = new FileStream(activeLog, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                Assert.True(activeStream.Length > 0);
+            }
+
+            Assert.True(Directory.Exists(logDirectory));
+            var logFile = Assert.Single(Directory.GetFiles(logDirectory, "FileLoggingTest-*.json"));
+            using var entry = JsonDocument.Parse(Assert.Single(await File.ReadAllLinesAsync(logFile, TestContext.Current.CancellationToken)));
+            Assert.Equal("FileLoggingTest", entry.RootElement.GetProperty("Properties").GetProperty("SourceContext").GetString());
+            Assert.Equal(42, entry.RootElement.GetProperty("Properties").GetProperty("OperationId").GetInt32());
+        }
+        finally
+        {
+            if (Directory.Exists(logDirectory))
+                Directory.Delete(logDirectory, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("Microsoft.AspNetCore.SignalR.Client")]
+    [InlineData("Microsoft.AspNetCore.SignalR.Server")]
+    public async Task SignalRInvocationSourcesAreSubscribedBySharedTracing(string sourceName)
+    {
+        var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+        {
+            Args = [],
+            EnvironmentName = Environments.Development
+        });
+        builder.AddServiceDefaults();
+        await using var app = builder.Build();
+        _ = app.Services.GetRequiredService<TracerProvider>();
+
+        using var source = new ActivitySource(sourceName);
+        using var invocation = source.StartActivity("control invocation");
+
+        Assert.NotNull(invocation);
     }
 
     [Fact]

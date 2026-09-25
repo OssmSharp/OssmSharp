@@ -71,8 +71,8 @@ public sealed class ExecutionLimitsTests
             Assert.Throws<ControlRejectedException>(() => rig.Engine.SetLimits(new(speed, depth))).Code);
         Assert.Equal(before, rig.Engine.Snapshot);
         Assert.Empty(rig.Bridge.Calls);
-    rig.Pump();
-    Assert.Equal(desired, Assert.Single(rig.Bridge.Calls).Desired);
+        rig.Pump();
+        Assert.Equal(desired, Assert.Single(rig.Bridge.Calls).Desired);
     }
 
     [Fact]
@@ -198,7 +198,7 @@ public sealed class ExecutionLimitsTests
         var generation = rig.Engine.Snapshot.Generation;
 
         rig.Engine.SetLimits(new(25, 80));
-    rig.Engine.Tick();
+        rig.Engine.Tick();
 
         Assert.Equal("Ready", rig.Engine.Snapshot.Mode);
         Assert.Equal(generation, rig.Engine.Snapshot.Generation);
@@ -229,7 +229,7 @@ public sealed class ExecutionLimitsTests
         var generation = rig.Engine.Snapshot.Generation;
 
         rig.Engine.SetLimits(new(25, 50));
-    rig.Engine.Tick();
+        rig.Engine.Tick();
 
         Assert.Equal(2, rig.Bridge.Calls.Count);
         Assert.Equal(generation, rig.Engine.Snapshot.Generation);

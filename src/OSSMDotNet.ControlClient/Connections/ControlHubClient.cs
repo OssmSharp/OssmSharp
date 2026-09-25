@@ -94,6 +94,8 @@ internal sealed class ControlHubClient(ControlHubConnectionFactory factory, IOpt
             }
             catch (OperationCanceledException error) when (!cancellationToken.IsCancellationRequested)
             {
+                if (method != "Submit")
+                    Log.CommandOutcomeUnknown(factory.Logger, method);
                 throw new ControlClientUnknownOutcomeException(error);
             }
         }
@@ -128,8 +130,13 @@ internal sealed class ControlHubClient(ControlHubConnectionFactory factory, IOpt
 
     private async Task OnClosedAsync(Exception? error)
     {
-        if (Interlocked.Exchange(ref _state, 2) == 2)
+        var previousState = Interlocked.Exchange(ref _state, 2);
+        if (previousState == 2)
             return;
+
+        if (previousState == 1)
+            Log.ConnectionLost(factory.Logger, error?.GetType().Name ?? "RemoteClose");
+
         var closed = _closed;
         if (closed is not null)
             await DispatchTerminalAsync(closed);

@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using OSSMDotNet.ApiService.Models;
@@ -14,7 +15,8 @@ public sealed class ControlHub(
     SimulatorFaultOperations simulatorFaults,
     ControlHubConnectionRegistry connections,
     ControlPushDispatcher dispatcher,
-    IAuthorizationService authorization) : Hub
+    IAuthorizationService authorization,
+    ILogger<ControlHub> logger) : Hub
 {
     /// <summary>
     /// Subscribes an authorized operator connection to activity and live state updates.
@@ -27,9 +29,9 @@ public sealed class ControlHub(
     {
         await RequireAdminAsync();
         if (!TryValidateCorrelation(correlation, out var validCorrelation))
-            return RejectedAcknowledgement(correlation, "invalid-correlation");
+            return RejectedAcknowledgement(correlation, "invalid-correlation", nameof(SubscribeOperator));
         if (afterSequence < 0)
-            return RejectedAcknowledgement(validCorrelation, "invalid-activity-cursor");
+            return RejectedAcknowledgement(validCorrelation, "invalid-activity-cursor", nameof(SubscribeOperator));
         connections.SubscribeOperator(Context.ConnectionId, afterSequence, -1);
         dispatcher.Trigger();
         return new("subscribed", validCorrelation);
@@ -45,7 +47,7 @@ public sealed class ControlHub(
     {
         await RequireGuestAsync("subscribe");
         if (!TryValidateCorrelation(correlation, out var validCorrelation))
-            return RejectedAcknowledgement(correlation, "invalid-correlation");
+            return RejectedAcknowledgement(correlation, "invalid-correlation", nameof(SubscribeGuest));
         connections.StageGuest(Context.ConnectionId);
         return new("subscribed", validCorrelation);
     }
@@ -77,9 +79,10 @@ public sealed class ControlHub(
             }
             connections.SubscribeGuest(Context.ConnectionId, -1);
             dispatcher.Trigger();
+            ApiLog.HubLifecycleAccepted(logger, nameof(Join));
             return new("joined", request.Correlation);
         }
-        catch (ControlRejectedException exception) { return RejectedJoinReceipt(request.Correlation, exception.Code); }
+        catch (ControlRejectedException exception) { return RejectedJoinReceipt(request.Correlation, exception.Code, exception.Code is "guest-subscription-required" or "guest-already-joined" or "guest-bind-failed"); }
     }
 
     /// <summary>
@@ -98,8 +101,8 @@ public sealed class ControlHub(
                 if (connections.TryGetGuest(Context.ConnectionId, out var guest) && guest is not null)
                     guests.RecordRejectedSubmit(guest.SessionId, guest.Proof, guest.LogicalConnectionId);
             }
-            catch (ControlRejectedException exception) { return RejectedAcknowledgement(null, exception.Code); }
-            return RejectedAcknowledgement(null, "invalid-request");
+            catch (ControlRejectedException exception) { return RejectedAcknowledgement(null, exception.Code, nameof(Submit), false); }
+            return RejectedAcknowledgement(null, "invalid-request", nameof(Submit));
         }
         return await GuestCommandAsync(request.Correlation, () =>
         {
@@ -133,6 +136,7 @@ public sealed class ControlHub(
             var guest = RequireGuest();
             var result = guests.Leave(guest.SessionId, guest.Proof, guest.LogicalConnectionId, correlation);
             connections.Remove(Context.ConnectionId);
+            ApiLog.HubLifecycleAccepted(logger, nameof(Leave));
             return result;
         });
 
@@ -146,9 +150,10 @@ public sealed class ControlHub(
     {
         await RequireAdminAsync();
         if (!TryValidateCorrelation(correlation, out var validCorrelation))
-            return RejectedAcknowledgement(correlation, "invalid-correlation");
+            return RejectedAcknowledgement(correlation, "invalid-correlation", nameof(Stop));
         operations.Stop();
         dispatcher.Trigger();
+        ApiLog.HubLifecycleAccepted(logger, nameof(Stop));
         return new("stopped", validCorrelation);
     }
 
@@ -221,8 +226,13 @@ public sealed class ControlHub(
     /// <param name="correlation">The request identifier returned with the acknowledgement.</param>
     /// <returns>An acknowledgement indicating whether the session ended.</returns>
     [Authorize(Policy = ControlServicePolicies.AdminWeb)]
-    public Task<ControlAcknowledgement> End(AuthorityPrecondition expected, string correlation) =>
-        AdminCommandAsync(correlation, () => operations.End(expected));
+    public async Task<ControlAcknowledgement> End(AuthorityPrecondition expected, string correlation)
+    {
+        var acknowledgement = await AdminCommandAsync(correlation, () => operations.End(expected));
+        if (acknowledgement.Accepted)
+            ApiLog.HubLifecycleAccepted(logger, nameof(End));
+        return acknowledgement;
+    }
 
     /// <summary>
     /// Unlocks the stopped controller into its paused state.
@@ -262,7 +272,8 @@ public sealed class ControlHub(
             ? guest
             : throw new ControlRejectedException("guest-not-joined");
 
-    private async Task<ControlAcknowledgement> GuestCommandAsync(string? correlation, Func<ControlAcknowledgement> command)
+    private async Task<ControlAcknowledgement> GuestCommandAsync(string? correlation, Func<ControlAcknowledgement> command,
+        [CallerMemberName] string operation = "")
     {
         try
         {
@@ -270,27 +281,29 @@ public sealed class ControlHub(
             dispatcher.Trigger();
             return acknowledgement;
         }
-        catch (ControlRejectedException exception) { return RejectedAcknowledgement(correlation, exception.Code); }
+        catch (ControlRejectedException exception) { return RejectedAcknowledgement(correlation, exception.Code, operation, exception.Code == "guest-not-joined"); }
     }
 
-    private async Task<ControlAcknowledgement> AdminCommandAsync(string correlation, Action command)
+    private async Task<ControlAcknowledgement> AdminCommandAsync(string correlation, Action command,
+        [CallerMemberName] string operation = "")
     {
         await RequireAdminAsync();
         if (!TryValidateCorrelation(correlation, out var validCorrelation))
-            return RejectedAcknowledgement(correlation, "invalid-correlation");
+            return RejectedAcknowledgement(correlation, "invalid-correlation", operation);
         try { command(); }
-        catch (ControlRejectedException exception) { return RejectedAcknowledgement(validCorrelation, exception.Code); }
+        catch (ControlRejectedException exception) { return RejectedAcknowledgement(validCorrelation, exception.Code, operation, false); }
         dispatcher.Trigger();
         return new("accepted", validCorrelation);
     }
 
-    private async Task<ControlAcknowledgement> AdminCommandAsync(string correlation, Func<Task> command)
+    private async Task<ControlAcknowledgement> AdminCommandAsync(string correlation, Func<Task> command,
+        [CallerMemberName] string operation = "")
     {
         await RequireAdminAsync();
         if (!TryValidateCorrelation(correlation, out var validCorrelation))
-            return RejectedAcknowledgement(correlation, "invalid-correlation");
+            return RejectedAcknowledgement(correlation, "invalid-correlation", operation);
         try { await command(); }
-        catch (ControlRejectedException exception) { return RejectedAcknowledgement(validCorrelation, exception.Code); }
+        catch (ControlRejectedException exception) { return RejectedAcknowledgement(validCorrelation, exception.Code, operation, false); }
         dispatcher.Trigger();
         return new("accepted", validCorrelation);
     }
@@ -313,11 +326,19 @@ public sealed class ControlHub(
         return ControlProtocol.ValidText(validCorrelation, 64);
     }
 
-    private static ControlAcknowledgement RejectedAcknowledgement(string? correlation, string code) =>
-        new(code, correlation is { } validCorrelation && ControlProtocol.ValidText(validCorrelation, 64) ? validCorrelation : string.Empty) { Accepted = false };
+    private ControlAcknowledgement RejectedAcknowledgement(string? correlation, string code, string operation, bool log = true)
+    {
+        if (log)
+            ApiLog.HubInvocationRejected(logger, operation, code);
+        return new(code, correlation is { } validCorrelation && ControlProtocol.ValidText(validCorrelation, 64) ? validCorrelation : string.Empty) { Accepted = false };
+    }
 
-    private static GuestJoinReceipt RejectedJoinReceipt(string? correlation, string code) =>
-        new(code, correlation is { } validCorrelation && ControlProtocol.ValidText(validCorrelation, 64) ? validCorrelation : string.Empty) { Accepted = false };
+    private GuestJoinReceipt RejectedJoinReceipt(string? correlation, string code, bool log = true)
+    {
+        if (log)
+            ApiLog.HubInvocationRejected(logger, nameof(Join), code);
+        return new(code, correlation is { } validCorrelation && ControlProtocol.ValidText(validCorrelation, 64) ? validCorrelation : string.Empty) { Accepted = false };
+    }
 
     private static void RejectInvalidRequest() => throw new ControlRejectedException("invalid-request");
 }

@@ -277,6 +277,36 @@ public sealed class JoinPageBehaviorTests
         }
     }
 
+    [Theory]
+    [InlineData(false, "Submit")]
+    [InlineData(true, "GuestStop")]
+    public async Task DisposingGuestDuringACommandReturnsAnUnknownOutcomeWithoutAnUnhandledCancellation(bool stop, string method)
+    {
+        using var cancellationSource = CreateTimeout();
+        await using var fixture = await PageControlHubFixture.StartAsync(cancellationSource.Token);
+        await using var module = new RecordedJsModule { Invitation = "proof" };
+        await using var services = CreateServices(module, fixture.CreateGuestClient());
+        await using var renderer = new ComponentRenderer(services, services.GetRequiredService<ILoggerFactory>());
+        var (page, _) = await renderer.RenderComponentAsync<Join>(Parameters("session-1"));
+        await fixture.WaitForInvocationAsync("Join", cancellationSource.Token);
+        await PublishReadyStatusAsync(fixture, module, renderer, cancellationSource.Token);
+
+        fixture.Hold(method);
+        try
+        {
+            var pending = stop ? page.StopRun() : page.SubmitRun(ValidInput());
+            await fixture.WaitForInvocationAsync(method, cancellationSource.Token);
+            await page.DisposeAsync();
+
+            Assert.Equal(new BrowserReply(false, "outcome-unknown"), await pending.WaitAsync(cancellationSource.Token));
+            Assert.Equal(1, fixture.Invocations.Count(invocation => invocation.Method == method));
+        }
+        finally
+        {
+            fixture.Release(method);
+        }
+    }
+
     [Fact]
     public async Task StaleGuestSnapshotsCannotRegressTheVisibleControlStateButNewerSnapshotsCan()
     {

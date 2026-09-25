@@ -62,6 +62,15 @@ class GuestControlTests(unittest.TestCase):
                 async invokeMethodAsync(method, input) {
                     if (method === "SubmitRun") {
                         window.calls.push(input);
+                        if (window.callTimes) window.callTimes.push(performance.now());
+                        if (window.refreshGrantOnSubmit) {
+                            window.authority.grant = { ...window.authority.grant, id: `grant-${window.calls.length}` };
+                            window.module.updateAuthority(window.authority);
+                        }
+                        if (window.rejectRateOnce) {
+                            window.rejectRateOnce = false;
+                            return { ok: false, code: "rate-limited" };
+                        }
                         if (window.rejectPolicyOnce) {
                             window.rejectPolicyOnce = false;
                             window.authority.policyVersion = 2;
@@ -86,7 +95,7 @@ class GuestControlTests(unittest.TestCase):
         self.page.get_by_role("button", name="Send", exact=True).click()
         self.page.locator('[data-input="speed"]').fill("25")
         self.page.locator('[data-input="speed"]').dispatch_event("input")
-        self.page.clock.run_for(250)
+        self.page.clock.run_for(350)
         calls, stops = self.page.evaluate("[window.calls, window.stops]")
         self.assertEqual(0, stops)
         self.assertGreaterEqual(len(calls), 2)
@@ -106,6 +115,33 @@ class GuestControlTests(unittest.TestCase):
         }""")
         self.page.clock.run_for(250)
         self.assertEqual([], self.page.evaluate("window.calls"))
+        self.assertEqual(0, self.page.evaluate("window.stops"))
+
+    def test_rate_limited_input_does_not_stop_the_session(self):
+        self.page.evaluate("window.rejectRateOnce = true")
+        self.page.get_by_role("button", name="Send", exact=True).click()
+        self.page.clock.run_for(350)
+
+        calls, stops = self.page.evaluate("[window.calls, window.stops]")
+        self.assertEqual(0, stops)
+        self.assertGreaterEqual(len(calls), 2)
+        self.assertGreater(calls[1]["seq"], calls[0]["seq"])
+        expect(self.page.get_by_role("button", name="Send", exact=True)).to_be_enabled()
+
+    def test_sustained_run_inputs_stay_below_the_rolling_server_limit(self):
+        self.page.evaluate("""() => {
+            window.callTimes = [];
+            window.refreshGrantOnSubmit = true;
+        }""")
+        self.page.get_by_role("button", name="Send", exact=True).click()
+        self.page.clock.run_for(1400)
+
+        times = self.page.evaluate("window.callTimes")
+        self.assertGreaterEqual(len(times), 6)
+        self.assertLessEqual(
+            max(sum(start <= sent < start + 1000 for sent in times) for start in times),
+            8,
+        )
         self.assertEqual(0, self.page.evaluate("window.stops"))
 
     def test_disconnect_disables_controls_and_new_authority_cannot_resume_them(self):

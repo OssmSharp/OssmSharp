@@ -73,7 +73,8 @@ public sealed class ControlHubClientContractTests
         using var cancellationSource = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         cancellationSource.CancelAfter(TimeSpan.FromSeconds(5));
         await using var fixture = await LocalControlHubFixture.StartAsync(cancellationSource.Token);
-        await using var client = fixture.CreateOperatorClient();
+        var logger = new RecordedLogger<ControlHubConnectionFactory>();
+        await using var client = fixture.CreateOperatorClient(logger: logger);
         await client.SubscribeAsync(EmptyOperatorCallbacks, 0, cancellationSource.Token);
         fixture.Reject("Stop", "stale-authority");
 
@@ -82,6 +83,7 @@ public sealed class ControlHubClientContractTests
         Assert.Equal("stale-authority", exception.Code);
         Assert.Equal("Control service rejected the operation: stale-authority.", exception.Message);
         Assert.Null(exception.InnerException);
+        Assert.Empty(logger.Entries);
         Assert.Equal(["SubscribeOperator", "Stop"], fixture.Invocations.Select(invocation => invocation.Method));
     }
 
@@ -91,7 +93,8 @@ public sealed class ControlHubClientContractTests
         using var cancellationSource = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         cancellationSource.CancelAfter(TimeSpan.FromSeconds(5));
         await using var fixture = await LocalControlHubFixture.StartAsync(cancellationSource.Token);
-        await using var client = fixture.CreateOperatorClient(commandTimeoutSeconds: 1);
+        var logger = new RecordedLogger<ControlHubConnectionFactory>();
+        await using var client = fixture.CreateOperatorClient(commandTimeoutSeconds: 1, logger: logger);
         await client.SubscribeAsync(EmptyOperatorCallbacks, 0, cancellationSource.Token);
         fixture.Hold("Stop");
         try
@@ -104,6 +107,12 @@ public sealed class ControlHubClientContractTests
             Assert.Equal("The control command outcome is unknown. Wait for the next service state update; do not resend it.", exception.Message);
             Assert.IsAssignableFrom<OperationCanceledException>(exception.InnerException);
             Assert.Equal(1, fixture.Invocations.Count(invocation => invocation.Method == "Stop"));
+            var entry = Assert.Single(logger.Entries);
+            Assert.Equal(LogLevel.Warning, entry.Level);
+            Assert.Equal(1901, entry.EventId);
+            Assert.Contains("Stop", entry.Message, StringComparison.Ordinal);
+            Assert.Null(entry.Exception);
+            Assert.DoesNotContain(LocalControlHubFixture.ServiceKeyValue, entry.Message, StringComparison.Ordinal);
         }
         finally
         {
@@ -117,7 +126,8 @@ public sealed class ControlHubClientContractTests
         using var testCancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         testCancellation.CancelAfter(TimeSpan.FromSeconds(5));
         await using var fixture = await LocalControlHubFixture.StartAsync(testCancellation.Token);
-        await using var client = fixture.CreateOperatorClient();
+        var logger = new RecordedLogger<ControlHubConnectionFactory>();
+        await using var client = fixture.CreateOperatorClient(logger: logger);
         await client.SubscribeAsync(EmptyOperatorCallbacks, 0, testCancellation.Token);
         fixture.Hold("Stop");
         using var callerCancellation = new CancellationTokenSource();
@@ -131,6 +141,7 @@ public sealed class ControlHubClientContractTests
 
             Assert.True(callerCancellation.IsCancellationRequested);
             Assert.IsNotType<ControlClientUnknownOutcomeException>(exception);
+            Assert.Empty(logger.Entries);
             Assert.Equal(1, fixture.Invocations.Count(invocation => invocation.Method == "Stop"));
         }
         finally

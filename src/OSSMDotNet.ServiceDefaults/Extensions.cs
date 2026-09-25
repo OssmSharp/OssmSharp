@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Hosting;
@@ -7,6 +8,8 @@ using Microsoft.Extensions.Logging;
 using OpenTelemetry;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
+using Serilog;
+using Serilog.Formatting.Json;
 
 namespace OSSMDotNet.ServiceDefaults;
 
@@ -44,6 +47,8 @@ public static class ServiceDefaultsExtensions
     /// <returns>The configured host builder.</returns>
     public static TBuilder ConfigureOpenTelemetry<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
     {
+        builder.ConfigureFileLogging();
+
         builder.Logging.AddOpenTelemetry(logging =>
         {
             logging.IncludeFormattedMessage = true;
@@ -59,7 +64,9 @@ public static class ServiceDefaultsExtensions
             })
             .WithTracing(tracing =>
             {
-                tracing.AddSource(builder.Environment.ApplicationName)
+                tracing.AddSource(builder.Environment.ApplicationName,
+                        "Microsoft.AspNetCore.SignalR.Client",
+                        "Microsoft.AspNetCore.SignalR.Server")
                     .AddAspNetCoreInstrumentation(tracing =>
                         // Exclude health-check requests from traces.
                         tracing.Filter = context =>
@@ -70,18 +77,6 @@ public static class ServiceDefaultsExtensions
             });
 
         builder.AddOpenTelemetryExporters();
-
-        return builder;
-    }
-
-    private static TBuilder AddOpenTelemetryExporters<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
-    {
-        var useOtlpExporter = !string.IsNullOrWhiteSpace(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]);
-
-        if (useOtlpExporter)
-        {
-            builder.Services.AddOpenTelemetry().UseOtlpExporter();
-        }
 
         return builder;
     }
@@ -122,5 +117,47 @@ public static class ServiceDefaultsExtensions
         }
 
         return app;
+    }
+
+    private static void ConfigureFileLogging<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
+    {
+        if (!builder.Configuration.GetValue("Logging:File:Enabled", true))
+            return;
+
+        var directory = builder.Configuration["Logging:File:Directory"];
+        if (string.IsNullOrWhiteSpace(directory))
+            directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "OSSMDotNet", "logs");
+
+        if (!Path.IsPathFullyQualified(directory))
+            throw new InvalidOperationException("Logging:File:Directory must be an absolute path.");
+
+        Directory.CreateDirectory(directory);
+
+        var fileLogger = new LoggerConfiguration()
+            .MinimumLevel.Verbose()
+            .Enrich.FromLogContext()
+            .WriteTo.File(new JsonFormatter(renderMessage: true),
+                Path.Combine(directory, $"{builder.Environment.ApplicationName}-.json"),
+                rollingInterval: RollingInterval.Day,
+                fileSizeLimitBytes: 10 * 1024 * 1024,
+                rollOnFileSizeLimit: true,
+                retainedFileCountLimit: 7,
+                retainedFileTimeLimit: TimeSpan.FromDays(7),
+                shared: true)
+            .CreateLogger();
+
+        builder.Logging.AddSerilog(fileLogger, dispose: true);
+    }
+
+    private static TBuilder AddOpenTelemetryExporters<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
+    {
+        var useOtlpExporter = !string.IsNullOrWhiteSpace(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]);
+
+        if (useOtlpExporter)
+        {
+            builder.Services.AddOpenTelemetry().UseOtlpExporter();
+        }
+
+        return builder;
     }
 }

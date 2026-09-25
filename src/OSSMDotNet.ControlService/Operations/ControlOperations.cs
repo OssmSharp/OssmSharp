@@ -7,7 +7,9 @@ using OSSMDotNet.Models;
 
 namespace OSSMDotNet.ControlService.Operations;
 
-/// <summary>Coordinates transport-neutral operator operations.</summary>
+/// <summary>
+/// Coordinates transport-neutral operator operations.
+/// </summary>
 /// <param name="authority">The owner of operator and guest control state.</param>
 /// <param name="options">The validated control-service settings.</param>
 /// <param name="activity">The operator-visible activity store.</param>
@@ -43,7 +45,10 @@ public sealed class ControlOperations(
     public ControlAuthoritySnapshot Approve(ApproveGuestRequest? request, AuthorityPrecondition expected)
     {
         if (request is null)
+        {
+            ControlServiceLog.OperatorRejected(logger, "Approve", "invalid-request");
             throw new ControlRejectedException("invalid-request");
+        }
         var snapshot = authority.Approve(expected, request.ConnectionId);
         LogOperatorActivity("Guest approved");
         return snapshot;
@@ -101,7 +106,10 @@ public sealed class ControlOperations(
     public ControlAuthoritySnapshot Unlock(UnlockControlRequest? request, AuthorityPrecondition expected)
     {
         if (request is null)
+        {
+            ControlServiceLog.OperatorRejected(logger, "Unlock", "invalid-request");
             throw new ControlRejectedException("invalid-request");
+        }
         var snapshot = authority.Unlock(expected, request.LockRevision);
         LogOperatorActivity("Unlocked; control remains paused");
         return snapshot;

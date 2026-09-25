@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using OSSMDotNet.ControlService.Activity;
 
 namespace OSSMDotNet.ControlService.Tests.Activity;
 
@@ -58,6 +59,20 @@ public sealed partial class ControlActivityProviderTests
         var logger = provider.CreateLogger("OSSMDotNet.ControlService.FutureComponent");
 
         LogUnrelatedNumericEvent(logger);
+
+        Assert.Empty(provider.ReadAfter(0));
+    }
+
+    [Fact]
+    public void OperationalAuthorityEventsAreNotOperatorActivity()
+    {
+        using var provider = new ControlActivityProvider(TimeProvider.System);
+        var logger = provider.CreateLogger("OSSMDotNet.ControlService.Authority.ControlAuthority");
+
+        ControlServiceLog.GuestAdmitted(logger);
+        ControlServiceLog.GuestRevoked(logger, "guest-transport-lost");
+        ControlServiceLog.GuestStopAccepted(logger);
+        ControlServiceLog.SafetyState(logger, "Locked", "external-parameter-change");
 
         Assert.Empty(provider.ReadAfter(0));
     }

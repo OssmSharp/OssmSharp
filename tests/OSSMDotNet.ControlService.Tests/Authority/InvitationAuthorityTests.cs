@@ -172,13 +172,13 @@ public sealed class InvitationAuthorityTests
         rig.Pump();
         var revision = rig.Engine.Snapshot.LockRevision;
         var invitation = rig.Engine.CycleInvitation(new Uri("http://localhost:8080"));
-    var before = rig.Engine.Snapshot;
+        var before = rig.Engine.Snapshot;
 
         Assert.Equal("Locked", rig.Engine.Snapshot.Mode);
         Assert.Equal(revision, rig.Engine.Snapshot.LockRevision);
         Assert.Throws<ControlRejectedException>(() =>
             rig.Engine.CycleInvitation(new Uri("http://example.com")));
-    Assert.Equal(before, rig.Engine.Snapshot);
+        Assert.Equal(before, rig.Engine.Snapshot);
         Assert.Equal(invitation, rig.Engine.GetInvitation(new Uri("http://localhost:8080")));
     }
 

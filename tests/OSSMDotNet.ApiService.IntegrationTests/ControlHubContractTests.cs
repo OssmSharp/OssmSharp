@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Net;
 using System.Text.Json;
 
@@ -42,6 +44,32 @@ public sealed class ControlHubContractTests
         ["guest-join"],
         ["guest-input-stop-and-leave"]
     ];
+
+    [Fact]
+    public async Task OperatorInvocationKeepsOneTraceAcrossSignalRClientAndHub()
+    {
+        using var cancellationSource = CreateTimeout();
+        var traces = new ConcurrentQueue<(string Source, ActivityTraceId TraceId)>();
+        using var listener = new ActivityListener
+        {
+            ShouldListenTo = static source => source.Name is "Microsoft.AspNetCore.SignalR.Client" or "Microsoft.AspNetCore.SignalR.Server",
+            Sample = static (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
+            ActivityStopped = activity => traces.Enqueue((activity.Source.Name, activity.TraceId))
+        };
+        ActivitySource.AddActivityListener(listener);
+        await using var fixture = await LocalControlServiceHubFixture.StartAsync(cancellationSource.Token);
+        await using var client = await fixture.ConnectAsync(LocalControlServiceHubFixture.HubRole.Admin, cancellationSource.Token);
+
+        using var request = new Activity("operator request");
+        request.Start();
+        var traceId = request.TraceId;
+        var acknowledgement = await client.InvokeAsync<ControlAcknowledgement>("Stop", "trace-check");
+        request.Stop();
+
+        Assert.True(acknowledgement.Accepted);
+        Assert.Contains(traces, trace => trace.Source == "Microsoft.AspNetCore.SignalR.Client" && trace.TraceId == traceId);
+        Assert.Contains(traces, trace => trace.Source == "Microsoft.AspNetCore.SignalR.Server" && trace.TraceId == traceId);
+    }
 
     [Fact]
     public async Task OperatorAndGuestSubscriptionsDeliverOnlyTheirScopedCurrentCallbacksAndF1AdmissionPublication()

@@ -1,17 +1,29 @@
 using System.Buffers.Text;
 using System.Security.Cryptography;
 using System.Text;
+using Microsoft.Extensions.Logging;
 using OSSMDotNet.ControlCore;
+using OSSMDotNet.ControlService.Activity;
 using OSSMDotNet.ControlService.Models;
 using OSSMDotNet.Models;
 
 namespace OSSMDotNet.ControlService.Authority;
 
-/// <summary>Owns and serializes invitations, guest authority, policy, grants, and application deadlines.</summary>
+/// <summary>
+/// Owns and serializes invitations, guest authority, policy, grants, and application deadlines.
+/// </summary>
 /// <param name="engine">The device execution engine controlled by this authority.</param>
 /// <param name="time">The clock used for grants and application deadlines.</param>
-public sealed class ControlAuthority(ControlEngine engine, TimeProvider time) : IAsyncDisposable
+/// <param name="logger">The operational logger, when composed by the service host.</param>
+public sealed class ControlAuthority(ControlEngine engine, TimeProvider time, ILogger<ControlAuthority>? logger) : IAsyncDisposable
 {
+    /// <summary>
+    /// Creates the authority without an operational logger for direct consumers.
+    /// </summary>
+    /// <param name="engine">The device execution engine controlled by this authority.</param>
+    /// <param name="time">The clock used for grants and application deadlines.</param>
+    public ControlAuthority(ControlEngine engine, TimeProvider time) : this(engine, time, null) { }
+
     private static readonly TimeSpan GrantLifetime = TimeSpan.FromMilliseconds(750);
     private readonly object _gate = new();
     private readonly string _serviceInstanceId = Guid.NewGuid().ToString("N");
@@ -29,8 +41,12 @@ public sealed class ControlAuthority(ControlEngine engine, TimeProvider time) : 
     private bool _disposed;
     private long _authorityRevision;
     private long _snapshotRevision;
+    private string? _loggedSafetyMode;
+    private string? _loggedSafetyReason;
 
-    /// <summary>Returns the current controller state and its required operator-action precondition.</summary>
+    /// <summary>
+    /// Returns the current controller state and its required operator-action precondition.
+    /// </summary>
     /// <returns>The current authority snapshot and mutation precondition.</returns>
     public ControlAuthoritySnapshot Read()
     {
@@ -80,16 +96,27 @@ public sealed class ControlAuthority(ControlEngine engine, TimeProvider time) : 
     {
         lock (_gate)
         {
-            CheckAvailable();
-            Require(ValidIdentifier(logicalConnectionId), "invalid-connection");
-            Require(_invitation?.SessionId == sessionId && Matches(invitationProof, _invitationHash), "invitation-invalid");
-            var now = time.GetTimestamp();
-            ExpireSession(now);
-            Require(_session is null || _session.Mode == "Ended", "session-conflict");
-            var proof = RandomToken(32);
-            _session = new(sessionId, now, logicalConnectionId, Hash(proof));
-            _snapshotRevision++;
-            return new(sessionId, logicalConnectionId, proof);
+            try
+            {
+                CheckAvailable();
+                Require(ValidIdentifier(logicalConnectionId), "invalid-connection");
+                Require(_invitation?.SessionId == sessionId && Matches(invitationProof, _invitationHash), "invitation-invalid");
+                var now = time.GetTimestamp();
+                ExpireSession(now);
+                Require(_session is null || _session.Mode == "Ended", "session-conflict");
+                var proof = RandomToken(32);
+                _session = new(sessionId, now, logicalConnectionId, Hash(proof));
+                _snapshotRevision++;
+                if (logger is not null)
+                    ControlServiceLog.GuestAdmitted(logger);
+                return new(sessionId, logicalConnectionId, proof);
+            }
+            catch (ControlRejectedException error)
+            {
+                if (logger is not null)
+                    ControlServiceLog.GuestAdmissionRejected(logger, error.Code);
+                throw;
+            }
         }
     }
 
@@ -143,7 +170,9 @@ public sealed class ControlAuthority(ControlEngine engine, TimeProvider time) : 
         }
     }
 
-    /// <summary>Stops a guest session under the authority serialization gate.</summary>
+    /// <summary>
+    /// Stops a guest session under the authority serialization gate.
+    /// </summary>
     /// <param name="sessionId">The admitted session identifier.</param>
     /// <param name="guestProof">The private guest proof.</param>
     /// <param name="logicalConnectionId">The server-owned guest connection binding.</param>
@@ -152,13 +181,18 @@ public sealed class ControlAuthority(ControlEngine engine, TimeProvider time) : 
         lock (_gate)
         {
             AuthenticateGuest(sessionId, guestProof, logicalConnectionId);
+            var wasReady = engine.Snapshot.Mode == "Ready";
             engine.Pause("guest-stop");
             InvalidateMotionAuthority();
             _snapshotRevision++;
+            if (wasReady && logger is not null)
+                ControlServiceLog.GuestStopAccepted(logger);
         }
     }
 
-    /// <summary>Ends a guest session under the authority serialization gate.</summary>
+    /// <summary>
+    /// Ends a guest session under the authority serialization gate.
+    /// </summary>
     /// <param name="sessionId">The admitted session identifier.</param>
     /// <param name="guestProof">The private guest proof.</param>
     /// <param name="logicalConnectionId">The server-owned guest connection binding.</param>
@@ -172,7 +206,9 @@ public sealed class ControlAuthority(ControlEngine engine, TimeProvider time) : 
         }
     }
 
-    /// <summary>Revokes only the matching guest binding when its transport is lost.</summary>
+    /// <summary>
+    /// Revokes only the matching guest binding when its transport is lost.
+    /// </summary>
     /// <param name="logicalConnectionId">The server-owned connection that was lost.</param>
     public void GuestTransportLost(string logicalConnectionId)
     {
@@ -185,7 +221,9 @@ public sealed class ControlAuthority(ControlEngine engine, TimeProvider time) : 
         }
     }
 
-    /// <summary>Ends the current guest session without replacing its invitation.</summary>
+    /// <summary>
+    /// Ends the current guest session without replacing its invitation.
+    /// </summary>
     /// <param name="reason">The reason recorded for ending the session.</param>
     public void EndSession(string reason = "operator-ended")
     {
@@ -196,7 +234,9 @@ public sealed class ControlAuthority(ControlEngine engine, TimeProvider time) : 
         }
     }
 
-    /// <summary>Returns the current reusable invitation without changing authority.</summary>
+    /// <summary>
+    /// Returns the current reusable invitation without changing authority.
+    /// </summary>
     /// <param name="guestOrigin">The trusted origin used to construct an invitation if needed.</param>
     /// <returns>The current invitation, creating one if none exists.</returns>
     public Invitation ReadInvitation(Uri guestOrigin)
@@ -210,7 +250,9 @@ public sealed class ControlAuthority(ControlEngine engine, TimeProvider time) : 
         }
     }
 
-    /// <summary>Returns one authority-consistent operator state and invitation projection.</summary>
+    /// <summary>
+    /// Returns one authority-consistent operator state and invitation projection.
+    /// </summary>
     /// <param name="guestOrigin">The trusted origin used to construct an invitation if needed.</param>
     /// <returns>The operator authority state paired with its current invitation.</returns>
     public OperatorLiveControlStatus ReadOperatorStatus(Uri guestOrigin)
@@ -224,14 +266,18 @@ public sealed class ControlAuthority(ControlEngine engine, TimeProvider time) : 
         }
     }
 
-    /// <summary>Approves the expected pending guest admission.</summary>
+    /// <summary>
+    /// Approves the expected pending guest admission.
+    /// </summary>
     /// <param name="expected">The authority state observed before approval.</param>
     /// <param name="connectionId">The pending guest connection to approve.</param>
     /// <returns>The authority state after approval.</returns>
     public ControlAuthoritySnapshot Approve(AuthorityPrecondition expected, string connectionId) =>
         Execute(expected, () => ApproveCore(connectionId));
 
-    /// <summary>Applies limits to the expected authority state.</summary>
+    /// <summary>
+    /// Applies limits to the expected authority state.
+    /// </summary>
     /// <param name="expected">The authority state observed before applying limits.</param>
     /// <param name="limits">The proposed speed and depth limits.</param>
     /// <returns>The authority state after applying compatible limits.</returns>
@@ -248,19 +294,25 @@ public sealed class ControlAuthority(ControlEngine engine, TimeProvider time) : 
                 IssueGrant(time.GetTimestamp());
         });
 
-    /// <summary>Recovers the expected authority state into Paused.</summary>
+    /// <summary>
+    /// Recovers the expected authority state into Paused.
+    /// </summary>
     /// <param name="expected">The authority state observed before recovery.</param>
     /// <returns>The recovered authority state.</returns>
     public ControlAuthoritySnapshot Recover(AuthorityPrecondition expected) =>
         Execute(expected, engine.Recover);
 
-    /// <summary>Arms the expected approved authority state.</summary>
+    /// <summary>
+    /// Arms the expected approved authority state.
+    /// </summary>
     /// <param name="expected">The approved authority state observed before arming.</param>
     /// <returns>The authority state after arming.</returns>
     public ControlAuthoritySnapshot Arm(AuthorityPrecondition expected) =>
         Execute(expected, ArmCore);
 
-    /// <summary>Recovers, approves, and arms the expected guest authority in one serialized operation.</summary>
+    /// <summary>
+    /// Recovers, approves, and arms the expected guest authority in one serialized operation.
+    /// </summary>
     /// <param name="expected">The authority state observed before allowing control.</param>
     /// <returns>The authority state after the combined operation.</returns>
     public ControlAuthoritySnapshot AllowControl(AuthorityPrecondition expected) =>
@@ -274,7 +326,9 @@ public sealed class ControlAuthority(ControlEngine engine, TimeProvider time) : 
             ArmCore();
         });
 
-    /// <summary>Stops the expected authority state and advances its revision even when already paused.</summary>
+    /// <summary>
+    /// Stops the expected authority state and advances its revision even when already paused.
+    /// </summary>
     /// <returns>The authority state after stopping motion.</returns>
     public ControlAuthoritySnapshot Stop()
     {
@@ -288,28 +342,36 @@ public sealed class ControlAuthority(ControlEngine engine, TimeProvider time) : 
         }
     }
 
-    /// <summary>Ends the expected session and replaces its invitation.</summary>
+    /// <summary>
+    /// Ends the expected session and replaces its invitation.
+    /// </summary>
     /// <param name="expected">The authority state observed before ending the session.</param>
     /// <param name="guestOrigin">The trusted origin of the replacement invitation.</param>
     /// <returns>The authority state after ending the session.</returns>
     public ControlAuthoritySnapshot End(AuthorityPrecondition expected, Uri guestOrigin) =>
         Cycle(expected, guestOrigin);
 
-    /// <summary>Cycles the expected invitation and revokes guest authority.</summary>
+    /// <summary>
+    /// Cycles the expected invitation and revokes guest authority.
+    /// </summary>
     /// <param name="expected">The authority state observed before cycling the invitation.</param>
     /// <param name="guestOrigin">The trusted origin of the replacement invitation.</param>
     /// <returns>The authority state after cycling the invitation.</returns>
     public ControlAuthoritySnapshot CycleInvitation(AuthorityPrecondition expected, Uri guestOrigin) =>
         Cycle(expected, guestOrigin);
 
-    /// <summary>Unlocks the expected external-lock revision.</summary>
+    /// <summary>
+    /// Unlocks the expected external-lock revision.
+    /// </summary>
     /// <param name="expected">The authority state observed before unlocking.</param>
     /// <param name="lockRevision">The external-lock revision to clear.</param>
     /// <returns>The authority state after unlocking.</returns>
     public ControlAuthoritySnapshot Unlock(AuthorityPrecondition expected, long lockRevision) =>
         Execute(expected, () => engine.Unlock(lockRevision));
 
-    /// <summary>Processes deadlines, feedback freshness, and queued device work under the authority gate.</summary>
+    /// <summary>
+    /// Processes deadlines, feedback freshness, and queued device work under the authority gate.
+    /// </summary>
     public void Tick()
     {
         ControlSnapshot before;
@@ -342,12 +404,28 @@ public sealed class ControlAuthority(ControlEngine engine, TimeProvider time) : 
                 InvalidateMotionAuthority();
             }
 
+            var execution = engine.Snapshot;
+            if (execution.Mode is "Faulted" or "Locked")
+            {
+                if (logger is not null && (_loggedSafetyMode != execution.Mode || _loggedSafetyReason != execution.Reason))
+                    ControlServiceLog.SafetyState(logger, execution.Mode, execution.Reason);
+                _loggedSafetyMode = execution.Mode;
+                _loggedSafetyReason = execution.Reason;
+            }
+            else
+            {
+                _loggedSafetyMode = null;
+                _loggedSafetyReason = null;
+            }
+
             if (before != CreateControlSnapshot(guest: false))
                 _snapshotRevision++;
         }
     }
 
-    /// <summary>Stops authority during host shutdown without a caller-provided precondition.</summary>
+    /// <summary>
+    /// Stops authority during host shutdown without a caller-provided precondition.
+    /// </summary>
     public void StopForShutdown()
     {
         lock (_gate)
@@ -359,7 +437,9 @@ public sealed class ControlAuthority(ControlEngine engine, TimeProvider time) : 
         }
     }
 
-    /// <summary>Counts a connection-bound input attempt rejected before model conversion.</summary>
+    /// <summary>
+    /// Counts a connection-bound input attempt rejected before model conversion.
+    /// </summary>
     /// <param name="sessionId">The admitted session identifier.</param>
     /// <param name="guestProof">The private guest proof.</param>
     /// <param name="logicalConnectionId">The server-owned guest connection binding.</param>
@@ -429,6 +509,10 @@ public sealed class ControlAuthority(ControlEngine engine, TimeProvider time) : 
     {
         if (_session is not null)
         {
+            if (_session.Mode != "Ended" && logger is not null)
+                ControlServiceLog.GuestRevoked(logger, reason is "guest-left" or "guest-transport-lost" or
+                    "session-expired" or "approval-expired" or "invitation-cycled" or "operator-ended"
+                    ? reason : "other");
             _session.Mode = "Ended";
             _session.GuestHash = null;
             _session.ConnectionId = null;
@@ -468,8 +552,17 @@ public sealed class ControlAuthority(ControlEngine engine, TimeProvider time) : 
         ArgumentNullException.ThrowIfNull(operation);
         lock (_gate)
         {
-            Validate(expected, CreateControlSnapshot(guest: false));
-            operation();
+            try
+            {
+                Validate(expected, CreateControlSnapshot(guest: false));
+                operation();
+            }
+            catch (ControlRejectedException error)
+            {
+                if (logger is not null)
+                    ControlServiceLog.OperatorRejected(logger, "authority change", error.Code);
+                throw;
+            }
             _authorityRevision++;
             _snapshotRevision++;
             return CreateSnapshot();
@@ -632,7 +725,9 @@ public sealed class ControlAuthority(ControlEngine engine, TimeProvider time) : 
             throw Rejection(code);
     }
 
-    /// <summary>Revokes application authority and disposes the execution core.</summary>
+    /// <summary>
+    /// Revokes application authority and disposes the execution core.
+    /// </summary>
     public async ValueTask DisposeAsync()
     {
         lock (_gate)

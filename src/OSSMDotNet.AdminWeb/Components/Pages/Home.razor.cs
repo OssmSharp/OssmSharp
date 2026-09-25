@@ -182,7 +182,6 @@ public partial class Home
         }
         catch (ControlClientException error)
         {
-            LogOperatorActionRejected(Logger);
             _notice.Show(error.Code switch
             {
                 "authority-revision-mismatch" or "guest-admission-mismatch" => "The control state changed. Wait for the latest update, then try again.",
@@ -256,9 +255,6 @@ public partial class Home
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "The operator page could not connect to the control service.")]
     private static partial void LogControlServiceConnectionFailed(ILogger logger);
-
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Operator action was not accepted.")]
-    private static partial void LogOperatorActionRejected(ILogger logger);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Activity log cleanup did not complete.")]
     private static partial void LogActivityLogCleanupIncomplete(ILogger logger);

@@ -85,16 +85,20 @@ public sealed class LocalControlHubFixture : IAsyncDisposable
         }
     }
 
-    public OperatorControlClient CreateOperatorClient(int commandTimeoutSeconds = 2)
+    public OperatorControlClient CreateOperatorClient(int commandTimeoutSeconds = 2,
+        ILogger<ControlHubConnectionFactory>? logger = null)
     {
         var options = CreateOptions(commandTimeoutSeconds);
-        return new OperatorControlClient(new ControlHubConnectionFactory(options), options);
+        var factory = logger is null ? new ControlHubConnectionFactory(options) : new ControlHubConnectionFactory(options, logger);
+        return new OperatorControlClient(factory, options);
     }
 
-    public GuestControlClient CreateGuestClient(int commandTimeoutSeconds = 2)
+    public GuestControlClient CreateGuestClient(int commandTimeoutSeconds = 2,
+        ILogger<ControlHubConnectionFactory>? logger = null)
     {
         var options = CreateOptions(commandTimeoutSeconds);
-        return new GuestControlClient(new ControlHubConnectionFactory(options), options);
+        var factory = logger is null ? new ControlHubConnectionFactory(options) : new ControlHubConnectionFactory(options, logger);
+        return new GuestControlClient(factory, options);
     }
 
     public Task WaitForConnectionAsync(CancellationToken cancellationToken) =>

@@ -83,6 +83,34 @@ public sealed class GuestControlClientTests
     }
 
     [Fact]
+    public async Task TimedOutInputDoesNotEmitPerInputOperationalWarnings()
+    {
+        using var cancellationSource = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        cancellationSource.CancelAfter(TimeSpan.FromSeconds(5));
+        await using var fixture = await LocalControlHubFixture.StartAsync(cancellationSource.Token);
+        var logger = new RecordedLogger<ControlHubConnectionFactory>();
+        await using var client = fixture.CreateGuestClient(commandTimeoutSeconds: 1, logger: logger);
+        await client.JoinAsync(EmptyCallbacks, new("join-1", "session-1", "private-proof"), cancellationSource.Token);
+        fixture.Hold("Submit");
+        try
+        {
+            var operation = client.SubmitAsync(
+                new("input-1", new(1, "epoch", 1, "grant", 1, true, new(1, 2, 3, 4, 5))),
+                cancellationSource.Token);
+            await fixture.WaitForInvocationAsync("Submit", cancellationSource.Token);
+
+            await Assert.ThrowsAsync<ControlClientUnknownOutcomeException>(() => operation);
+
+            Assert.Empty(logger.Entries);
+            Assert.Equal(1, fixture.Invocations.Count(invocation => invocation.Method == "Submit"));
+        }
+        finally
+        {
+            fixture.Release("Submit");
+        }
+    }
+
+    [Fact]
     public async Task GuestCallbacksAreTypedSerializedAndObservedInHubSendOrder()
     {
         using var cancellationSource = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);

@@ -160,6 +160,10 @@ public partial class Join
         {
             return new(false, "outcome-unknown");
         }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
+        {
+            return new(false, "outcome-unknown");
+        }
         catch (ControlClientException error)
         {
             return new(false, error.Code);
@@ -184,6 +188,10 @@ public partial class Join
         {
             return new(false, "outcome-unknown");
         }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
+        {
+            return new(false, "outcome-unknown");
+        }
         catch (ControlClientException error)
         {
             return new(false, error.Code);
@@ -200,10 +208,7 @@ public partial class Join
         {
             await Client.LeaveAsync(_lifetime.Token);
         }
-        catch (ControlClientUnknownOutcomeException)
-        {
-            LogGuestLeaveOutcomeUnknown(Logger);
-        }
+        catch (ControlClientUnknownOutcomeException) { }
         catch (ControlClientException error)
         {
             LogGuestLeaveRejected(Logger, error.Code);
@@ -287,9 +292,6 @@ public partial class Join
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Guest control initialization failed; closing the connection.")]
     private static partial void LogGuestControlInitializationFailed(ILogger logger);
-
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Guest leave outcome is unknown; closing the guest connection.")]
-    private static partial void LogGuestLeaveOutcomeUnknown(ILogger logger);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Guest leave was not accepted: {Code}.")]
     private static partial void LogGuestLeaveRejected(ILogger logger, string code);
