@@ -4,3 +4,6 @@
 2026-09-26 11:50:45 Started bounded read-only review of the corrected simulator admission guard [id=3;task=review;subagent;arg=correctness;scope=OssmSharp.Device.Simulator]
 2026-09-26 11:54:21 Follow-up reviewer found no material bug; deferred one extra failure-path test for the internal simulator fault hook [id=3;task=review;subagent;arg=correctness;scope=OssmSharp.Device.Simulator;finish;elapsed=3:36;agent=adversarial-reviewer;model=Claude Opus 5.5]
 2026-09-26 11:57:14 Completed focused simulator send-generation slice; M3 remains unaccepted [id=1;task=code;arg=simulator;scope=ossm-web-controls;finish;elapsed=18:39]
+2026-09-26 12:11:06 Started M3 fix for stale post-await simulator connection publications [id=4;task=code;arg=simulator;scope=OssmSharp.Device.Simulator]
+2026-09-26 12:13:04 Final diff review found no material issue; four focused lifecycle tests and all 89 SimulatedDeviceTests passed; git diff --check clean [id=4;task=review;arg=correctness;scope=OssmSharp.Device.Simulator]
+2026-09-26 12:13:04 Completed M3 stale post-await connection status fix [id=4;task=code;arg=simulator;scope=OssmSharp.Device.Simulator;finish;elapsed=1:58]

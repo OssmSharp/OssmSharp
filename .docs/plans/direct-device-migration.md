@@ -352,16 +352,21 @@ reconnect response reports connected. The local-rejection and reconnect
 regressions passed, and the focused `SimulatedDeviceTests` file passed 89/89 on
 Windows. This does not establish full M3 acceptance.
 
+On 26 September, connection transitions in the simulator fault hooks were
+reduced to the validated reply samples; post-await publications were removed
+so a delayed helper continuation cannot overwrite a newer transition. The
+focused `SimulatedDeviceTests` file passed 89/89, including frozen-feedback,
+disconnect and reconnect cases.
+
 Cli still uses the obsolete per-user daemon/executable-path flow, and a
 temporary `SimulatedDeviceOptions.ExecutablePath` member remains only to keep
 that incomplete consumer compiling. It is not a working fallback for the
-TCP-only bridge and must be removed at the M4 cutover. Delayed helper callbacks
-can publish stale connection status. Stop versus an intentional zero-speed
-configuration write is indistinguishable after some external changes under
-the current device contract. Resolve that contract question before dependent
-motion work. AppHost readiness only checks socket acceptance; unavailable
-listener and handshake deadlines, exact 4 KiB CRLF framing, CLI/API client-exit
-zero and macOS behavior remain unverified.
+TCP-only bridge and must be removed at the M4 cutover. Stop versus an
+intentional zero-speed configuration write is indistinguishable after some
+external changes under the current device contract. Resolve that contract
+question before dependent motion work. AppHost readiness only checks socket
+acceptance; unavailable-listener and handshake deadlines, exact 4 KiB CRLF
+framing, CLI/API client-exit zero and macOS behavior remain unverified.
 
 Depends on: M1; integrate ownership with M2 before end-to-end acceptance.
 

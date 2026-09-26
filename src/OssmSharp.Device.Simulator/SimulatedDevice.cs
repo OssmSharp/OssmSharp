@@ -237,7 +237,6 @@ public sealed class SimulatedDevice : DeviceBase
         }
 
         await SendAsync("disconnect", null, cancellationToken).ConfigureAwait(false);
-        PublishDisconnected();
     }
 
     /// <summary>
@@ -257,7 +256,6 @@ public sealed class SimulatedDevice : DeviceBase
             _disconnecting = false;
         }
 
-        PublishConnected(Information);
     }
 
     /// <inheritdoc />
