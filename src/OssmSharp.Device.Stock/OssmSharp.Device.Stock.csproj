@@ -2,14 +2,18 @@
   <PropertyGroup>
     <AssemblyName>OssmSharp.Device.Stock</AssemblyName>
     <RootNamespace>OssmSharp.Device.Stock</RootNamespace>
+    <TargetFramework Condition="'$(EnableStockBle)' == 'true' and $([MSBuild]::IsOSPlatform('Windows'))">net10.0-windows10.0.19041.0</TargetFramework>
+    <TargetFramework Condition="'$(EnableStockBle)' == 'true' and $([MSBuild]::IsOSPlatform('OSX'))">net10.0-macos26.0</TargetFramework>
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="OssmSharp.Device.Stock.Tests" />
+    <InternalsVisibleTo Include="DynamicProxyGenAssembly2" />
     <InternalsVisibleTo Include="OssmSharp.Cli" />
     <ProjectReference Include="../OssmSharp.Device.Primitives/OssmSharp.Device.Primitives.csproj" />
     <ProjectReference Include="../OssmSharp.Device.Runtime/OssmSharp.Device.Runtime.csproj" />
     <PackageReference Include="Microsoft.Extensions.Hosting" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="Shiny.BluetoothLE" Condition="'$(EnableStockBle)' == 'true'" />
     <Using Include="OssmSharp.Device.Primitives" />
     <Using Include="OssmSharp.Device.Primitives.Models" />
     <Using Include="Microsoft.Extensions.Logging" />

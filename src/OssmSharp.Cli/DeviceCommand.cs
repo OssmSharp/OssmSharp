@@ -1,6 +1,7 @@
 using System.CommandLine;
 using System.CommandLine.Parsing;
 using System.Globalization;
+using System.Text.RegularExpressions;
 
 namespace OssmSharp.Cli;
 
@@ -38,7 +39,7 @@ public static class DeviceCommand
     {
         var parse = Create(runAsync).Parse(args);
         var exitCode = await parse.InvokeAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
-        return parse.Errors.Count == 0 ? exitCode : 2;
+        return parse.Errors.Count != 0 ? 2 : cancellationToken.IsCancellationRequested ? 130 : exitCode;
     }
 
     /// <summary>
@@ -51,7 +52,7 @@ public static class DeviceCommand
     {
         ArgumentNullException.ThrowIfNull(runAsync);
 
-        var root = new RootCommand("Manage one persistent local OSSM simulator for device diagnostics.");
+        var root = new RootCommand("Open a foreground device prompt or manage legacy simulator diagnostics.");
         var simulatorPath = new Option<string>("--simulator-path")
         {
             Description = "Absolute path to the ossm-sim-bridge executable.",
@@ -149,11 +150,53 @@ public static class DeviceCommand
             new DeviceCommandRequest(DeviceCommandOperation.Identify, PeripheralId: parse.GetValue(peripheralId)),
             cancellationToken));
 
+        var selectedPeripheral = new Option<string>("--peripheral-id")
+        {
+            Required = true,
+            Description = "Platform-specific locator of the selected stock device.",
+            CustomParser = result =>
+            {
+                if (result.Tokens.Count == 1 && !string.IsNullOrWhiteSpace(result.Tokens[0].Value))
+                {
+                    return result.Tokens[0].Value;
+                }
+
+                result.AddError("Provide one nonempty peripheral ID.");
+                return null;
+            },
+        };
+        var wifiMac = new Option<string>("--wifi-mac")
+        {
+            Required = true,
+            Description = "Enrolled Wi-Fi MAC of the selected stock device (AA:BB:CC:DD:EE:FF).",
+            CustomParser = result =>
+            {
+                if (result.Tokens.Count == 1 && Regex.IsMatch(
+                    result.Tokens[0].Value, @"\A(?:[0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}\z"))
+                {
+                    return result.Tokens[0].Value.ToUpperInvariant();
+                }
+
+                result.AddError("Provide an enrolled Wi-Fi MAC as six colon-separated hex octets.");
+                return null;
+            },
+        };
+        var repl = new Command("repl", "Open a foreground prompt for one selected stock device.");
+        repl.Options.Add(selectedPeripheral);
+        repl.Options.Add(wifiMac);
+        repl.SetAction((parse, cancellationToken) => runAsync(
+            new DeviceCommandRequest(
+                DeviceCommandOperation.Repl,
+                PeripheralId: parse.GetValue(selectedPeripheral),
+                WifiMac: parse.GetValue(wifiMac)),
+            cancellationToken));
+
         root.Subcommands.Add(start);
         root.Subcommands.Add(status);
         root.Subcommands.Add(move);
         root.Subcommands.Add(stop);
         root.Subcommands.Add(identify);
+        root.Subcommands.Add(repl);
         return root;
     }
 

@@ -16,4 +16,18 @@ if (args is ["__host", "--simulator-path", var simulatorPath, "--pipe-name", var
     }
 }
 
-return await DeviceCommand.InvokeAsync(args);
+using var cancellation = new CancellationTokenSource();
+ConsoleCancelEventHandler cancel = (_, eventArgs) =>
+{
+    eventArgs.Cancel = true;
+    cancellation.Cancel();
+};
+Console.CancelKeyPress += cancel;
+try
+{
+    return await DeviceCommand.InvokeAsync(args, DeviceCommandRunner.RunAsync, cancellation.Token);
+}
+finally
+{
+    Console.CancelKeyPress -= cancel;
+}

@@ -26,4 +26,9 @@ internal enum DeviceCommandOperation
     /// Reads the identity of an explicitly selected stock device.
     /// </summary>
     Identify,
+
+    /// <summary>
+    /// Enters the foreground device prompt.
+    /// </summary>
+    Repl,
 }

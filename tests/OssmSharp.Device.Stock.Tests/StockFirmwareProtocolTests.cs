@@ -347,6 +347,33 @@ public sealed class StockFirmwareProtocolTests
         Assert.DoesNotContain(payloads, payload => payload.Contains("state", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void MapNonzeroSpeedAfterOtherSettings()
+    {
+        var settings = new MotionSettings(
+            MotionDeviceState.StrokeEngineIdle,
+            25,
+            20,
+            50,
+            40,
+            0,
+            MotionPattern.SimpleStroke,
+            0);
+
+        var payloads = Request.FromMotionSettings(settings).Select(request => request.ToPayload());
+
+        Assert.Equal(
+            [
+                "set:stroke:20",
+                "set:sensation:50",
+                "set:depth:40",
+                "set:buffer:0",
+                "set:pattern:0",
+                "set:speed:25",
+            ],
+            payloads);
+    }
+
     [Theory]
     [InlineData(999, 10, 20, 40, 0, 0d)]
     [InlineData((int)MotionDeviceState.StrokeEngineIdle, 101, 20, 40, 0, 0d)]

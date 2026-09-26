@@ -10,6 +10,7 @@ namespace OssmSharp.Cli.Models;
 /// <param name="Depth">The requested depth.</param>
 /// <param name="Duration">The requested run duration.</param>
 /// <param name="PeripheralId">The selected stock-device locator.</param>
+/// <param name="WifiMac">The enrolled stock-device Wi-Fi MAC address.</param>
 internal sealed record DeviceCommandRequest(
     DeviceCommandOperation Operation,
     string? SimulatorPath = null,
@@ -17,4 +18,5 @@ internal sealed record DeviceCommandRequest(
     int Stroke = 20,
     int Depth = 50,
     TimeSpan Duration = default,
-    string? PeripheralId = null);
+    string? PeripheralId = null,
+    string? WifiMac = null);

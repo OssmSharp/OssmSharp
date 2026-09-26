@@ -1,4 +1,13 @@
 using System.Text.Json;
+using OssmSharp.Device.Runtime;
+#if WINDOWS
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using OssmSharp.Device.Stock;
+using Shiny;
+using Shiny.BluetoothLE;
+#endif
 
 namespace OssmSharp.Cli.Commands;
 
@@ -20,8 +29,9 @@ internal static class DeviceCommandRunner
     /// <returns>Zero on success; one on host or command failure.</returns>
     internal static Task<int> RunAsync(
         DeviceCommandRequest request,
-        CancellationToken cancellationToken) =>
-        RunAsync(
+        CancellationToken cancellationToken) => request.Operation == DeviceCommandOperation.Repl
+        ? RunStockReplAsync(request, Console.Out, Console.Error, cancellationToken)
+        : RunAsync(
             request,
             Console.Out,
             Console.Error,
@@ -72,6 +82,11 @@ internal static class DeviceCommandRunner
 
         try
         {
+            if (request.Operation == DeviceCommandOperation.Repl)
+            {
+                return await RunStockReplAsync(request, output, error, cancellationToken).ConfigureAwait(false);
+            }
+
             if (request.Operation == DeviceCommandOperation.Identify)
             {
 #if MACOS
@@ -136,6 +151,36 @@ internal static class DeviceCommandRunner
             await error.WriteLineAsync(exception.Message).ConfigureAwait(false);
             return 1;
         }
+    }
+
+    private static async Task<int> RunStockReplAsync(
+        DeviceCommandRequest request,
+        TextWriter output,
+        TextWriter error,
+        CancellationToken cancellationToken)
+    {
+#if WINDOWS
+        await using var services = new ServiceCollection()
+            .AddLogging()
+            .AddBluetoothLE()
+            .BuildServiceProvider();
+        return await ForegroundRepl.RunWithOwnershipAsync(
+            Console.In, output, error, DeviceOwnershipLock.TryAcquire,
+            () => new StockOssmDevice(
+                Options.Create(new DeviceRuntimeOptions()),
+                Options.Create(new StockBleOptions
+                {
+                    PeripheralId = request.PeripheralId!,
+                    ExpectedWifiMac = request.WifiMac!,
+                }),
+                services.GetRequiredService<IBleManager>(),
+                TimeProvider.System,
+                services.GetRequiredService<ILogger<StockOssmDevice>>()),
+            cancellationToken).ConfigureAwait(false);
+#else
+        return await ForegroundRepl.RunWithOwnershipAsync(
+            Console.In, output, error, DeviceOwnershipLock.TryAcquire, cancellationToken).ConfigureAwait(false);
+#endif
     }
 
     private static async Task<SimulatorIpcResponse> StartAsync(

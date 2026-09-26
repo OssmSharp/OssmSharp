@@ -27,8 +27,9 @@ internal sealed record Request
     /// <summary>
     /// Converts motion settings into the ordered stock-firmware setting commands.
     /// </summary>
+    /// <remarks>Changing the motion envelope requires a confirmed stop and a validated intermediate sequence before these commands are dispatched.</remarks>
     /// <param name="settings">The motion settings to validate and send.</param>
-    /// <returns>Commands for speed, stroke, sensation, depth, buffer, and pattern, in that order.</returns>
+    /// <returns>Commands for stroke, sensation, depth, buffer and pattern, with speed first when zero and last otherwise.</returns>
     /// <exception cref="InvalidDataException">The motion settings fail validation.</exception>
     public static IReadOnlyList<Request> FromMotionSettings(MotionSettings settings)
     {
@@ -43,15 +44,24 @@ internal sealed record Request
             throw new InvalidDataException("The motion settings are invalid.", exception);
         }
 
-        return
-        [
-            new("speed", settings.Speed),
-            new("stroke", settings.Stroke),
-            new("sensation", settings.Sensation),
-            new("depth", settings.Depth),
-            new("buffer", settings.Buffer),
-            new("pattern", (int)settings.Pattern),
-        ];
+        var requests = new List<Request>(6);
+        if (settings.Speed == 0)
+        {
+            requests.Add(new("speed", 0));
+        }
+
+        requests.Add(new("stroke", settings.Stroke));
+        requests.Add(new("sensation", settings.Sensation));
+        requests.Add(new("depth", settings.Depth));
+        requests.Add(new("buffer", settings.Buffer));
+        requests.Add(new("pattern", (int)settings.Pattern));
+
+        if (settings.Speed != 0)
+        {
+            requests.Add(new("speed", settings.Speed));
+        }
+
+        return requests;
     }
 
     /// <summary>

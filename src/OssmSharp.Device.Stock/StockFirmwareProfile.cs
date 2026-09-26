@@ -1,3 +1,5 @@
+using OssmSharp.Device.Stock.Models;
+
 namespace OssmSharp.Device.Stock;
 
 /// <summary>
@@ -36,6 +38,54 @@ internal static class StockFirmwareProfile
     /// Gets the pattern data characteristic identifier.
     /// </summary>
     internal static readonly Guid PatternData = Create("3010");
+
+    internal static DeviceInformation Verify(
+        string peripheralId,
+        string expectedWifiMac,
+        Guid service,
+        IReadOnlyCollection<Guid> characteristics,
+        ReadOnlySpan<byte> identityPayload,
+        ReadOnlySpan<byte> patternsPayload)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(peripheralId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(expectedWifiMac);
+        ArgumentNullException.ThrowIfNull(characteristics);
+
+        if (service != Service ||
+            !characteristics.Contains(Identity) ||
+            !characteristics.Contains(Command) ||
+            !characteristics.Contains(KnobConfiguration) ||
+            !characteristics.Contains(State) ||
+            !characteristics.Contains(Patterns) ||
+            !characteristics.Contains(PatternData))
+        {
+            throw new InvalidDataException("The required stock GATT surface is missing.");
+        }
+
+        if (identityPayload.Length is 0 or > 256 || patternsPayload.Length is 0 or > 4096)
+        {
+            throw new InvalidDataException("The stock identification payload exceeds its bounds.");
+        }
+
+        var identity = PairingIdentity.Parse(identityPayload);
+        if (!string.Equals(identity.WifiMac, expectedWifiMac, StringComparison.OrdinalIgnoreCase) ||
+            identity.Version != "1.0.34")
+        {
+            throw new InvalidDataException("The stock device does not match the enrolled identity and supported firmware.");
+        }
+
+        var patterns = PatternMetadata.Parse(patternsPayload);
+        if (!patterns.Any(pattern => pattern.Index == (int)MotionPattern.SimpleStroke))
+        {
+            throw new InvalidDataException("The stock device does not report Simple Stroke.");
+        }
+
+        return new DeviceInformation(
+            peripheralId,
+            "stock-ble-1.0.34",
+            identity.Version,
+            [MotionPattern.SimpleStroke]);
+    }
 
     private static Guid Create(string value) => new($"{Prefix}{value}{Suffix}");
 }

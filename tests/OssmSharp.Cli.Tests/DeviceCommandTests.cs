@@ -1,4 +1,6 @@
 using OssmSharp.Cli.Commands;
+using OssmSharp.Cli.Tests.Helpers;
+using OssmSharp.Device.Primitives.Models;
 
 namespace OssmSharp.Cli.Tests;
 
@@ -108,6 +110,272 @@ public sealed class DeviceCommandTests
         Assert.Equal(DeviceCommandOperation.Identify, request.Operation);
         Assert.Equal("selected-device", request.PeripheralId);
         Assert.Null(request.SimulatorPath);
+    }
+
+    [Fact]
+    public async Task ReplRequiresExplicitPeripheralAndEnrolledWifiMac()
+    {
+        DeviceCommandRequest? request = null;
+        var command = DeviceCommand.Create((value, _) =>
+        {
+            request = value;
+            return Task.FromResult(0);
+        });
+
+        Assert.NotEmpty(command.Parse(["repl"]).Errors);
+        Assert.NotEmpty(command.Parse(["repl", "--peripheral-id", "device-1"]).Errors);
+        Assert.NotEmpty(command.Parse(["repl", "--peripheral-id", "device-1", "--wifi-mac", "invalid"]).Errors);
+
+        var exitCode = await command.Parse([
+            "repl", "--peripheral-id", "device-1", "--wifi-mac", "AA:BB:CC:DD:EE:FF",
+        ]).InvokeAsync(cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(0, exitCode);
+        Assert.NotNull(request);
+        Assert.Equal(DeviceCommandOperation.Repl, request.Operation);
+        Assert.Equal("device-1", request.PeripheralId);
+        Assert.Equal("AA:BB:CC:DD:EE:FF", request.WifiMac);
+    }
+
+    [Fact]
+    public async Task ForegroundPromptRejectsMotionAndKeepsReadingUntilQuit()
+    {
+        using var input = new StringReader("help\nset --speed 25 --stroke 20 --depth 50 --pattern SimpleStroke\nstop\nacknowledge\nstatus\nquit\n");
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+
+        var exitCode = await ForegroundRepl.RunAsync(
+            input, output, error, TestContext.Current.CancellationToken);
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains("set", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("status", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("unavailable", error.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ForegroundPromptReturnsOnEofAfterInvalidInput()
+    {
+        using var input = new StringReader("set --speed 101 --stroke 20 --depth 50 --pattern SimpleStroke\n");
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+
+        var exitCode = await ForegroundRepl.RunAsync(
+            input, output, error, TestContext.Current.CancellationToken);
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains("101", error.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ForegroundPromptRefusesASecondDeviceOwner()
+    {
+        using var input = new StringReader("status\nquit\n");
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+
+        var exitCode = await ForegroundRepl.RunWithOwnershipAsync(
+            input, output, error, () => null, TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, exitCode);
+        Assert.Equal(string.Empty, output.ToString());
+        Assert.Contains("owned", error.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ForegroundPromptReportsOwnershipProvisioningFailure()
+    {
+        using var input = new StringReader("status\n");
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+
+        var exitCode = await ForegroundRepl.RunWithOwnershipAsync(
+            input, output, error,
+            () => throw new DirectoryNotFoundException("Provision the machine-wide device runtime directory."),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, exitCode);
+        Assert.Equal(string.Empty, output.ToString());
+        Assert.Contains("Provision the machine-wide", error.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ForegroundPromptReleasesItsLeaseAfterQuit()
+    {
+        using var input = new StringReader("help\nstatus\nquit\n");
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        using var lease = new MemoryStream();
+        using var device = new ReadOnlyTestDevice();
+
+        var exitCode = await ForegroundRepl.RunWithOwnershipAsync(
+            input, output, error, () => lease, () => device, TestContext.Current.CancellationToken);
+
+        Assert.Equal(0, exitCode);
+        Assert.False(lease.CanRead);
+        Assert.True(device.Disposed);
+        Assert.Contains("status", output.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ForegroundPromptCannotSucceedWithoutAConnectedDevice()
+    {
+        using var input = new StringReader("status\nquit\n");
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        using var lease = new MemoryStream();
+
+        var exitCode = await ForegroundRepl.RunWithOwnershipAsync(
+            input, output, error, () => lease, TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, exitCode);
+        Assert.False(lease.CanRead);
+        Assert.Contains("unavailable", error.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ForegroundPromptReportsVerifiedConnectionAndOnlyReportedFeedback()
+    {
+        using var input = new StringReader("status\nstop\nacknowledge\nquit\n");
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        using var lease = new MemoryStream();
+        using var device = new ReadOnlyTestDevice();
+
+        var exitCode = await ForegroundRepl.RunWithOwnershipAsync(
+            input, output, error, () => lease, () => device, TestContext.Current.CancellationToken);
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains("enrolled-device", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("Connected", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("1.0.34", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("SimpleStroke", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("No reported feedback", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("unavailable", error.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(0, device.Writes);
+        Assert.True(device.Disposed);
+        Assert.False(lease.CanRead);
+    }
+
+    [Fact]
+    public async Task ForegroundPromptRejectsFailedConnectionAndCleansUpBeforeReleasingOwnership()
+    {
+        using var input = new StringReader("status\nquit\n");
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        using var lease = new MemoryStream();
+        using var device = new ReadOnlyTestDevice(connects: false);
+        device.OnDispose = () => Assert.True(lease.CanRead);
+
+        var exitCode = await ForegroundRepl.RunWithOwnershipAsync(
+            input, output, error, () => lease, () => device, TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, exitCode);
+        Assert.Equal(string.Empty, output.ToString());
+        Assert.Contains("connection", error.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.True(device.Disposed);
+        Assert.False(lease.CanRead);
+    }
+
+    [Fact]
+    public async Task ForegroundPromptNeverCreatesADeviceWithoutOwnership()
+    {
+        using var input = new StringReader("status\nquit\n");
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+
+        var exitCode = await ForegroundRepl.RunWithOwnershipAsync(
+            input, output, error, () => null,
+            () => throw new InvalidOperationException("Device was constructed without a lease."),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, exitCode);
+        Assert.Equal(string.Empty, output.ToString());
+        Assert.Contains("owned", error.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ForegroundPromptDoesNotReleaseLeaseWhenConnectionCleanupFails()
+    {
+        using var input = new StringReader("quit\n");
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        using var lease = new MemoryStream();
+        using var device = new ReadOnlyTestDevice { FailDispose = true };
+
+        var failure = await Assert.ThrowsAsync<IOException>(() => ForegroundRepl.RunWithOwnershipAsync(
+            input, output, error, () => lease, () => device, TestContext.Current.CancellationToken));
+
+        Assert.Contains("did not settle", failure.Message, StringComparison.Ordinal);
+        Assert.True(lease.CanRead);
+        Assert.Equal(0, device.Writes);
+    }
+
+    [Fact]
+    public async Task ForegroundPromptRetainsTheFirstValidatedReportDuringConnection()
+    {
+        using var input = new StringReader("status\nquit\n");
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        using var lease = new MemoryStream();
+        using var device = new ReadOnlyTestDevice
+        {
+            InitialReport = new DeviceState
+            {
+                Timestamp = new DateTime(2026, 9, 26, 12, 0, 0, DateTimeKind.Utc),
+                MotionSettings = new MotionSettings(MotionDeviceState.StrokeEngineIdle, 25, 20, 50, 60, 0, MotionPattern.SimpleStroke, 10),
+                SessionId = Guid.Empty,
+            },
+        };
+
+        var exitCode = await ForegroundRepl.RunWithOwnershipAsync(
+            input, output, error, () => lease, () => device, TestContext.Current.CancellationToken);
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains("2026-09-26T12:00:00", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("effective speed 25%", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("velocity unknown", output.ToString(), StringComparison.Ordinal);
+        Assert.Equal(0, device.Writes);
+    }
+
+    [Fact]
+    public async Task ForegroundPromptReleasesItsLeaseOnEofAndCancellation()
+    {
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        using var eofLease = new MemoryStream();
+        using var eofInput = new StringReader(string.Empty);
+        using var eofDevice = new ReadOnlyTestDevice();
+
+        Assert.Equal(0, await ForegroundRepl.RunWithOwnershipAsync(
+            eofInput, output, error, () => eofLease, () => eofDevice, TestContext.Current.CancellationToken));
+        Assert.False(eofLease.CanRead);
+        Assert.True(eofDevice.Disposed);
+
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+        using var canceledLease = new MemoryStream();
+        using var canceledInput = new StringReader("status\n");
+        using var canceledDevice = new ReadOnlyTestDevice();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => ForegroundRepl.RunWithOwnershipAsync(
+            canceledInput, output, error, () => canceledLease, () => canceledDevice, cancellation.Token));
+        Assert.False(canceledLease.CanRead);
+        Assert.True(canceledDevice.Disposed);
+    }
+
+    [Fact]
+    public async Task InterruptedForegroundCommandReturnsCancellationExitCode()
+    {
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+
+        var exitCode = await DeviceCommand.InvokeAsync(
+            ["repl", "--peripheral-id", "device-1", "--wifi-mac", "AA:BB:CC:DD:EE:FF"],
+            (_, token) => Task.FromCanceled<int>(token),
+            cancellation.Token);
+
+        Assert.Equal(130, exitCode);
     }
 
     [Fact]
