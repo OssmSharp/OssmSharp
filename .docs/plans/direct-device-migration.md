@@ -2,6 +2,10 @@
 
 Date: 25 September 2026
 
+Priority revised: 26 September 2026. The critical path is project restructuring,
+stock device core, then a CLI control command sent to a real device over
+Bluetooth. Simulator work follows, then web integration, then remaining work.
+
 Status: implementation in progress. M0-M1 are complete for the local Windows
 instruction and project graph; M2-M3 are partial, and M4-M8 have not started
 their acceptance work. The
@@ -79,7 +83,8 @@ endpoint setting, without a compatibility alias.
   while DeviceBase lived in the stock project and consumed stock-named options.
   M1 extracted DeviceBase and neutralized its options; M3 subsequently changed
   the native bridge and managed adapter to loopback TCP. Cli has not followed.
-- Stock motion remains deferred. The existing conditional macOS/Shiny CLI path
+- Stock motion was deferred at baseline and is now the next core priority.
+  The existing conditional macOS/Shiny CLI path
   only identifies a device; it does not prove a stock motion implementation or
   physical qualification.
 - The old plan's passing test counts are historical. Establish a new focused
@@ -87,6 +92,47 @@ endpoint setting, without a compatibility alias.
   renamed tests or a successful solution build prove the new architecture.
 
 ## Ordered work
+
+### Critical path and first scenario
+
+This order supersedes the previous simulator-first schedule. Milestone IDs
+remain stable for historical evidence; their numbers no longer define order.
+
+1. **Project restructuring (M0-M1):** use the established Primitives, Runtime,
+  Stock and Cli boundaries. Finish only restructuring required by the stock
+  CLI path now; do not restart completed migrations or polish unrelated hosts.
+2. **Stock device core (M7, with the required M2 mechanics):** implement BLE
+  discovery/selection, connection, identity/service verification, command
+  writes, feedback and disconnect. Bring forward the Stock targeting and
+  provider-selection work needed from M6; full M6 acceptance is not a gate.
+3. **CLI control of the real device (M4):** compose that core into the CLI and
+  demonstrate the first scenario below. Do not substitute a read-only identify
+  command, simulator pass or build success for this result.
+4. **Simulator (M3):** complete independent transport and exercise the same CLI
+  against it after the stock CLI scenario. Retain existing simulator evidence.
+5. **Web integration (M5):** compose and verify the web consumers, including the
+  remaining web-specific M2 ownership/interruption integration.
+6. **Remaining work (M6, remaining qualification, M8):** complete the broader
+  platform/provider matrix, telemetry, AppHost arrangements and cutover.
+
+**First acceptance scenario:** start the CLI without simulator, web hosts or
+AppHost; discover/select the intended real device; connect over BLE and verify
+its identity and required GATT service; submit an explicit supported control
+command from the CLI; verify the stock provider sent the corresponding GATT
+write and record the device's response or observed state separately from local
+dispatch; then Stop and disconnect through the owning session. Discovery or
+identity reading alone is not completion. Record the OS, command and actual
+outcome; mocked transport checks cannot establish a real-device pass.
+
+Only prerequisites needed by this scenario belong on the critical path.
+Resolve shared command/Stop semantics in Stock/Runtime as part of M7/M2, not
+as a simulator project. Do not wait for full simulator, web, AppHost, telemetry
+export or cross-platform release acceptance to implement the stock CLI path.
+Required device checks remain with the commands they protect; broader release
+qualification is a separate result, not a reason to defer BLE implementation.
+Repository restrictions on agent-operated hardware remain an execution
+boundary: prepare the runnable command and report the precise blocked live
+check rather than redirecting implementation into simulator work.
 
 M0-M1 have local Windows evidence; M2-M3 are **in progress**; M4-M8 have not
 started their acceptance work. Each task includes its focused validation;
@@ -147,7 +193,8 @@ Runtime tests 40, Stock tests 151, CLI Identify tests 11, CLI simulator-host
 tests 17 and native Simulator integration tests 72. Focused Runtime, Simulator,
 then-ControlService and CLI builds passed on Windows. All 30 local solution
 projects resolve without cycles. CLI still references
-both Stock and Simulator; M6 must select one provider before restore. Stock's
+both Stock and Simulator; M7/M4 must bring forward M6's provider selection
+before restore for the stock CLI path. Stock's
 macOS-only identity reader was not compiled or tested on Windows.
 
 Web.Contracts now owns 25 public DTOs, including the operator projection and
@@ -261,6 +308,42 @@ Stock; Web.Api does not reference UI components. Existing behavior-scoped tests
 pass under new names. Verify direct and transitive references, not just source
 imports. Repository-rename publication is not performed here.
 
+### M7. Stock device core and BLE command transport
+
+Status: not started. This is the next implementation priority after M1, not
+a deferred post-simulator task. Existing identity codecs and the macOS-only
+identify path do not establish a working stock control provider.
+
+Depends on: M1. Implement the M2 runtime mechanics and M6 Stock host targeting,
+provider selection and restore isolation needed by this path within this phase.
+Neither full M2/M6 acceptance nor simulator or web completion is a prerequisite.
+
+Owner/scope: Device.Stock, Device.Primitives, Device.Runtime and the native
+targeting/composition needed by Cli. Keep Shiny and GATT details in Stock.
+
+Move the already approved/pinned Shiny integration out of Cli into Stock.
+Implement bounded discovery, explicit device selection, connection, live identity
+and required service/characteristic verification, supported control-command
+writes, state feedback and disconnect. Resolve the current host's native
+permissions, callbacks and lifecycle for the actual CLI, not a substitute host.
+Resolve Stop versus zero-speed configuration at the shared contract before
+implementing ambiguous writes. Preserve the stock profile, enrollment, strict
+codecs, observed-vs-requested values, knob scaling and between-write
+revocation/settlement requirements. Add no BLE helper process, guessed physical
+mapping or replacement firmware.
+
+Verification: deterministic tests at the existing BLE boundary must cover
+selection, failed connection/identity checks, exact supported GATT commands,
+feedback and cleanup. Compile the actual Stock-targeted CLI on the current
+native platform. Feed that working provider directly into M4; no simulator is
+required to prove the stock code path.
+
+Acceptance: Stock provides connection and control-command operations that the
+CLI can consume without web or simulator dependencies. M4 owns the first real
+CLI-to-device control-command scenario. Discovery/identity alone is insufficient.
+Record later native/physical release qualification separately; retain DC gates
+without postponing implementation until simulator or web acceptance.
+
 ### M2. Shared execution, ownership and interruption mechanics
 
 Status: in progress on 26 September 2026; **not accepted**. Runtime now owns a
@@ -284,7 +367,9 @@ stale-revision acknowledgement, shared Stop path and between-write revocation
 checks are not implemented. Existing CLI daemon and API disposal evidence
 cannot substitute for those requirements.
 
-Depends on: M1.
+Depends on: M1. Implement the mechanics needed by the stock command path with
+M7 before M4 uses them. Web projection, CLI/API competition and the full native
+platform acceptance matrix follow in M5/M6; they do not block stock-core coding.
 
 Owner/scope: DeviceBase and device options, DeviceOwnershipLock, common
 operation settlement/Stop coordination and semantic error publication.
@@ -331,6 +416,58 @@ Acceptance: one writer and shared exclusion in either consumer, no web-policy
 dependency in Runtime/Cli, zero-speed priority without concurrent I/O, no replay
 after interruption/reconnect, and explicit unknown outcomes on cleanup timeout.
 
+### M4. Interactive direct-device CLI and first real control command
+
+Status: not started. M1 renamed the executable and tests, but its daemon/IPC,
+launcher ownership, ASP.NET framework reference and both providers remain.
+The immediate deliverable is the stock BLE control path, not a simulator REPL.
+
+Depends on: M1 and M7's stock core, including the required M2 mechanics and
+Stock build configuration. No M3 or M5 dependency. Complete the first real
+control-command scenario before expanding simulator and web integration.
+
+Owner/scope: Cli entry point, DeviceCommand/runner, device selection/options and
+the existing DeviceCli unit/integration tests.
+
+Replace per-command daemon IPC with the design's foreground prompt. Keep one
+stock connection/lock across help, status, set, Stop and acknowledgement. Reuse
+pinned System.CommandLine parsing; commands have three numeric inputs and
+pattern, with provider capabilities and model validation enforced. Help/version
+require no connection. Invalid input returns to the prompt without sending work.
+Wire the selected Stock provider directly; do not require simulator startup,
+web credentials, web policy or AppHost. Use host-neutral Defaults and bring
+forward only the M6 composition/build work needed for this executable.
+
+First verify a CLI control command reaches the real device over BLE as defined
+above. Then complete the retained REPL lifecycle scenarios. Do not redefine the
+first result as scanning, identification, a mock write or simulator control.
+
+All handled exits share the five-second-default cleanup budget: stop intake,
+invalidate pending work, wait for issued I/O, attempt serialized zero, then
+disconnect and release ownership last. Only retry zero after actual settlement
+and within the budget. Report unconfirmed cleanup, preserve cancellation exit
+semantics and never background a replacement owner. Remove SimulatorHost/IPC
+and launcher code after replacement tests cover their surviving behavior; do
+not postpone that removal until the simulator is accepted.
+
+Verification: reuse DeviceCommandTests and DeviceCliProcessTests with a
+controlled BLE boundary for deterministic command/lifecycle cases, then record
+the actual native CLI-to-device command result. Cover multiple commands,
+supported patterns, rejected tuples, help, Stop retaining the prompt,
+acknowledgement without motion, EOF/quit/Ctrl+C, startup failure and
+blocked/unconfirmed Stop. Simulator process cases are a later M3 deliverable.
+
+Cover redirected line input without prompts, SIGTERM and macOS SIGHUP, and the
+supported Windows console-close path. Shortened OS termination deadlines must
+not start a second Stop writer or produce false confirmation. Use platform
+signal/console lifetime hooks, not asynchronous ProcessExit cleanup. Validate
+the current host first and record remaining native platform checks separately.
+
+Acceptance: the first real-device CLI control-command scenario is demonstrated;
+no Web.Application/Web.Client/ASP.NET/Aspire or simulator requirement on the
+Stock CLI path; no guest/session concepts or required web credentials; no
+successful stopping claim from write acknowledgement alone.
+
 ### M3. Independent simulator transport
 
 Status: in progress on 26 September 2026; **not end-to-end runnable or
@@ -368,7 +505,9 @@ question before dependent motion work. AppHost readiness only checks socket
 acceptance; unavailable-listener and handshake deadlines, exact 4 KiB CRLF
 framing, CLI/API client-exit zero and macOS behavior remain unverified.
 
-Depends on: M1; integrate ownership with M2 before end-to-end acceptance.
+Depends on: M4's first stock CLI control-command scenario. Reuse M1/M2 runtime
+and CLI work; preserve existing simulator progress but resume it after that
+scenario. M3 completion is not a prerequisite for Stock or Cli implementation.
 
 Owner/scope: tools/ossm-sim-bridge transport/framing/protocol, SimulatedDevice
 connection lifetime, options and native/.NET integration fixtures.
@@ -398,47 +537,6 @@ at zero. Kill only test-owned processes in teardown.
 Acceptance: runtime provider requires an endpoint, not an executable path; no
 adapter Process.Start/Kill or child job ownership; no BLE or web dependency.
 
-### M4. Interactive direct-device CLI
-
-Status: not started. M1 renamed the executable and tests, and the partial M2
-lock reaches its legacy simulator host; neither change supplies the direct
-foreground REPL. Daemon IPC, launcher ownership, the ASP.NET framework
-reference and both provider references remain. Current Cli cannot complete
-the TCP-only simulator path; do not use M1's old CLI passes as REPL evidence.
-
-Depends on: M2 and M3 for the simulator acceptance path.
-
-Owner/scope: Cli entry point, DeviceCommand/runner, device selection/options and
-the existing DeviceCli unit/integration tests.
-
-Replace per-command daemon IPC with the design's foreground prompt. Keep one
-connection/lock across help, status, set, Stop and acknowledgement. Reuse pinned
-System.CommandLine parsing; commands have three numeric inputs and pattern,
-with provider capabilities and model validation enforced. Help/version require
-no connection. Invalid input returns to the prompt without sending work.
-
-All handled exits share the five-second-default cleanup budget: stop intake,
-invalidate pending work, wait for issued I/O, attempt serialized zero, then
-disconnect and release ownership last. Only retry zero after actual settlement
-and within the budget. Report unconfirmed cleanup, preserve cancellation exit
-semantics and never background a replacement owner. Remove SimulatorHost/IPC
-and launcher code only after replacement tests cover their surviving behavior.
-
-Verification: reuse DeviceCommandTests and DeviceCliProcessTests; add real
-stdin/stdout REPL sessions against the independently started simulator. Cover
-multiple commands per process, all supported patterns, rejected tuples, help,
-Stop retaining the prompt, acknowledgement without motion, EOF/quit/Ctrl+C,
-startup failure and blocked/unconfirmed Stop. Do not require a web host.
-
-Cover redirected line input with no prompts, SIGTERM and macOS SIGHUP as well
-as the supported Windows console-close path. Shortened OS termination deadlines
-must not start a second Stop writer or produce a false confirmed result. Use
-platform signal/console lifetime hooks, not asynchronous ProcessExit cleanup.
-
-Acceptance: no Web.Application/Web.Client/ASP.NET/Aspire transitive dependency;
-no guest/session concepts or required web credentials; no successful stopping
-claim from write acknowledgement alone; simulator survives client exit.
-
 ### M5. Web application composition and protocol conformance
 
 Status: not started as a conformance task. M1 moved authority and controller
@@ -446,7 +544,8 @@ code into Web.Application and preserved focused hub/client tests, but the
 runtime interruption, shutdown and full browser/API acceptance cases below
 have not passed under the new transport and ownership model.
 
-Depends on: M2 and M3; M4 supplies the competing-owner acceptance executable.
+Depends on: M4's stock CLI scenario, then M3. Complete web-specific M2
+integration here; M4 supplies the competing-owner acceptance executable.
 
 Owner/scope: Web.Api, Web.Application, Web.Client, Web.Contracts and the two UI
 hosts. UI component design is not being changed.
@@ -491,7 +590,9 @@ Defaults from web hosting; the Cli still carries ASP.NET and both providers.
 Profile-specific restore/publish artifacts, Simulated/Actual launch profiles,
 collector-absent startup and configured export without Aspire remain unproved.
 
-Depends on: M1; finish after M4/M5 to validate both real consumers.
+Depends on: M5 for this remaining operational phase. The Stock CLI targeting,
+provider selection, isolated restore paths and host-neutral configuration needed
+by M7/M4 are delivered there first, not deferred behind full M6 acceptance.
 
 Owner/scope: Defaults, Web.ServiceDefaults, executable composition/options,
 build/publish properties, AppHost and launch/debug configurations.
@@ -533,31 +634,13 @@ Acceptance: each promised minimal artifact contains only required providers;
 Windows/macOS compatibility is evidenced separately; no stock-motion or hardware
 support claim is inferred from a portable simulator build.
 
-### M7. Stock-provider implementation and qualification boundary
-
-Status: not started. Stock motion and native/physical qualification remain
-deferred; hardware work requires separate explicit authorization.
-
-Depends on: M2/M6 for provider isolation and platform targeting. Hardware work
-requires separate explicit authorization; simulator migration can complete
-while physical release remains blocked.
-
-Move the already approved/pinned Shiny integration out of Cli into Stock.
-Resolve native platform permission/callback/lifecycle issues inside the actual
-owning Cli/Web.Api hosts before claiming support. Preserve the stock profile,
-enrollment, strict codecs, observed-vs-requested values, knob scaling and
-between-write revocation/settlement requirements. Implement no guessed physical
-mapping and add no BLE helper process or replacement firmware.
-
-Verification: deterministic protocol/provider tests first, selected-platform
-build evidence second; separately authorized unloaded hardware tests prove the
-DC qualification gates. Cached feedback has no periodic heartbeat: if the
-required evidence cannot be obtained, fail closed and keep physical use blocked
-rather than freshening caches or increasing timeouts to hide the problem.
-
-Acceptance: physical release remains gated until native execution, mappings,
-overrides and independent stopping are qualified. A deferred gate is not an
-open architecture choice and is not passed by this plan.
+Remaining physical release qualification: separately authorized unloaded
+hardware checks must prove the DC gates for native execution, mappings,
+overrides and independent stopping. Cached stock feedback has no periodic
+heartbeat; missing evidence must fail closed, not be hidden by freshened caches
+or increased timeouts. M4's first live control-command result is not full
+physical qualification. Record those outcomes separately without moving Stock
+implementation back behind simulator or web work.
 
 ### M8. Coordinated cutover, repository identity and documentation
 
@@ -567,7 +650,10 @@ simulator acceptance. Hosted repository rename, publication and deployment are
 separately authorized external writes. Coordinate the default log directory
 rename and preserve historical source links until cutover.
 
-Depends on: M1-M6 for simulator acceptance; M7 only for physical support claims.
+Depends on: the stock core and CLI scenario (M7/M4), then simulator (M3), web
+integration (M5) and remaining operational work (M6). Record broader physical
+qualification separately before physical release claims; no phase is accepted
+merely because the plan was reordered.
 
 Stop active owners with operator participation before cutover. Deploy coherent
 new executable/provider/configuration sets; do not migrate live motion, grants
@@ -599,6 +685,7 @@ that a code revert reverses device effects is permitted.
 
 | Supported arrangement | Required proof |
 | --- | --- |
+| **First: Cli + real Stock device over BLE** | Without simulator, web hosts or AppHost: select/connect to the intended device, submit a supported control command from the CLI, record the corresponding GATT write and real response/observed state, then Stop/disconnect. Discovery or identity alone does not pass. |
 | Cli + independently started simulator | No web/API/controller/AppHost dependency; persistent prompt; correct writes/status/interruption; strong Stop attempt on exit; simulator remains alive at zero. |
 | Web.Api + simulator, UIs absent | Startup and API role tests work without UI/AppHost; one controller/device lifetime; no direct guest adapter access. |
 | Full web + simulator | Existing invite/approve/send/Stop/limits/leave/cycle and interruption/acknowledgement scenarios survive moves. |
@@ -614,7 +701,8 @@ profiles, defaults, grant metadata, Join proof and WIP compatibility are decided
 in the design. M3 exposed one contract ambiguity: `SetMotionAsync` cannot
 unambiguously distinguish Stop from a zero-speed settings change after some
 external changes. Resolve the intended operation without guessing or weakening
-Stop before claiming M2/M3 conformance.
+Stop as part of M7/M2 before dependent stock writes; this is not a requirement
+to finish simulator work first.
 Platform behavior and physical stopping remain measured acceptance/release gates.
 
 Do not install packages, edit sibling checkouts, change firmware, create branches,

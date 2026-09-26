@@ -7,3 +7,5 @@
 2026-09-26 12:11:06 Started M3 fix for stale post-await simulator connection publications [id=4;task=code;arg=simulator;scope=OssmSharp.Device.Simulator]
 2026-09-26 12:13:04 Final diff review found no material issue; four focused lifecycle tests and all 89 SimulatedDeviceTests passed; git diff --check clean [id=4;task=review;arg=correctness;scope=OssmSharp.Device.Simulator]
 2026-09-26 12:13:04 Completed M3 stale post-await connection status fix [id=4;task=code;arg=simulator;scope=OssmSharp.Device.Simulator;finish;elapsed=1:58]
+2026-09-26 13:18:07 Started requested reorder: restructuring, Stock core, real CLI control, simulator, web, remaining work [id=5;task=plan;arg=critical-path;scope=ossm-web-controls]
+2026-09-26 13:38:37 Reordered milestone sections and dependencies; added real BLE CLI control as first acceptance scenario and aligned specification index; no runtime or hardware acceptance claimed [id=5;task=plan;arg=critical-path;scope=ossm-web-controls;finish;elapsed=20:30]

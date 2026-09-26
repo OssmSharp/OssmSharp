@@ -14,8 +14,12 @@ protocol fields, configuration keys and external dependency names remain
 explicit where they are part of a technical contract.
 
 The accepted MVP is one computer, one device, one local device user (the admin)
-and one explicitly approved remote guest. Simulator-first implementation and
-physical qualification gates remain. Earlier process-split decisions are
+and one explicitly approved remote guest. On 26 September 2026, the requester
+changed delivery priority to project restructuring, stock device core, then
+CLI control of a real device over Bluetooth. Simulator and web integration
+follow that first scenario; they are not prerequisites for it. Physical
+qualification gates remain separate from implementation order. Earlier
+process-split decisions are
 superseded by the direct-device design accepted on 25 September 2026; accepting
 that design does not establish implementation or authorize hardware operation.
 
