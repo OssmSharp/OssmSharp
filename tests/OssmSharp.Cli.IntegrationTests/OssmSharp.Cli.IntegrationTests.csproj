@@ -14,8 +14,6 @@
         <Using Include="Xunit" />
         <Using Include="OssmSharp.Device.Primitives.Models" />
         <Using Include="OssmSharp.Cli.Commands" />
-        <Using Include="OssmSharp.Cli.Models" />
         <Using Include="OssmSharp.Cli.Simulator" />
-        <Using Include="OssmSharp.Cli.Simulator.Ipc" />
     </ItemGroup>
 </Project>

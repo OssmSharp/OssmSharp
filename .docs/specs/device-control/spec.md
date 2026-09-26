@@ -294,10 +294,11 @@ must not require BLE caching, knob estimation, polling or a strategy/factory
 layer per method.
 
 - Lifetime must use standard .NET hosting and validated typed endpoint options.
-  The simulator process is started by the operator or optional development
-  AppHost, not by an adapter or CLI. Hosted-service and device-interface
-  registration must use the same connection instance. Disposal closes that
-  connection, never launches, kills or sends a process-shutdown operation.
+  `prompt --simulator <path>` starts a CLI-owned simulator child and stops it
+  after the device connection settles; Web.Api connects to a simulator started
+  by the operator or optional AppHost. Hosted-service and device-interface
+  registration must use the same connection instance. Adapter disposal closes
+  its connection and never launches, kills or sends process-shutdown commands.
 - Transport is UTF-8 JSON Lines over IPv4 loopback TCP with a 4 KiB frame bound
   and at most eight pending adapter requests. No wildcard/remote binding or
   fallback discovery is allowed. Private IDs correlate replies, not public

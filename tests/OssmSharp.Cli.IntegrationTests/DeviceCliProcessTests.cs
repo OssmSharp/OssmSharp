@@ -4,23 +4,22 @@ using System.Reflection;
 namespace OssmSharp.Cli.IntegrationTests;
 
 /// <summary>
-/// Checks the device CLI process exit and error output when simulator startup fails.
+/// Checks device CLI process errors before simulator startup.
 /// </summary>
 public sealed class DeviceCliProcessTests
 {
     [Fact]
-    public async Task StartReportsTheHostStartupFailure()
+    public async Task PromptRejectsUnavailableSimulatorBeforeConnecting()
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(10));
 
         var result = await InvokeAsync(
-            ["start", "--simulator-path", NonSimulatorPath()],
+            ["prompt", "--simulator", Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"))],
             timeout.Token);
 
-        Assert.Equal(1, result.ExitCode);
-        Assert.DoesNotContain("The simulator host is not running", result.Error, StringComparison.Ordinal);
-        Assert.NotEmpty(result.Error);
+        Assert.Equal(2, result.ExitCode);
+        Assert.Contains("absolute path to an existing simulator", result.Error, StringComparison.Ordinal);
     }
 
     private static async Task<(int ExitCode, string Output, string Error)> InvokeAsync(
@@ -59,7 +58,4 @@ public sealed class DeviceCliProcessTests
         return path;
     }
 
-    private static string NonSimulatorPath() => OperatingSystem.IsWindows()
-        ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "where.exe")
-        : "/usr/bin/false";
 }

@@ -73,7 +73,7 @@ not full physical qualification or evidence that all release gates have passed.
 | Scenario | Action and observable result |
 | --- | --- |
 | Start locally | Start the three web executables directly or use the optional simulated AppHost arrangement. AdminWeb displays the validated invitation automatically. Device control starts disarmed at zero; page load and invitation retrieval do not arm it. |
-| Use the software remote | Start Cli with Stock connection options for the real device, or independently start a simulator for the Simulator profile. One prompt retains the device connection and ownership lock across help, status, motion, Stop and quit. No web process or guest session exists. |
+| Use the software remote | Start Cli with Stock connection options for the real device, or select `prompt --simulator <path>` to start a CLI-owned simulator child. One prompt retains the device connection and ownership lock across help, status, motion, Stop and quit. No web process or guest session exists. |
 | Compete for ownership | CLI or Web.Api fails before device access when the other holds the machine-wide lock. It never steals ownership or silently starts another simulator. |
 | Exit the CLI | Quit, EOF, Ctrl+C and handled shutdown inhibit new motion, prioritize a bounded awaited Stop, disconnect and release the lock last. Report unconfirmed Stop rather than successful stopping. |
 | Admit and approve | A guest opens the invitation. Exactly one connection becomes pending. AdminWeb shows the waiting notice. **Allow control** approves that exact guest and arms only when stopped feedback and valid limits permit it. Motion still requires a new guest Send. |
@@ -93,7 +93,7 @@ inability. Firmware facts remain descriptive.
 
 | Component | Owns | Must not own |
 | --- | --- | --- |
-| `OssmSharp.Cli` executable | Interactive direct-device remote; validated commands; one connection and ownership lifetime | Web policy/controller, sessions, authentication, UI hosts or simulator process startup |
+| `OssmSharp.Cli` executable | Interactive direct-device remote; validated commands; one connection and ownership lifetime; simulator child lifecycle when explicitly selected by `--simulator` | Web policy/controller, sessions, authentication or UI hosts |
 | `OssmSharp.Web.AdminWeb` executable | Loopback-only admin Blazor UI, drafts and operator-scoped Web.Client | Authority, device instances or BLE permissions |
 | `OssmSharp.Web.GuestWeb` executable | Guest Blazor UI and guest-scoped Web.Client | Operator methods, policy or device access |
 | `OssmSharp.Web.Api` executable | SignalR endpoint, host-role enforcement, strict wire validation, delivery and composition of one application/controller/device lifetime | UI components or a second authority/writer |
@@ -342,8 +342,8 @@ Simulated also starts the native simulator as an independent resource and
 supplies its loopback endpoint. Actual selects the Stock build/profile and
 requires neither simulator assets nor Rust. AppHost never owns BLE or calls
 device operations. For Stock CLI development, start the Stock-targeted CLI
-directly; no simulator or AppHost is required. For the later Simulator profile,
-start the simulator independently and the CLI directly. Do not launch Web.Api
+directly; no simulator or AppHost is required. For a CLI Simulator session,
+`prompt --simulator <path>` starts its own child. Do not launch Web.Api
 as another device owner. A runtime launch profile does not replace provider
 selection before restore/publish.
 
@@ -363,8 +363,9 @@ change the plan's Stock CLI, then simulator, then web implementation order.
 
 Outside Aspire, start executables using standard .NET hosting and explicit
 configuration. No custom orchestrator is required. Device.Simulator only
-connects; the process starter, including AppHost in development, owns simulator
-shutdown. A client disconnect must leave the simulator process alive at zero.
+connects. The CLI owns a child started by `prompt --simulator <path>` and stops
+it after its device session; for Web.Api the operator or AppHost owns the
+independently started process, which survives an API client disconnect at zero.
 
 AdminWeb and GuestWeb must have distinct 256-bit service keys. AppHost may
 generate/inject these for development; without it, the admin supplies matching
@@ -742,8 +743,8 @@ rename inventory, repository-instruction updates and acceptance evidence. The
 [earlier extraction plan](../plans/web-control-implementation.md) is historical
 evidence only. Record behavior corrections separately from moves. First
 demonstrate a CLI control command to the real Stock device over BLE without
-web, simulator or AppHost. Then verify the independently started simulator
-with that CLI, web integration, and remaining packaging/telemetry work.
+web, simulator or AppHost. Then verify the CLI-owned simulator session, web
+integration with its independently started simulator, and remaining packaging/telemetry work.
 Later conformance rows are not prerequisites for implementing the first
 scenario. Preserve required command validation, ownership and cleanup checks.
 
@@ -770,7 +771,7 @@ runner. No browser or physical device is required for core conformance.
 | Web.Api and Web.Client | Service-role separation; closed schemas and envelope bounds; ordered initial/live push; unchanged projections do not republish; expired authority closes the guest connection; loss and cancellation do not revive motion |
 | Local host | Wrong Host and missing/foreign mutation Origin reject; listener overrides cannot expose AdminWeb; a second authority host cannot acquire device ownership; one-box startup works without external networking |
 | Controller/device | DC safeguards tested by reference: one writer, execution-time guards, Stop priority, unconfirmed I/O and paused recovery; adapter checks remain host-independent |
-| Cli and shared runtime | Stock BLE control from the persistent CLI without web/simulator/AppHost; complete tuple/pattern validation; CLI/API cross-process exclusion; interruption acknowledgment into paused; strong bounded Stop on all handled exits; later Simulator-profile client exit leaves its independent process alive at zero |
+| Cli and shared runtime | Stock BLE control from the persistent CLI without web/simulator/AppHost; complete tuple/pattern validation; CLI/API cross-process exclusion; interruption acknowledgment into paused; strong bounded Stop on all handled exits; Simulator-profile exit stops its CLI-owned child after device cleanup |
 | Packaging/defaults | Simulator publish has no BLE/native platform dependency; Stock has no simulator/Rust dependency; CLI has no ASP.NET/UI/Aspire/application-policy dependency; logs/export work without Aspire and startup works without a collector |
 | UI/components | OUI/GUI contracts, responsive keyboard order and focus, reduced motion, send/draft separation, freshness labels, clipboard fallback, connection-loss precedence and restart behavior |
 

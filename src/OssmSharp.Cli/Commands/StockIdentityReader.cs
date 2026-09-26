@@ -13,7 +13,7 @@ namespace OssmSharp.Cli.Commands;
 /// <summary>
 /// Reads the live stock identity of one selected macOS peripheral.
 /// </summary>
-internal static class StockIdentityReader
+internal partial static class StockIdentityReader
 {
     internal static async Task<string> ReadAsync(
         string? peripheralId,

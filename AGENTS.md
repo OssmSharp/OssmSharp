@@ -42,9 +42,11 @@
   interruption and machine-wide ownership mechanics without web policy or
   provider dependencies. `OssmSharp.Device.Primitives` must remain independent
   of hosting, defaults and providers; Simulator must not depend on Stock.
-- The simulator starter must own its process. The CLI and simulator adapter may
-  connect and disconnect but must not launch, own or terminate it. AppHost may
-  start the simulator for local development but must never own BLE.
+- With `prompt --simulator <path>`, the CLI starts and owns the specified
+  simulator process for its foreground session, stopping it after device cleanup.
+  Web.Api connects to an independently started simulator; the simulator adapter
+  never launches or terminates it. AppHost may start the web simulator for local
+  development but must never own BLE.
 - You must keep AdminWeb, GuestWeb and Web.Api as separate processes. Support
   CLI-only operation and Web.Api without UI hosts or AppHost. Web.Api and its
   device lifetime are intentionally coupled; do not claim an independent device

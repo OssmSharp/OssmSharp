@@ -3,6 +3,6 @@
 <plist version="1.0">
   <dict>
     <key>NSBluetoothAlwaysUsageDescription</key>
-    <string>Read the identity of an explicitly selected OSSM device.</string>
+    <string>Read the identity of a selected OSSM device.</string>
   </dict>
 </plist>

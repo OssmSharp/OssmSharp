@@ -3,9 +3,13 @@
     <OutputType>Exe</OutputType>
     <AssemblyName>OssmSharp.Cli</AssemblyName>
     <RootNamespace>OssmSharp.Cli</RootNamespace>
-    <TargetFramework Condition="'$(EnableStockBle)' == 'true' and $([MSBuild]::IsOSPlatform('OSX'))">net10.0-macos26.0</TargetFramework>
-    <TargetFramework Condition="'$(EnableStockBle)' == 'true' and $([MSBuild]::IsOSPlatform('Windows'))">net10.0-windows10.0.19041.0</TargetFramework>
     <ApplicationId Condition="'$(TargetFramework)' == 'net10.0-macos26.0'">org.ossm.devicecli</ApplicationId>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(EnableStockBle)' == 'true' and $([MSBuild]::IsOSPlatform('OSX'))">
+    <TargetFramework>net10.0-macos26.0</TargetFramework>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(EnableStockBle)' == 'true' and $([MSBuild]::IsOSPlatform('Windows'))">
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="System.CommandLine" />
@@ -17,12 +21,7 @@
     <ProjectReference Include="../OssmSharp.Device.Simulator/OssmSharp.Device.Simulator.csproj" />
     <Using Include="OssmSharp.Device.Primitives.Models" />
     <Using Include="OssmSharp.Cli.Commands" />
-    <Using Include="OssmSharp.Cli.Models" />
-    <Using Include="OssmSharp.Cli.Simulator" />
-    <Using Include="OssmSharp.Cli.Simulator.Ipc" />
-  </ItemGroup>
-  <ItemGroup>
-    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <Using Include="System.CommandLine" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="OssmSharp.Cli.Tests" />

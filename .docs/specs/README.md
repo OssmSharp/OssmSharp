@@ -49,8 +49,9 @@ This design contract does not establish runtime migration acceptance.
 	local admin can acknowledge it, into paused state. In the CLI this is an
 	explicit local command, not a call to an admin website.
 - `Device.Stock` and `Device.Simulator` implement the same device contract.
-	Provider-specific packages are isolated by build/publish profiles. Neither
-	the CLI nor the simulator adapter starts, owns or terminates the simulator.
+	Provider-specific packages are isolated by build/publish profiles. With
+	`prompt --simulator <path>`, the CLI owns the simulator child for that prompt;
+	Web.Api uses an independently started simulator. Neither adapter owns a process.
 - `Defaults` configures shared host-neutral logging and telemetry;
 	`Web.ServiceDefaults` adds web-only defaults. Neither requires Aspire, its
 	dashboard or a running collector. Device primitives depend on neither.
@@ -65,12 +66,13 @@ adapter-owned simulator child-process arrangement. Existing requirement IDs
 remain; the owning documents distinguish web policy from direct CLI mechanics.
 
 Migration acceptance must exercise the CLI with every web executable and
-AppHost absent, first controlling the real Stock device over BLE and later the
-independent simulator. Web integration follows, including API operation without
+AppHost absent, first controlling the real Stock device over BLE and later a
+CLI-owned simulator child. Web integration follows, including API operation without
 either UI host or AppHost. The migration plan owns this sequence; provider
 defaults do not change it. Verify configured
 logging/telemetry, provider dependency isolation, cross-process exclusion,
-latched interruption, shutdown Stop attempts and independent simulator lifetime.
+latched interruption, shutdown Stop attempts, CLI-owned child cleanup and
+independent Web.Api simulator lifetime.
 Documentation changes and compilation do not establish these outcomes.
 
 ## Specification owners

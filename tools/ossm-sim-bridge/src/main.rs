@@ -3,6 +3,7 @@ mod transport;
 
 use std::{
     ffi::{OsStr, OsString},
+    io::Write,
     net::{Ipv4Addr, SocketAddrV4, TcpListener},
     sync::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -75,6 +76,8 @@ async fn run_adapter(listener: &TcpListener) -> Result<(), &'static str> {
     model.handle(Request { id: 0, operation: Operation::Disconnect }, Instant::now());
     let mut engine = Engine::new(model.controls);
     let motion = tokio::spawn(run_motion());
+    writeln!(std::io::stdout(), "ready").map_err(|_| "ready_failed")?;
+    std::io::stdout().flush().map_err(|_| "ready_failed")?;
     let result = serve(listener, &mut model, &mut engine, &motion).await;
     Engine::disable();
     motion.abort();

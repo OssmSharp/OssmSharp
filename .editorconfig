@@ -7,6 +7,7 @@ indent_size = 2
 end_of_line = crlf
 insert_final_newline = true
 trim_trailing_whitespace = true
+max_line_length = 150
 
 [*.{sh,bash,zsh}]
 end_of_line = lf
@@ -18,7 +19,7 @@ end_of_line = lf
 end_of_line = lf
 
 [*.md]
-max_line_length = 80
+max_line_length = 100
 
 [*.cs]
 indent_size = 4
@@ -191,7 +192,7 @@ dotnet_diagnostic.IDE0028.severity = suggestion # Use collection initializers
 dotnet_diagnostic.IDE0029.severity = suggestion # Null check can be simplified
 dotnet_diagnostic.IDE0031.severity = suggestion # Use null propagation
 dotnet_diagnostic.IDE0034.severity = suggestion # Simplify default expression
-dotnet_diagnostic.IDE0040.severity = suggestion # Add accessibility modifiers
+dotnet_diagnostic.IDE0040.severity = none       # Add accessibility modifiers
 dotnet_diagnostic.IDE0044.severity = suggestion # Add readonly modifier
 dotnet_diagnostic.IDE0051.severity = suggestion # Remove unused private member
 dotnet_diagnostic.IDE0063.severity = suggestion # Use simple using statement

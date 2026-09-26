@@ -3,9 +3,9 @@
 Control the OSSM-RS simulator from a browser. **Local only: no physical device
 or remote access.** Use admin and guest tabs on the same computer.
 
-This M3-to-M4 transition is not a deployable release: the web adapter now
-connects to a separately started TCP simulator, but the CLI still uses its old
-simulator host and cannot operate against the new bridge until M4.
+This M3-to-M4 transition is not a deployable release. Web.Api connects to a
+separately started TCP simulator; the CLI starts its own simulator process only
+for an explicit `prompt --simulator` session. Neither path is physically qualified.
 
 ## Quick start
 
@@ -37,16 +37,17 @@ The device API currently has four independently buildable libraries:
 - `OssmSharp.Device.Primitives` contains `IOssmDevice` and immutable device models.
 - `OssmSharp.Device.Runtime` contains the shared `DeviceBase`, options and
   device lifecycle logging; shared ownership and interruption mechanics remain planned.
-- `OssmSharp.Device.Stock` contains the stock protocol codecs and the stock-firmware
-  `StockOssmDevice` transport placeholder.
+- `OssmSharp.Device.Stock` contains stock protocol codecs and a read-only BLE
+  connection; physical motion writes remain unavailable.
 - `OssmSharp.Device.Simulator` contains the loopback TCP `SimulatedDevice` adapter.
 
 These libraries do not depend on Web.Application, Aspire, or either web host.
 `OssmSharp.Cli` is the only CLI; it uses the device libraries directly,
 not Web.Api.
 
-`OssmSharp.Device.Simulator` connects to an independently started
+`OssmSharp.Device.Simulator` connects to an
 [`ossm-sim-bridge`](tools/ossm-sim-bridge/README.md) on IPv4 loopback. The
+CLI prompt starts and owns one bridge process; Web.Api uses an independent one. The
 library boundary is not a published package, a remotely exposed service, or
 physical-device qualification. See the
 [device-control specification](.docs/specs/device-control/spec.md) for the
@@ -67,8 +68,28 @@ Configure a separately started Web.Api with
 keys, guest origin, and listener settings. Disconnecting the adapter leaves
 the simulator running at zero speed; stop the native process in its terminal.
 AppHost can start the listener for local web development, but the API does not
-require AppHost. The old CLI `start`/`status`/`move`/`stop` workflow is unavailable
-until the M4 interactive CLI migration. This remains a software-only path.
+require AppHost. The old CLI daemon and named-pipe commands have been removed.
+
+### Simulator CLI prompt
+
+Build the bridge, then start a CLI-owned simulator session from the repository
+root. The machine-wide `OssmSharp/runtime` ownership directory must already be
+provisioned for the operator under Windows CommonApplicationData or macOS
+`/Library/Application Support`.
+
+```powershell
+cargo build --locked --release --manifest-path tools/ossm-sim-bridge/Cargo.toml
+$bridge = if ($IsWindows) { 'ossm-sim-bridge.exe' } else { 'ossm-sim-bridge' }
+$path = (Resolve-Path "tools/ossm-sim-bridge/target/release/$bridge").Path
+dotnet run --project src/OssmSharp.Cli/OssmSharp.Cli.csproj -- prompt --simulator $path
+```
+
+Inside the prompt, use `status`, `set --speed 12 --stroke 20 --depth 50
+--pattern SimpleStroke`, `stop`, and `quit`. The CLI attempts a serialized zero
+before closing the device, then stops only the simulator process it started.
+Write settlement is not independent proof of motion or physical stopping.
+The native and CLI projects have built, but the new session has not been run
+or qualified on a live device in this checkpoint.
 
 ### Real-device CLI (read-only preview)
 
@@ -84,7 +105,7 @@ With .NET 10, the `macos` workload and a full Xcode installation selected
 (Command Line Tools alone are insufficient), the intended command is:
 
 ```sh
-dotnet run --project src/OssmSharp.Cli/OssmSharp.Cli.csproj --property:EnableStockBle=true -- identify
+dotnet run --project src/OssmSharp.Cli/OssmSharp.Cli.csproj --property:EnableStockBle=true -- device get
 ```
 
 The command lists `Device name (platform ID)` with numbers, then asks for a

@@ -25,8 +25,9 @@ or service client. A machine-wide lock excludes concurrent owners; detected
 external changes latch an interruption requiring explicit local acknowledgement
 into paused state. Neither acknowledgement nor reconnect resumes motion.
 
-The simulator is independently started and uses bounded JSONL over loopback
-TCP. Its adapter does not own the process. Stock and Simulator are alternative
+The CLI starts its simulator child only for an explicit `prompt --simulator <path>`
+session; Web.Api uses an independently started simulator. Both use bounded JSONL
+over loopback TCP, and neither adapter owns a process. Stock and Simulator are alternative
 build/publish profiles, selected before restore, and DI configures the one
 available provider. Defaults is host-neutral; Web.ServiceDefaults adds web
 hosting. AppHost is development/test convenience only. API/device lifetimes are
@@ -559,11 +560,11 @@ so a delayed helper continuation cannot overwrite a newer transition. The
 focused `SimulatedDeviceTests` file passed 89/89, including frozen-feedback,
 disconnect and reconnect cases.
 
-Cli still uses the obsolete per-user daemon/executable-path flow, and a
-temporary `SimulatedDeviceOptions.ExecutablePath` member remains only to keep
-that incomplete consumer compiling. It is not a working fallback for the
-TCP-only bridge and must be removed with the legacy CLI path in M4, before
-resuming M3. This is recorded debt, not a working path to restore. Stop versus an
+The historical CLI daemon/executable-path flow has been replaced with an
+explicit CLI-owned simulator child and foreground prompt. This implementation
+has compiled on Windows but has not run or passed the simulator CLI acceptance
+scenario. The temporary `SimulatedDeviceOptions.ExecutablePath` member remains
+debt until its remaining consumers are removed. Stop versus an
 intentional zero-speed configuration write is indistinguishable after some
 external changes under the current device contract. Resolve that contract
 question before dependent motion work. AppHost readiness only checks socket
@@ -772,7 +773,7 @@ that a code revert reverses device effects is permitted.
 | Supported arrangement | Required proof |
 | --- | --- |
 | **First: Cli + real Stock device over BLE** | Without simulator, web hosts or AppHost: select/connect to the intended device, submit a supported control command from the CLI, record the corresponding GATT write and real response/observed state, then Stop/disconnect. Discovery or identity alone does not pass. |
-| Cli + independently started simulator | No web/API/controller/AppHost dependency; persistent prompt; correct writes/status/interruption; strong Stop attempt on exit; simulator remains alive at zero. |
+| Cli + CLI-owned simulator child | No web/API/controller/AppHost dependency; persistent prompt; correct writes/status/interruption; strong Stop attempt on exit; stop the child after device cleanup while retaining ownership until settled. |
 | Web.Api + simulator, UIs absent | Startup and API role tests work without UI/AppHost; one controller/device lifetime; no direct guest adapter access. |
 | Full web + simulator | Existing invite/approve/send/Stop/limits/leave/cycle and interruption/acknowledgement scenarios survive moves. |
 | Cli and Web.Api competing | Exactly one acquires the same machine-wide lease before device I/O, including shutdown and owner crash cases. |

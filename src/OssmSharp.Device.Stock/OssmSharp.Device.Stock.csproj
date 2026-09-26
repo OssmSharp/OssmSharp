@@ -2,8 +2,12 @@
   <PropertyGroup>
     <AssemblyName>OssmSharp.Device.Stock</AssemblyName>
     <RootNamespace>OssmSharp.Device.Stock</RootNamespace>
-    <TargetFramework Condition="'$(EnableStockBle)' == 'true' and $([MSBuild]::IsOSPlatform('Windows'))">net10.0-windows10.0.19041.0</TargetFramework>
-    <TargetFramework Condition="'$(EnableStockBle)' == 'true' and $([MSBuild]::IsOSPlatform('OSX'))">net10.0-macos26.0</TargetFramework>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(EnableStockBle)' == 'true' and $([MSBuild]::IsOSPlatform('Windows'))">
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(EnableStockBle)' == 'true' and $([MSBuild]::IsOSPlatform('OSX'))">
+    <TargetFramework>net10.0-macos26.0</TargetFramework>
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="OssmSharp.Device.Stock.Tests" />

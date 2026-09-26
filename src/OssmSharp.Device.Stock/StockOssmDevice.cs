@@ -1,8 +1,8 @@
+using System.ComponentModel.DataAnnotations;
+using System.Text;
 using Microsoft.Extensions.Options;
 using OssmSharp.Device.Runtime;
 using OssmSharp.Device.Stock.Models;
-using System.ComponentModel.DataAnnotations;
-using System.Text;
 
 namespace OssmSharp.Device.Stock;
 
