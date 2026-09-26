@@ -5,7 +5,7 @@ with all application authority in one testable library and one device owner.
 
 ## Status and scope
 
-**Status: accepted architecture, 25 September 2026; migration not implemented.**
+**Status: accepted architecture, 25 September 2026; migration in progress.**
 The requester accepted the single-computer direct-device model and an
 interactive CLI, replacing the earlier separate device-service proposal. The
 device user is the local admin; the MVP has one device and one remote guest.
@@ -20,9 +20,13 @@ web device ownership; that shared lifetime is an accepted MVP trade-off.
 
 The audience is application/UI implementers, device-library maintainers and the
 admin configuring the computer. The detailed choices below close the design
-questions; physical/platform claims remain subject to evidence. Only design
-documentation and migration planning are authorized now, not implementation,
-dependencies, deployment or hardware operation.
+questions; physical/platform claims remain subject to evidence. Implementation
+proceeds under the requester's separate authorization; this design does not
+grant new dependency, deployment or hardware-operation authorization. The
+[migration plan](../plans/direct-device-migration.md#critical-path-and-first-scenario)
+owns task order and recorded progress: restructuring, Stock device core, CLI
+control of the real device, simulator, web integration, then remaining work.
+Task-specific instructions stay in that plan, not persistent repository rules.
 
 Related contracts are the [specification index](README.md),
 [device execution requirements](device-control/spec.md) and
@@ -61,13 +65,15 @@ Non-goals are REST control endpoints, a standalone ControlService, a device
 service client in the CLI, accounts, persistent sessions, multiple
 computers/devices/guests, automatic remote exposure, a plug-in framework, a new
 command bus, another motion engine or physical qualification in this migration.
+The first real-device CLI command is a separately authorized functional check,
+not full physical qualification or evidence that all release gates have passed.
 
 ## Scenarios
 
 | Scenario | Action and observable result |
 | --- | --- |
 | Start locally | Start the three web executables directly or use the optional simulated AppHost arrangement. AdminWeb displays the validated invitation automatically. Device control starts disarmed at zero; page load and invitation retrieval do not arm it. |
-| Use the software remote | Start the simulator independently, then start Cli with provider options. One prompt retains the device connection and ownership lock across help, status, motion, Stop and quit. No web process or guest session exists. |
+| Use the software remote | Start Cli with Stock connection options for the real device, or independently start a simulator for the Simulator profile. One prompt retains the device connection and ownership lock across help, status, motion, Stop and quit. No web process or guest session exists. |
 | Compete for ownership | CLI or Web.Api fails before device access when the other holds the machine-wide lock. It never steals ownership or silently starts another simulator. |
 | Exit the CLI | Quit, EOF, Ctrl+C and handled shutdown inhibit new motion, prioritize a bounded awaited Stop, disconnect and release the lock last. Report unconfirmed Stop rather than successful stopping. |
 | Admit and approve | A guest opens the invitation. Exactly one connection becomes pending. AdminWeb shows the waiting notice. **Allow control** approves that exact guest and arms only when stopped feedback and valid limits permit it. Motion still requires a new guest Send. |
@@ -335,19 +341,25 @@ configurations, defaulting to Simulated. It starts the three web executables;
 Simulated also starts the native simulator as an independent resource and
 supplies its loopback endpoint. Actual selects the Stock build/profile and
 requires neither simulator assets nor Rust. AppHost never owns BLE or calls
-device operations. For CLI-only development, start the simulator independently
-and the CLI directly; do not launch Web.Api as another device owner. A runtime
-launch profile does not replace provider selection before restore/publish.
+device operations. For Stock CLI development, start the Stock-targeted CLI
+directly; no simulator or AppHost is required. For the later Simulator profile,
+start the simulator independently and the CLI directly. Do not launch Web.Api
+as another device owner. A runtime launch profile does not replace provider
+selection before restore/publish.
 
 Use the MSBuild property `DeviceProvider=Simulator|Stock`, default Simulator,
-consistently across a solution restore/build. Establish profile-specific
+consistently across each selected project's dependency graph during restore/
+build. The default is configuration behavior, not implementation priority:
+the first CLI scenario explicitly selects Stock. Stock/CLI development does
+not require whole-solution, Web.Api or AppHost Stock acceptance. Establish profile-specific
 artifacts and intermediate/restore directories before SDK evaluation; for
 example, separate `artifacts/Simulator` and `artifacts/Stock` trees retain their
 own project.assets.json and generated files. Never use no-restore outputs from
 another profile. The Actual run/debug configuration invokes a Stock build of
 AppHost and its provider-consuming projects; runtime options must match that
 build. CI builds/tests both profiles on Windows and macOS where native tooling
-is required; simulator acceptance does not wait for physical qualification.
+is required. Broader physical release qualification is separate; it does not
+change the plan's Stock CLI, then simulator, then web implementation order.
 
 Outside Aspire, start executables using standard .NET hosting and explicit
 configuration. No custom orchestrator is required. Device.Simulator only
@@ -724,13 +736,16 @@ selection or clearance and does not replace physical qualification obligations.
 
 ## Delivery and verification
 
-Implementation is subsequent work. The
+Implementation is in progress under separate authorization. The
 [migration plan](../plans/direct-device-migration.md) owns the ordered tasks,
 rename inventory, repository-instruction updates and acceptance evidence. The
 [earlier extraction plan](../plans/web-control-implementation.md) is historical
-evidence only. Record behavior corrections separately from moves. Completion
-requires a CLI with no web dependencies and independently started simulator,
-plus the API path and configured telemetry working without AppHost.
+evidence only. Record behavior corrections separately from moves. First
+demonstrate a CLI control command to the real Stock device over BLE without
+web, simulator or AppHost. Then verify the independently started simulator
+with that CLI, web integration, and remaining packaging/telemetry work.
+Later conformance rows are not prerequisites for implementing the first
+scenario. Preserve required command validation, ownership and cleanup checks.
 
 Restart during cutover discards authority and starts paused/disarmed; it must
 not migrate live sessions or resume accepted input. Reverting packaging likewise
@@ -755,7 +770,7 @@ runner. No browser or physical device is required for core conformance.
 | Web.Api and Web.Client | Service-role separation; closed schemas and envelope bounds; ordered initial/live push; unchanged projections do not republish; expired authority closes the guest connection; loss and cancellation do not revive motion |
 | Local host | Wrong Host and missing/foreign mutation Origin reject; listener overrides cannot expose AdminWeb; a second authority host cannot acquire device ownership; one-box startup works without external networking |
 | Controller/device | DC safeguards tested by reference: one writer, execution-time guards, Stop priority, unconfirmed I/O and paused recovery; adapter checks remain host-independent |
-| Cli and shared runtime | Persistent prompt without any web executable; complete tuple/pattern validation; CLI/API cross-process exclusion; interruption acknowledgment into paused; strong bounded Stop on all handled exits; simulator remains alive at zero |
+| Cli and shared runtime | Stock BLE control from the persistent CLI without web/simulator/AppHost; complete tuple/pattern validation; CLI/API cross-process exclusion; interruption acknowledgment into paused; strong bounded Stop on all handled exits; later Simulator-profile client exit leaves its independent process alive at zero |
 | Packaging/defaults | Simulator publish has no BLE/native platform dependency; Stock has no simulator/Rust dependency; CLI has no ASP.NET/UI/Aspire/application-policy dependency; logs/export work without Aspire and startup works without a collector |
 | UI/components | OUI/GUI contracts, responsive keyboard order and focus, reduced motion, send/draft separation, freshness labels, clipboard fallback, connection-loss precedence and restart behavior |
 
@@ -778,7 +793,7 @@ Software conformance must never be presented as hardware safety.
 | How are providers selected? | Stock/Simulator build profiles prune references before restore; typed options configure the one available provider. Missing/unavailable provider is a startup error. |
 | What does the rename include? | Repository identity, solution/workspace, project/folder/assembly/package names, namespaces, tests, friend assemblies and owned documentation links. Do not rename stock protocol fields/UUIDs, external packages or the ossm-rs engine. |
 | What compatibility is required? | None for this WIP. Update consumers/configuration together, remove superseded paths, and retain no aliases or legacy daemon/stdio interface. |
-| Can implementation start? | No. This change publishes design and a migration plan only. Repository instructions are updated in the first separately authorized implementation task. |
+| Can implementation start? | The original design-only restriction was superseded by the requester's separate implementation authorization. M0 records the instruction alignment; the migration plan owns order and acceptance. Hardware operation and new dependencies remain separately authorized. |
 
 ### Resolved direction and review
 

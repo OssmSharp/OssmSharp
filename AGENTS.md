@@ -125,10 +125,13 @@
 - Browser and Blazor state must be treated as untrusted; neither may authorize motion.
 - You must use one-box, accountless capabilities and one-click invitations;
   you must not add accounts, a database or cloud services.
-- You must reuse `ossm-rs`'s `ossm-motion` through the independently started
-  simulator, without making the adapter its process owner.
-- You must work in the simulator only; you must not edit sibling repositories,
-  flash firmware, or perform hardware or physical qualification.
+- For the Simulator provider, you must reuse `ossm-rs`'s `ossm-motion` through
+  the independently started simulator, without making the adapter its process
+  owner. This does not require the Stock provider or CLI to use a simulator.
+- You must not operate physical hardware or perform physical qualification
+  without separate explicit authorization. This restriction does not prohibit
+  implementing device-provider software or testing it with deterministic BLE
+  fakes. You must not edit sibling repositories or flash firmware.
 - Stop and interruption must override pending input. Runtime must own the only
   interruption latch and revision; Web.Application may project but not independently
   clear it. Only the local admin may acknowledge a detected physical override,
@@ -173,11 +176,9 @@
 - You must update these paths when the solution and test projects are renamed.
 - You must never remove failing tests or claim unrun checks passed witout justification.
 - Before claiming the direct-device migration is implemented, verify the
-  [acceptance matrix](.docs/plans/direct-device-migration.md#acceptance-matrix):
-  CLI with only the independently started simulator, Web.Api without UI hosts,
-  full web control, CLI/Web.Api cross-process lock competition, selected-provider
-  artifacts and logging/telemetry without Aspire. Verify that CLI exit leaves
-  the simulator alive at zero; record stock and physical qualification separately.
+  [acceptance matrix](.docs/plans/direct-device-migration.md#acceptance-matrix).
+  Record software conformance, live device observations and physical
+  qualification separately; simulator results do not prove Stock behavior.
 - You must separate test projects into unit tests and integration tests, with
   shared test helpers. Integration test projects must be named with the assembly
   they're testing followed by ".IntegrationTests". Unit test projects the same, but

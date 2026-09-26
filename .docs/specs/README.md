@@ -19,8 +19,8 @@ changed delivery priority to project restructuring, stock device core, then
 CLI control of a real device over Bluetooth. Simulator and web integration
 follow that first scenario; they are not prerequisites for it. Physical
 qualification gates remain separate from implementation order. Earlier
-process-split decisions are
-superseded by the direct-device design accepted on 25 September 2026; accepting
+process-split decisions are superseded by the direct-device design accepted on
+25 September 2026; accepting
 that design does not establish implementation or authorize hardware operation.
 
 ## Accepted runtime boundaries
@@ -65,7 +65,10 @@ adapter-owned simulator child-process arrangement. Existing requirement IDs
 remain; the owning documents distinguish web policy from direct CLI mechanics.
 
 Migration acceptance must exercise the CLI with every web executable and
-AppHost absent, and the API without either UI host or AppHost. Verify configured
+AppHost absent, first controlling the real Stock device over BLE and later the
+independent simulator. Web integration follows, including API operation without
+either UI host or AppHost. The migration plan owns this sequence; provider
+defaults do not change it. Verify configured
 logging/telemetry, provider dependency isolation, cross-process exclusion,
 latched interruption, shutdown Stop attempts and independent simulator lifetime.
 Documentation changes and compilation do not establish these outcomes.
