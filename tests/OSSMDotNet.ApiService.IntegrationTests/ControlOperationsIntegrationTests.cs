@@ -1,5 +1,5 @@
-using OSSMDotNet.ControlCore.Tests;
-using OSSMDotNet.Models;
+using OssmSharp.Web.Application.Models;
+using OssmSharp.Web.Application.Tests;
 
 namespace OSSMDotNet.ApiService.IntegrationTests;
 

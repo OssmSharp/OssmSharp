@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Options;
 using OSSMDotNet.ApiService;
-using OSSMDotNet.ControlService.Models;
-using OSSMDotNet.ServiceDefaults;
+using OssmSharp.Web.Application.Models;
+using OssmSharp.Web.ServiceDefaults;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();

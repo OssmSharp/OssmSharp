@@ -265,8 +265,8 @@ public sealed class ApiProcessOwnershipTests
 
     private static string ApiAssemblyPath()
     {
-        var path = Path.Combine(AppContext.BaseDirectory, "OSSMDotNet.ApiService.dll");
-        Assert.True(File.Exists(path), "The ApiService project output must be available to this integration test.");
+        var path = Path.Combine(AppContext.BaseDirectory, "OssmSharp.Web.Api.dll");
+        Assert.True(File.Exists(path), "The Web.Api project output must be available to this integration test.");
         return path;
     }
 

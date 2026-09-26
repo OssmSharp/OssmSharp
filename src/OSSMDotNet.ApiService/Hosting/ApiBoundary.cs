@@ -1,4 +1,4 @@
-using OSSMDotNet.ControlService.Models;
+using OssmSharp.Web.Application.Models;
 
 namespace OSSMDotNet.ApiService.Hosting;
 

@@ -5,12 +5,13 @@
   <ItemGroup>
     <ProjectReference Include="../OSSMDotNet.ControlCore/ControlCore.csproj" />
     <ProjectReference
-      Include="../OSSMDotNet.Abstractions/OSSMDotNet.Abstractions.csproj" />
-    <ProjectReference Include="../OSSMDotNet/OSSMDotNet.csproj" />
+      Include="../OssmSharp.Device.Primitives/OssmSharp.Device.Primitives.csproj" />
     <ProjectReference Include="../OSSMDotNet.Models/OSSMDotNet.Models.csproj" />
+    <ProjectReference Include="../OssmSharp.Web.Contracts/OssmSharp.Web.Contracts.csproj" />
     <PackageReference Include="Microsoft.Extensions.Hosting" />
-    <Using Include="OSSMDotNet.Abstractions" />
-    <Using Include="OSSMDotNet.Abstractions.Models" />
+    <Using Include="OssmSharp.Device.Primitives" />
+    <Using Include="OssmSharp.Device.Primitives.Models" />
+    <Using Include="OssmSharp.Web.Contracts" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="ControlService.Tests" />

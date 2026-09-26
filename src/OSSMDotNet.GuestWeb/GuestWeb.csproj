@@ -1,23 +1,23 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
   <PropertyGroup>
-    <RootNamespace>OSSMDotNet.GuestWeb</RootNamespace>
+    <RootNamespace>OssmSharp.Web.GuestWeb</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="../OSSMDotNet.ControlClient/ControlClient.csproj" />
-    <ProjectReference Include="../OSSMDotNet.Models/OSSMDotNet.Models.csproj" />
-    <ProjectReference Include="../OSSMDotNet.ServiceDefaults/ServiceDefaults.csproj" />
-    <ProjectReference Include="../OSSMDotNet.WebCommon/SharedUi.csproj" />
-    <Using Include="OSSMDotNet.ControlClient.Clients" />
-    <Using Include="OSSMDotNet.ControlClient.Models" />
-    <Using Include="OSSMDotNet.ControlClient.DependencyInjection" />
-    <Using Include="OSSMDotNet.GuestWeb.Services" />
-    <Using Include="OSSMDotNet.GuestWeb.Components" />
-    <Using Include="OSSMDotNet.ServiceDefaults" />
-    <Using Include="OSSMDotNet.ServiceDefaults.Models" />
-    <Using Include="OSSMDotNet.WebCommon" />
+    <ProjectReference Include="../OssmSharp.Web.Client/OssmSharp.Web.Client.csproj" />
+    <ProjectReference Include="../OssmSharp.Web.Contracts/OssmSharp.Web.Contracts.csproj" />
+    <ProjectReference Include="../OssmSharp.Web.ServiceDefaults/OssmSharp.Web.ServiceDefaults.csproj" />
+    <ProjectReference Include="../OssmSharp.Web.Common/OssmSharp.Web.Common.csproj" />
+    <Using Include="OssmSharp.Web.Client.Clients" />
+    <Using Include="OssmSharp.Web.Client.Models" />
+    <Using Include="OssmSharp.Web.Client.DependencyInjection" />
+    <Using Include="OssmSharp.Web.GuestWeb.Services" />
+    <Using Include="OssmSharp.Web.GuestWeb.Components" />
+    <Using Include="OssmSharp.Web.ServiceDefaults" />
+    <Using Include="OssmSharp.Web.ServiceDefaults.Models" />
+    <Using Include="OssmSharp.Web.Common" />
     <Using Include="Microsoft.AspNetCore.Server.Kestrel.Core" />
     <Using Include="Microsoft.Extensions.Options" />
-    <Using Include="OSSMDotNet.Models" />
+    <Using Include="OssmSharp.Web.Contracts" />
     <Using Include="Microsoft.AspNetCore.Components" />
     <Using Include="Microsoft.AspNetCore.Components.Server.Circuits" />
     <Using Include="Microsoft.JSInterop" />

@@ -1,7 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using System.Text.Json;
 
-namespace OSSMDotNet.Models;
+namespace OssmSharp.Device.Stock.Models;
 
 /// <summary>
 /// Holds validated stock-firmware state with the UTC time at which it was received.

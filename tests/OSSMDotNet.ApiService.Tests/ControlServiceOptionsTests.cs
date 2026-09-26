@@ -3,7 +3,7 @@ using Microsoft.AspNetCore.HostFiltering;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
-using OSSMDotNet.ControlService.Models;
+using OssmSharp.Web.Application.Models;
 
 namespace OSSMDotNet.ApiService.Tests;
 

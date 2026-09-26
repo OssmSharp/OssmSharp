@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.SignalR;
 using OSSMDotNet.ApiService.Models;
-using OSSMDotNet.Models;
+using OssmSharp.Web.Application.Models;
 
 namespace OSSMDotNet.ApiService.SignalR;
 

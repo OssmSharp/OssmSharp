@@ -1,4 +1,4 @@
-namespace OSSMDotNet.GuestWeb;
+namespace OssmSharp.Web.GuestWeb;
 
 /// <summary>
 /// Registers guest-session services for the web host.

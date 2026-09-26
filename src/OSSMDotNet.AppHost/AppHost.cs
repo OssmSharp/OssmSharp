@@ -13,7 +13,7 @@ var simulatorBuild = builder.AddExecutable("simulator-build", "cargo", simulator
 var adminServiceKey = builder.AddParameter("admin-web-service-key", NewToken, secret: true);
 var guestServiceKey = builder.AddParameter("guest-web-service-key", NewToken, secret: true);
 
-var control = builder.AddProject<Projects.ApiService>("control")
+var control = builder.AddProject<Projects.OssmSharp_Web_Api>("control")
     .WithEnvironment("DOTNET_ENVIRONMENT", "Development")
     .WithHttpEndpoint(env: "OSSM__Control__ControlPort", isProxied: false)
     .WithEndpoint("http", endpoint => endpoint.TargetHost = "127.0.0.1")
@@ -25,7 +25,7 @@ var control = builder.AddProject<Projects.ApiService>("control")
     .WithEnvironment("OSSM__Control__SimulatorPath", simulatorPath)
     .WaitForCompletion(simulatorBuild);
 
-var guest = builder.AddProject<Projects.GuestWeb>("guest")
+var guest = builder.AddProject<Projects.OssmSharp_Web_GuestWeb>("guest")
     .WithEnvironment("DOTNET_ENVIRONMENT", "Development")
     .WithHttpEndpoint(env: "OSSM__Guest__GuestPort", isProxied: false)
     .WithEndpoint("http", endpoint => endpoint.TargetHost = "127.0.0.1")
@@ -43,7 +43,7 @@ var guest = builder.AddProject<Projects.GuestWeb>("guest")
 control.WithEnvironment("OSSM__Control__GuestOrigin",
     ReferenceExpression.Create($"http://127.0.0.1:{guest.GetEndpoint("http").Property(EndpointProperty.Port)}"));
 
-var admin = builder.AddProject<Projects.AdminWeb>("admin")
+var admin = builder.AddProject<Projects.OssmSharp_Web_AdminWeb>("admin")
     .WithEnvironment("DOTNET_ENVIRONMENT", "Development")
     .WithHttpEndpoint(env: "OSSM__Admin__AdminPort", isProxied: false)
     .WithEndpoint("http", endpoint => endpoint.TargetHost = "127.0.0.1")

@@ -1,4 +1,4 @@
-namespace OSSMDotNet.GuestWeb.Components.Pages;
+namespace OssmSharp.Web.GuestWeb.Components.Pages;
 
 /// <summary>
 /// Represents an operation result returned to guest browser code.

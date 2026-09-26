@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.HostFiltering;
 using Microsoft.Extensions.Options;
-using OSSMDotNet.ControlService.Models;
+using OssmSharp.Web.Application.Models;
 
 namespace OSSMDotNet.ApiService.Hosting;
 

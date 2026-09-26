@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <ItemGroup>
+        <ProjectReference
+            Include="../OssmSharp.Device.Primitives/OssmSharp.Device.Primitives.csproj" />
+        <ProjectReference Include="../OssmSharp.Web.Contracts/OssmSharp.Web.Contracts.csproj" />
+        <PackageReference Include="Microsoft.Extensions.Hosting" />
+        <Using Include="OssmSharp.Device.Primitives" />
+        <Using Include="OssmSharp.Device.Primitives.Models" />
+        <Using Include="OssmSharp.Web.Contracts" />
+    </ItemGroup>
+    <ItemGroup>
+        <InternalsVisibleTo Include="OssmSharp.Web.Application.Tests" />
+        <InternalsVisibleTo Include="OssmSharp.Web.Application.IntegrationTests" />
+    </ItemGroup>
+</Project>

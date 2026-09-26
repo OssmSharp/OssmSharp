@@ -1,4 +1,4 @@
-namespace OSSMDotNet.GuestWeb.Components.Pages;
+namespace OssmSharp.Web.GuestWeb.Components.Pages;
 
 /// <summary>
 /// Renders and manages one guest control session for an invitation.

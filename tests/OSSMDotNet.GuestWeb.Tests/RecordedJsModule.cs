@@ -1,4 +1,4 @@
-namespace OSSMDotNet.GuestWeb.Tests;
+namespace OssmSharp.Web.GuestWeb.Tests;
 
 /// <summary>
 /// Records guest JavaScript calls and supplies configurable invitation and copy results.

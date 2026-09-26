@@ -6,6 +6,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Options;
 using OSSMDotNet.Simulator.Models;
+using OssmSharp.Device.Runtime;
 
 namespace OSSMDotNet.Simulator;
 

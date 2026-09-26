@@ -1,5 +1,5 @@
 using System.IO.Pipes;
-using OSSMDotNet;
+using OssmSharp.Device.Runtime;
 
 namespace OSSMDotNet.DeviceCli.Simulator;
 

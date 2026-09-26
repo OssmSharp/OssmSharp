@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Options;
-using OSSMDotNet.Models;
+using OssmSharp.Device.Runtime;
 
-namespace OSSMDotNet;
+namespace OssmSharp.Device.Stock;
 
 /// <summary>
 /// Represents an OSSM device running the supported stock firmware.
@@ -15,7 +15,7 @@ public sealed class StockOssmDevice : DeviceBase
     /// <param name="timeProvider">The monotonic and UTC time source.</param>
     /// <param name="logger">The operational logger.</param>
     public StockOssmDevice(
-        IOptions<StockOssmDeviceOptions> options,
+        IOptions<DeviceRuntimeOptions> options,
         TimeProvider timeProvider,
         ILogger<StockOssmDevice> logger)
         : base(

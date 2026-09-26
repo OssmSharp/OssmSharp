@@ -2,9 +2,9 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using OSSMDotNet;
-using OSSMDotNet.Simulator;
-using OSSMDotNet.Simulator.Models;
+using OssmSharp.Device.Runtime;
+using OssmSharp.Device.Simulator;
+using OssmSharp.Device.Simulator.Models;
 
 namespace OSSMDotNet.DeviceCli.Simulator;
 

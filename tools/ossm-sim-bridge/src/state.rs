@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use crate::protocol::{Desired, Operation, PROFILE_ID, Request, Sample};
+use crate::protocol::{Desired, Operation, Request, Sample, PROFILE_ID};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Controls {
@@ -28,7 +28,6 @@ pub struct Outcome {
 pub struct Transition {
     pub outcome: Option<Outcome>,
     pub apply: Option<Controls>,
-    pub shutdown: bool,
 }
 
 pub struct Model {
@@ -45,7 +44,6 @@ pub struct Model {
 struct Pending {
     request: Request,
     due: Instant,
-    disconnected: bool,
 }
 
 impl Default for Model {
@@ -69,7 +67,10 @@ impl Default for Model {
 
 impl Model {
     pub fn handle(&mut self, request: Request, now: Instant) -> Transition {
-        if matches!(request.operation, Operation::Write { .. } | Operation::Stop { .. }) {
+        if matches!(
+            request.operation,
+            Operation::Write { .. } | Operation::Stop { .. }
+        ) {
             if self.pending.is_some() {
                 return Self::reject(request.id, "busy");
             }
@@ -78,21 +79,28 @@ impl Model {
             }
             let delay = std::mem::take(&mut self.next_delay);
             if !delay.is_zero() {
-                self.pending = Some(Pending { request, due: now + delay, disconnected: false });
-                return Transition { outcome: None, apply: None, shutdown: false };
+                self.pending = Some(Pending {
+                    request,
+                    due: now + delay,
+                });
+                return Transition {
+                    outcome: None,
+                    apply: None,
+                };
             }
         }
         self.apply_request(request)
     }
 
     pub fn complete_due(&mut self, now: Instant) -> Option<Transition> {
-        if self.pending.as_ref().is_none_or(|pending| now < pending.due) {
+        if self
+            .pending
+            .as_ref()
+            .is_none_or(|pending| now < pending.due)
+        {
             return None;
         }
         let pending = self.pending.take().expect("pending deadline checked");
-        if pending.disconnected || !self.controls.connected {
-            return Some(Self::reject(pending.request.id, "disconnected"));
-        }
         // External changes do not cancel an issued write. Because stop has no
         // desired payload, it preserves the controls present at completion.
         Some(self.apply_request(pending.request))
@@ -109,7 +117,10 @@ impl Model {
         if !actual.position.is_finite() || !actual.velocity.is_finite() {
             return Err("non_finite_state");
         }
-        self.sample_sequence = self.sample_sequence.checked_add(1).ok_or("sequence_exhausted")?;
+        self.sample_sequence = self
+            .sample_sequence
+            .checked_add(1)
+            .ok_or("sequence_exhausted")?;
         let sample = Sample {
             sample_sequence: self.sample_sequence,
             change_revision: self.change_revision,
@@ -128,10 +139,12 @@ impl Model {
 
     fn apply_request(&mut self, request: Request) -> Transition {
         let before = self.controls;
-        let mut shutdown = false;
         match request.operation {
             Operation::Status => {}
-            Operation::Write { command_id, desired } => {
+            Operation::Write {
+                command_id,
+                desired,
+            } => {
                 self.controls.desired = desired;
                 self.controls.enabled = desired.speed != 0;
                 self.command_id = Some(command_id);
@@ -153,10 +166,9 @@ impl Model {
                 self.stop();
                 self.controls.connected = false;
                 self.command_id = None;
-                if let Some(pending) = &mut self.pending {
-                    // A reconnect cannot revive I/O issued through an earlier connection.
-                    pending.disconnected = true;
-                }
+                self.pending = None;
+                self.next_delay = Duration::ZERO;
+                self.stale = false;
             }
             Operation::Connect => {
                 self.controls = Controls {
@@ -166,22 +178,22 @@ impl Model {
                 };
                 self.command_id = None;
             }
-            Operation::Shutdown => {
-                self.stop();
-                self.pending = None;
-                shutdown = true;
-            }
         }
         let apply = if before != self.controls {
-            self.change_revision = self.change_revision.checked_add(1).expect("revision_exhausted");
+            self.change_revision = self
+                .change_revision
+                .checked_add(1)
+                .expect("revision_exhausted");
             Some(self.controls)
         } else {
             None
         };
         Transition {
-            outcome: Some(Outcome { id: request.id, error: None }),
+            outcome: Some(Outcome {
+                id: request.id,
+                error: None,
+            }),
             apply,
-            shutdown,
         }
     }
 
@@ -192,9 +204,11 @@ impl Model {
 
     fn reject(id: u64, code: &'static str) -> Transition {
         Transition {
-            outcome: Some(Outcome { id, error: Some(code) }),
+            outcome: Some(Outcome {
+                id,
+                error: Some(code),
+            }),
             apply: None,
-            shutdown: false,
         }
     }
 }
@@ -210,11 +224,22 @@ mod tests {
     }
 
     fn moving_desired() -> Desired {
-        Desired { speed: 30, stroke: 20, depth: 40, ..Desired::default() }
+        Desired {
+            speed: 30,
+            stroke: 20,
+            depth: 40,
+            ..Desired::default()
+        }
     }
 
     fn observe(controls: Controls, moving: bool, position: f64) -> Observation {
-        Observation { desired: controls.desired, enabled: controls.enabled, moving, position, velocity: if moving { 12.5 } else { 0.0 } }
+        Observation {
+            desired: controls.desired,
+            enabled: controls.enabled,
+            moving,
+            position,
+            velocity: if moving { 12.5 } else { 0.0 },
+        }
     }
 
     fn sample(model: &mut Model) -> Sample {
@@ -225,7 +250,14 @@ mod tests {
     #[test]
     fn starts_connected_stopped_without_a_command_or_revision() {
         let mut model = Model::default();
-        assert_eq!(model.controls, Controls { desired: Desired::default(), enabled: false, connected: true });
+        assert_eq!(
+            model.controls,
+            Controls {
+                desired: Desired::default(),
+                enabled: false,
+                connected: true
+            }
+        );
         assert_eq!(model.command_id, None);
         assert_eq!(model.change_revision, 0);
         assert!(!model.stale);
@@ -237,8 +269,22 @@ mod tests {
         let mut model = Model::default();
         let now = Instant::now();
         for command_id in [10, 11] {
-            let transition = request(&mut model, command_id, Operation::Write { command_id, desired: moving_desired() }, now);
-            assert_eq!(transition.outcome.unwrap(), Outcome { id: command_id, error: None });
+            let transition = request(
+                &mut model,
+                command_id,
+                Operation::Write {
+                    command_id,
+                    desired: moving_desired(),
+                },
+                now,
+            );
+            assert_eq!(
+                transition.outcome.unwrap(),
+                Outcome {
+                    id: command_id,
+                    error: None
+                }
+            );
             assert_eq!(model.command_id, Some(command_id));
             assert_eq!(model.controls.desired, moving_desired());
             assert!(model.controls.enabled);
@@ -251,11 +297,25 @@ mod tests {
     fn stop_preserves_external_controls_and_reports_real_retraction_as_moving() {
         let mut model = Model::default();
         let now = Instant::now();
-        let external = Desired { sensation: 17, ..moving_desired() };
-        request(&mut model, 1, Operation::External { desired: external }, now);
+        let external = Desired {
+            sensation: 17,
+            ..moving_desired()
+        };
+        request(
+            &mut model,
+            1,
+            Operation::External { desired: external },
+            now,
+        );
         assert_eq!(model.command_id, None);
         let transition = request(&mut model, 2, Operation::Stop { command_id: 9 }, now);
-        assert_eq!(transition.apply.unwrap().desired, Desired { speed: 0, ..external });
+        assert_eq!(
+            transition.apply.unwrap().desired,
+            Desired {
+                speed: 0,
+                ..external
+            }
+        );
         assert!(!model.controls.enabled);
         assert_eq!(model.command_id, Some(9));
         assert_eq!(model.change_revision, 2);
@@ -270,10 +330,25 @@ mod tests {
     fn zero_speed_write_disables_and_external_clears_own_command_without_fake_revision() {
         let mut model = Model::default();
         let now = Instant::now();
-        request(&mut model, 1, Operation::Write { command_id: 2, desired: Desired::default() }, now);
+        request(
+            &mut model,
+            1,
+            Operation::Write {
+                command_id: 2,
+                desired: Desired::default(),
+            },
+            now,
+        );
         assert!(!model.controls.enabled);
         assert_eq!(model.change_revision, 0);
-        request(&mut model, 2, Operation::External { desired: Desired::default() }, now);
+        request(
+            &mut model,
+            2,
+            Operation::External {
+                desired: Desired::default(),
+            },
+            now,
+        );
         assert_eq!(model.command_id, None);
         assert_eq!(model.change_revision, 0);
     }
@@ -283,29 +358,65 @@ mod tests {
         let mut model = Model::default();
         let now = Instant::now();
         request(&mut model, 1, Operation::Delay { milliseconds: 100 }, now);
-        let pending = request(&mut model, 2, Operation::Write { command_id: 20, desired: moving_desired() }, now);
+        let pending = request(
+            &mut model,
+            2,
+            Operation::Write {
+                command_id: 20,
+                desired: moving_desired(),
+            },
+            now,
+        );
         assert!(pending.outcome.is_none());
         assert!(pending.apply.is_none());
-        for operation in [Operation::Write { command_id: 21, desired: moving_desired() }, Operation::Stop { command_id: 22 }] {
+        for operation in [
+            Operation::Write {
+                command_id: 21,
+                desired: moving_desired(),
+            },
+            Operation::Stop { command_id: 22 },
+        ] {
             let busy = request(&mut model, 3, operation, now);
             assert_eq!(busy.outcome.unwrap().error, Some("busy"));
             assert!(busy.apply.is_none());
         }
-        assert_eq!(request(&mut model, 4, Operation::Status, now).outcome.unwrap().error, None);
-        let external = Desired { speed: 15, ..moving_desired() };
-        request(&mut model, 5, Operation::External { desired: external }, now);
+        assert_eq!(
+            request(&mut model, 4, Operation::Status, now)
+                .outcome
+                .unwrap()
+                .error,
+            None
+        );
+        let external = Desired {
+            speed: 15,
+            ..moving_desired()
+        };
+        request(
+            &mut model,
+            5,
+            Operation::External { desired: external },
+            now,
+        );
         assert_eq!(model.controls.desired, external);
         let before = sample(&mut model);
         assert_eq!(before.command_id, None);
-        assert!(model.complete_due(now + Duration::from_millis(99)).is_none());
-        let done = model.complete_due(now + Duration::from_millis(100)).unwrap();
+        assert!(model
+            .complete_due(now + Duration::from_millis(99))
+            .is_none());
+        let done = model
+            .complete_due(now + Duration::from_millis(100))
+            .unwrap();
         assert_eq!(done.outcome.unwrap(), Outcome { id: 2, error: None });
         assert_eq!(model.controls.desired, moving_desired());
         assert_eq!(model.command_id, Some(20));
         let after = sample(&mut model);
         assert!(after.sample_sequence > before.sample_sequence);
         assert!(model.complete_due(now + Duration::from_secs(1)).is_none());
-        assert!(request(&mut model, 6, Operation::Stop { command_id: 23 }, now).outcome.is_some());
+        assert!(
+            request(&mut model, 6, Operation::Stop { command_id: 23 }, now)
+                .outcome
+                .is_some()
+        );
     }
 
     #[test]
@@ -314,10 +425,26 @@ mod tests {
         let now = Instant::now();
         request(&mut model, 1, Operation::Delay { milliseconds: 100 }, now);
         request(&mut model, 2, Operation::Stop { command_id: 3 }, now);
-        let external = Desired { sensation: 77, ..moving_desired() };
-        request(&mut model, 3, Operation::External { desired: external }, now);
-        model.complete_due(now + Duration::from_millis(100)).unwrap();
-        assert_eq!(model.controls.desired, Desired { speed: 0, ..external });
+        let external = Desired {
+            sensation: 77,
+            ..moving_desired()
+        };
+        request(
+            &mut model,
+            3,
+            Operation::External { desired: external },
+            now,
+        );
+        model
+            .complete_due(now + Duration::from_millis(100))
+            .unwrap();
+        assert_eq!(
+            model.controls.desired,
+            Desired {
+                speed: 0,
+                ..external
+            }
+        );
         assert!(!model.controls.enabled);
         assert_eq!(model.command_id, Some(3));
     }
@@ -327,23 +454,63 @@ mod tests {
         let mut model = Model::default();
         let now = Instant::now();
         request(&mut model, 1, Operation::Delay { milliseconds: 100 }, now);
-        request(&mut model, 2, Operation::Write { command_id: 2, desired: moving_desired() }, now);
+        request(
+            &mut model,
+            2,
+            Operation::Write {
+                command_id: 2,
+                desired: moving_desired(),
+            },
+            now,
+        );
         request(&mut model, 3, Operation::Delay { milliseconds: 200 }, now);
         request(&mut model, 4, Operation::Stop { command_id: 4 }, now);
-        assert!(model.complete_due(now + Duration::from_millis(100)).is_some());
-        assert!(request(&mut model, 5, Operation::Stop { command_id: 5 }, now).outcome.is_none());
-        assert!(model.complete_due(now + Duration::from_millis(199)).is_none());
-        assert_eq!(model.complete_due(now + Duration::from_millis(200)).unwrap().outcome.unwrap().id, 5);
+        assert!(model
+            .complete_due(now + Duration::from_millis(100))
+            .is_some());
+        assert!(
+            request(&mut model, 5, Operation::Stop { command_id: 5 }, now)
+                .outcome
+                .is_none()
+        );
+        assert!(model
+            .complete_due(now + Duration::from_millis(199))
+            .is_none());
+        assert_eq!(
+            model
+                .complete_due(now + Duration::from_millis(200))
+                .unwrap()
+                .outcome
+                .unwrap()
+                .id,
+            5
+        );
     }
 
     #[test]
-    fn disconnect_invalidates_pending_io_even_if_reconnected_before_completion() {
+    fn disconnect_drops_pending_io_even_if_reconnected_before_completion() {
         for reconnect in [false, true] {
             let mut model = Model::default();
             let now = Instant::now();
-            request(&mut model, 1, Operation::Write { command_id: 1, desired: moving_desired() }, now);
+            request(
+                &mut model,
+                1,
+                Operation::Write {
+                    command_id: 1,
+                    desired: moving_desired(),
+                },
+                now,
+            );
             request(&mut model, 2, Operation::Delay { milliseconds: 100 }, now);
-            request(&mut model, 3, Operation::Write { command_id: 3, desired: moving_desired() }, now);
+            request(
+                &mut model,
+                3,
+                Operation::Write {
+                    command_id: 3,
+                    desired: moving_desired(),
+                },
+                now,
+            );
             request(&mut model, 4, Operation::Disconnect, now);
             assert!(!model.controls.enabled);
             assert!(!model.controls.connected);
@@ -355,12 +522,65 @@ mod tests {
                 assert!(!model.controls.enabled);
             }
             let revision = model.change_revision;
-            let done = model.complete_due(now + Duration::from_millis(100)).unwrap();
-            assert_eq!(done.outcome.unwrap(), Outcome { id: 3, error: Some("disconnected") });
-            assert!(done.apply.is_none());
+            assert!(model
+                .complete_due(now + Duration::from_millis(100))
+                .is_none());
             assert_eq!(model.change_revision, revision);
             assert_eq!(model.command_id, None);
         }
+    }
+
+    #[test]
+    fn disconnected_client_cannot_delay_or_move_its_successor() {
+        let mut model = Model::default();
+        let now = Instant::now();
+        request(
+            &mut model,
+            1,
+            Operation::Write {
+                command_id: 1,
+                desired: moving_desired(),
+            },
+            now,
+        );
+        request(&mut model, 2, Operation::Delay { milliseconds: 100 }, now);
+        request(
+            &mut model,
+            3,
+            Operation::Write {
+                command_id: 3,
+                desired: moving_desired(),
+            },
+            now,
+        );
+
+        request(&mut model, 4, Operation::Disconnect, now);
+        request(&mut model, 5, Operation::Connect, now);
+        let status = sample(&mut model);
+        assert_eq!(status.desired.speed, 0);
+        assert!(!status.enabled);
+        assert_eq!(status.command_id, None);
+
+        let settings = Desired {
+            speed: 0,
+            stroke: 35,
+            ..moving_desired()
+        };
+        let successor = request(
+            &mut model,
+            6,
+            Operation::Write {
+                command_id: 6,
+                desired: settings,
+            },
+            now,
+        );
+        assert_eq!(successor.outcome.unwrap(), Outcome { id: 6, error: None });
+        assert_eq!(sample(&mut model).desired, settings);
+        assert!(model
+            .complete_due(now + Duration::from_millis(100))
+            .is_none());
+        assert_eq!(model.controls.desired, settings);
     }
 
     #[test]
@@ -370,10 +590,19 @@ mod tests {
         request(&mut model, 1, Operation::Disconnect, now);
         let before = model.controls;
         for operation in [
-            Operation::Write { command_id: 2, desired: moving_desired() },
+            Operation::Write {
+                command_id: 2,
+                desired: moving_desired(),
+            },
             Operation::Stop { command_id: 3 },
         ] {
-            assert_eq!(request(&mut model, 2, operation, now).outcome.unwrap().error, Some("disconnected"));
+            assert_eq!(
+                request(&mut model, 2, operation, now)
+                    .outcome
+                    .unwrap()
+                    .error,
+                Some("disconnected")
+            );
             assert_eq!(model.controls, before);
             assert_eq!(model.change_revision, 1);
         }
@@ -386,8 +615,16 @@ mod tests {
         let mut model = Model::default();
         let now = Instant::now();
         request(&mut model, 1, Operation::Disconnect, now);
-        let external = Desired { sensation: 72, ..moving_desired() };
-        let injected = request(&mut model, 2, Operation::External { desired: external }, now);
+        let external = Desired {
+            sensation: 72,
+            ..moving_desired()
+        };
+        let injected = request(
+            &mut model,
+            2,
+            Operation::External { desired: external },
+            now,
+        );
         assert_eq!(injected.outcome.unwrap().error, None);
         assert_eq!(injected.apply.unwrap().desired, external);
         assert_eq!(model.controls.desired, external);
@@ -400,9 +637,26 @@ mod tests {
     fn connect_resets_all_controls_and_never_restores_motion() {
         let mut model = Model::default();
         let now = Instant::now();
-        request(&mut model, 1, Operation::External { desired: Desired { sensation: 99, ..moving_desired() } }, now);
+        request(
+            &mut model,
+            1,
+            Operation::External {
+                desired: Desired {
+                    sensation: 99,
+                    ..moving_desired()
+                },
+            },
+            now,
+        );
         request(&mut model, 2, Operation::Connect, now);
-        assert_eq!(model.controls, Controls { desired: Desired::default(), enabled: false, connected: true });
+        assert_eq!(
+            model.controls,
+            Controls {
+                desired: Desired::default(),
+                enabled: false,
+                connected: true
+            }
+        );
         assert_eq!(model.command_id, None);
         assert_eq!(model.change_revision, 2);
         request(&mut model, 3, Operation::Connect, now);
@@ -415,11 +669,23 @@ mod tests {
         let now = Instant::now();
         let original = sample(&mut model);
         request(&mut model, 1, Operation::Stale { freeze: true }, now);
-        request(&mut model, 2, Operation::External { desired: moving_desired() }, now);
+        request(
+            &mut model,
+            2,
+            Operation::External {
+                desired: moving_desired(),
+            },
+            now,
+        );
         assert!(model.controls.enabled);
         assert_eq!(model.change_revision, 1);
         for _ in 0..3 {
-            assert_eq!(model.sample(|| panic!("stale mode must not refresh observation")).unwrap(), original);
+            assert_eq!(
+                model
+                    .sample(|| panic!("stale mode must not refresh observation"))
+                    .unwrap(),
+                original
+            );
         }
         request(&mut model, 3, Operation::Stale { freeze: false }, now);
         let fresh = sample(&mut model);
@@ -434,9 +700,25 @@ mod tests {
         let now = Instant::now();
         let original = sample(&mut model);
         request(&mut model, 1, Operation::Delay { milliseconds: 50 }, now);
-        request(&mut model, 2, Operation::Write { command_id: 3, desired: moving_desired() }, now);
+        request(
+            &mut model,
+            2,
+            Operation::Write {
+                command_id: 3,
+                desired: moving_desired(),
+            },
+            now,
+        );
         request(&mut model, 3, Operation::Stale { freeze: true }, now);
-        assert_eq!(model.complete_due(now + Duration::from_millis(50)).unwrap().outcome.unwrap().error, None);
+        assert_eq!(
+            model
+                .complete_due(now + Duration::from_millis(50))
+                .unwrap()
+                .outcome
+                .unwrap()
+                .error,
+            None
+        );
         assert!(model.controls.enabled);
         assert_eq!(model.command_id, Some(3));
         assert_eq!(model.sample(|| panic!("no refresh")).unwrap(), original);
@@ -445,7 +727,11 @@ mod tests {
     #[test]
     fn samples_observed_engine_fields_without_fabricating_motion_or_control_revisions() {
         let mut model = Model::default();
-        let observed = Controls { desired: moving_desired(), enabled: true, connected: true };
+        let observed = Controls {
+            desired: moving_desired(),
+            enabled: true,
+            connected: true,
+        };
         let first = model.sample(|| observe(observed, true, 20.0)).unwrap();
         let second = model.sample(|| observe(observed, false, 21.0)).unwrap();
         assert_eq!(first.desired, moving_desired());
@@ -463,23 +749,52 @@ mod tests {
         let original = sample(&mut model);
         for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
             let controls = model.controls;
-            assert_eq!(model.sample(|| observe(controls, false, bad)).unwrap_err(), "non_finite_state");
-            assert_eq!(model.sample(|| Observation { velocity: bad, ..observe(controls, false, 10.0) }).unwrap_err(), "non_finite_state");
+            assert_eq!(
+                model.sample(|| observe(controls, false, bad)).unwrap_err(),
+                "non_finite_state"
+            );
+            assert_eq!(
+                model
+                    .sample(|| Observation {
+                        velocity: bad,
+                        ..observe(controls, false, 10.0)
+                    })
+                    .unwrap_err(),
+                "non_finite_state"
+            );
         }
-        assert_eq!(sample(&mut model).sample_sequence, original.sample_sequence + 1);
+        assert_eq!(
+            sample(&mut model).sample_sequence,
+            original.sample_sequence + 1
+        );
     }
 
     #[test]
-    fn shutdown_disables_without_waiting_for_a_pending_write() {
+    fn disconnect_disables_without_waiting_for_a_pending_write() {
         let mut model = Model::default();
         let now = Instant::now();
-        request(&mut model, 1, Operation::External { desired: moving_desired() }, now);
+        request(
+            &mut model,
+            1,
+            Operation::External {
+                desired: moving_desired(),
+            },
+            now,
+        );
         request(&mut model, 2, Operation::Delay { milliseconds: 5000 }, now);
-        request(&mut model, 3, Operation::Write { command_id: 3, desired: moving_desired() }, now);
-        let transition = request(&mut model, 4, Operation::Shutdown, now);
-        assert!(transition.shutdown);
+        request(
+            &mut model,
+            3,
+            Operation::Write {
+                command_id: 3,
+                desired: moving_desired(),
+            },
+            now,
+        );
+        let transition = request(&mut model, 4, Operation::Disconnect, now);
         assert_eq!(transition.outcome.unwrap(), Outcome { id: 4, error: None });
         assert!(!model.controls.enabled);
+        assert!(!model.controls.connected);
         assert_eq!(model.controls.desired.speed, 0);
         assert!(model.complete_due(now + Duration::from_secs(5)).is_none());
     }

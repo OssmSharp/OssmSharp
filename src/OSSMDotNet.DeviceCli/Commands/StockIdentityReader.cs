@@ -3,7 +3,8 @@ using System.Reactive.Linq;
 using System.Reactive.Threading.Tasks;
 using CoreFoundation;
 using Microsoft.Extensions.DependencyInjection;
-using OSSMDotNet.Models;
+using OssmSharp.Device.Stock;
+using OssmSharp.Device.Stock.Models;
 using Shiny;
 using Shiny.BluetoothLE;
 

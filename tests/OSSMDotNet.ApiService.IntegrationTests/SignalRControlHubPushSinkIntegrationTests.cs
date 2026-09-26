@@ -1,4 +1,4 @@
-using OSSMDotNet.Models;
+using OssmSharp.Web.Application.Models;
 
 namespace OSSMDotNet.ApiService.IntegrationTests;
 

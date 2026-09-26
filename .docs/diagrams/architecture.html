@@ -86,13 +86,13 @@
       <p class="eyebrow">Accepted MVP architecture / .NET 10</p>
       <h1>OssmSharp architecture</h1>
       <p class="lead">One computer, one device, one admin and one guest. Web.Api owns the device during web use. Cli is an alternative direct owner, without web policy.</p>
-      <p class="status"><strong>Accepted target, not completed implementation.</strong> The OssmSharp rename, library separation, interactive CLI and independent simulator transport are planned. API and device lifetimes are intentionally shared. The machine-wide lock prevents cooperating CLI and API processes from owning the device concurrently.</p>
+      <p class="status"><strong>Accepted target, not completed implementation.</strong> Local project identities are in place, but Cli retains the legacy daemon workflow and the shared ownership mechanics, provider profiles and independent simulator transport remain planned. API and device lifetimes are intentionally shared. The machine-wide lock is a target requirement, not current runtime evidence.</p>
     </header>
 
     <section id="control-path" aria-labelledby="control-path-heading">
       <div class="section-heading">
         <h2 id="control-path-heading">Application &amp; device path</h2>
-        <p>Boxes are planned C# projects, with class libraries inside their consuming executable. Unboxed annotations describe internal code. Solid arrows show calls; dashed arrows show library references.</p>
+        <p>Boxes show target C# projects, with class libraries inside their consuming executable. Unboxed annotations describe internal code. Solid arrows show calls; dashed arrows show library references.</p>
       </div>
       <figure>
         <div class="viewport" role="region" tabindex="0" aria-label="Application and device architecture">
@@ -193,6 +193,7 @@
             </g>
 
             <g id="guest-web" data-project="Web.GuestWeb" data-kind="host">
+              <title>OssmSharp.Web.GuestWeb.csproj - guest UI host</title>
               <rect x="40" y="40" width="624" height="424" rx="8" class="project-box project-outline"/>
               <text x="64" y="72" class="tag">WEB HOST / GUEST</text>
               <text x="64" y="104" class="project-name">Web.GuestWeb</text>
@@ -202,25 +203,25 @@
                 <text x="80" y="187" class="description">Join / input / Stop / leave</text>
               </g>
               <g id="guest-client" data-library="Web.Client">
-                <title>OssmSharp.Web.Client.csproj - planned class library</title>
+                <title>OssmSharp.Web.Client.csproj - existing class library</title>
                 <rect x="64" y="264" width="264" height="80" rx="4" class="client-box"/>
                 <text x="80" y="294" class="library-name">Web.Client</text>
                 <text x="80" y="322" class="description">Guest-scoped SignalR client</text>
               </g>
               <g id="guest-common" data-library="Web.Common">
-                <title>OssmSharp.Web.Common.csproj - planned class library</title>
+                <title>OssmSharp.Web.Common.csproj - existing shared UI library</title>
                 <rect x="376" y="136" width="264" height="64" rx="4" class="library-box"/>
                 <text x="392" y="163" class="library-name">Web.Common</text>
                 <text x="392" y="187" class="description">Shared Blazor UI</text>
               </g>
               <g id="guest-contracts" data-library="Web.Contracts">
-                <title>OssmSharp.Web.Contracts.csproj - planned class library</title>
+                <title>OssmSharp.Web.Contracts.csproj - partial DTO extraction; remaining models planned</title>
                 <rect x="376" y="264" width="264" height="80" rx="4" class="library-box"/>
                 <text x="392" y="294" class="library-name">Web.Contracts</text>
                 <text x="392" y="322" class="description">Requests / returned state</text>
               </g>
               <g id="guest-defaults" data-library="Web.ServiceDefaults">
-                <title>OssmSharp.Web.ServiceDefaults.csproj - planned class library</title>
+                <title>OssmSharp.Web.ServiceDefaults.csproj - existing class library</title>
                 <rect x="376" y="368" width="264" height="64" rx="4" class="library-box"/>
                 <text x="392" y="395" class="library-name">Web.ServiceDefaults</text>
                 <text x="392" y="419" class="description">Hosting / uses Defaults</text>
@@ -229,6 +230,7 @@
             </g>
 
             <g id="admin-web" data-project="Web.AdminWeb" data-kind="host">
+              <title>OssmSharp.Web.AdminWeb.csproj - operator UI host</title>
               <rect x="736" y="40" width="624" height="424" rx="8" class="project-box project-outline"/>
               <text x="760" y="72" class="tag">WEB HOST / LOCAL DEVICE USER</text>
               <text x="760" y="104" class="project-name">Web.AdminWeb</text>
@@ -238,25 +240,25 @@
                 <text x="776" y="187" class="description">Approve / limits / Stop / unlock</text>
               </g>
               <g id="admin-client" data-library="Web.Client">
-                <title>OssmSharp.Web.Client.csproj - planned class library</title>
+                <title>OssmSharp.Web.Client.csproj - existing class library</title>
                 <rect x="760" y="264" width="264" height="80" rx="4" class="client-box"/>
                 <text x="776" y="294" class="library-name">Web.Client</text>
                 <text x="776" y="322" class="description">Admin-scoped SignalR client</text>
               </g>
               <g id="admin-common" data-library="Web.Common">
-                <title>OssmSharp.Web.Common.csproj - planned class library</title>
+                <title>OssmSharp.Web.Common.csproj - existing shared UI library</title>
                 <rect x="1072" y="136" width="264" height="64" rx="4" class="library-box"/>
                 <text x="1088" y="163" class="library-name">Web.Common</text>
                 <text x="1088" y="187" class="description">Shared Blazor UI</text>
               </g>
               <g id="admin-contracts" data-library="Web.Contracts">
-                <title>OssmSharp.Web.Contracts.csproj - planned class library</title>
+                <title>OssmSharp.Web.Contracts.csproj - partial DTO extraction; remaining models planned</title>
                 <rect x="1072" y="264" width="264" height="80" rx="4" class="library-box"/>
                 <text x="1088" y="294" class="library-name">Web.Contracts</text>
                 <text x="1088" y="322" class="description">Requests / returned state</text>
               </g>
               <g id="admin-defaults" data-library="Web.ServiceDefaults">
-                <title>OssmSharp.Web.ServiceDefaults.csproj - planned class library</title>
+                <title>OssmSharp.Web.ServiceDefaults.csproj - existing class library</title>
                 <rect x="1072" y="368" width="264" height="64" rx="4" class="library-box"/>
                 <text x="1088" y="395" class="library-name">Web.ServiceDefaults</text>
                 <text x="1088" y="419" class="description">Hosting / uses Defaults</text>
@@ -265,7 +267,7 @@
             </g>
 
             <g id="api-service" data-project="Web.Api" data-kind="host">
-              <title>OssmSharp.Web.Api.csproj - planned executable project</title>
+              <title>OssmSharp.Web.Api.csproj - existing executable project; M1 identity migrated, target behavior not complete</title>
               <rect x="248" y="576" width="904" height="848" rx="8" class="project-box api-box project-outline"/>
               <text x="280" y="608" class="tag">EXECUTABLE PROJECT / DEVICE OWNER</text>
               <text x="280" y="644" class="project-name">Web.Api</text>
@@ -276,39 +278,39 @@
                 <text x="304" y="764" class="description">Authenticate host / validate payload / dispatch</text>
               </g>
               <g id="web-application" data-library="Web.Application">
-                <title>OssmSharp.Web.Application.csproj - planned class library</title>
+                <title>OssmSharp.Web.Application.csproj - application library extracted; Runtime mechanics planned</title>
                 <rect x="280" y="848" width="520" height="112" rx="4" class="library-box"/>
                 <text x="304" y="880" class="library-name">Web.Application</text>
                 <text x="304" y="912" class="description">Sessions / permissions / grants / policy</text>
                 <text x="304" y="940" class="description">Full web controller / execution-time authority checks</text>
               </g>
               <g id="web-runtime" data-library="Device.Runtime">
-                <title>OssmSharp.Device.Runtime.csproj - planned class library</title>
+                <title>OssmSharp.Device.Runtime.csproj - shared base extracted; M2 mechanics planned</title>
                 <rect x="280" y="1056" width="520" height="112" rx="4" class="library-box"/>
                 <text x="304" y="1088" class="library-name">Device.Runtime</text>
                 <text x="304" y="1120" class="description">Ownership / interruption / serialized I/O / Stop</text>
                 <text x="304" y="1148" class="description">Invoke the selected implementation through IOssmDevice</text>
               </g>
               <g id="web-contracts" data-library="Web.Contracts">
-                <title>OssmSharp.Web.Contracts.csproj - planned class library</title>
+                <title>OssmSharp.Web.Contracts.csproj - partial DTO extraction; remaining models planned</title>
                 <rect x="864" y="704" width="264" height="80" rx="4" class="library-box"/>
                 <text x="880" y="736" class="library-name">Web.Contracts</text>
                 <text x="880" y="764" class="description">Web request / response data</text>
               </g>
               <g id="web-host-defaults" data-library="Web.ServiceDefaults">
-                <title>OssmSharp.Web.ServiceDefaults.csproj - planned class library</title>
+                <title>OssmSharp.Web.ServiceDefaults.csproj - existing class library</title>
                 <rect x="864" y="848" width="264" height="64" rx="4" class="library-box"/>
                 <text x="880" y="875" class="library-name">Web.ServiceDefaults</text>
                 <text x="880" y="899" class="description">Web hosting / health</text>
               </g>
               <g id="web-defaults" data-library="Defaults">
-                <title>OssmSharp.Defaults.csproj - planned class library</title>
+                <title>OssmSharp.Defaults.csproj - existing class library</title>
                 <rect x="864" y="960" width="264" height="64" rx="4" class="library-box"/>
                 <text x="880" y="987" class="library-name">Defaults</text>
                 <text x="880" y="1011" class="description">Logging / telemetry</text>
               </g>
               <g id="web-primitives" data-library="Device.Primitives">
-                <title>OssmSharp.Device.Primitives.csproj - planned class library</title>
+                <title>OssmSharp.Device.Primitives.csproj - device contracts and values extracted</title>
                 <rect x="864" y="1056" width="264" height="112" rx="4" class="library-box"/>
                 <text x="880" y="1088" class="library-name">Device.Primitives</text>
                 <text x="880" y="1120" class="description">IOssmDevice / values / units</text>
@@ -316,14 +318,14 @@
               </g>
               <text x="864" y="1212" class="tag">ONE SELECTED PROVIDER</text>
               <g id="web-stock" data-library="Device.Stock">
-                <title>OssmSharp.Device.Stock.csproj - planned class library</title>
+                <title>OssmSharp.Device.Stock.csproj - stock provider extracted; BLE transport planned</title>
                 <rect x="280" y="1264" width="400" height="112" rx="4" class="library-box"/>
                 <text x="304" y="1296" class="library-name">Device.Stock</text>
                 <text x="304" y="1328" class="description">Firmware mapping / native BLE dispatch</text>
                 <text x="304" y="1356" class="description">Hardware alternative</text>
               </g>
               <g id="web-simulator" data-library="Device.Simulator">
-                <title>OssmSharp.Device.Simulator.csproj - planned class library</title>
+                <title>OssmSharp.Device.Simulator.csproj - provider library extracted; independent transport planned</title>
                 <rect x="728" y="1264" width="400" height="112" rx="4" class="library-box"/>
                 <text x="752" y="1296" class="library-name">Device.Simulator</text>
                 <text x="752" y="1328" class="description">Native protocol / loopback transport dispatch</text>
@@ -409,6 +411,7 @@
             </g>
 
             <g id="apphost" data-project="AppHost" data-kind="host">
+              <title>OssmSharp.AppHost.csproj - existing optional development/test executable; M1 identity migrated</title>
               <rect x="800" y="40" width="560" height="352" rx="8" class="project-box project-outline"/>
               <text x="824" y="72" class="tag">OPTIONAL DEVELOPMENT / TEST ONLY</text>
               <text x="824" y="108" class="project-name">AppHost</text>
@@ -423,6 +426,7 @@
               <text x="824" y="360" class="description">No BLE connection / not on the request path</text>
             </g>
             <g id="cli" data-project="Cli" data-kind="host">
+              <title>OssmSharp.Cli.csproj - existing executable; M1 identity migrated, legacy daemon workflow remains until M4</title>
               <rect x="40" y="40" width="688" height="728" rx="8" class="project-box control-box project-outline"/>
               <text x="64" y="72" class="tag">STANDALONE INTERACTIVE EXECUTABLE</text>
               <text x="64" y="108" class="project-name">Cli</text>
@@ -433,7 +437,7 @@
                 <text x="80" y="228" class="description">Parse / validate / execute</text>
               </g>
               <g id="cli-runtime" data-library="Device.Runtime">
-                <title>OssmSharp.Device.Runtime.csproj - planned class library</title>
+                <title>OssmSharp.Device.Runtime.csproj - shared base extracted; M2 mechanics planned</title>
                 <rect x="64" y="336" width="344" height="112" rx="4" class="library-box"/>
                 <text x="80" y="368" class="library-name">Device.Runtime</text>
                 <text x="80" y="400" class="description">Ownership / interruption / serialized I/O</text>
@@ -447,14 +451,14 @@
                 <text x="80" y="668" class="description">Protocol mapping / transport dispatch</text>
               </g>
               <g id="cli-primitives" data-library="Device.Primitives">
-                <title>OssmSharp.Device.Primitives.csproj - planned class library</title>
+                <title>OssmSharp.Device.Primitives.csproj - device contracts and values extracted</title>
                 <rect x="496" y="336" width="208" height="112" rx="4" class="library-box"/>
                 <text x="512" y="368" class="library-name">Device.Primitives</text>
                 <text x="512" y="400" class="description">Contracts / values</text>
                 <text x="512" y="428" class="description">Not a request stage</text>
               </g>
               <g id="cli-defaults" data-library="Defaults">
-                <title>OssmSharp.Defaults.csproj - planned class library</title>
+                <title>OssmSharp.Defaults.csproj - existing class library; Cli wiring planned</title>
                 <rect x="496" y="168" width="208" height="80" rx="4" class="library-box"/>
                 <text x="512" y="200" class="library-name">Defaults</text>
                 <text x="512" y="228" class="description">Host-neutral logging</text>
@@ -491,7 +495,7 @@
     </section>
 
     <footer>
-      <p>Accepted target &middot; 25 September 2026 &middot; Documentation only; no runtime migration or hardware qualification.</p>
+      <p>Accepted target &middot; 25 September 2026 &middot; Partial M1 implementation; no hardware qualification.</p>
       <p><a href="../specs/README.md">Specification index</a> &middot; <a href="../specs/web-control-design.md">Accepted design</a> &middot; <a href="../plans/direct-device-migration.md">Detailed migration plan</a> &middot; <a href="../specs/device-control/spec.md">Device contracts: DC-01 through DC-09</a></p>
       <p>Fonts use local fallbacks when offline.</p>
     </footer>

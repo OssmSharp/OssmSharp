@@ -5,11 +5,12 @@
 - You must use .NET 10, C#, and **ASP.NET Core Blazor Interactive Server + minimal APIs**.
 - You must use **xUnit v3 + MTP v2**, not MSTest, xUnit v2 or VSTest.
 - You must use **Aspire AppHost** only for optional local development and test
-  orchestration. Services must build, start and operate without AppHost or Aspire.
+  orchestration. Executables must build, start and operate without AppHost or Aspire.
 - When using AppHost locally, use `aspire run`; do not add a custom orchestrator.
 - Logging, metrics, tracing and health must work through standard .NET hosting,
-  `ILogger<T>` and OpenTelemetry without Aspire or its dashboard. ServiceDefaults
-  may share configuration; startup must not require a telemetry collector.
+  `ILogger<T>` and OpenTelemetry without Aspire or its dashboard. `OssmSharp.Defaults`
+  owns host-neutral configuration; `OssmSharp.Web.ServiceDefaults` adds web-only
+  hosting. Startup must not require a telemetry collector.
 - You should prefer native .NET best practices and remove redundant boilerplate.
 - You must not use Node.js tooling or scripts.
 - You may use Python with Playwright for browser regression checks and private
@@ -26,23 +27,28 @@
 
 ## Coding
 
-- You must use `OSSMDotNet.*` for reusable namespaces and the web-specific
-  namespaces `OSSMDotNet.AdminWeb`, `OSSMDotNet.GuestWeb`,
-  `OSSMDotNet.ControlService`, and `OSSMDotNet.WebCommon`.
-- `OSSMDotNet.DeviceCli` must be an executable consumer of `ControlClient`,
-  communicating with the independently runnable `ControlService` over SignalR.
-  It must not host adapters or depend on ApiService, either web host or AppHost.
-- ApiService must consume ControlClient, not host or reference ControlService,
-  ControlCore or concrete device adapters. AdminWeb and GuestWeb call ApiService.
-- ControlService must be the device-side executable. It must host ControlCore
-  and inject exactly one `IOssmDevice` implementation: OSSMDotNet for hardware
-  or OSSMDotNet.Simulator. ControlCore depends on Abstractions, not adapters.
-- The simulator must start independently. Neither the CLI nor a device adapter
-  may launch, own or terminate its process.
-- You must preserve independent service startup, deployment and lifetimes.
-  Library separation within one process does not satisfy a service boundary.
-  Ask before changing these boundaries; do not derive requirements from a
-  conflicting implementation or present a target diagram as completed work.
+- You must use `OssmSharp.*` for owned namespaces, projects, assemblies and
+  packages, following the [accepted project map](.docs/plans/direct-device-migration.md#project-and-identity-map).
+  Do not rename external packages, firmware identifiers or upstream Rust projects.
+- `OssmSharp.Cli` must be a foreground interactive consumer of
+  `OssmSharp.Device.Primitives`, `OssmSharp.Device.Runtime` and the selected
+  provider. It must not depend on any `OssmSharp.Web.*` project, ASP.NET, UI or
+  Aspire, or require web credentials, sessions or application policy.
+- `OssmSharp.Web.Api` must compose one `OssmSharp.Web.Application` authority,
+  controller and selected device provider in one lifetime. Only AdminWeb and
+  GuestWeb use `OssmSharp.Web.Client` to call Web.Api; Web.Api must not depend on
+  UI components. Web.Application must not depend on concrete providers.
+- `OssmSharp.Device.Runtime` must own shared device execution, Stop,
+  interruption and machine-wide ownership mechanics without web policy or
+  provider dependencies. `OssmSharp.Device.Primitives` must remain independent
+  of hosting, defaults and providers; Simulator must not depend on Stock.
+- The simulator starter must own its process. The CLI and simulator adapter may
+  connect and disconnect but must not launch, own or terminate it. AppHost may
+  start the simulator for local development but must never own BLE.
+- You must keep AdminWeb, GuestWeb and Web.Api as separate processes. Support
+  CLI-only operation and Web.Api without UI hosts or AppHost. Web.Api and its
+  device lifetime are intentionally coupled; do not claim an independent device
+  service. Do not present a target diagram as completed implementation.
 
 ## User interface conventions
 
@@ -92,34 +98,43 @@
 
 ## Authority and safety
 
-- You must keep GuestWeb, AdminWeb, ApiService and ControlService as
-  **separate processes**. The backend must operate with all frontend services absent.
-- ControlService must exclusively own sessions, policy, timers, the single writer
-  and device connection. ApiService and DeviceCli must use ControlClient to reach
-  its SignalR endpoint `/hubs/control/v1`; neither may bypass its writer.
+- Web.Api must exclusively own web sessions, policy, timers, the single writer
+  and device connection; its backend must operate with both UI hosts absent.
+  The CLI is an alternative direct owner, not a web service client. Both owners
+  must acquire the same machine-wide exclusive lock before device access and
+  retain it through issued I/O and cleanup; permission failure must not fall
+  back to a per-user lock.
+- Only Web.Api must expose the existing SignalR endpoint `/hubs/control/v1`.
+  Web.Application must enforce guest authority before device execution; neither
+  UI host may bypass Web.Api's writer.
 - AdminWeb must remain unauthenticated and bound to `127.0.0.1`; you must retain
   Host/Origin protection and must not expose/proxy it remotely. It must authenticate
   server-to-server with its generated service key.
 - AdminWeb listener configuration must not add/replace endpoints through
   Kestrel, hosting URL precedence or configuration reload; use
   `OSSM:Admin:AdminPort`.
-- Host authentication and operator/guest role separation must survive the
-  ApiService hop and be enforced by ControlService. Guest invitation/session
-  capabilities and expiry must remain independently enforced; service or CLI
-  authentication must not weaken guest authorization or arm motion.
+- Web.Api must authenticate each web host and enforce operator/guest role
+  separation. Web.Application must independently enforce guest invitation/session
+  capabilities and expiry; host authentication must not weaken guest authorization
+  or arm motion. The direct CLI requires no web credentials.
 - GuestWeb must expose only Join/input/Stop/leave/scoped status, with no
   operator/device access. Browser and Blazor state must never authorize motion.
-- ControlService must support an explicitly configured remote HTTPS/WSS endpoint;
+- Web.Api must support an explicitly configured remote HTTPS/WSS endpoint;
   you must not bypass certificate validation, expose service credentials to browsers,
   trust forwarded headers, or introduce a proxy by default.
 - Browser and Blazor state must be treated as untrusted; neither may authorize motion.
 - You must use one-box, accountless capabilities and one-click invitations;
   you must not add accounts, a database or cloud services.
-- You must reuse `ossm-rs`'s `ossm-motion` through the simulator adapter consumed
-  by ControlService, without taking ownership of the simulator process.
+- You must reuse `ossm-rs`'s `ossm-motion` through the independently started
+  simulator, without making the adapter its process owner.
 - You must work in the simulator only; you must not edit sibling repositories,
   flash firmware, or perform hardware or physical qualification.
-- Stop/lock must override pending input. Only admin may unlock, into **paused**.
+- Stop and interruption must override pending input. Runtime must own the only
+  interruption latch and revision; Web.Application may project but not independently
+  clear it. Only the local admin may acknowledge a detected physical override,
+  using an explicit CLI command in REPL mode or the operator action in web mode.
+  Acknowledgement must verify the current revision and stopped baseline and leave
+  control **paused**, never restore the prior motion tuple or resume motion.
 - Startup/reconnect must never arm/resume. You must not treat cancellation as
   proof that device I/O stopped.
 - You must preserve bounded work, execution ownership and safety checks when simplifying.
@@ -150,16 +165,19 @@
   with component or unit tests.
 - You should use these MTP v2 commands:
   ```powershell
-  dotnet test OssmWebControls.slnx
-  dotnet test --project tests/OSSMDotNet.ControlCore.Tests/ControlCore.Tests.csproj
-  dotnet test --project tests/OSSMDotNet.ControlCore.Tests/ControlCore.Tests.csproj --filter-method '*MethodName'
-  dotnet test --project tests/OSSMDotNet.ControlCore.Tests/ControlCore.Tests.csproj --list-tests
+  dotnet test OssmSharp.slnx
+  dotnet test --project tests/OssmSharp.Web.Application.Tests/OssmSharp.Web.Application.Tests.csproj
+  dotnet test --project tests/OssmSharp.Web.Application.Tests/OssmSharp.Web.Application.Tests.csproj --filter-method '*MethodName'
+  dotnet test --project tests/OssmSharp.Web.Application.Tests/OssmSharp.Web.Application.Tests.csproj --list-tests
   ```
+- You must update these paths when the solution and test projects are renamed.
 - You must never remove failing tests or claim unrun checks passed witout justification.
-- Before claiming the service split is implemented, verify authorized DeviceCli
-  operations through ControlClient and ControlService with ApiService, both web
-  hosts and AppHost absent. Verify logging and configured telemetry without
-  Aspire, and that client shutdown does not terminate the backend or simulator.
+- Before claiming the direct-device migration is implemented, verify the
+  [acceptance matrix](.docs/plans/direct-device-migration.md#acceptance-matrix):
+  CLI with only the independently started simulator, Web.Api without UI hosts,
+  full web control, CLI/Web.Api cross-process lock competition, selected-provider
+  artifacts and logging/telemetry without Aspire. Verify that CLI exit leaves
+  the simulator alive at zero; record stock and physical qualification separately.
 - You must separate test projects into unit tests and integration tests, with
   shared test helpers. Integration test projects must be named with the assembly
   they're testing followed by ".IntegrationTests". Unit test projects the same, but

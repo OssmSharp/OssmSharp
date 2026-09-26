@@ -1,4 +1,4 @@
-namespace OSSMDotNet.AdminWeb;
+namespace OssmSharp.Web.AdminWeb;
 
 /// <summary>
 /// Tracks the operator notice and temporary copy confirmation state.

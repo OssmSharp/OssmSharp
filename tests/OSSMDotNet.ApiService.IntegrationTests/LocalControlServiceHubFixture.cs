@@ -188,7 +188,7 @@ internal sealed partial class LocalControlServiceHubFixture : IAsyncDisposable
 
     internal void AppendOperatorActivity(string message)
     {
-        var logger = Activity.CreateLogger("OSSMDotNet.ControlService.ContractTests");
+        var logger = Activity.CreateLogger("OssmSharp.Web.Application.ContractTests");
         LogOperatorActivity(logger, message);
     }
 

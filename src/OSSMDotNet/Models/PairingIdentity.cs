@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Text;
 
-namespace OSSMDotNet.Models;
+namespace OssmSharp.Device.Stock.Models;
 
 /// <summary>
 /// Describes the identity fields reported by the stock pairing characteristic.

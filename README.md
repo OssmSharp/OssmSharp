@@ -3,6 +3,10 @@
 Control the OSSM-RS simulator from a browser. **Local only: no physical device
 or remote access.** Use admin and guest tabs on the same computer.
 
+This M3-to-M4 transition is not a deployable release: the web adapter now
+connects to a separately started TCP simulator, but the CLI still uses its old
+simulator host and cannot operate against the new bridge until M4.
+
 ## Quick start
 
 Requires .NET 10 and Rust/Cargo. The sibling `../retro-webui` checkout must
@@ -13,12 +17,12 @@ contain its private widget package at
 Run from this repository:
 
 ```powershell
-dnx Aspire.Cli@13.5.3 -- run --project src/OSSMDotNet.AppHost/AppHost.csproj
+dnx Aspire.Cli@13.5.3 -- run --project src/OssmSharp.AppHost/OssmSharp.AppHost.csproj
 ```
 
 Keep the terminal open. Aspire builds and starts the application.
 
-The admin, guest and control-service hosts also write structured JSON logs to
+The admin, guest and API hosts also write structured JSON logs to
 `%LOCALAPPDATA%\OSSMDotNet\logs\<application>-YYYYMMDD.json` on Windows.
 Files roll daily and at 10 MiB; at most seven files per application are kept,
 and files older than seven days are removed. Frequent size rolls may therefore
@@ -28,45 +32,43 @@ logging. Console output and Aspire telemetry remain available.
 
 ## Device libraries
 
-The device API is split into three independently buildable libraries:
+The device API currently has four independently buildable libraries:
 
-- `OSSMDotNet.Abstractions` contains `IOssmDevice` and immutable device models.
-- `OSSMDotNet` contains `DeviceBase`, the stock protocol codecs and the
-  stock-firmware `StockOssmDevice` transport placeholder.
-- `OSSMDotNet.Simulator` contains the native-process `SimulatedDevice`.
+- `OssmSharp.Device.Primitives` contains `IOssmDevice` and immutable device models.
+- `OssmSharp.Device.Runtime` contains the shared `DeviceBase`, options and
+  device lifecycle logging; shared ownership and interruption mechanics remain planned.
+- `OssmSharp.Device.Stock` contains the stock protocol codecs and the stock-firmware
+  `StockOssmDevice` transport placeholder.
+- `OssmSharp.Device.Simulator` contains the loopback TCP `SimulatedDevice` adapter.
 
-These libraries do not depend on ControlService, Aspire, or either web host.
-`OSSMDotNet.DeviceCli` is the only CLI; it uses the device libraries directly,
-not the control service.
+These libraries do not depend on Web.Application, Aspire, or either web host.
+`OssmSharp.Cli` is the only CLI; it uses the device libraries directly,
+not Web.Api.
 
-`OSSMDotNet.Simulator` requires the separately built
-[`ossm-sim-bridge`](tools/ossm-sim-bridge/README.md) executable at runtime. The
-library boundary is not a published package, a separate network service, or
+`OssmSharp.Device.Simulator` connects to an independently started
+[`ossm-sim-bridge`](tools/ossm-sim-bridge/README.md) on IPv4 loopback. The
+library boundary is not a published package, a remotely exposed service, or
 physical-device qualification. See the
 [device-control specification](.docs/specs/device-control/spec.md) for the
 contract and safety boundaries.
 
-### Standalone simulator diagnostics
+### Independent simulator listener
 
-Build the native bridge, then inspect or move the simulator without
-ControlCore, Aspire or either web application:
+Build and start the native bridge without AppHost or either web application:
 
 ```powershell
 cargo build --locked --release --manifest-path tools/ossm-sim-bridge/Cargo.toml
-$simulatorPath = (Resolve-Path tools/ossm-sim-bridge/target/release/ossm-sim-bridge.exe).Path
-dotnet run --project src/OSSMDotNet.DeviceCli/DeviceCli.csproj -- start --simulator-path $simulatorPath
-dotnet run --project src/OSSMDotNet.DeviceCli/DeviceCli.csproj -- status
-dotnet run --project src/OSSMDotNet.DeviceCli/DeviceCli.csproj -- move --speed 20 --stroke 20 --depth 50 --seconds 3
-dotnet run --project src/OSSMDotNet.DeviceCli/DeviceCli.csproj -- stop
+$bridge = if ($IsWindows) { 'ossm-sim-bridge.exe' } else { 'ossm-sim-bridge' }
+& (Resolve-Path "tools/ossm-sim-bridge/target/release/$bridge").Path --listen 127.0.0.1:18083
 ```
 
-`start` launches one headless simulator host for the current user and is safe to
-repeat with the same bridge path. `status` and `move` reuse that host. `move`
-supports Simple Stroke with sensation `50` and buffer `0`, settles at zero speed
-after the bounded duration, and leaves the host running. `stop` settles zero
-speed and ends the host. The bridge has no UI; the separate OSSM-RS `ossm-sim`
-project contains a browser UI, but it is not this library integration. This is a
-software diagnostic path, not physical-device qualification.
+Configure a separately started Web.Api with
+`OSSM__Control__SimulatorEndpoint=tcp://127.0.0.1:18083` along with its service
+keys, guest origin, and listener settings. Disconnecting the adapter leaves
+the simulator running at zero speed; stop the native process in its terminal.
+AppHost can start the listener for local web development, but the API does not
+require AppHost. The old CLI `start`/`status`/`move`/`stop` workflow is unavailable
+until the M4 interactive CLI migration. This remains a software-only path.
 
 ### Real-device CLI (read-only preview)
 
@@ -82,7 +84,7 @@ With .NET 10, the `macos` workload and a full Xcode installation selected
 (Command Line Tools alone are insufficient), the intended command is:
 
 ```sh
-dotnet run --project src/OSSMDotNet.DeviceCli/DeviceCli.csproj --property:EnableStockBle=true -- identify
+dotnet run --project src/OssmSharp.Cli/OssmSharp.Cli.csproj --property:EnableStockBle=true -- identify
 ```
 
 The command lists `Device name (platform ID)` with numbers, then asks for a
@@ -129,8 +131,9 @@ earlier entries.
 
 Settings keep running until **Stop**. Switching tabs, losing focus or losing the
 connection also stops control and turns Auto send off. Admin must **Allow
-control** again before the guest can send more. The operator UI/API is
-unauthenticated and bound only to `127.0.0.1`. There is no operator access
+control** again before the guest can send more. The operator AdminWeb UI is
+unauthenticated and bound only to `127.0.0.1`; Web.Api authenticates its host
+service key and enforces operator and guest roles. There is no operator access
 timeout. Host/Origin checks remain enforced; do not expose or proxy the admin
 listener remotely. The invitation has no expiry and is reusable for this
 application run, one guest at a time. Guest approval and session leases still
@@ -149,7 +152,7 @@ invitation with unintended users.
   and requests a serialized Stop. Old links, guest proofs and control grants no
   longer work. The replacement never enables control automatically or clears a
   lock.
-- Invitations are kept only in admin memory. Restarting the app changes the
+- Invitations are kept only in Web.Api application memory. Restarting the API changes the
   link.
 - If control is **Locked**, wait for **Unlock** to become enabled, click it in
   admin, then arm separately when ready.

@@ -1,15 +1,16 @@
 # OSSM-RS headless simulation bridge
 
-`ossm-sim-bridge` is the external runtime used by the current standalone
-`OSSMDotNet.Simulator` .NET library. It is a bounded, native JSON-lines adapter
-for the **existing OSSM-RS motion engine**. The executable is built separately
-and supplied to the .NET library at runtime; it is for local simulator use,
-not hardware operation or stock-firmware qualification.
+`ossm-sim-bridge` is a bounded, native JSON-lines adapter for the **existing
+OSSM-RS motion engine**. It is built separately for local simulator use, not
+hardware operation or stock-firmware qualification. The intended .NET consumer
+is `OssmSharp.Device.Simulator`; its current adapter still uses stdio and needs
+a separate TCP cutover before it can use this native executable.
 
-It has no GUI, network endpoint, BLE, serial port, device I/O, homing procedure,
-or saved-state persistence. Its motor implementation is a no-op. Position and
-velocity come from the upstream `DebugOut` callbacks, not a replacement motion
-model. Each process starts connected and stopped:
+It has an explicit loopback TCP listener, but no GUI, BLE, serial port, device
+I/O, homing procedure, or saved-state persistence. Its motor implementation is a
+no-op. Position and velocity come from the upstream `DebugOut` callbacks, not a
+replacement motion model. Each process starts stopped and disconnected; each
+accepted client starts connected and stopped with these controls:
 
 ```json
 { "pattern": 0, "speed": 0, "stroke": 10, "depth": 20, "sensation": 50 }
@@ -56,21 +57,25 @@ tools/ossm-sim-bridge/target/release/ossm-sim-bridge
 tools/ossm-sim-bridge/target/release/ossm-sim-bridge.exe
 ```
 
-The process takes no arguments. A minimal pipeline:
+Start the process with an explicit IPv4 loopback address and nonzero port:
 
 ```shell
-printf '%s\n' '{"v":1,"id":1,"op":"status"}' '{"v":1,"id":2,"op":"shutdown"}' \
-  | tools/ossm-sim-bridge/target/release/ossm-sim-bridge
+tools/ossm-sim-bridge/target/release/ossm-sim-bridge --listen 127.0.0.1:8765
 ```
 
-A controller should keep stdin open and continuously drain stdout. Replies can
-arrive out of request order; correlate them by `id`, not by line position.
+On Windows, use `ossm-sim-bridge.exe` in the same directory. Only one TCP client
+can control the process at a time; additional connections are closed while it
+is occupied. Close the client socket to release ownership. Client loss disables
+the engine and clears pending work before a new client is admitted, without
+exiting the process. A controller must continuously drain its socket. Replies
+can arrive out of request order; correlate them by `id`, not by line position.
 
 ## Protocol v1
 
 UTF-8, one JSON **object** per line; LF and CRLF are accepted. The maximum JSON
-frame is 4096 bytes, excluding the line ending. A final nonempty frame at EOF is
-processed. Unknown, duplicate, missing, null, wrongly typed, or
+frame is 4096 bytes, excluding the line ending. Requests must end in a newline;
+an incomplete frame is discarded when the client disconnects. Unknown,
+duplicate, missing, null, wrongly typed, or
 operation-inappropriate fields are rejected. JSON arrays are not substitutes for
 request or desired objects.
 
@@ -86,9 +91,8 @@ must be omitted when not applicable; explicit null is invalid.
 | `external`   | `desired`               | Inject controls into the same actual engine state; clear `commandId`.                |
 | `delay`      | `value`: integer 0–5000 | Set latency in milliseconds for the next accepted write or stop.                     |
 | `stale`      | `value`: integer 0 or 1 | Unfreeze or freeze published samples, respectively.                                  |
-| `disconnect` | None                    | Mark disconnected, zero speed, disable, clear `commandId`, invalidate pending I/O.   |
+| `disconnect` | None                    | Simulate disconnection without closing the socket; stop and clear pending I/O.       |
 | `connect`    | None                    | Mark connected, restore the stopped startup controls, clear `commandId`.             |
-| `shutdown`   | None                    | Disable, zero speed, reply, and exit without waiting for pending artificial latency. |
 
 `desired` has exactly these integer fields:
 
@@ -215,16 +219,18 @@ completion, except speed. **A controller that abandons a delayed write must
 handle its eventual completion and then issue a stop**; abandoning its local
 wait does not cancel the simulated I/O.
 
-A disconnect invalidates pending I/O even if connect occurs before its deadline.
-At the original deadline it replies `disconnected` without mutation. The pending
-slot remains occupied until then. EOF and shutdown end the process instead and
-discard pending completions.
+A simulated `disconnect` request or actual TCP client loss discards pending I/O,
+the next delay, and the stale setting immediately. There is no later completion
+for the discarded request. On client loss, the engine is disabled and a newly
+admitted client starts with the stopped defaults. Closing the socket does not
+stop the process.
 
 Stale mode freezes the entire last published sample, including its sequence,
 revision, command ID, connection flag, and kinematics. It suppresses periodic
 events; replies reuse that exact sample. Engine updates, actual control
 mutations, and delayed completions continue. `stale: 0` returns a new actual
-sample. Connect does not silently clear separately injected stale/delay faults.
+sample. A `connect` request alone does not clear injected faults; a simulated
+disconnect or actual client loss does.
 
 ## Native retract semantics and limits
 
@@ -250,22 +256,24 @@ deadline, not a hard real-time completion bound.
 
 - Input: 4096-byte frames, an eight-item channel, and at most eight requests
   handled per engine tick. Oversized lines are drained with bounded storage,
-  rejected once at their boundary, and do not prevent later valid frames.
-- Output: one stdout writer, a 32-frame bounded channel, and one complete JSON
-  line per write/flush. Output saturation fails the process instead of blocking
-  the engine indefinitely. Closing stdout also fails it.
-- Shutdown/EOF disable the engine, abort and await the tracked native motion
-  task, and allow up to two seconds for queued output to drain. An unresponsive
-  output pipe produces a nonzero exit, not a false successful shutdown.
-- The blocking stdin OS thread is process-lifetime. It is not a Tokio blocking
-  task, so shutdown exits even when the parent keeps stdin open.
+  rejected once at their boundary, and do not prevent later valid frames. A
+  full input channel disconnects the client rather than blocking the engine.
+- Output: one writer per active client, a 32-frame bounded channel, and one
+  complete JSON line per write/flush. A full channel, failed write, or closed
+  socket disconnects that client instead of blocking the engine indefinitely.
+- Client loss disables the engine, closes its socket, and reclaims its reader
+  and writer threads before admitting a successor. Socket reads are bounded by
+  a 250 ms timeout; writes have a one-second timeout. Cleanup has a two-second
+  deadline; an unreclaimable client ends the process with a nonzero exit.
+- The listener and native motion task remain alive across client sessions.
 - Stderr uses fixed diagnostics: at most four upstream error notices, one panic
   notice, and a terminal failure notice. No request or raw upstream error text
   is echoed. Upstream recoverable error logs retain upstream continuation
-  behavior; panics, task exit, non-finite observations, and transport failures
-  fail the adapter.
-- Exit codes: 0 for shutdown/EOF, 1 for runtime/engine/transport failure, 2 for
-  command-line arguments. Rejected JSON requests alone do not end the process.
+  behavior; panics, task exit, non-finite observations, and listener/cleanup
+  failures fail the adapter.
+- Exit codes: 1 for fatal runtime/engine/listener/cleanup failure and 2 for
+  invalid listener arguments. Rejected JSON requests and client disconnects
+  do not end the process. There is no in-band shutdown operation.
 
 Unit tests exercise parsing, bounds, serialization, scheduling, and pure state
 transitions without constructing a global motion engine. Subprocess smoke checks

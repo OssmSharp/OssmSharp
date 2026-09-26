@@ -1,4 +1,4 @@
-namespace OSSMDotNet.GuestWeb;
+namespace OssmSharp.Web.GuestWeb;
 
 /// <summary>
 /// Starts the restricted guest web application.

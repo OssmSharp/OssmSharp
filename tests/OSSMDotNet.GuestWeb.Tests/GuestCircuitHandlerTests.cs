@@ -1,6 +1,6 @@
-using OSSMDotNet.GuestWeb.Services;
+using OssmSharp.Web.GuestWeb.Services;
 
-namespace OSSMDotNet.GuestWeb.Tests;
+namespace OssmSharp.Web.GuestWeb.Tests;
 
 /// <summary>
 /// Checks that circuit loss disposes the joined client and prevents further guest commands.

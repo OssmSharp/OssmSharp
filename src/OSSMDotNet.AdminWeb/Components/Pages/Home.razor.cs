@@ -1,4 +1,4 @@
-namespace OSSMDotNet.AdminWeb.Components.Pages;
+namespace OssmSharp.Web.AdminWeb.Components.Pages;
 
 /// <summary>
 /// Renders the loopback-only operator control page.

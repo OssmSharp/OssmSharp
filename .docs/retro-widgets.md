@@ -34,9 +34,10 @@ The root documents load the package theme and select its `neon` preset. Blazor
 discovers the package's initializer; no second registration script is installed.
 Typed wrappers own Blazor actions. The JS-owned guest toggle and native
 `.rw-slider` inputs retain their browser-side send/lease state. Both hosts
-consume `ControlLayout` and static `ConnectionNotice` from SharedUi. The package
-owns their common styles; reconnect and fatal notices take priority over
-ordinary operation notices. Native Blazor reconnect states drive the display
+consume `ControlLayout` and static `ConnectionNotice` from
+`OssmSharp.Web.Common`. The package owns their common styles; reconnect and
+fatal notices take priority over ordinary operation notices. Native Blazor
+reconnect states drive the display
 without moving or replacing interactive DOM.
 
 The library inserts constant styles into Shadow DOM. `RetroWidgetAssets`

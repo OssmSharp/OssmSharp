@@ -18,8 +18,10 @@ internal sealed class ControlActivityWriter(string category, ControlActivityProv
         Func<TState, Exception?, string> formatter)
     {
         // Only explicitly safe application activity belongs in the operator UI, never scopes or exception details.
-        if (IsEnabled(logLevel) && category.StartsWith("OSSMDotNet.", StringComparison.Ordinal) &&
-            IsSafeActivityEvent(eventId))
+        if (IsEnabled(logLevel)
+            && (category.StartsWith("OSSMDotNet.", StringComparison.Ordinal)
+                || category.StartsWith("OssmSharp.Device.Simulator.", StringComparison.Ordinal))
+            && IsSafeActivityEvent(eventId))
             provider.Append(logLevel, formatter(state, null));
     }
 

@@ -1,8 +1,8 @@
 use std::{fmt, num::NonZeroU64};
 
 use serde::{
+    de::{value::MapAccessDeserializer, MapAccess, Visitor},
     Deserialize, Deserializer, Serialize,
-    de::{MapAccess, Visitor, value::MapAccessDeserializer},
 };
 
 pub const MAX_FRAME_BYTES: usize = 4096;
@@ -40,7 +40,6 @@ pub enum Operation {
     Stale { freeze: bool },
     Disconnect,
     Connect,
-    Shutdown,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -131,10 +130,16 @@ fn present_desired_object<'de, D: Deserializer<'de>>(
 
 pub fn parse_request(bytes: &[u8]) -> Result<Request, Rejection> {
     if bytes.len() > MAX_FRAME_BYTES {
-        return Err(Rejection { id: 0, code: "frame_too_large" });
+        return Err(Rejection {
+            id: 0,
+            code: "frame_too_large",
+        });
     }
     if bytes.iter().find(|byte| !byte.is_ascii_whitespace()) != Some(&b'{') {
-        return Err(Rejection { id: 0, code: "invalid_request" });
+        return Err(Rejection {
+            id: 0,
+            code: "invalid_request",
+        });
     }
 
     // Recover correlation only from a complete JSON object with one valid ID.
@@ -147,8 +152,7 @@ pub fn parse_request(bytes: &[u8]) -> Result<Request, Rejection> {
         .map(|request| request.id.get())
         .unwrap_or(0);
     let reject = |code| Rejection { id, code };
-    let wire: WireRequest =
-        serde_json::from_slice(bytes).map_err(|_| reject("invalid_request"))?;
+    let wire: WireRequest = serde_json::from_slice(bytes).map_err(|_| reject("invalid_request"))?;
     if wire.v != 1 {
         return Err(reject("unsupported_version"));
     }
@@ -157,9 +161,14 @@ pub fn parse_request(bytes: &[u8]) -> Result<Request, Rejection> {
         ("status", None, None, None) => Operation::Status,
         ("write", Some(command_id), Some(desired), None) => {
             validate_desired(desired, true).map_err(reject)?;
-            Operation::Write { command_id: command_id.get(), desired }
+            Operation::Write {
+                command_id: command_id.get(),
+                desired,
+            }
         }
-        ("stop", Some(command_id), None, None) => Operation::Stop { command_id: command_id.get() },
+        ("stop", Some(command_id), None, None) => Operation::Stop {
+            command_id: command_id.get(),
+        },
         ("external", None, Some(desired), None) => {
             validate_desired(desired, false).map_err(reject)?;
             Operation::External { desired }
@@ -168,10 +177,12 @@ pub fn parse_request(bytes: &[u8]) -> Result<Request, Rejection> {
         ("stale", None, None, Some(value @ 0..=1)) => Operation::Stale { freeze: value == 1 },
         ("disconnect", None, None, None) => Operation::Disconnect,
         ("connect", None, None, None) => Operation::Connect,
-        ("shutdown", None, None, None) => Operation::Shutdown,
         _ => return Err(reject("invalid_request")),
     };
-    Ok(Request { id: wire.id.get(), operation })
+    Ok(Request {
+        id: wire.id.get(),
+        operation,
+    })
 }
 
 fn validate_desired(desired: Desired, ordinary: bool) -> Result<(), &'static str> {
@@ -192,7 +203,7 @@ fn validate_desired(desired: Desired, ordinary: bool) -> Result<(), &'static str
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::{Value, json};
+    use serde_json::{json, Value};
 
     fn parse(value: Value) -> Result<Request, Rejection> {
         parse_request(&serde_json::to_vec(&value).unwrap())
@@ -206,14 +217,36 @@ mod tests {
     fn accepts_each_operation_with_its_exact_payload() {
         let cases = [
             (json!({"v":1,"id":1,"op":"status"}), Operation::Status),
-            (write(), Operation::Write { command_id: 19, desired: Desired::default() }),
-            (json!({"v":1,"id":1,"op":"stop","commandId":2}), Operation::Stop { command_id: 2 }),
-            (json!({"v":1,"id":1,"op":"external","desired":Desired::default()}), Operation::External { desired: Desired::default() }),
-            (json!({"v":1,"id":1,"op":"delay","value":5000}), Operation::Delay { milliseconds: 5000 }),
-            (json!({"v":1,"id":1,"op":"stale","value":1}), Operation::Stale { freeze: true }),
-            (json!({"v":1,"id":1,"op":"disconnect"}), Operation::Disconnect),
+            (
+                write(),
+                Operation::Write {
+                    command_id: 19,
+                    desired: Desired::default(),
+                },
+            ),
+            (
+                json!({"v":1,"id":1,"op":"stop","commandId":2}),
+                Operation::Stop { command_id: 2 },
+            ),
+            (
+                json!({"v":1,"id":1,"op":"external","desired":Desired::default()}),
+                Operation::External {
+                    desired: Desired::default(),
+                },
+            ),
+            (
+                json!({"v":1,"id":1,"op":"delay","value":5000}),
+                Operation::Delay { milliseconds: 5000 },
+            ),
+            (
+                json!({"v":1,"id":1,"op":"stale","value":1}),
+                Operation::Stale { freeze: true },
+            ),
+            (
+                json!({"v":1,"id":1,"op":"disconnect"}),
+                Operation::Disconnect,
+            ),
             (json!({"v":1,"id":1,"op":"connect"}), Operation::Connect),
-            (json!({"v":1,"id":1,"op":"shutdown"}), Operation::Shutdown),
         ];
         for (input, expected) in cases {
             assert_eq!(parse(input).unwrap().operation, expected);
@@ -239,7 +272,13 @@ mod tests {
             json!({"v":1,"id":7,"op":"write","desired":Desired::default()}),
             json!({"v":1,"id":7,"op":"stop"}),
         ] {
-            assert_eq!(parse(input).unwrap_err(), Rejection { id: 7, code: "invalid_request" });
+            assert_eq!(
+                parse(input).unwrap_err(),
+                Rejection {
+                    id: 7,
+                    code: "invalid_request"
+                }
+            );
         }
         assert!(parse_request(br#"{"v":1,"id":1,"op":"status","op":"connect"}"#).is_err());
         assert!(parse_request(br#"{"v":1,"id":1,"id":2,"op":"status"}"#).is_err());
@@ -253,14 +292,21 @@ mod tests {
             br#"{"v":1,"id":7,"op":"write","commandId":1,"desired":[0,0,10,20,50]}"#,
             br#"{"v":1,"id":7,"op":"external","desired":[0,0,10,20,50]}"#,
         ] {
-            assert!(parse_request(bytes).is_err(), "request and desired must be objects");
+            assert!(
+                parse_request(bytes).is_err(),
+                "request and desired must be objects"
+            );
         }
     }
 
     #[test]
     fn rejects_inappropriate_payloads_for_every_operation() {
-        for op in ["status", "disconnect", "connect", "shutdown"] {
-            for (key, value) in [("commandId", json!(1)), ("desired", json!(Desired::default())), ("value", json!(0))] {
+        for op in ["status", "disconnect", "connect"] {
+            for (key, value) in [
+                ("commandId", json!(1)),
+                ("desired", json!(Desired::default())),
+                ("value", json!(0)),
+            ] {
                 let mut input = json!({"v":1,"id":7,"op":op});
                 input[key] = value;
                 assert_eq!(parse(input).unwrap_err().code, "invalid_request");
@@ -281,7 +327,14 @@ mod tests {
 
     #[test]
     fn accepts_only_positive_integer_ids_and_command_ids() {
-        for invalid in [json!(0), json!(-1), json!(1.0), json!("1"), json!(null), json!(true)] {
+        for invalid in [
+            json!(0),
+            json!(-1),
+            json!(1.0),
+            json!("1"),
+            json!(null),
+            json!(true),
+        ] {
             let mut input = write();
             input["id"] = invalid.clone();
             assert_eq!(parse(input).unwrap_err().id, 0);
@@ -298,7 +351,15 @@ mod tests {
     #[test]
     fn desired_requires_integer_percentages_and_supported_pattern() {
         for key in ["pattern", "speed", "stroke", "depth", "sensation"] {
-            for invalid in [json!(-1), json!(1.5), json!(50.0), json!("50"), json!(null), json!(false), json!(101)] {
+            for invalid in [
+                json!(-1),
+                json!(1.5),
+                json!(50.0),
+                json!("50"),
+                json!(null),
+                json!(false),
+                json!(101),
+            ] {
                 let mut input = write();
                 input["desired"][key] = invalid;
                 assert!(parse(input).is_err(), "{key}");
@@ -355,16 +416,45 @@ mod tests {
         }
         assert!(parse(json!({"v":1,"id":7,"op":"delay","value":0})).is_ok());
         assert!(parse(json!({"v":1,"id":7,"op":"stale","value":0})).is_ok());
-        assert_eq!(parse(json!({"v":2,"id":7,"op":"status"})).unwrap_err(), Rejection { id: 7, code: "unsupported_version" });
+        assert_eq!(
+            parse(json!({"v":2,"id":7,"op":"status"})).unwrap_err(),
+            Rejection {
+                id: 7,
+                code: "unsupported_version"
+            }
+        );
+    }
+
+    #[test]
+    fn client_cannot_shutdown_the_independent_simulator() {
+        assert_eq!(
+            parse(json!({"v":1,"id":7,"op":"shutdown"})).unwrap_err(),
+            Rejection {
+                id: 7,
+                code: "invalid_request"
+            },
+        );
     }
 
     #[test]
     fn malformed_utf8_json_and_overlong_frames_have_fixed_errors() {
         for bytes in [b"{".as_slice(), b"[]", b"null", b"\xff", b"{\"id\":1}\n{}"] {
-            assert_eq!(parse_request(bytes).unwrap_err(), Rejection { id: 0, code: "invalid_request" });
+            assert_eq!(
+                parse_request(bytes).unwrap_err(),
+                Rejection {
+                    id: 0,
+                    code: "invalid_request"
+                }
+            );
         }
         assert_eq!(parse_request(br#"{"id":7}"#).unwrap_err().id, 7);
-        assert_eq!(parse_request(&vec![b' '; MAX_FRAME_BYTES + 1]).unwrap_err(), Rejection { id: 0, code: "frame_too_large" });
+        assert_eq!(
+            parse_request(&vec![b' '; MAX_FRAME_BYTES + 1]).unwrap_err(),
+            Rejection {
+                id: 0,
+                code: "frame_too_large"
+            }
+        );
         let mut exact = br#"{"v":1,"id":7,"op":"status"}"#.to_vec();
         exact.resize(MAX_FRAME_BYTES, b' ');
         assert!(parse_request(&exact).is_ok());
@@ -373,22 +463,54 @@ mod tests {
     #[test]
     fn reply_and_event_have_only_the_contract_fields() {
         let sample = Sample {
-            sample_sequence: 1, change_revision: 0, command_id: None,
-            desired: Desired::default(), enabled: false, moving: false,
-            position: 0.0, velocity: 0.0, connected: true, profile_id: PROFILE_ID,
+            sample_sequence: 1,
+            change_revision: 0,
+            command_id: None,
+            desired: Desired::default(),
+            enabled: false,
+            moving: false,
+            position: 0.0,
+            velocity: 0.0,
+            connected: true,
+            profile_id: PROFILE_ID,
         };
-        let reply = serde_json::to_value(Reply { v: 1, id: 7, ok: true, error: None, state: Some(sample.clone()) }).unwrap();
+        let reply = serde_json::to_value(Reply {
+            v: 1,
+            id: 7,
+            ok: true,
+            error: None,
+            state: Some(sample.clone()),
+        })
+        .unwrap();
         assert_eq!(reply.as_object().unwrap().len(), 5);
-        assert_eq!(reply["state"], json!({
-            "sampleSequence":1,"changeRevision":0,"commandId":null,
-            "desired":{"pattern":0,"speed":0,"stroke":10,"depth":20,"sensation":50},
-            "enabled":false,"moving":false,"position":0.0,"velocity":0.0,
-            "connected":true,"profileId":"ossm-rs-sim-v1"
-        }));
-        let event = serde_json::to_value(Event { v: 1, event: "state", state: sample }).unwrap();
+        assert_eq!(
+            reply["state"],
+            json!({
+                "sampleSequence":1,"changeRevision":0,"commandId":null,
+                "desired":{"pattern":0,"speed":0,"stroke":10,"depth":20,"sensation":50},
+                "enabled":false,"moving":false,"position":0.0,"velocity":0.0,
+                "connected":true,"profileId":"ossm-rs-sim-v1"
+            })
+        );
+        let event = serde_json::to_value(Event {
+            v: 1,
+            event: "state",
+            state: sample,
+        })
+        .unwrap();
         assert_eq!(event.as_object().unwrap().len(), 3);
         assert_eq!(event["state"], reply["state"]);
-        let failure = serde_json::to_value(Reply { v: 1, id: 0, ok: false, error: Some("invalid_request"), state: None }).unwrap();
-        assert_eq!(failure, json!({"v":1,"id":0,"ok":false,"error":"invalid_request"}));
+        let failure = serde_json::to_value(Reply {
+            v: 1,
+            id: 0,
+            ok: false,
+            error: Some("invalid_request"),
+            state: None,
+        })
+        .unwrap();
+        assert_eq!(
+            failure,
+            json!({"v":1,"id":0,"ok":false,"error":"invalid_request"})
+        );
     }
 }

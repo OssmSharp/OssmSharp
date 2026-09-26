@@ -1,7 +1,7 @@
 using System.Text.Json;
-using OSSMDotNet.ControlCore;
-using OSSMDotNet.ControlCore.Tests;
-using OSSMDotNet.Models;
+using OssmSharp.Web.Application;
+using OssmSharp.Web.Application.Models;
+using OssmSharp.Web.Application.Tests;
 
 namespace OSSMDotNet.ApiService.Tests;
 

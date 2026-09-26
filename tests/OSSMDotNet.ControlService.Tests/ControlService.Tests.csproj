@@ -7,7 +7,8 @@
   <ItemGroup>
     <ProjectReference Include="../../src/OSSMDotNet.ControlService/ControlService.csproj" />
     <ProjectReference
-      Include="../../src/OSSMDotNet.Abstractions/OSSMDotNet.Abstractions.csproj" />
+      Include="../../src/OssmSharp.Device.Primitives/OssmSharp.Device.Primitives.csproj" />
+    <ProjectReference Include="../../src/OssmSharp.Web.Contracts/OssmSharp.Web.Contracts.csproj" />
     <Compile Include="../OSSMDotNet.ControlCore.Tests/Helpers/BridgeCall.cs"
       Link="Helpers/BridgeCall.cs" />
     <Compile Include="../OSSMDotNet.ControlCore.Tests/Helpers/FakeBridge.cs"
@@ -16,8 +17,9 @@
       Link="Helpers/TestMotion.cs" />
     <PackageReference Include="xunit.v3.mtp-v2" />
     <PackageReference Include="Microsoft.Testing.Platform" />
-    <Using Include="OSSMDotNet.Abstractions" />
-    <Using Include="OSSMDotNet.Abstractions.Models" />
+    <Using Include="OssmSharp.Device.Primitives" />
+    <Using Include="OssmSharp.Device.Primitives.Models" />
+    <Using Include="OssmSharp.Web.Contracts" />
     <Using Include="OSSMDotNet.ControlCore" />
     <Using Include="OSSMDotNet.ControlCore.Tests.Helpers" />
     <Using Include="OSSMDotNet.ControlService.Activity" />

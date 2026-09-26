@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+    <PropertyGroup>
+        <RootNamespace>OssmSharp.Web.Api</RootNamespace>
+        <AssemblyName>OssmSharp.Web.Api</AssemblyName>
+    </PropertyGroup>
+    <ItemGroup>
+        <ProjectReference Include="../OssmSharp.Web.Application/OssmSharp.Web.Application.csproj" />
+        <ProjectReference Include="../OssmSharp.Device.Runtime/OssmSharp.Device.Runtime.csproj" />
+        <Using Include="OssmSharp.Web.Api.Authentication" />
+        <Using Include="OssmSharp.Web.Api.Device" />
+        <Using Include="OssmSharp.Web.Api.Hosting" />
+        <Using Include="OssmSharp.Web.Api.SignalR" />
+        <Using Include="OssmSharp.Web.Application.Activity" />
+        <Using Include="OssmSharp.Web.Application.Authority" />
+        <Using Include="OssmSharp.Web.Application.Operations" />
+        <ProjectReference Include="../OssmSharp.Device.Simulator/OssmSharp.Device.Simulator.csproj" />
+        <ProjectReference
+            Include="../OssmSharp.Web.ServiceDefaults/OssmSharp.Web.ServiceDefaults.csproj" />
+        <ProjectReference Include="../OssmSharp.Web.Contracts/OssmSharp.Web.Contracts.csproj" />
+        <Using Include="OssmSharp.Web.Contracts" />
+    </ItemGroup>
+    <ItemGroup>
+        <InternalsVisibleTo Include="OssmSharp.Web.Api.Tests" />
+        <InternalsVisibleTo Include="OssmSharp.Web.Api.IntegrationTests" />
+    </ItemGroup>
+</Project>

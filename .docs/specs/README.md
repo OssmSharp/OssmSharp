@@ -27,11 +27,10 @@ accepted packaging and deployment decisions; the
 completed implementation.
 
 The [direct-device migration plan](../plans/direct-device-migration.md) owns the
-unstarted implementation sequence, including repository instructions and the
-OSSMDotNet-to-OssmSharp repository/project/namespace rename. The current root
-AGENTS.md still contains superseded rules; M0 explicitly replaces them before
-any code migration. This documentation update does not edit those instructions
-or authorize starting implementation.
+implementation sequence, including repository instructions and the
+OSSMDotNet-to-OssmSharp repository/project/namespace rename. M0 has aligned
+the root instructions; the plan records subsequent implementation and evidence.
+This design contract does not establish runtime migration acceptance.
 
 - `Web.Api` is the device-owning web backend. It hosts the web application
 	policy and selects one device provider through DI. `Web.AdminWeb` and
@@ -133,5 +132,5 @@ required for the approved local application.
 The [earlier implementation plan](../plans/web-control-implementation.md)
 retains historical host/library-extraction evidence, not acceptance of this
 migration. The [resolved decisions](web-control-design.md#resolved-direction-and-review)
-record current decisions and compatibility constraints. Implementation remains
-separately authorized work.
+record current decisions and compatibility constraints. The migration plan
+records implementation status; no physical operation is authorized.

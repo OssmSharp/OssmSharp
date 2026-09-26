@@ -1,4 +1,4 @@
-namespace OSSMDotNet.GuestWeb.Tests;
+namespace OssmSharp.Web.GuestWeb.Tests;
 
 /// <summary>
 /// Forwards page requests to the fixture so tests can record and control hub responses.

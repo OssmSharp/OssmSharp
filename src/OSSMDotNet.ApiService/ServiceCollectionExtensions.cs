@@ -5,10 +5,10 @@ using Microsoft.AspNetCore.Server.Kestrel.Https;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
-using OSSMDotNet.ControlService;
-using OSSMDotNet.ControlService.Models;
-using OSSMDotNet.Simulator;
-using OSSMDotNet.Simulator.Models;
+using OssmSharp.Device.Simulator;
+using OssmSharp.Device.Simulator.Models;
+using OssmSharp.Web.Application;
+using OssmSharp.Web.Application.Models;
 
 namespace OSSMDotNet.ApiService;
 

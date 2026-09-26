@@ -1,6 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 
-namespace OSSMDotNet.GuestWeb.Tests;
+namespace OssmSharp.Web.GuestWeb.Tests;
 
 #pragma warning disable BL0006 // Test-only renderer intentionally inspects Blazor render-tree frames.
 /// <summary>

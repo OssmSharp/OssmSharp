@@ -1,6 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 
-namespace OSSMDotNet.Models;
+namespace OssmSharp.Device.Stock.Models;
 
 /// <summary>
 /// Represents a stock-firmware acknowledgement for a submitted setting command.

@@ -1,5 +1,5 @@
-using OSSMDotNet.Models;
-using OSSMDotNet.Simulator;
+using OssmSharp.Device.Simulator;
+using OssmSharp.Web.Application.Models;
 
 namespace OSSMDotNet.ApiService.Device;
 

@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Primitives;
-using OSSMDotNet.ControlService.Models;
-using OSSMDotNet.ServiceDefaults;
+using OssmSharp.Web.Application.Models;
+using OssmSharp.Web.ServiceDefaults;
 
 namespace OSSMDotNet.ApiService.Authentication;
 

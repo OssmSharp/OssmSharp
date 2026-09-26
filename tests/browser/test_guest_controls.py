@@ -17,13 +17,13 @@ class GuestControlTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[2]
         modules = {
             "guest-session.js": (
-                root / "src" / "OSSMDotNet.GuestWeb" / "wwwroot" / "guest-session.js"
+                root / "src" / "OssmSharp.Web.GuestWeb" / "wwwroot" / "guest-session.js"
             ).read_text(),
             "guest.css": (
-                root / "src" / "OSSMDotNet.GuestWeb" / "wwwroot" / "guest.css"
+                root / "src" / "OssmSharp.Web.GuestWeb" / "wwwroot" / "guest.css"
             ).read_text(),
             "connection-ui.js": (
-                root / "src" / "OSSMDotNet.WebCommon" / "wwwroot" / "connection-ui.js"
+                root / "src" / "OssmSharp.Web.Common" / "wwwroot" / "connection-ui.js"
             ).read_text(),
         }
         controls = "".join(

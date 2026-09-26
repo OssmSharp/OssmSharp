@@ -150,7 +150,7 @@ members. Bind typed options with DataAnnotations, cross-field validation and
 | `OSSM:Device:Mode`                | Closed choice: `simulator` or `stock-ble`. Default to `simulator`; reject unknown values. Select once at composition time.                                                                   |
 | `OSSM:Device:Ble:PeripheralId`    | Required in stock mode. Opaque Shiny/platform locator captured during enrollment; not a portable Bluetooth address.                                                                          |
 | `OSSM:Device:Ble:ExpectedWifiMac` | Required in stock mode. Six-octet Wi-Fi MAC from the live identity characteristic, normalized for comparison. Verify before configuration or motion writes.                                  |
-| `OSSM:Device:Simulator:Endpoint` | Required in simulator mode: `tcp://127.0.0.1:<port>`, port 1-65535, no credentials/path/query/fragment. This identifies an already-started server, not an executable to launch. |
+| `OSSM:Control:SimulatorEndpoint` | Required for Web.Api's simulator: `tcp://127.0.0.1:<port>`, port 1-65535, no credentials/path/query/fragment. This identifies an already-started server, not an executable to launch. |
 | `OSSM:Device:ShutdownTimeout` | Overall device cleanup budget, default five seconds, positive and finite. Web host shutdown allowance must exceed it. |
 
 Remove `OSSM:Control:SimulatorPath` rather than retaining a fallback/alias; WIP

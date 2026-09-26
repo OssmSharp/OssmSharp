@@ -16,7 +16,7 @@ do not add VSTest adapters or replace the runner. Follow
 From the repository root:
 
 ```powershell
-dotnet test --project tests/ControlCore.Tests
+dotnet test --project tests/OssmSharp.Web.Application.Tests/OssmSharp.Web.Application.Tests.csproj
 ```
 
 For filters, reports, and project configuration, use

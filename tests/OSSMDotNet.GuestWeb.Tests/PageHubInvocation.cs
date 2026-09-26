@@ -1,4 +1,4 @@
-namespace OSSMDotNet.GuestWeb.Tests;
+namespace OssmSharp.Web.GuestWeb.Tests;
 
 /// <summary>
 /// Captures a page request received by the loopback control hub.

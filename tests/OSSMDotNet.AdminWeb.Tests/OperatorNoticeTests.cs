@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Time.Testing;
 
-namespace OSSMDotNet.AdminWeb.Tests;
+namespace OssmSharp.Web.AdminWeb.Tests;
 
 /// <summary>
 /// Checks copy confirmation and the lifetime of operator success and error notices.

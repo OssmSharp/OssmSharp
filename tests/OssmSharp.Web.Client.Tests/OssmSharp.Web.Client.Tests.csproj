@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsTestProject>true</IsTestProject>
+    <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/OssmSharp.Web.Client/OssmSharp.Web.Client.csproj" />
+    <ProjectReference
+      Include="../../src/OssmSharp.Device.Primitives/OssmSharp.Device.Primitives.csproj" />
+    <ProjectReference Include="../../src/OssmSharp.Web.Contracts/OssmSharp.Web.Contracts.csproj" />
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="xunit.v3.mtp-v2" />
+    <PackageReference Include="Microsoft.Testing.Platform" />
+    <Using Include="OssmSharp.Device.Primitives" />
+    <Using Include="OssmSharp.Device.Primitives.Models" />
+    <Using Include="OssmSharp.Web.Client.Clients" />
+    <Using Include="OssmSharp.Web.Client.Connections" />
+    <Using Include="OssmSharp.Web.Client.DependencyInjection" />
+    <Using Include="OssmSharp.Web.Client.Models" />
+    <Using Include="OssmSharp.Web.Contracts" />
+    <Using Include="Microsoft.AspNetCore.Builder" />
+    <Using Include="Microsoft.AspNetCore.SignalR" />
+    <Using Include="Microsoft.Extensions.Options" />
+    <Using Include="Microsoft.AspNetCore.Hosting" />
+    <Using Include="Microsoft.AspNetCore.Hosting.Server" />
+    <Using Include="Microsoft.AspNetCore.Hosting.Server.Features" />
+    <Using Include="Microsoft.AspNetCore.Http.Connections" />
+    <Using Include="Microsoft.Extensions.DependencyInjection" />
+    <Using Include="Microsoft.Extensions.Hosting" />
+    <Using Include="Microsoft.Extensions.Logging" />
+    <Using Include="Xunit" />
+  </ItemGroup>
+</Project>

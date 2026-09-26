@@ -1,6 +1,4 @@
-using OSSMDotNet.Models;
-
-namespace OSSMDotNet.GuestWeb.Components.Pages;
+namespace OssmSharp.Web.GuestWeb.Components.Pages;
 
 /// <summary>
 /// Represents browser-reported guest values and feedback for display, not motion authorization.

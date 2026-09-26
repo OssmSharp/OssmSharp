@@ -1,10 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <RootNamespace>OSSMDotNet.ControlClient</RootNamespace>
+    <RootNamespace>OssmSharp.Web.Client</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" />
     <ProjectReference Include="../OSSMDotNet.Models/OSSMDotNet.Models.csproj" />
+    <ProjectReference Include="../OssmSharp.Web.Contracts/OssmSharp.Web.Contracts.csproj" />
+    <Using Include="OssmSharp.Web.Contracts" />
   </ItemGroup>
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />

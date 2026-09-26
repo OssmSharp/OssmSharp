@@ -1,8 +1,8 @@
 using Microsoft.Extensions.Time.Testing;
-using OSSMDotNet.AdminWeb.Components.Pages;
-using OSSMDotNet.GuestWeb.Tests;
+using OssmSharp.Web.AdminWeb.Components.Pages;
+using OssmSharp.Web.GuestWeb.Tests;
 
-namespace OSSMDotNet.AdminWeb.Tests;
+namespace OssmSharp.Web.AdminWeb.Tests;
 
 /// <summary>
 /// Checks operator-page notices, controls, and live state through rendered components.

@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
+    <AssemblyName>OssmSharp.Cli</AssemblyName>
     <TargetFramework Condition="'$(EnableStockBle)' == 'true' and $([MSBuild]::IsOSPlatform('OSX'))">
       net10.0-macos26.0</TargetFramework>
     <ApplicationId Condition="'$(TargetFramework)' == 'net10.0-macos26.0'">org.ossm.devicecli</ApplicationId>
@@ -9,10 +10,11 @@
     <PackageReference Include="System.CommandLine" />
     <PackageReference Include="Shiny.BluetoothLE"
       Condition="'$(TargetFramework)' == 'net10.0-macos26.0'" />
-    <ProjectReference Include="../OSSMDotNet.Abstractions/OSSMDotNet.Abstractions.csproj" />
-    <ProjectReference Include="../OSSMDotNet/OSSMDotNet.csproj" />
-    <ProjectReference Include="../OSSMDotNet.Simulator/OSSMDotNet.Simulator.csproj" />
-    <Using Include="OSSMDotNet.Abstractions.Models" />
+    <ProjectReference Include="../OssmSharp.Device.Primitives/OssmSharp.Device.Primitives.csproj" />
+    <ProjectReference Include="../OssmSharp.Device.Runtime/OssmSharp.Device.Runtime.csproj" />
+    <ProjectReference Include="../OssmSharp.Device.Stock/OssmSharp.Device.Stock.csproj" />
+    <ProjectReference Include="../OssmSharp.Device.Simulator/OssmSharp.Device.Simulator.csproj" />
+    <Using Include="OssmSharp.Device.Primitives.Models" />
     <Using Include="OSSMDotNet.DeviceCli.Commands" />
     <Using Include="OSSMDotNet.DeviceCli.Models" />
     <Using Include="OSSMDotNet.DeviceCli.Simulator" />

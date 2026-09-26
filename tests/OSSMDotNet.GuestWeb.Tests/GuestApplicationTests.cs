@@ -1,7 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
 
-namespace OSSMDotNet.GuestWeb.Tests;
+namespace OssmSharp.Web.GuestWeb.Tests;
 
 /// <summary>
 /// Checks guest host binding, HTTP protections, and the pages and assets it serves.
@@ -59,8 +59,8 @@ public sealed class GuestApplicationTests
         Assert.Contains(".send-bar { display: flex; flex-wrap: wrap; justify-content: flex-end;", guestCss);
         Assert.Contains(".auto-send { flex: 0 0 auto; white-space: nowrap; }", guestCss);
 
-        foreach (var asset in new[] { "guest.css", "guest-start.js", "guest-session.js", "_content/SharedUi/controls.css",
-            "_content/SharedUi/connection-ui.js",
+        foreach (var asset in new[] { "guest.css", "guest-start.js", "guest-session.js", "_content/OssmSharp.Web.Common/controls.css",
+            "_content/OssmSharp.Web.Common/connection-ui.js",
             "_content/RetroWebUi.Blazor/widgets/theme.css", "_content/RetroWebUi.Blazor/widgets/index.js", "_framework/blazor.web.js" })
         {
             using var response = await client.GetAsync(asset, Cancellation);

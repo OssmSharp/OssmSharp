@@ -1,15 +1,17 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <RootNamespace>OSSMDotNet</RootNamespace>
+    <AssemblyName>OssmSharp.Device.Stock</AssemblyName>
+    <RootNamespace>OssmSharp.Device.Stock</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
-    <InternalsVisibleTo Include="OSSMDotNet.Tests" />
+    <InternalsVisibleTo Include="OssmSharp.Device.Stock.Tests" />
     <InternalsVisibleTo Include="DeviceCli" />
-    <ProjectReference Include="../OSSMDotNet.Abstractions/OSSMDotNet.Abstractions.csproj" />
+    <ProjectReference Include="../OssmSharp.Device.Primitives/OssmSharp.Device.Primitives.csproj" />
+    <ProjectReference Include="../OssmSharp.Device.Runtime/OssmSharp.Device.Runtime.csproj" />
     <PackageReference Include="Microsoft.Extensions.Hosting" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
-    <Using Include="OSSMDotNet.Abstractions" />
-    <Using Include="OSSMDotNet.Abstractions.Models" />
+    <Using Include="OssmSharp.Device.Primitives" />
+    <Using Include="OssmSharp.Device.Primitives.Models" />
     <Using Include="Microsoft.Extensions.Logging" />
   </ItemGroup>
 </Project>

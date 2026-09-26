@@ -2,9 +2,9 @@ using System.Diagnostics;
 using System.Text.Json;
 using System.Threading.Channels;
 using Microsoft.Extensions.Logging;
-using OSSMDotNet.ControlCore;
-using OSSMDotNet.ControlCore.Tests;
-using OSSMDotNet.Models;
+using OssmSharp.Web.Application;
+using OssmSharp.Web.Application.Models;
+using OssmSharp.Web.Application.Tests;
 
 namespace OSSMDotNet.ApiService.Tests;
 
@@ -78,7 +78,7 @@ public sealed partial class ControlPushDispatcherTests
     public async Task RetainedMaxEscapedMultibyteActivityBatchesFitWithoutOmissionsDuplicatesAndReportGap()
     {
         using var activity = new ControlActivityProvider(TimeProvider.System);
-        var logger = activity.CreateLogger("OSSMDotNet.ControlService.Tests");
+        var logger = activity.CreateLogger("OssmSharp.Web.Application.Tests");
         var message = string.Concat(Enumerable.Repeat("\"漢字\\\n", 100));
         for (var index = 0; index < 205; index++)
             WriteActivity(logger, $"{index:D3}:{message}");

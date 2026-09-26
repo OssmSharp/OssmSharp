@@ -1,6 +1,6 @@
 using System.Net;
 
-namespace OSSMDotNet.GuestWeb;
+namespace OssmSharp.Web.GuestWeb;
 
 /// <summary>
 /// Configures the restricted guest web application.

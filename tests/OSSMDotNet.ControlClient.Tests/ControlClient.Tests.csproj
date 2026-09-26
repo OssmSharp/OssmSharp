@@ -7,17 +7,19 @@
   <ItemGroup>
     <ProjectReference Include="../../src/OSSMDotNet.ControlClient/ControlClient.csproj" />
     <ProjectReference
-      Include="../../src/OSSMDotNet.Abstractions/OSSMDotNet.Abstractions.csproj" />
+      Include="../../src/OssmSharp.Device.Primitives/OssmSharp.Device.Primitives.csproj" />
+    <ProjectReference Include="../../src/OssmSharp.Web.Contracts/OssmSharp.Web.Contracts.csproj" />
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <PackageReference Include="xunit.v3.mtp-v2" />
     <PackageReference Include="Microsoft.Testing.Platform" />
-    <Using Include="OSSMDotNet.Abstractions" />
-    <Using Include="OSSMDotNet.Abstractions.Models" />
+    <Using Include="OssmSharp.Device.Primitives" />
+    <Using Include="OssmSharp.Device.Primitives.Models" />
     <Using Include="OSSMDotNet.ControlClient.Clients" />
     <Using Include="OSSMDotNet.ControlClient.Connections" />
     <Using Include="OSSMDotNet.ControlClient.DependencyInjection" />
     <Using Include="OSSMDotNet.ControlClient.Models" />
     <Using Include="OSSMDotNet.Models" />
+    <Using Include="OssmSharp.Web.Contracts" />
     <Using Include="Microsoft.AspNetCore.Builder" />
     <Using Include="Microsoft.AspNetCore.SignalR" />
     <Using Include="Microsoft.Extensions.Options" />

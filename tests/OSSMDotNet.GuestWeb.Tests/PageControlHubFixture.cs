@@ -1,6 +1,6 @@
 using System.Net;
 
-namespace OSSMDotNet.GuestWeb.Tests;
+namespace OssmSharp.Web.GuestWeb.Tests;
 
 /// <summary>
 /// Hosts a loopback control hub for guest page tests and records its calls.

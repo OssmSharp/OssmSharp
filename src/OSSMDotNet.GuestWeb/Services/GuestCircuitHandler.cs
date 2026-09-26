@@ -1,4 +1,4 @@
-namespace OSSMDotNet.GuestWeb.Services;
+namespace OssmSharp.Web.GuestWeb.Services;
 
 /// <summary>
 /// Closes the scoped guest transport when its Blazor circuit disconnects or closes.

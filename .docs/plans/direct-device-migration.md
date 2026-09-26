@@ -2,7 +2,9 @@
 
 Date: 25 September 2026
 
-Status: design and planning only. No migration task has started. The
+Status: implementation in progress. M0-M1 are complete for the local Windows
+instruction and project graph; M2-M3 are partial, and M4-M8 have not started
+their acceptance work. The
 [accepted design](../specs/web-control-design.md) owns decisions and contracts;
 this file owns the ordered migration work and acceptance evidence. The
 [previous extraction plan](web-control-implementation.md) retains historical
@@ -70,11 +72,13 @@ endpoint setting, without a compatibility alias.
 - The current API hosts ControlService as a library and selects the simulator.
   The four-process target recently added to AGENTS.md is not implemented and is
   now superseded. Do not build that obsolete service split first.
-- DeviceCli currently uses device libraries and a private per-user simulator
-  host. Its persistence comes from that helper process, not an interactive REPL.
-- SimulatedDevice currently starts and owns a stdio child. DeviceBase is in the
-  stock project and consumes stock-named options; these are the actual coupling
-  points to remove.
+- At the migration baseline, DeviceCli used device libraries and a private
+  per-user simulator host. The renamed Cli still uses that helper process,
+  not an interactive REPL.
+- At the migration baseline, SimulatedDevice started and owned a stdio child,
+  while DeviceBase lived in the stock project and consumed stock-named options.
+  M1 extracted DeviceBase and neutralized its options; M3 subsequently changed
+  the native bridge and managed adapter to loopback TCP. Cli has not followed.
 - Stock motion remains deferred. The existing conditional macOS/Shiny CLI path
   only identifies a device; it does not prove a stock motion implementation or
   physical qualification.
@@ -84,7 +88,8 @@ endpoint setting, without a compatibility alias.
 
 ## Ordered work
 
-All tasks below are **not started**. Each task includes its focused validation;
+M0-M1 have local Windows evidence; M2-M3 are **in progress**; M4-M8 have not
+started their acceptance work. Each task includes its focused validation;
 behavior changes must first have a regression failing for the intended reason.
 Use existing xUnit v3/MTP v2 projects, FastMoq where suitable, AwesomeAssertions,
 TimeProvider fakes and shared deferred-I/O fixtures. No new test framework or
@@ -93,6 +98,11 @@ dependencies are authorized by this plan.
 ### M0. Align repository instructions before code
 
 Depends on: separate implementation authorization.
+
+Status: complete on 25 September 2026. Root instructions now describe the
+direct-owner topology and link to this plan's acceptance matrix. Focused
+instruction content/link and diff-format checks passed; an independent
+read-only review found no actionable contradictions. No runtime checks ran.
 
 Owner/scope: root AGENTS.md and any applicable repository-local instructions;
 do not change workbench-wide policy as part of this application migration.
@@ -127,6 +137,106 @@ frontmatter; do not mark runtime checks passed from this editorial task.
 
 ### M1. Characterize and establish the target dependency graph
 
+Status: complete for the local project graph on 26 September 2026. The slices extracted
+`DeviceBase`, its shared logging and provider-neutral `DeviceRuntimeOptions`
+into `OssmSharp.Device.Runtime`, device contracts and values into
+`OssmSharp.Device.Primitives`, and stock codecs/provider into
+`OssmSharp.Device.Stock`. Simulator consumes only Primitives and Runtime;
+Web.Application does not reference Stock. Primitives contract tests passed 14,
+Runtime tests 40, Stock tests 151, CLI Identify tests 11, CLI simulator-host
+tests 17 and native Simulator integration tests 72. Focused Runtime, Simulator,
+then-ControlService and CLI builds passed on Windows. All 30 local solution
+projects resolve without cycles. CLI still references
+both Stock and Simulator; M6 must select one provider before restore. Stock's
+macOS-only identity reader was not compiled or tested on Windows.
+
+Web.Contracts now owns 25 public DTOs, including the operator projection and
+its transitive value types, without changing record bodies or wire shapes.
+Web.Application owns the four former Models-private authority and execution
+types; Web.Client has no application-policy dependency. Protocol and hub-payload tests passed 13,
+real SignalR hub contract tests passed 53 and client lifecycle tests passed 2.
+After the operator move, focused Web.Client tests passed 57, Core limits tests
+23, authority and invitation tests 54, payload field-order test 1 and real hub
+proof/ordering tests 4. Contracts has no Models dependency; this is not full
+M1 or API protocol acceptance.
+
+The renamed `OssmSharp.Web.Client` is used by AdminWeb and GuestWeb, not by
+Web.Api or OssmSharp.Cli. Its 57 tests passed under native MTP; both UI hosts and
+their test projects built on Windows. This verifies the project move, not
+independent UI/API startup or the full web control journey.
+
+`OssmSharp.Web.Common` now owns the shared Razor components and static assets.
+The guest HTTP asset check first failed with 404 for the new path, then passed
+after both hosts updated their CSS and JS URLs. MotionMonitor tests passed 6;
+AdminWeb and its test project built. Widget contents and CSP hashes did not
+change. Full browser control and operator asset loading remain to verify.
+
+At the M1 identity checkpoint, `OssmSharp.Device.Simulator` and its integration
+test assembly had the target identity but still used adapter-owned stdio. The
+native integration cases passed 72, API composition 1, CLI simulator-host
+unit cases 17 and process cases 4, and activity cases 11 on .NET SDK 10.0.401
+on Windows. The affected API/service integration projects built. The provider
+still depends only on Primitives and Runtime, not Stock. Independent simulator
+startup, lifetime and cross-platform evidence remain unverified.
+
+`OssmSharp.Defaults` now owns host-neutral file logging, HTTP/runtime telemetry
+and optional OTLP registration; `OssmSharp.Web.ServiceDefaults` adds web-only
+instrumentation, health, discovery and hosting safeguards. Its registration,
+HTTP-boundary and token tests passed 29, and all three web hosts built on
+Windows. The neutral resolved graph contains no ASP.NET, SignalR, Blazor,
+Aspire or service-discovery dependency. CLI use, configured export and startup
+without a collector or AppHost remain M6 checks; capability-token ownership
+still moves with Web.Application.
+
+Neither UI host references application policy, directly or
+transitively; each resolves through seven projects without that edge. The
+focused guest application tests passed 9 and operator home tests passed 13
+on Windows. UI/browser conformance is not established by this dependency check.
+
+`OssmSharp.Web.Application` now contains the former ControlCore, ControlService
+and private Models responsibilities in one transport-neutral library. The moved
+unit tests passed 233 and simulator integration test passed 1. Focused API
+checks passed 14, 8, 55 and 10, and the API builds against the new library.
+The evaluated 30-project graph has no cycles or missing references. The
+application library has no provider, UI host, client or ASP.NET dependency;
+Runtime has no application dependency. This preserves existing behavior only:
+the M2 ownership and interruption mechanics, M3 transport and M5 protocol
+conformance remain outstanding.
+
+`OssmSharp.Web.Api` now names the existing device-owning backend and its unit
+and integration test assemblies. The API and AppHost built on Windows with
+.NET SDK 10.0.401. Focused unit checks passed 41 and 22, real URL-override
+process cases passed 2, and cross-process shutdown ownership passed 1.
+Before the rename, both URL-override cases failed specifically because the
+new executable was absent. A positive certificate-path test exposed a Unix-
+only fixture on Windows; it now passes with a platform-qualified test path,
+without changing production validation. This does not establish API-without-
+UI startup, independent simulator lifetime or M5 protocol conformance.
+
+The two UI hosts and their unit test projects now use the target Web.AdminWeb
+and Web.GuestWeb identities. Guest application checks passed 9, Join page 17,
+operator Home page 13 and notice checks 4; AppHost builds against both renamed
+hosts. Both UI dependency graphs exclude application policy and device
+providers. Live browser workflows and UI-independent API operation remain
+unverified.
+
+`OssmSharp.Cli` and its unit/integration test assemblies now have their target
+identity. Its process test first failed for the missing renamed DLL, then
+passed after the move; CLI unit tests passed 40 and integration tests passed 8
+on Windows. The CLI references no `OssmSharp.Web.*` project, but retains the
+old daemon/IPC behavior, ASP.NET framework reference and both device providers.
+The M4 interactive and M6 selected-provider checks have not run; macOS BLE
+qualification remains separate.
+
+`OssmSharp.AppHost`, `OssmSharp.slnx` and `OssmSharp.code-workspace` now name the
+local orchestration and developer entry points. The AppHost build passed with
+.NET SDK 10.0.401 and Aspire AppHost SDK 13.5.4; the solution lists 30 existing
+project paths. The root instructions and current test commands resolve. The
+default `OSSMDotNet/logs` directory remains during the migration so existing
+operators do not silently lose log continuity; M8 owns its coordinated rename.
+The private CLI IPC name remains only until M4 removes that path. No full-suite,
+macOS or runtime acceptance follows from this graph migration.
+
 Depends on: M0.
 
 Owner/scope: solution, Directory.Build.props, Directory.Packages.props, source
@@ -152,6 +262,27 @@ pass under new names. Verify direct and transitive references, not just source
 imports. Repository-rename publication is not performed here.
 
 ### M2. Shared execution, ownership and interruption mechanics
+
+Status: in progress on 26 September 2026; **not accepted**. Runtime now owns a
+fixed machine-wide lock-file path, and Web.Api and the current Cli simulator
+host acquire that lock before device access. Isolated tests cover contention,
+release, missing directory and access denial. Web.Api retains ownership on a
+reported cleanup failure by terminating the owner; DeviceBase shares one
+disposal outcome and bounds Stop, connection settlement, issued-write waiting
+and core cleanup within five seconds. Focused DeviceBase/lock tests passed
+48/48, two simulator disposal cases passed, and the API built. These checks
+do not prove the full M2 safety contract.
+
+The production runtime directory was absent on the Windows development
+machine and was not provisioned automatically. Four real CLI/API process
+cases were not run against the new lock. Windows/macOS cross-user competition,
+owner crash, permission and delayed-cleanup evidence still require a dedicated
+provisioned native CI environment. Cli's macOS `identify` path still reaches
+BLE discovery without first acquiring the shared lock; macOS must also fail
+closed if .NET file locking is disabled. The sole Runtime interruption latch,
+stale-revision acknowledgement, shared Stop path and between-write revocation
+checks are not implemented. Existing CLI daemon and API disposal evidence
+cannot substitute for those requirements.
 
 Depends on: M1.
 
@@ -202,6 +333,36 @@ after interruption/reconnect, and explicit unknown outcomes on cleanup timeout.
 
 ### M3. Independent simulator transport
 
+Status: in progress on 26 September 2026; **not end-to-end runnable or
+accepted**. The native bridge now requires an explicit IPv4 loopback TCP
+listener, keeps one controller at a time, stops on client loss and stays alive
+for a successor. Its stdio and client-shutdown modes were removed. Native
+tests passed 47/47, including a delayed-write successor regression. The
+managed Simulator adapter connects through a loopback endpoint instead of
+starting or killing the process; test-owned bridge fixtures passed 92/92
+simulator integration cases. Focused API endpoint/composition cases passed
+47/47 after correcting an uninformative options error; AppHost builds with
+the simulator as a separate local resource. These are focused Windows checks,
+not independent-CLI or full-web acceptance.
+
+On 26 September, the adapter now invalidates sends queued before disconnect
+intent and refuses new writes while disconnect is pending or the last validated
+state is disconnected. It clears that inhibition only after a successful
+reconnect response reports connected. The local-rejection and reconnect
+regressions passed, and the focused `SimulatedDeviceTests` file passed 89/89 on
+Windows. This does not establish full M3 acceptance.
+
+Cli still uses the obsolete per-user daemon/executable-path flow, and a
+temporary `SimulatedDeviceOptions.ExecutablePath` member remains only to keep
+that incomplete consumer compiling. It is not a working fallback for the
+TCP-only bridge and must be removed at the M4 cutover. Delayed helper callbacks
+can publish stale connection status. Stop versus an intentional zero-speed
+configuration write is indistinguishable after some external changes under
+the current device contract. Resolve that contract question before dependent
+motion work. AppHost readiness only checks socket acceptance; unavailable
+listener and handshake deadlines, exact 4 KiB CRLF framing, CLI/API client-exit
+zero and macOS behavior remain unverified.
+
 Depends on: M1; integrate ownership with M2 before end-to-end acceptance.
 
 Owner/scope: tools/ossm-sim-bridge transport/framing/protocol, SimulatedDevice
@@ -233,6 +394,12 @@ Acceptance: runtime provider requires an endpoint, not an executable path; no
 adapter Process.Start/Kill or child job ownership; no BLE or web dependency.
 
 ### M4. Interactive direct-device CLI
+
+Status: not started. M1 renamed the executable and tests, and the partial M2
+lock reaches its legacy simulator host; neither change supplies the direct
+foreground REPL. Daemon IPC, launcher ownership, the ASP.NET framework
+reference and both provider references remain. Current Cli cannot complete
+the TCP-only simulator path; do not use M1's old CLI passes as REPL evidence.
 
 Depends on: M2 and M3 for the simulator acceptance path.
 
@@ -268,6 +435,11 @@ no guest/session concepts or required web credentials; no successful stopping
 claim from write acknowledgement alone; simulator survives client exit.
 
 ### M5. Web application composition and protocol conformance
+
+Status: not started as a conformance task. M1 moved authority and controller
+code into Web.Application and preserved focused hub/client tests, but the
+runtime interruption, shutdown and full browser/API acceptance cases below
+have not passed under the new transport and ownership model.
 
 Depends on: M2 and M3; M4 supplies the competing-owner acceptance executable.
 
@@ -308,6 +480,11 @@ dependency in policy, private capabilities not exposed, and preserved CC,
 SESSION, OUI and GUI requirements with explicit runtime evidence.
 
 ### M6. Defaults, provider artifacts and development arrangements
+
+Status: not started as an operational acceptance task. M1 split host-neutral
+Defaults from web hosting; the Cli still carries ASP.NET and both providers.
+Profile-specific restore/publish artifacts, Simulated/Actual launch profiles,
+collector-absent startup and configured export without Aspire remain unproved.
 
 Depends on: M1; finish after M4/M5 to validate both real consumers.
 
@@ -353,6 +530,9 @@ support claim is inferred from a portable simulator build.
 
 ### M7. Stock-provider implementation and qualification boundary
 
+Status: not started. Stock motion and native/physical qualification remain
+deferred; hardware work requires separate explicit authorization.
+
 Depends on: M2/M6 for provider isolation and platform targeting. Hardware work
 requires separate explicit authorization; simulator migration can complete
 while physical release remains blocked.
@@ -376,6 +556,12 @@ open architecture choice and is not passed by this plan.
 
 ### M8. Coordinated cutover, repository identity and documentation
 
+Status: not started. Local solution/workspace/project identities changed in
+M1, but old daemon/transport options and documentation remain until coherent
+simulator acceptance. Hosted repository rename, publication and deployment are
+separately authorized external writes. Coordinate the default log directory
+rename and preserve historical source links until cutover.
+
 Depends on: M1-M6 for simulator acceptance; M7 only for physical support claims.
 
 Stop active owners with operator participation before cutover. Deploy coherent
@@ -391,6 +577,8 @@ package metadata, workspace/solution names, docs, CI path filters and dev launch
 references in the identity inventory. Remote rename, pushes, releases and
 package publication remain separately authorized external writes; this task
 does not grant them. Preserve upstream firmware/Rust and third-party identities.
+Coordinate the default local log directory rename with operator setup, retaining
+old logs or configuring their old location explicitly when continuity matters.
 
 Recheck AGENTS.md against implemented boundaries and replace target/current
 status in documentation only after acceptance evidence exists. Archive the old
@@ -418,10 +606,13 @@ that a code revert reverses device effects is permitted.
 
 Architecture, names, CLI lifetime, ownership, simulator transport, dependency
 profiles, defaults, grant metadata, Join proof and WIP compatibility are decided
-in the design. No unresolved design placeholder is delegated to implementation.
+in the design. M3 exposed one contract ambiguity: `SetMotionAsync` cannot
+unambiguously distinguish Stop from a zero-speed settings change after some
+external changes. Resolve the intended operation without guessing or weakening
+Stop before claiming M2/M3 conformance.
 Platform behavior and physical stopping remain measured acceptance/release gates.
 
 Do not install packages, edit sibling checkouts, change firmware, create branches,
-commit/push or run deployments under planning authorization. Full-suite or
+commit/push or run deployments without separate authorization. Full-suite or
 expensive local validation needs approval; required CI gates remain required.
-Documentation checks for this plan do not start any task above.
+M0 documentation checks do not establish M1-M8 runtime acceptance.

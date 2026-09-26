@@ -1,4 +1,4 @@
-namespace OSSMDotNet;
+namespace OssmSharp.Device.Stock;
 
 /// <summary>
 /// Identifies the Bluetooth services and characteristics of the stock OSSM firmware.

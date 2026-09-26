@@ -1,4 +1,4 @@
-namespace OSSMDotNet.GuestWeb.Tests;
+namespace OssmSharp.Web.GuestWeb.Tests;
 
 /// <summary>
 /// Supplies the recorded guest module for JavaScript imports and rejects other runtime calls.

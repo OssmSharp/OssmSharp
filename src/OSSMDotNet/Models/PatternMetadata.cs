@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace OSSMDotNet.Models;
+namespace OssmSharp.Device.Stock.Models;
 
 /// <summary>
 /// Describes a pattern name and index reported by the stock firmware.

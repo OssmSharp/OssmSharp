@@ -1,8 +1,8 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
-using OSSMDotNet.ControlService.Models;
-using OSSMDotNet.Simulator;
+using OssmSharp.Device.Simulator;
+using OssmSharp.Web.Application.Models;
 
 namespace OSSMDotNet.ApiService.Tests;
 

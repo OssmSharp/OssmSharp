@@ -1,4 +1,4 @@
-namespace OSSMDotNet.WebCommon;
+namespace OssmSharp.Web.Common;
 
 /// <summary>
 /// Provides CSP hashes for reviewed inline styles emitted by the shared widget package.

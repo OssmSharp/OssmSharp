@@ -1,7 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using System.Globalization;
 
-namespace OSSMDotNet.Models;
+namespace OssmSharp.Device.Stock.Models;
 
 /// <summary>
 /// Represents one stock-firmware setting command derived from validated motion settings.

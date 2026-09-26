@@ -79,14 +79,14 @@ repository's MTP-only contract.
 Run from the repository root in PowerShell, replacing the project as needed:
 
 ```powershell
-dotnet test --project tests/ControlCore.Tests
+dotnet test --project tests/OssmSharp.Web.Application.Tests/OssmSharp.Web.Application.Tests.csproj
 ```
 
 Use `--project`, not a positional project path. Add MTP/xUnit options directly
 to `dotnet test`; an extra `--` is not required in .NET 10 MTP mode, though it
 can explicitly delimit forwarded arguments. `dotnet run` still uses `--` to
 forward arguments, for example:
-`dotnet run --project tests/ControlCore.Tests -- -?`.
+`dotnet run --project tests/OssmSharp.Web.Application.Tests/OssmSharp.Web.Application.Tests.csproj -- -?`.
 
 Replace the illustrative names below with real test names:
 
@@ -111,10 +111,11 @@ switching runners or suppressing them.
 
 ## Configuration and troubleshooting
 
-- Use `dotnet test --project tests/ControlCore.Tests -?` to inspect the options
-  registered by that project's installed framework and extensions. For an
-  unrecognized option, check this help and resolved versions before changing
-  packages.
+- Use
+  `dotnet test --project tests/OssmSharp.Web.Application.Tests/OssmSharp.Web.Application.Tests.csproj -?`
+  to inspect the options registered by that project's installed framework and
+  extensions. For an unrecognized option, check this help and resolved versions
+  before changing packages.
 - `testconfig.json` configuration applies only in MTP mode. Follow the
   [xUnit configuration schema](https://xunit.net/docs/testconfig-json-mtp); do
   not assume it also configures the native xUnit runner.

@@ -1,12 +1,12 @@
 using System.ComponentModel.DataAnnotations;
-using OSSMDotNet.Models;
+using OssmSharp.Device.Runtime;
 
 namespace OSSMDotNet.Simulator.Models;
 
 /// <summary>
 /// Configures the native OSSM-RS simulator device implementation.
 /// </summary>
-public sealed record SimulatedDeviceOptions : StockOssmDeviceOptions
+public sealed record SimulatedDeviceOptions : DeviceRuntimeOptions
 {
     /// <summary>
     /// Gets or sets the absolute path to the <c>ossm-sim-bridge</c> executable.

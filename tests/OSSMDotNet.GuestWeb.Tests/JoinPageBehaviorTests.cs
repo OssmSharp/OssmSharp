@@ -1,6 +1,6 @@
-using OSSMDotNet.GuestWeb.Components.Pages;
+using OssmSharp.Web.GuestWeb.Components.Pages;
 
-namespace OSSMDotNet.GuestWeb.Tests;
+namespace OssmSharp.Web.GuestWeb.Tests;
 
 /// <summary>
 /// Checks invitation admission, guest authority, and UI updates through the rendered join page.

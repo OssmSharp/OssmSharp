@@ -54,8 +54,8 @@ public sealed class DeviceCliProcessTests
     {
         var path = Path.Combine(
             Path.GetDirectoryName(typeof(DeviceCliProcessTests).Assembly.Location)!,
-            "DeviceCli.dll");
-        Assert.True(File.Exists(path), "The DeviceCli project output must be available to this integration test.");
+            "OssmSharp.Cli.dll");
+        Assert.True(File.Exists(path), "The OssmSharp.Cli project output must be available to this integration test.");
         return path;
     }
 

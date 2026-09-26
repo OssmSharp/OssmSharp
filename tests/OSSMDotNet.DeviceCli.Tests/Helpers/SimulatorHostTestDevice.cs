@@ -1,11 +1,11 @@
 using Microsoft.Extensions.Logging.Abstractions;
-using OSSMDotNet.Abstractions.Models;
-using OSSMDotNet.Models;
+using OssmSharp.Device.Primitives.Models;
+using OssmSharp.Device.Runtime;
 
 namespace OSSMDotNet.DeviceCli.Tests.Helpers;
 
 internal sealed class SimulatorHostTestDevice()
-    : DeviceBase(new StockOssmDeviceOptions(), TimeProvider.System, NullLogger<SimulatorHostTestDevice>.Instance)
+    : DeviceBase(new DeviceRuntimeOptions(), TimeProvider.System, NullLogger<SimulatorHostTestDevice>.Instance)
 {
     private DeviceState? _state;
 
