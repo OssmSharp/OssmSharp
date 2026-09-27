@@ -342,7 +342,7 @@ public sealed class ControlEngine : IAsyncDisposable
         {
             if (_disposeTask is not null)
                 return;
-            if (error is UnexpectedSpeedChangeException or UnexpectedMotionChangeException)
+            if (error is UnexpectedMotionChangeException)
                 ExternalChange();
             else
                 Fault("device-error");

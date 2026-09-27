@@ -249,7 +249,13 @@ public sealed class DeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisposab
         Assert.Collection(
             changes,
             change => Assert.Same(reported, change.AsT0),
-            change => Assert.IsType<UnexpectedMotionChangeException>(change.AsT1));
+            change =>
+            {
+                var error = Assert.IsType<UnexpectedMotionChangeException>(change.AsT1);
+                Assert.Same(initial, error.PreviousSettings);
+                Assert.Same(reported.MotionSettings, error.CurrentSettings);
+                Assert.Same(requested, error.PendingRequestedSettings);
+            });
     }
 
     [Fact]
@@ -288,7 +294,13 @@ public sealed class DeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisposab
         Assert.Collection(
             changes,
             change => Assert.Same(reported, change.AsT0),
-            change => Assert.IsType<UnexpectedMotionChangeException>(change.AsT1));
+            change =>
+            {
+                var error = Assert.IsType<UnexpectedMotionChangeException>(change.AsT1);
+                Assert.Same(initial, error.PreviousSettings);
+                Assert.Same(reported.MotionSettings, error.CurrentSettings);
+                Assert.Same(requested, error.PendingRequestedSettings);
+            });
     }
 
     [Theory]
@@ -312,10 +324,10 @@ public sealed class DeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisposab
         Assert.Same(reported, changes[0].AsT0);
         if (expectUnexpectedSpeed)
         {
-            var error = Assert.IsType<UnexpectedSpeedChangeException>(changes[1].AsT1);
-            Assert.Equal(10, error.PreviousStateSpeed);
-            Assert.Equal(30, error.StateSpeed);
-            Assert.Null(error.PendingRequestedSpeed);
+            var error = Assert.IsType<UnexpectedMotionChangeException>(changes[1].AsT1);
+            Assert.Equal(10, error.PreviousSettings.Speed);
+            Assert.Same(reported.MotionSettings, error.CurrentSettings);
+            Assert.Null(error.PendingRequestedSettings);
             Assert.Equal(2, changes.Count);
         }
         else
@@ -349,10 +361,10 @@ public sealed class DeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisposab
             change => Assert.Same(reported, change.AsT0),
             change =>
             {
-                var error = Assert.IsType<UnexpectedSpeedChangeException>(change.AsT1);
-                Assert.Equal(10, error.PreviousStateSpeed);
-                Assert.Equal(30, error.StateSpeed);
-                Assert.Null(error.PendingRequestedSpeed);
+                var error = Assert.IsType<UnexpectedMotionChangeException>(change.AsT1);
+                Assert.Equal(10, error.PreviousSettings.Speed);
+                Assert.Same(reported.MotionSettings, error.CurrentSettings);
+                Assert.Null(error.PendingRequestedSettings);
             });
     }
 
@@ -392,8 +404,9 @@ public sealed class DeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisposab
             change => Assert.Same(reported, change.AsT0),
             change =>
             {
-                var error = Assert.IsType<UnexpectedSpeedChangeException>(change.AsT1);
-                Assert.Equal(30, error.PendingRequestedSpeed);
+                var error = Assert.IsType<UnexpectedMotionChangeException>(change.AsT1);
+                Assert.Equal(30, error.PendingRequestedSettings?.Speed);
+                Assert.Same(reported.MotionSettings, error.CurrentSettings);
             },
             change => Assert.Same(reported, change.AsT0));
     }
@@ -456,9 +469,9 @@ public sealed class DeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisposab
             change => Assert.Same(reported, change.AsT0),
             change =>
             {
-                var error = Assert.IsType<UnexpectedSpeedChangeException>(change.AsT1);
-                Assert.Equal(10, error.PreviousStateSpeed);
-                Assert.Equal(30, error.StateSpeed);
+                var error = Assert.IsType<UnexpectedMotionChangeException>(change.AsT1);
+                Assert.Equal(10, error.PreviousSettings.Speed);
+                Assert.Same(reported.MotionSettings, error.CurrentSettings);
             });
     }
 
@@ -494,10 +507,38 @@ public sealed class DeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisposab
             change => Assert.Same(reported, change.AsT0),
             change =>
             {
-                var error = Assert.IsType<UnexpectedSpeedChangeException>(change.AsT1);
-                Assert.Equal(10, error.PreviousStateSpeed);
-                Assert.Equal(20, error.StateSpeed);
-                Assert.Null(error.PendingRequestedSpeed);
+                var error = Assert.IsType<UnexpectedMotionChangeException>(change.AsT1);
+                Assert.Equal(10, error.PreviousSettings.Speed);
+                Assert.Same(reported.MotionSettings, error.CurrentSettings);
+                Assert.Null(error.PendingRequestedSettings);
+                Assert.Equal(reported.Timestamp, error.StateTimestamp);
+            });
+    }
+
+    [Fact]
+    public async Task UnexpectedSpeedAndDepthPublishOneFullMotionErrorWithOriginalPendingRequest()
+    {
+        var device = Component;
+        var previous = Settings(10) with { Depth = 45, Position = 1.5 };
+        device.ReportState(State(previous, DateTime.UnixEpoch));
+        var requested = Settings(30) with { Depth = 50, Position = 2.5 };
+        await device.SetMotionAsync(requested, TestContext.Current.CancellationToken);
+        var current = Settings(20) with { Depth = 55, Position = 3.5 };
+        var reported = State(current, DateTime.UnixEpoch.AddSeconds(1));
+        var changes = new List<OneOf<DeviceState, Exception>>();
+        device.DeviceStateChanged += changes.Add;
+
+        device.ReportState(reported);
+
+        Assert.Collection(
+            changes,
+            change => Assert.Same(reported, change.AsT0),
+            change =>
+            {
+                var error = Assert.IsType<UnexpectedMotionChangeException>(change.AsT1);
+                Assert.Same(previous, error.PreviousSettings);
+                Assert.Same(current, error.CurrentSettings);
+                Assert.Same(requested, error.PendingRequestedSettings);
                 Assert.Equal(reported.Timestamp, error.StateTimestamp);
             });
     }

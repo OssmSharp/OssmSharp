@@ -9,13 +9,11 @@ namespace OssmSharp.Cli.Commands;
 public sealed class DeviceGetCommand : Command
 {
     internal DeviceGetCommand(
-        IDeviceDiscovery discovery,
         IDeviceProvider provider,
         TextWriter output,
         TextWriter error)
         : base("get", "Read a specified stock device's identity without motion writes.")
     {
-        ArgumentNullException.ThrowIfNull(discovery);
         ArgumentNullException.ThrowIfNull(provider);
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(error);
@@ -35,7 +33,6 @@ public sealed class DeviceGetCommand : Command
         Arguments.Add(id);
         SetAction((parse, cancellationToken) => RunAsync(
             parse.GetValue(id)!,
-            discovery,
             provider,
             output,
             error,
@@ -44,7 +41,6 @@ public sealed class DeviceGetCommand : Command
 
     private static async Task<int> RunAsync(
         string id,
-        IDeviceDiscovery discovery,
         IDeviceProvider provider,
         TextWriter output,
         TextWriter error,
@@ -52,7 +48,7 @@ public sealed class DeviceGetCommand : Command
     {
         try
         {
-            var candidates = await discovery.ScanAsync(cancellationToken).ConfigureAwait(false);
+            var candidates = await provider.GetAvailableDevicesAsync(cancellationToken).ConfigureAwait(false);
             var selected = candidates.FirstOrDefault(candidate =>
                 string.Equals(candidate.Id, id, StringComparison.OrdinalIgnoreCase));
             if (selected is null)
@@ -61,7 +57,7 @@ public sealed class DeviceGetCommand : Command
                     $"No stock device with platform ID '{DeviceText.Sanitize(id)}' was discovered.");
             }
 
-            var details = await provider.ReadInformationAsync(selected, cancellationToken).ConfigureAwait(false);
+            var details = await provider.GetDeviceAsync(selected, cancellationToken).ConfigureAwait(false);
             await output.WriteLineAsync(Format(details).AsMemory(), cancellationToken).ConfigureAwait(false);
             return 0;
         }
@@ -89,9 +85,10 @@ public sealed class DeviceGetCommand : Command
         }
     }
 
-    private static string Format(DeviceIdentityDetails details)
+    private static string Format(DeviceInformation details)
     {
-        var identifier = details.Identifier;
+        var identifier = details.Identifier
+            ?? throw new InvalidOperationException("The device provider returned information without an identifier.");
         var name = string.IsNullOrWhiteSpace(identifier.Name)
             ? string.Empty
             : $"Name: {DeviceText.Sanitize(identifier.Name)}{Environment.NewLine}";
@@ -100,6 +97,6 @@ public sealed class DeviceGetCommand : Command
             + $"Chip: {DeviceText.Sanitize(details.Chip ?? string.Empty)}{Environment.NewLine}"
             + $"Wi-Fi connected: {details.WifiConnected?.ToString() ?? string.Empty}{Environment.NewLine}"
             + $"Sketch MD5: {DeviceText.Sanitize(details.SketchMd5 ?? string.Empty)}{Environment.NewLine}"
-            + $"Firmware: {DeviceText.Sanitize(details.FirmwareVersion ?? string.Empty)}";
+            + $"Firmware: {DeviceText.Sanitize(details.Version ?? string.Empty)}";
     }
 }

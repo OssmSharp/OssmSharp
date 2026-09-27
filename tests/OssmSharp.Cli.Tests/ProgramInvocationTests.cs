@@ -19,15 +19,14 @@ public sealed class ProgramInvocationTests
         var scan = new TaskCompletionSource<IReadOnlyList<DeviceIdentifier>>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var device = new TestDeviceIdentifier("selected-id", "Stock", new object());
-        var discovery = new TestDeviceDiscovery(_ => scan.Task);
+        var provider = new TestDeviceProvider(_ => scan.Task);
         var root = new CliRootCommand(
             new DeviceCommand(
                 new DeviceGetCommand(
-                    discovery,
-                    new TestDeviceProvider(new DeviceIdentityDetails(device, null, null, null, null, null)),
+                    provider,
                     TextWriter.Null,
                     TextWriter.Null),
-                new DeviceListCommand(discovery, output, error)),
+                new DeviceListCommand(provider, output, error)),
             new PromptCommand((_, _) => Task.FromResult(0)));
         using var context = new PausedSynchronizationContext();
         var previousContext = SynchronizationContext.Current;

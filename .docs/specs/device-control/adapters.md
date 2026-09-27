@@ -95,10 +95,22 @@ physical I/O.
 
 ## Composition and ownership
 
+Every service must use dependency injection, and each device library must own
+its DI registrations and lifetime decisions. This includes Primitives, which
+may depend on DI abstractions while remaining independent of hosting and
+concrete providers. Hosts compose library registration extensions rather than
+repeating their service construction. Service-provider access belongs only in
+composition factories, not consuming application or device logic.
+
+Models, records, identifiers, settings and reported states remain ordinary
+values. DI-managed factories may create selected-device and execution services,
+but the caller must retain explicit ownership through issued I/O and cleanup.
+DI must not capture or prematurely dispose those session-owned results.
+
 ### Provider-neutral selection and information
 
-The CLI selection boundary uses injected `IDeviceDiscovery` and
-`IDeviceProvider` contracts from Primitives. Discovery returns `DeviceIdentifier`
+The CLI selection boundary uses one injected `IDeviceProvider` from Primitives.
+`GetAvailableDevicesAsync` returns `DeviceIdentifier`
 records exposing `Id` and `Name`; any native selection state remains private to
 the provider implementation. Generic consumers pass the original identifier to
 information reads and selected-device creation, without inspecting, casting or
@@ -111,10 +123,12 @@ failure still returns its error and nonzero exit code after the progress line.
 
 An identifier does not establish a connection, readiness or authority. Its
 validity is limited to its owning composition, and it owns no live connection.
-Information reads return separate typed `DeviceIdentityDetails`; the CLI
-formats those details without accessing native types. The existing
-`DeviceInformation` contract continues to describe a verified connected profile,
-not an identity-only read.
+`GetDeviceAsync` returns `DeviceInformation`, including the original selected
+identifier and any reported Wi-Fi MAC, chip, Wi-Fi state, sketch digest and
+version. Identity-only reads have no verified profile (`ProfileId` is null)
+and no supported patterns. Connected-device information uses the same record
+with its verified profile and capabilities. Neither the shared record nor
+identity retrieval establishes motion readiness. The CLI owns formatting.
 
 Stock registers discovery, information reading and the selected-device factory
 through its `IServiceCollection` extension. Native transport services are
@@ -153,7 +167,7 @@ Native hosts call `AddStockBluetooth()` on Windows or
 the `CoreFoundation.DispatchQueue`, keeping it alive through service-provider
 disposal and settled BLE cleanup; neither the adapter nor discovery creates a
 second container or assumes a GUI event loop. Use the same registered
-`IBleManager` for the injected `DeviceDiscovery` and selected-device factory.
+`IBleManager` for the injected `IDeviceProvider` and selected-device factory.
 Registering the manager does not scan, connect
 or grant device access. The portable build contains neither native registration
 nor a Shiny dependency.
@@ -322,7 +336,7 @@ than maintaining two lifecycle contracts.
 
 ### Discovery and selection
 
-The owning CLI shares one bounded `StockBleDiscovery.ScanAsync` service-advertising
+The owning CLI shares one bounded `IDeviceProvider.GetAvailableDevicesAsync` service-advertising
 scan for `devices list`, `devices get` when native resolution needs it, and
 `prompt --bluetooth` name resolution. Scan for service
 `522b443a-4f53-534d-0001-420badbabe69`, post-filter advertisements,

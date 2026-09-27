@@ -192,19 +192,38 @@ public sealed class DeviceCommandTests
     public async Task GetRequiresAPositionalIdWithoutOpeningASelector()
     {
         var identifier = new TestDeviceIdentifier("selected-device", "Device", new object());
-        var discovery = new TestDeviceDiscovery([identifier]);
-        var provider = new TestDeviceProvider(new DeviceIdentityDetails(identifier, null, null, null, null, null));
-        var command = new DeviceGetCommand(discovery, provider, TextWriter.Null, TextWriter.Null);
+        var provider = new TestDeviceProvider([identifier], Identity(identifier));
+        var command = new DeviceGetCommand(provider, TextWriter.Null, TextWriter.Null);
 
         Assert.NotEmpty(command.Parse(["get"]).Errors);
         Assert.NotEmpty(command.Parse(["get", "--peripheral-id", "selected-device"]).Errors);
         Assert.NotEmpty(command.Parse(["get", " "]).Errors);
-        Assert.Equal(0, discovery.ScanCount);
+        Assert.Equal(0, provider.ScanCount);
 
         var exitCode = await command.Parse(["get", "selected-device"])
             .InvokeAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(0, exitCode);
+    }
+
+    [Fact]
+    public async Task DeviceHelpDoesNotScanOrRead()
+    {
+        var provider = new TestDeviceProvider(
+            _ => throw new InvalidOperationException("Help must not scan."),
+            (_, _) => throw new InvalidOperationException("Help must not read."));
+        var command = new CliRootCommand(
+            new DeviceCommand(
+                new DeviceGetCommand(provider, TextWriter.Null, TextWriter.Null),
+                new DeviceListCommand(provider, TextWriter.Null, TextWriter.Null)),
+            new PromptCommand((_, _) => throw new InvalidOperationException("Help must not run the prompt.")));
+
+        var exitCode = await command.Parse(["devices", "get", "selected-id", "--help"])
+            .InvokeAsync(cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(0, exitCode);
+        Assert.Equal(0, provider.ScanCount);
+        Assert.Null(provider.Identifier);
     }
 
     [Fact]
@@ -214,20 +233,24 @@ public sealed class DeviceCommandTests
         using var error = new StringWriter();
         var other = new TestDeviceIdentifier("id-other", "Other", new object());
         var selected = new AlternateTestDeviceIdentifier("id-selected", "Selected\nName", "route-key");
-        var discovery = new TestDeviceDiscovery([other, selected]);
-        var provider = new TestDeviceProvider(
-            new DeviceIdentityDetails(selected, "aa:bb:cc:dd:ee:ff", "chip", true, "digest", "1.0.34"));
+        var provider = new TestDeviceProvider([other, selected], Identity(selected, "1.0.34") with
+        {
+            WifiMac = "aa:bb:cc:dd:ee:ff",
+            Chip = "chip",
+            WifiConnected = true,
+            SketchMd5 = "digest",
+        });
         using var cancellation = new CancellationTokenSource();
-        var command = new DeviceGetCommand(discovery, provider, output, error);
+        var command = new DeviceGetCommand(provider, output, error);
 
         var exitCode = await command.Parse(["get", "ID-SELECTED"])
             .InvokeAsync(cancellationToken: cancellation.Token);
 
         Assert.Equal(0, exitCode);
         Assert.Same(selected, provider.Identifier);
-        Assert.True(discovery.LastCancellationToken.CanBeCanceled);
-        Assert.True(provider.LastCancellationToken.CanBeCanceled);
-        Assert.Equal(1, discovery.ScanCount);
+        Assert.True(provider.LastScanCancellationToken.CanBeCanceled);
+        Assert.Equal(provider.LastScanCancellationToken, provider.LastReadCancellationToken);
+        Assert.Equal(1, provider.ScanCount);
         Assert.Equal(
             $"Peripheral ID: id-selected{Environment.NewLine}"
             + $"Name: Selected Name{Environment.NewLine}"
@@ -246,10 +269,9 @@ public sealed class DeviceCommandTests
         using var output = new StringWriter();
         using var error = new StringWriter();
         var identifier = new TestDeviceIdentifier("id-present", "Device", new object());
-        var discovery = new TestDeviceDiscovery([identifier]);
-        var provider = new TestDeviceProvider((_, _) =>
+        var provider = new TestDeviceProvider([identifier], (_, _) =>
             throw new InvalidOperationException("Unknown ID must not be read."));
-        var command = new DeviceGetCommand(discovery, provider, output, error);
+        var command = new DeviceGetCommand(provider, output, error);
 
         var exitCode = await command.Parse(["get", "id-absent"])
             .InvokeAsync(cancellationToken: TestContext.Current.CancellationToken);
@@ -261,14 +283,39 @@ public sealed class DeviceCommandTests
     }
 
     [Fact]
+    public async Task GetRejectsInformationWithoutAProviderIdentifier()
+    {
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        var identifier = new TestDeviceIdentifier("id-selected", "Device", new object());
+        var provider = new TestDeviceProvider(
+            [identifier],
+            new DeviceInformation("id-selected", null, "1.0.34", []));
+        var command = new DeviceGetCommand(provider, output, error);
+
+        var exitCode = await command.Parse(["get", "id-selected"])
+            .InvokeAsync(cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, exitCode);
+        Assert.Same(identifier, provider.Identifier);
+        Assert.Equal(1, provider.ScanCount);
+        Assert.Equal(string.Empty, output.ToString());
+        Assert.Contains("identifier", error.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task GetOmitsAnUnavailableDeviceName()
     {
         using var output = new StringWriter();
         var identifier = new TestDeviceIdentifier("id-unknown-name", "", new object());
         var command = new DeviceGetCommand(
-            new TestDeviceDiscovery([identifier]),
-            new TestDeviceProvider(new DeviceIdentityDetails(
-                identifier, "aa:bb", "chip", false, "digest", "1.0.34")),
+            new TestDeviceProvider([identifier], Identity(identifier, "1.0.34") with
+            {
+                WifiMac = "aa:bb",
+                Chip = "chip",
+                WifiConnected = false,
+                SketchMd5 = "digest",
+            }),
             output,
             TextWriter.Null);
 
@@ -287,10 +334,8 @@ public sealed class DeviceCommandTests
         using var output = new StringWriter();
         using var error = new StringWriter();
         var identifier = new TestDeviceIdentifier("id-1", "Matching name", new object());
-        var provider = new TestDeviceProvider(new DeviceIdentityDetails(
-            identifier, null, null, null, null, null));
+        var provider = new TestDeviceProvider([identifier], Identity(identifier));
         var command = new DeviceGetCommand(
-            new TestDeviceDiscovery([identifier]),
             provider,
             output,
             error);
@@ -312,8 +357,7 @@ public sealed class DeviceCommandTests
         using var error = new StringWriter();
         var identifier = new TestDeviceIdentifier("id-selected", "Device", new object());
         var command = new DeviceGetCommand(
-            new TestDeviceDiscovery([identifier]),
-            new TestDeviceProvider((_, _) => throw new UnsettledDeviceCleanupException(
+            new TestDeviceProvider([identifier], (_, _) => throw new UnsettledDeviceCleanupException(
                 "Stock BLE disconnection did not settle.", new TimeoutException())),
             output,
             error);
@@ -332,7 +376,7 @@ public sealed class DeviceCommandTests
         using var output = new StringWriter();
         using var error = new StringWriter();
         var command = new DeviceListCommand(
-            new TestDeviceDiscovery([]), output, error);
+            new TestDeviceProvider([]), output, error);
 
         var exitCode = await command.Parse(["list"])
             .InvokeAsync(cancellationToken: TestContext.Current.CancellationToken);
@@ -351,7 +395,7 @@ public sealed class DeviceCommandTests
         using var error = new StringWriter();
 
         var command = new DeviceListCommand(
-            new TestDeviceDiscovery(
+            new TestDeviceProvider(
                 [new AlternateTestDeviceIdentifier("platform-id", "Found device", "endpoint")]),
             output, error);
 
@@ -371,19 +415,17 @@ public sealed class DeviceCommandTests
         const string name = "Pa\u202Eir\u2028ing";
         var identifier = new TestDeviceIdentifier(id, name, new object());
         var list = new DeviceListCommand(
-            new TestDeviceDiscovery([identifier]),
+            new TestDeviceProvider([identifier]),
             output, error);
-        var provider = new TestDeviceProvider(
-            new DeviceIdentityDetails(
-                identifier,
-                "aa\u202E:bb",
-                "ch\u2028ip",
-                true,
-                "di\u202Egest",
-                "1.0\u202E34"));
+        var provider = new TestDeviceProvider([identifier], Identity(identifier, "1.0\u202E34") with
+        {
+            WifiMac = "aa\u202E:bb",
+            Chip = "ch\u2028ip",
+            WifiConnected = true,
+            SketchMd5 = "di\u202Egest",
+        });
         using var getOutput = new StringWriter();
         var get = new DeviceGetCommand(
-            new TestDeviceDiscovery([identifier]),
             provider,
             getOutput,
             TextWriter.Null);
@@ -414,7 +456,7 @@ public sealed class DeviceCommandTests
         using var output = new StringWriter();
         using var error = new StringWriter();
         var command = new DeviceListCommand(
-            new TestDeviceDiscovery(_ => Task.FromException<IReadOnlyList<DeviceIdentifier>>(
+            new TestDeviceProvider(_ => Task.FromException<IReadOnlyList<DeviceIdentifier>>(
                 new PlatformNotSupportedException("A native BLE build is required."))),
             output, error);
 
@@ -769,7 +811,7 @@ public sealed class DeviceCommandTests
     public async Task CanceledDeviceListReturnsCancellationExitCode()
     {
         using var cancellation = new CancellationTokenSource();
-        var scan = new TestDeviceDiscovery(async _ =>
+        var scan = new TestDeviceProvider(async _ =>
         {
             await cancellation.CancelAsync();
             return await Task.FromCanceled<IReadOnlyList<DeviceIdentifier>>(cancellation.Token);
@@ -790,19 +832,18 @@ public sealed class DeviceCommandTests
     {
         using var cancellation = new CancellationTokenSource();
         var identifier = new TestDeviceIdentifier("selected-id", "Device", new object());
-        var provider = new TestDeviceProvider(async (_, _) =>
+        var provider = new TestDeviceProvider([identifier], async (_, _) =>
         {
             await cancellation.CancelAsync();
-            return await Task.FromCanceled<DeviceIdentityDetails>(cancellation.Token);
+            return await Task.FromCanceled<DeviceInformation>(cancellation.Token);
         });
         var root = new CliRootCommand(
             new DeviceCommand(
                 new DeviceGetCommand(
-                    new TestDeviceDiscovery([identifier]),
                     provider,
                     TextWriter.Null,
                     TextWriter.Null),
-                new DeviceListCommand(new TestDeviceDiscovery([]), TextWriter.Null, TextWriter.Null)),
+                new DeviceListCommand(new TestDeviceProvider([]), TextWriter.Null, TextWriter.Null)),
             new PromptCommand((_, _) => Task.FromResult(0)));
 
         var exitCode = await Program.InvokeAsync(root, ["devices", "get", "selected-id"], cancellation.Token);
@@ -847,7 +888,7 @@ public sealed class DeviceCommandTests
     {
         using var output = new StringWriter();
         var command = new DeviceListCommand(
-            new TestDeviceDiscovery(
+            new TestDeviceProvider(
             [
                 new TestDeviceIdentifier("platform-id-one", "Other\nDevice", new object()),
                 new AlternateTestDeviceIdentifier("platform-id-two", "Device Two", "local-key"),
@@ -868,8 +909,7 @@ public sealed class DeviceCommandTests
         using var error = new StringWriter();
         var identifier = new TestDeviceIdentifier("selected-device", "Device", new object());
         var command = new DeviceGetCommand(
-            new TestDeviceDiscovery([identifier]),
-            new TestDeviceProvider((_, _) => throw new PlatformNotSupportedException(
+            new TestDeviceProvider([identifier], (_, _) => throw new PlatformNotSupportedException(
                 "Stock BLE details require a Windows or macOS native BLE build.")),
             output,
             error);
@@ -886,16 +926,14 @@ public sealed class DeviceCommandTests
     public async Task DeviceGetRoutesToItsReadOperation()
     {
         var identifier = new AlternateTestDeviceIdentifier("selected-device", "Device", "opaque-selection");
-        var provider = new TestDeviceProvider(new DeviceIdentityDetails(
-            identifier, null, null, null, null, "1.0.34"));
+        var provider = new TestDeviceProvider([identifier], Identity(identifier, "1.0.34"));
         var command = new CliRootCommand(
             new DeviceCommand(
                 new DeviceGetCommand(
-                    new TestDeviceDiscovery([identifier]),
                     provider,
                     TextWriter.Null,
                     TextWriter.Null),
-                new DeviceListCommand(new TestDeviceDiscovery([]), TextWriter.Null, TextWriter.Null)),
+                new DeviceListCommand(new TestDeviceProvider([]), TextWriter.Null, TextWriter.Null)),
             new PromptCommand((_, _) =>
                 throw new InvalidOperationException("Get must not open the prompt.")));
 
@@ -948,21 +986,17 @@ public sealed class DeviceCommandTests
     private static CliRootCommand CreateRoot(PromptCommand prompt) => new(
         new DeviceCommand(
             CreateGetCommand(),
-            new DeviceListCommand(new TestDeviceDiscovery([]), TextWriter.Null, TextWriter.Null)),
+            new DeviceListCommand(new TestDeviceProvider([]), TextWriter.Null, TextWriter.Null)),
         prompt);
 
     private static DeviceGetCommand CreateGetCommand() =>
         new(
-            new TestDeviceDiscovery([]),
-            new TestDeviceProvider(new DeviceIdentityDetails(
-                new TestDeviceIdentifier("unused", "Unused", new object()),
-                null,
-                null,
-                null,
-                null,
-                null)),
+            new TestDeviceProvider([]),
             TextWriter.Null,
             TextWriter.Null);
+
+    private static DeviceInformation Identity(DeviceIdentifier identifier, string? version = null) =>
+        new(identifier.Id, null, version, []) { Identifier = identifier };
 
     private static DeviceState StoppedReport() => new()
     {
@@ -989,7 +1023,7 @@ public sealed class DeviceCommandTests
             createStockDevice,
             createStockDevice is null
                 ? null
-                : new TestDeviceDiscovery(
+                : new TestDeviceProvider(
                 [new TestDeviceIdentifier("enrolled-device", "enrolled-device", new object())]),
             TimeProvider.System,
             error);

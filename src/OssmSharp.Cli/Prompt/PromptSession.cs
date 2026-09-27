@@ -18,7 +18,7 @@ internal sealed class PromptSession
     private readonly Func<string, SimulatorBackgroundService> _createSimulator;
     private readonly Func<string, IOssmDevice> _createSimulatedDevice;
     private readonly Func<DeviceIdentifier, IOssmDevice>? _createStockDevice;
-    private readonly IDeviceDiscovery? _discovery;
+    private readonly IDeviceProvider? _provider;
     private readonly TimeProvider _timeProvider;
     private readonly TextWriter _error;
 
@@ -27,7 +27,7 @@ internal sealed class PromptSession
         Func<string, SimulatorBackgroundService> createSimulator,
         Func<string, IOssmDevice> createSimulatedDevice,
         Func<DeviceIdentifier, IOssmDevice>? createStockDevice,
-        IDeviceDiscovery? discovery,
+        IDeviceProvider? provider,
         TimeProvider timeProvider,
         TextWriter error)
     {
@@ -35,7 +35,7 @@ internal sealed class PromptSession
         _createSimulator = createSimulator ?? throw new ArgumentNullException(nameof(createSimulator));
         _createSimulatedDevice = createSimulatedDevice ?? throw new ArgumentNullException(nameof(createSimulatedDevice));
         _createStockDevice = createStockDevice;
-        _discovery = discovery;
+        _provider = provider;
         _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
         _error = error ?? throw new ArgumentNullException(nameof(error));
     }
@@ -157,13 +157,13 @@ internal sealed class PromptSession
             switch (selection.Mode)
             {
                 case PromptMode.Bluetooth:
-                    if (_createStockDevice is null || _discovery is null)
+                    if (_createStockDevice is null || _provider is null)
                     {
                         throw new InvalidOperationException(
                             "Stock BLE connection unavailable: use a native BLE build.");
                     }
 
-                    var candidates = await _discovery.ScanAsync(cancellationToken).ConfigureAwait(false);
+                    var candidates = await _provider.GetAvailableDevicesAsync(cancellationToken).ConfigureAwait(false);
                     var selected = ResolveBluetoothIdentifier(selection.Value, candidates);
                     device = _createStockDevice(selected);
                     break;

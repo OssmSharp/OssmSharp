@@ -5,29 +5,53 @@ namespace OssmSharp.Cli.Tests.Helpers;
 
 internal sealed class TestDeviceProvider : IDeviceProvider
 {
-    private readonly Func<DeviceIdentifier, CancellationToken, Task<DeviceIdentityDetails>> _read;
+    private readonly Func<CancellationToken, Task<IReadOnlyList<DeviceIdentifier>>> _scan;
+    private readonly Func<DeviceIdentifier, CancellationToken, Task<DeviceInformation>> _read;
 
-    internal TestDeviceProvider(DeviceIdentityDetails result)
-        : this((identifier, _) => Task.FromResult(result with { Identifier = identifier }))
+    internal TestDeviceProvider(
+        IReadOnlyList<DeviceIdentifier> devices,
+        DeviceInformation? result = null)
+        : this(_ => Task.FromResult(devices), (_, _) => Task.FromResult(
+            result ?? throw new InvalidOperationException("Device read was not expected.")))
     {
     }
 
     internal TestDeviceProvider(
-        Func<DeviceIdentifier, CancellationToken, Task<DeviceIdentityDetails>> read)
+        IReadOnlyList<DeviceIdentifier> devices,
+        Func<DeviceIdentifier, CancellationToken, Task<DeviceInformation>> read)
+        : this(_ => Task.FromResult(devices), read)
     {
-        _read = read ?? throw new ArgumentNullException(nameof(read));
     }
+
+    internal TestDeviceProvider(
+        Func<CancellationToken, Task<IReadOnlyList<DeviceIdentifier>>> scan,
+        Func<DeviceIdentifier, CancellationToken, Task<DeviceInformation>>? read = null)
+    {
+        _scan = scan ?? throw new ArgumentNullException(nameof(scan));
+        _read = read ?? ((_, _) => throw new InvalidOperationException("Device read was not expected."));
+    }
+
+    internal int ScanCount { get; private set; }
+
+    internal CancellationToken LastScanCancellationToken { get; private set; }
 
     internal DeviceIdentifier? Identifier { get; private set; }
 
-    internal CancellationToken LastCancellationToken { get; private set; }
+    internal CancellationToken LastReadCancellationToken { get; private set; }
 
-    public Task<DeviceIdentityDetails> ReadInformationAsync(
+    public Task<IReadOnlyList<DeviceIdentifier>> GetAvailableDevicesAsync(CancellationToken cancellationToken)
+    {
+        ScanCount++;
+        LastScanCancellationToken = cancellationToken;
+        return _scan(cancellationToken);
+    }
+
+    public Task<DeviceInformation> GetDeviceAsync(
         DeviceIdentifier device,
         CancellationToken cancellationToken)
     {
         Identifier = device;
-        LastCancellationToken = cancellationToken;
+        LastReadCancellationToken = cancellationToken;
         return _read(device, cancellationToken);
     }
 }

@@ -18,12 +18,11 @@ public sealed class CliPlatformServicesTests
         using var provider = services.BuildServiceProvider();
 
         Assert.Null(platformLifetime);
-        var discovery = provider.GetRequiredService<IDeviceDiscovery>();
-        var identityProvider = provider.GetRequiredService<IDeviceProvider>();
+        var deviceProvider = provider.GetRequiredService<IDeviceProvider>();
         var scanFailure = await Assert.ThrowsAsync<PlatformNotSupportedException>(() =>
-            discovery.ScanAsync(TestContext.Current.CancellationToken));
+            deviceProvider.GetAvailableDevicesAsync(TestContext.Current.CancellationToken));
         var readFailure = await Assert.ThrowsAsync<PlatformNotSupportedException>(() =>
-            identityProvider.ReadInformationAsync(
+            deviceProvider.GetDeviceAsync(
                 new TestDeviceIdentifier("portable-id", "Device", new object()),
                 TestContext.Current.CancellationToken));
 
@@ -37,18 +36,17 @@ public sealed class CliPlatformServicesTests
         var services = new ServiceCollection();
         using var platformLifetime = services.AddCliPlatformServices();
         using var provider = services.BuildServiceProvider();
-        var discovery = provider.GetRequiredService<IDeviceDiscovery>();
-        var identityProvider = provider.GetRequiredService<IDeviceProvider>();
+        var deviceProvider = provider.GetRequiredService<IDeviceProvider>();
 
         using var listOutput = new StringWriter();
         using var listError = new StringWriter();
-        var list = new DeviceListCommand(discovery, listOutput, listError);
+        var list = new DeviceListCommand(deviceProvider, listOutput, listError);
         var listExitCode = await list.Parse(["list"])
             .InvokeAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         using var getOutput = new StringWriter();
         using var getError = new StringWriter();
-        var get = new DeviceGetCommand(discovery, identityProvider, getOutput, getError);
+        var get = new DeviceGetCommand(deviceProvider, getOutput, getError);
         var getExitCode = await get.Parse(["get", "portable-id"])
             .InvokeAsync(cancellationToken: TestContext.Current.CancellationToken);
 

@@ -14,12 +14,14 @@ public sealed class UnexpectedMotionChangeException : InvalidOperationException
     /// <param name="currentSettings">The newly reported control settings.</param>
     /// <param name="pendingRequestedSettings">The pending requested settings, when one existed.</param>
     /// <param name="stateTimestamp">The UTC state timestamp.</param>
+    /// <param name="innerException">The provider failure associated with the state, when present.</param>
     public UnexpectedMotionChangeException(
         MotionSettings previousSettings,
         MotionSettings currentSettings,
         MotionSettings? pendingRequestedSettings,
-        DateTime stateTimestamp)
-        : base("The reported device motion settings changed without a matching pending write.")
+        DateTime stateTimestamp,
+        Exception? innerException = null)
+        : base("The reported device motion settings changed without a matching pending write.", innerException)
     {
         PreviousSettings = previousSettings;
         CurrentSettings = currentSettings;

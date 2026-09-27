@@ -22,14 +22,14 @@ internal sealed class NativeStockTestComposition : IDisposable
     {
         var manager = NativeStockTestBleManagerProxy.Create();
         var peripheral = NativeStockTestPeripheralProxy.Create("selected-stock-device");
-        Discovery = new NativeStockTestDiscovery(
+        Discovery = new NativeStockTestProvider(
             new StockDeviceIdentifier("selected-stock-device", "Test OSSM", peripheral, manager));
         Transport = new NativeStockTestDevice(Discovery.Selected, initialStroke: 50, initialDepth: 75);
         var services = new ServiceCollection();
         _platformResources = services.AddCliPlatformServices();
         services.AddLogging();
         services.AddSingleton<IBleManager>(manager);
-        services.AddSingleton<IDeviceDiscovery>(Discovery);
+        services.AddSingleton<IDeviceProvider>(Discovery);
         services.AddSingleton<IDeviceTransport>(Transport);
         if (qualificationResolver is not null)
             services.AddSingleton<IStockQualificationResolver>(qualificationResolver);
@@ -45,7 +45,7 @@ internal sealed class NativeStockTestComposition : IDisposable
         }
     }
 
-    internal NativeStockTestDiscovery Discovery { get; }
+    internal NativeStockTestProvider Discovery { get; }
 
     internal NativeStockTestDevice Transport { get; }
 
@@ -80,7 +80,7 @@ internal sealed class NativeStockTestComposition : IDisposable
                 throw new InvalidOperationException("Bluetooth prompt must not create a simulator device.");
             },
             _services.GetRequiredService<Func<DeviceIdentifier, IOssmDevice>>(),
-            _services.GetRequiredService<IDeviceDiscovery>(),
+            _services.GetRequiredService<IDeviceProvider>(),
             _services.GetRequiredService<TimeProvider>(),
             error);
 

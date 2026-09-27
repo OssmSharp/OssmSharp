@@ -4,7 +4,7 @@ using Shiny.BluetoothLE;
 
 namespace OssmSharp.Device.Stock;
 
-internal sealed class NativeStockBleTransport(IBleManager manager, IDeviceDiscovery discovery) : IDeviceTransport
+internal sealed class NativeStockBleTransport(IBleManager manager, IDeviceProvider provider) : IDeviceTransport
 {
     public async Task<IDeviceConnection> ConnectAsync(
         DeviceIdentifier selected,
@@ -21,7 +21,7 @@ internal sealed class NativeStockBleTransport(IBleManager manager, IDeviceDiscov
         var resolved = manager.GetKnownPeripheral(selected.Id);
         if (resolved is null)
         {
-            var candidates = await discovery.ScanAsync(cancellationToken).ConfigureAwait(false);
+            var candidates = await provider.GetAvailableDevicesAsync(cancellationToken).ConfigureAwait(false);
             var found = candidates.FirstOrDefault(candidate =>
                 string.Equals(candidate.Id, selected.Id, StringComparison.OrdinalIgnoreCase));
             if (found is not null)

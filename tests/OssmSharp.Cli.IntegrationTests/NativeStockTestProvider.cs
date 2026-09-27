@@ -6,7 +6,7 @@ using OssmSharp.Device.Primitives.Models;
 namespace OssmSharp.Cli.IntegrationTests;
 
 #if WINDOWS || MACOS
-internal sealed class NativeStockTestDiscovery(DeviceIdentifier selected) : IDeviceDiscovery
+internal sealed class NativeStockTestProvider(DeviceIdentifier selected) : IDeviceProvider
 {
     private int _scanCount;
 
@@ -14,11 +14,16 @@ internal sealed class NativeStockTestDiscovery(DeviceIdentifier selected) : IDev
 
     internal int ScanCount => Volatile.Read(ref _scanCount);
 
-    public Task<IReadOnlyList<DeviceIdentifier>> ScanAsync(CancellationToken cancellationToken)
+    public Task<IReadOnlyList<DeviceIdentifier>> GetAvailableDevicesAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         Interlocked.Increment(ref _scanCount);
         return Task.FromResult<IReadOnlyList<DeviceIdentifier>>([Selected]);
     }
+
+    public Task<DeviceInformation> GetDeviceAsync(
+        DeviceIdentifier device,
+        CancellationToken cancellationToken) =>
+        throw new InvalidOperationException("The prompt must not read device details before connecting.");
 }
 #endif

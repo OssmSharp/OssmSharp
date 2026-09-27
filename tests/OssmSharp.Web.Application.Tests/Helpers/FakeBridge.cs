@@ -5,9 +5,10 @@ namespace OssmSharp.Web.Application.Tests.Helpers;
 /// </summary>
 internal sealed class FakeBridge : IOssmDevice
 {
+    private const string DefaultProfile = "ossm-rs-sim-v1";
     private static readonly DeviceInformation Information = new(
         "test simulator",
-        "ossm-rs-sim-v1",
+        DefaultProfile,
         null,
         [MotionPattern.SimpleStroke]);
     private readonly List<BridgeCall> _calls = [];
@@ -47,7 +48,7 @@ internal sealed class FakeBridge : IOssmDevice
         }
     }
 
-    public string Profile { get; set; } = Information.ProfileId;
+    public string Profile { get; set; } = DefaultProfile;
     public double Position { get; set; }
     public int? ReportedSpeed { get; set; }
     public double Velocity { get; set; }
@@ -115,15 +116,7 @@ internal sealed class FakeBridge : IOssmDevice
         var previous = _desired;
         _desired = desired;
         Publish();
-        if (previous.Speed != desired.Speed)
-        {
-            _deviceStateChanged?.Invoke(new UnexpectedSpeedChangeException(
-                previous.Speed,
-                desired.Speed,
-                null,
-                DateTime.UtcNow));
-        }
-        else if (!SameControlSettings(previous, desired))
+        if (!SameControlSettings(previous, desired))
         {
             _deviceStateChanged?.Invoke(new UnexpectedMotionChangeException(
                 previous,

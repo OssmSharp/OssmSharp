@@ -269,12 +269,12 @@ public sealed class SimulatedDeviceTests : MockerTestBase<SimulatedDevice>, IAsy
             changes.Reader,
             state => state.MotionSettings.Speed == external.Speed,
             timeout.Token);
-        var error = await ReadErrorAsync<UnexpectedSpeedChangeException>(changes.Reader, timeout.Token);
+        var error = await ReadErrorAsync<UnexpectedMotionChangeException>(changes.Reader, timeout.Token);
 
         Assert.Equal(external.Sensation, reported.MotionSettings.Sensation);
-        Assert.Equal(0, error.PreviousStateSpeed);
-        Assert.Equal(external.Speed, error.StateSpeed);
-        Assert.Null(error.PendingRequestedSpeed);
+        Assert.Equal(0, error.PreviousSettings.Speed);
+        Assert.Equal(reported.MotionSettings, error.CurrentSettings);
+        Assert.Null(error.PendingRequestedSettings);
         Assert.Equal(reported.Timestamp, error.StateTimestamp);
     }
 

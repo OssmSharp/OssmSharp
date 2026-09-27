@@ -16,7 +16,6 @@ internal static class CliServiceCollectionExtensions
         services.AddWindowsPlatformServices();
         return null;
 #else
-        services.TryAddSingleton<IDeviceDiscovery, UnavailableDeviceDiscovery>();
         services.TryAddSingleton<IDeviceProvider, UnavailableDeviceProvider>();
         return null;
 #endif

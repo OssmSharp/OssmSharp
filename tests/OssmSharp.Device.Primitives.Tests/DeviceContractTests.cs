@@ -179,16 +179,19 @@ public sealed class DeviceContractTests
     }
 
     [Fact]
-    public void UnexpectedSpeedExceptionRetainsBoundedStateContextAndCause()
+    public void UnexpectedMotionExceptionRetainsFullStateContextAndCause()
     {
         var cause = new InvalidDataException("provider failure");
         var timestamp = new DateTime(2026, 9, 20, 1, 2, 3, DateTimeKind.Utc);
 
-        var error = new UnexpectedSpeedChangeException(12, 25, 40, timestamp, cause);
+        var previous = ValidSettings(12);
+        var current = ValidSettings(25) with { Depth = 55 };
+        var pending = ValidSettings(40) with { Sensation = 70 };
+        var error = new UnexpectedMotionChangeException(previous, current, pending, timestamp, cause);
 
-        Assert.Equal(12, error.PreviousStateSpeed);
-        Assert.Equal(25, error.StateSpeed);
-        Assert.Equal(40, error.PendingRequestedSpeed);
+        Assert.Same(previous, error.PreviousSettings);
+        Assert.Same(current, error.CurrentSettings);
+        Assert.Same(pending, error.PendingRequestedSettings);
         Assert.Equal(timestamp, error.StateTimestamp);
         Assert.Same(cause, error.InnerException);
         Assert.DoesNotContain("provider failure", error.Message, StringComparison.Ordinal);

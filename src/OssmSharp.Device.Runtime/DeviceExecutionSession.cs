@@ -819,7 +819,7 @@ public sealed class DeviceExecutionSession : IAsyncDisposable
             _pendingRequest = null;
             RevokeSynchronously(_activeRevocation);
             _pendingFeedback?.Completion.TrySetCanceled(CancellationToken.None);
-            if (_fault is UnexpectedSpeedChangeException or UnexpectedMotionChangeException)
+            if (_fault is UnexpectedMotionChangeException)
             {
                 _interrupted = true;
                 _interruptionRevision++;

@@ -7,17 +7,17 @@ namespace OssmSharp.Cli.Commands;
 /// </summary>
 public sealed class DeviceListCommand : Command
 {
-    private readonly IDeviceDiscovery _discovery;
+    private readonly IDeviceProvider _provider;
     private readonly TextWriter _output;
     private readonly TextWriter _error;
 
     internal DeviceListCommand(
-        IDeviceDiscovery discovery,
+        IDeviceProvider provider,
         TextWriter output,
         TextWriter error)
         : base("list", "List stock devices and their platform peripheral IDs without connecting.")
     {
-        _discovery = discovery ?? throw new ArgumentNullException(nameof(discovery));
+        _provider = provider ?? throw new ArgumentNullException(nameof(provider));
         _output = output ?? throw new ArgumentNullException(nameof(output));
         _error = error ?? throw new ArgumentNullException(nameof(error));
         SetAction((_, cancellationToken) => RunAsync(cancellationToken));
@@ -28,7 +28,7 @@ public sealed class DeviceListCommand : Command
         try
         {
             await _output.WriteLineAsync("Detecting devices. Please wait ...");
-            var candidates = await _discovery.ScanAsync(cancellationToken).ConfigureAwait(false);
+            var candidates = await _provider.GetAvailableDevicesAsync(cancellationToken).ConfigureAwait(false);
             if (candidates.Count == 0)
             {
                 await _output.WriteLineAsync("No devices found.").ConfigureAwait(false);

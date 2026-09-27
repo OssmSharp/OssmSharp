@@ -8,6 +8,29 @@ namespace OssmSharp.Web.Application.Tests.Activity;
 public sealed class TelemetryTests
 {
     [Fact]
+    public async Task BridgeExternalSpeedAndDepthChangePublishesOneFullMotionError()
+    {
+        await using var bridge = new FakeBridge { Connected = true };
+        var changes = new List<OneOf.OneOf<DeviceState, Exception>>();
+        bridge.DeviceStateChanged += changes.Add;
+        var previous = TestMotion.Settings();
+        var current = previous with { Speed = 25, Depth = 40 };
+
+        bridge.External(current);
+
+        Assert.Collection(
+            changes,
+            change => Assert.Equal(current, change.AsT0.MotionSettings),
+            change =>
+            {
+                var error = Assert.IsType<UnexpectedMotionChangeException>(change.AsT1);
+                Assert.Equal(previous, error.PreviousSettings);
+                Assert.Same(current, error.CurrentSettings);
+                Assert.Null(error.PendingRequestedSettings);
+            });
+    }
+
+    [Fact]
     public async Task JoinedGuestReceivesScopedActualSettingsAndMotion()
     {
         await using var bridge = new FakeBridge { Position = 73.5, Velocity = -6.25 };

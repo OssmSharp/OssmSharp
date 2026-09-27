@@ -47,8 +47,8 @@ These libraries do not depend on Web.Application, Aspire, or either web host.
 `OssmSharp.Cli` is the only CLI; it uses the device libraries directly,
 not Web.Api.
 
-Discovery and device information use injected `IDeviceDiscovery` and
-`IDeviceProvider` services. Discovery returns `DeviceIdentifier` records with
+Discovery and device information use one injected `IDeviceProvider`.
+`GetAvailableDevicesAsync` returns `DeviceIdentifier` records with
 public `Id` and `Name`; provider-specific state stays opaque. Consumers pass
 the selected record unchanged to information reads or the registered
 `Func<DeviceIdentifier, IOssmDevice>` factory. Identifiers are valid only within
@@ -60,8 +60,10 @@ transport. The native device constructor no longer creates its own transport.
 CLI platform composition lives in `Interop`, with separate macOS and Windows
 registration extensions and explicit unavailable services for portable builds.
 The macOS dispatch queue is caller-owned and outlives the host; resolving
-commands does not initialize Bluetooth. Identity details remain separate typed
-data, formatted by the CLI rather than embedded in identifiers.
+commands does not initialize Bluetooth. `GetDeviceAsync` returns
+`DeviceInformation`, with descriptive identity fields formatted by the CLI.
+Identity-only results have no verified profile or supported patterns; connected
+device information uses the same record with its verified capabilities.
 
 `OssmSharp.Device.Simulator` connects to an
 [`ossm-sim-bridge`](tools/ossm-sim-bridge/README.md) on IPv4 loopback. The

@@ -1,19 +1,57 @@
 #if WINDOWS || MACOS
+using System.Reactive.Concurrency;
+using System.Reactive.Linq;
+using System.Reactive.Threading.Tasks;
 using OssmSharp.Device.Stock.Models;
 using Shiny;
 using Shiny.BluetoothLE;
 
 namespace OssmSharp.Device.Stock;
 
-/// <summary>Reads the stock pairing identity without opening a motion session.</summary>
+/// <summary>Discovers stock peripherals and reads pairing identity without opening a motion session.</summary>
 public sealed class StockDeviceProvider(
     Lazy<IBleManager> nativeManager,
-    TimeProvider? timeProvider = null) : IDeviceProvider
+    TimeProvider timeProvider,
+    IScheduler scheduler) : IDeviceProvider
 {
-    private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
+    private readonly TimeProvider _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
+    private readonly IScheduler _scheduler = scheduler ?? throw new ArgumentNullException(nameof(scheduler));
 
     /// <inheritdoc />
-    public async Task<DeviceIdentityDetails> ReadInformationAsync(
+    public async Task<IReadOnlyList<DeviceIdentifier>> GetAvailableDevicesAsync(CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(nativeManager);
+        cancellationToken.ThrowIfCancellationRequested();
+        var manager = nativeManager.Value;
+        var access = await manager
+            .RequestAccessAsync()
+            .WaitAsync(cancellationToken)
+            .ConfigureAwait(false);
+        if (access != AccessState.Available)
+            throw new UnauthorizedAccessException("Bluetooth access is unavailable.");
+
+        var service = StockFirmwareProfile.Service;
+        var candidates = await manager
+            .Scan(new ScanConfig(service.ToString()))
+            .Where(result => HasService(result.AdvertisementData.ServiceUuids, service))
+            .Where(result => !string.IsNullOrWhiteSpace(result.Peripheral.Uuid))
+            .Distinct(result => result.Peripheral.Uuid, StringComparer.OrdinalIgnoreCase)
+            .Take(64)
+            .Buffer(TimeSpan.FromSeconds(5), _scheduler)
+            .Take(1)
+            .ToTask(cancellationToken).ConfigureAwait(false);
+
+        return candidates
+            .Select(result => (DeviceIdentifier)new StockDeviceIdentifier(
+                result.Peripheral.Uuid,
+                StockBleDeviceName.Select(result.AdvertisementData.LocalName, result.Peripheral.Name),
+                result.Peripheral,
+                manager))
+            .ToArray();
+    }
+
+    /// <inheritdoc />
+    public async Task<DeviceInformation> GetDeviceAsync(
         DeviceIdentifier device,
         CancellationToken cancellationToken)
     {
@@ -64,13 +102,14 @@ public sealed class StockDeviceProvider(
                 }
 
                 var identity = PairingIdentity.Parse(result.Data);
-                return new DeviceIdentityDetails(
-                    device,
-                    identity.WifiMac,
-                    identity.Chip,
-                    identity.WifiConnected,
-                    identity.SketchMd5,
-                    identity.Version);
+                return new DeviceInformation(device.Id, null, identity.Version, [])
+                {
+                    Identifier = device,
+                    WifiMac = identity.WifiMac,
+                    Chip = identity.Chip,
+                    WifiConnected = identity.WifiConnected,
+                    SketchMd5 = identity.SketchMd5,
+                };
             }
             finally
             {
@@ -94,5 +133,8 @@ public sealed class StockDeviceProvider(
             throw new TimeoutException("Read-only identity retrieval timed out.");
         }
     }
+
+    private static bool HasService(IEnumerable<string>? advertisedServices, Guid service) =>
+        advertisedServices?.Any(uuid => Guid.TryParse(uuid, out var advertised) && advertised == service) == true;
 }
 #endif

@@ -90,12 +90,11 @@ public sealed class Program
     {
         services.AddSingleton<DeviceListCommand>(provider =>
             new DeviceListCommand(
-                provider.GetRequiredService<IDeviceDiscovery>(),
+                provider.GetRequiredService<IDeviceProvider>(),
                 Console.Out,
                 Console.Error));
         services.AddSingleton<DeviceGetCommand>(provider =>
             new DeviceGetCommand(
-                provider.GetRequiredService<IDeviceDiscovery>(),
                 provider.GetRequiredService<IDeviceProvider>(),
                 Console.Out,
                 Console.Error));
@@ -115,7 +114,7 @@ public sealed class Program
                 provider.GetRequiredService<Func<string, SimulatorBackgroundService>>(),
                 provider.GetRequiredService<Func<string, SimulatedDevice>>(),
                 provider.GetService<Func<DeviceIdentifier, IOssmDevice>>(),
-                provider.GetRequiredService<IDeviceDiscovery>(),
+                provider.GetRequiredService<IDeviceProvider>(),
                 provider.GetRequiredService<TimeProvider>(),
                 Console.Error));
         services.AddSingleton<PromptCommand>(provider =>

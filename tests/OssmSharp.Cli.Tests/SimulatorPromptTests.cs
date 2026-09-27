@@ -110,6 +110,8 @@ public sealed class SimulatorPromptTests
                 endpoint = selected;
                 return device;
             },
+            stockDevice: _ => throw new InvalidOperationException("Simulator touched the Bluetooth device factory."),
+            scan: _ => throw new InvalidOperationException("Simulator touched Bluetooth discovery."),
             createSimulator: _ =>
             {
                 processCreated = true;
@@ -473,7 +475,7 @@ public sealed class SimulatorPromptTests
         using var input = new StringReader("quit\n");
         using var output = new StringWriter();
         using var error = new StringWriter();
-        var discovery = new TestDeviceDiscovery([]);
+        var discovery = new TestDeviceProvider([]);
         var session = new PromptSession(
             new PromptHandler(input, output, error),
             _ => throw new InvalidOperationException("Bluetooth started a simulator."),
@@ -698,7 +700,7 @@ public sealed class SimulatorPromptTests
             createSimulator ?? (_ => throw new InvalidOperationException("No child launch was expected.")),
             simulatedDevice,
             stockDevice,
-            scan is null ? null : new TestDeviceDiscovery(scan),
+            scan is null ? null : new TestDeviceProvider(scan),
             TimeProvider.System,
             error);
 }

@@ -1,4 +1,5 @@
 #if WINDOWS || MACOS
+using System.Reactive.Concurrency;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
@@ -52,16 +53,15 @@ public static class StockBleServiceCollectionExtensions
     private static IServiceCollection AddStockDeviceServices(this IServiceCollection services)
     {
         services.TryAddSingleton<TimeProvider>(TimeProvider.System);
+        services.TryAddSingleton<IScheduler>(DefaultScheduler.Instance);
         services.AddSingleton(provider => new Lazy<IBleManager>(
             () => provider.GetRequiredService<IBleManager>()));
-        services.AddSingleton<DeviceDiscovery>();
-        services.AddSingleton<IDeviceDiscovery>(provider => provider.GetRequiredService<DeviceDiscovery>());
         services.AddSingleton<IDeviceProvider, StockDeviceProvider>();
         services.AddSingleton<IStockQualificationResolver, UnqualifiedStockMotion>();
         services.AddSingleton<IDeviceTransport>(provider =>
             new NativeStockBleTransport(
                 provider.GetRequiredService<Lazy<IBleManager>>().Value,
-                provider.GetRequiredService<IDeviceDiscovery>()));
+                provider.GetRequiredService<IDeviceProvider>()));
         services.AddSingleton<Func<DeviceIdentifier, IOssmDevice>>(provider => identifier =>
         {
             if (identifier is not StockDeviceIdentifier)

@@ -134,7 +134,7 @@ public sealed class StockOssmDevice : DeviceBase, IDevicePreparation, IDeviceTra
 
                 var device = StockFirmwareProfile.Verify(
                     profile.PeripheralId, profile.Service, profile.Characteristics,
-                    profile.Identity, profile.Patterns);
+                    profile.Identity, profile.Patterns) with { Identifier = _selected };
                 var identity = PairingIdentity.Parse(profile.Identity);
                 var mapping = _qualificationResolver.Resolve(device, identity);
                 mapping?.VerifyConnection(device, identity);

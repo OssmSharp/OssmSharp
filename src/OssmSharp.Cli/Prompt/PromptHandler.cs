@@ -193,7 +193,7 @@ internal sealed class PromptHandler
         }
 
         var information = device.Device;
-        await _output.WriteLineAsync($"Device: {DeviceText.Sanitize(information.Identity)}; Profile: {DeviceText.Sanitize(information.ProfileId)}; Firmware: {DeviceText.Sanitize(information.Version ?? "unknown")}; Reported patterns: {string.Join(", ", information.SupportedPatterns)}; ConnectionState: {device.ConnectionState}; Readiness: {execution?.State.ToString() ?? (simulatorControl ? "simulator session" : "unavailable")}; interruption revision: {execution?.InterruptionRevision.ToString(CultureInfo.InvariantCulture) ?? "none"}.");
+        await _output.WriteLineAsync($"Device: {DeviceText.Sanitize(information.Identity)}; Profile: {DeviceText.Sanitize(information.ProfileId ?? "unknown")}; Firmware: {DeviceText.Sanitize(information.Version ?? "unknown")}; Reported patterns: {string.Join(", ", information.SupportedPatterns)}; ConnectionState: {device.ConnectionState}; Readiness: {execution?.State.ToString() ?? (simulatorControl ? "simulator session" : "unavailable")}; interruption revision: {execution?.InterruptionRevision.ToString(CultureInfo.InvariantCulture) ?? "none"}.");
         var state = execution?.Reported ?? getReported();
         await _output.WriteLineAsync(state is null
             ? "No reported feedback."

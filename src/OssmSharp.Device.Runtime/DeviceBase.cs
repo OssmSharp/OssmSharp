@@ -127,8 +127,7 @@ public abstract class DeviceBase : BackgroundService, IOssmDevice, IAsyncDisposa
             throw new InvalidDataException(validationResults[0].ErrorMessage);
         }
 
-        UnexpectedSpeedChangeException? unexpectedSpeed = null;
-        UnexpectedMotionChangeException? unexpectedSettings = null;
+        UnexpectedMotionChangeException? unexpectedMotion = null;
         lock (_stateGate)
         {
             var pending = GetValidPendingWrite();
@@ -153,20 +152,15 @@ public abstract class DeviceBase : BackgroundService, IOssmDevice, IAsyncDisposa
             {
                 _pendingWrite = null;
             }
-            else if (!speedExpected && _lastStateSpeed is { } previousStateSpeed &&
-                     previousStateSpeed != state.MotionSettings.Speed)
-            {
-                unexpectedSpeed = new UnexpectedSpeedChangeException(
-                    previousStateSpeed,
-                    state.MotionSettings.Speed,
-                    pending?.Settings.Speed,
-                    state.Timestamp);
-            }
 
-            if (!settingsExpected && _lastStateMotion is { } previousSettings &&
-                !SameReportedControlSettings(previousSettings, state.MotionSettings))
+            if (_lastStateMotion is { } previousSettings
+                && ((!speedExpected
+                        && _lastStateSpeed is { } previousStateSpeed
+                        && previousStateSpeed != state.MotionSettings.Speed)
+                    || (!settingsExpected
+                        && !SameReportedControlSettings(previousSettings, state.MotionSettings))))
             {
-                unexpectedSettings = new UnexpectedMotionChangeException(
+                unexpectedMotion = new UnexpectedMotionChangeException(
                     previousSettings,
                     state.MotionSettings,
                     pending?.Settings,
@@ -178,13 +172,9 @@ public abstract class DeviceBase : BackgroundService, IOssmDevice, IAsyncDisposa
         }
 
         Publish(state);
-        if (unexpectedSpeed is not null)
+        if (unexpectedMotion is not null)
         {
-            Publish(unexpectedSpeed);
-        }
-        else if (unexpectedSettings is not null)
-        {
-            Publish(unexpectedSettings);
+            Publish(unexpectedMotion);
         }
     }
 

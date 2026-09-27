@@ -77,7 +77,13 @@ internal static class StockFirmwareProfile
             peripheralId,
             "stock-ble-1.0.34",
             identity.Version,
-            [MotionPattern.SimpleStroke]);
+            [MotionPattern.SimpleStroke])
+        {
+            WifiMac = identity.WifiMac,
+            Chip = identity.Chip,
+            WifiConnected = identity.WifiConnected,
+            SketchMd5 = identity.SketchMd5,
+        };
     }
 
     private static Guid Create(string value) => new($"{Prefix}{value}{Suffix}");

@@ -26,7 +26,7 @@ The CLI remains a direct foreground consumer, independent of Web and Aspire. Run
 - Keep result/help output on stdout and diagnostics on stderr. Sanitize remote device display strings using the existing presentation conventions.
 
 ## Selection and identity
-Use StockBleDiscovery.ScanAsync as the single Stock discovery implementation for list, name lookup and any ID lookup needed by the native platform. Do not copy the scan into PromptHandler or StockIdentityReader.
+Use IDeviceProvider.GetAvailableDevicesAsync as the single Stock discovery operation for list, name lookup and any ID lookup needed by the native platform. Do not copy the scan into CLI command handlers.
 
 Resolve an exact platform ID first; otherwise require one exact device-name match from the same bounded discovered set. Match IDs with the existing platform comparison; match names exactly, without fuzzy, prefix, signal-strength or first-result selection. Deduplicate by ID as discovery already does. Zero matches or duplicate names produce errors and no connection. Once resolved, freeze the selected ID for the session; no reconnect fallback to another device.
 

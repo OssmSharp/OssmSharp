@@ -42,6 +42,23 @@
   interruption mechanics without web policy or provider dependencies.
   `OssmSharp.Device.Primitives` must remain independent
   of hosting, defaults and providers; Simulator must not depend on Stock.
+- Device contracts should describe cohesive provider operations, not mirror
+  individual BLE steps. Discovery and descriptive reads may share one provider;
+  identity-only and connected information may share one model, but reported
+  identity must never imply verified capabilities, readiness, or authority.
+  Unexpected speed changes are motion changes; use the motion-change error
+  contract rather than a parallel speed-only exception.
+- `DeviceBase` should own common device-operation sequencing and invoke
+  provider-specific preparation, transition-validation, and dispatch hooks.
+  Stock qualification and native protocol details must remain in Stock.
+  Removing a capability interface must preserve its required behavior, including
+  a speed-only Stop that does not depend on qualification of stale geometry.
+- Runtime's required responsibilities do not mandate a separate execution-session
+  object. Before adding or retaining another layer around `DeviceBase`, compare
+  its write, feedback, interruption, and disposal state with the base's state.
+  Prefer one execution owner and operation path; any separate layer must have a
+  distinct role without duplicating authority. Preserve the existing safety
+  guarantees when consolidating, and keep web authorization in Web.Application.
 - With `prompt --simulator <path>`, the CLI starts and owns the specified
   simulator process for its foreground session, stopping it after device cleanup.
   With `prompt --simulator tcp://127.0.0.1:<port>`, it attaches to an already

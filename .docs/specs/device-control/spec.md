@@ -109,7 +109,15 @@ reported capabilities.
 | `Task SetMotionAsync(MotionSettings motionSettings, CancellationToken cancellationToken)` | Write requested settings. Completion must mean the operation settled, not that feedback arrived or a physical outcome was measured.                                     |
 | Inherited `ValueTask DisposeAsync()`                                                      | Release owned I/O and subscriptions once, without resuming motion.                                                                                                      |
 
-Device information must be discovered by the implementation, not supplied by
+`IDeviceProvider` owns discovery through `GetAvailableDevicesAsync` and
+identity retrieval through `GetDeviceAsync`. Identity retrieval and connected
+devices both use `DeviceInformation`. Identity-only information must preserve
+the selected identifier, leave `ProfileId` null and report no supported
+patterns; it must not fabricate a connected profile. Optional descriptive
+identity fields remain absent when unavailable. `Version` carries the firmware
+or simulator version; there is no separate firmware-version property.
+
+Connected device information must be discovered by the implementation, not supplied by
 callers or constructor arguments, and must never be fabricated. Once discovered,
 it must remain available for the instance lifetime, including after
 disconnection. Reading `Device` must not start discovery or authorize motion.
@@ -225,7 +233,8 @@ argument and cancellation failures must not be broadcast. Semantic asynchronous
 errors must be published only through the `Exception` arm of
 `DeviceStateChanged`. Connection attempts, transitions and transport failures
 must use lifecycle logging instead. An unexplained reported speed change must
-publish `UnexpectedSpeedChangeException` after publishing the new state, without
+publish `UnexpectedMotionChangeException` with the previous, current and pending
+motion settings after publishing the new state, without
 throwing from a native callback. BLE work deferred from this increment must
 throw `NotSupportedException`; placeholders must never report a connected device
 or successful write.

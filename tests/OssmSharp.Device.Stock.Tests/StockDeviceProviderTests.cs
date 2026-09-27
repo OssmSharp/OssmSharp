@@ -1,5 +1,6 @@
 #if WINDOWS || MACOS
 using System.Text;
+using System.Reactive.Concurrency;
 using System.Reactive.Linq;
 using FastMoq.Providers.MoqProvider;
 using Shiny;
@@ -14,9 +15,9 @@ public sealed class StockDeviceProviderTests
     {
         using var mocks = new Mocker();
         var manager = mocks.GetRequiredObject<IBleManager>();
-        var provider = new StockDeviceProvider(new Lazy<IBleManager>(() => manager));
+        var provider = CreateProvider(new Lazy<IBleManager>(() => manager));
 
-        await Assert.ThrowsAsync<ArgumentException>(() => provider.ReadInformationAsync(
+        await Assert.ThrowsAsync<ArgumentException>(() => provider.GetDeviceAsync(
             new ForeignDeviceIdentifier(), TestContext.Current.CancellationToken));
         mocks.Verify<IBleManager>(ble => ble.RequestAccess(), TimesSpec.NeverCalled);
     }
@@ -35,8 +36,8 @@ public sealed class StockDeviceProviderTests
             "selected", "Chosen", mocks.GetRequiredObject<IPeripheral>(), manager);
 
         var failure = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            new StockDeviceProvider(new Lazy<IBleManager>(() => manager))
-                .ReadInformationAsync(identifier, TestContext.Current.CancellationToken));
+            CreateProvider(new Lazy<IBleManager>(() => manager))
+                .GetDeviceAsync(identifier, TestContext.Current.CancellationToken));
 
         Assert.Contains("no longer available", failure.Message, StringComparison.Ordinal);
         mocks.Verify<IBleManager>(item => item.GetKnownPeripheral("selected"), TimesSpec.Once);
@@ -57,8 +58,8 @@ public sealed class StockDeviceProviderTests
             "selected", "Chosen", mocks.GetRequiredObject<IPeripheral>(), manager);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            new StockDeviceProvider(new Lazy<IBleManager>(() => manager))
-                .ReadInformationAsync(identifier, TestContext.Current.CancellationToken));
+            CreateProvider(new Lazy<IBleManager>(() => manager))
+                .GetDeviceAsync(identifier, TestContext.Current.CancellationToken));
         mocks.Verify<IBleManager>(item => item.GetKnownPeripheral("selected"), TimesSpec.NeverCalled);
         mocks.Verify<IPeripheral>(item => item.Connect(FastArg.Any<ConnectionConfig>()),
             TimesSpec.NeverCalled);
@@ -89,16 +90,19 @@ public sealed class StockDeviceProviderTests
         var identifier = new StockDeviceIdentifier(
             "selected", "Advertised", peripheral, mocks.GetRequiredObject<IBleManager>());
 
-        var result = await new StockDeviceProvider(new Lazy<IBleManager>(
+        var result = await CreateProvider(new Lazy<IBleManager>(
                 () => mocks.GetRequiredObject<IBleManager>()))
-            .ReadInformationAsync(identifier, TestContext.Current.CancellationToken);
+            .GetDeviceAsync(identifier, TestContext.Current.CancellationToken);
 
         Assert.Same(identifier, result.Identifier);
+        Assert.Equal(identifier.Id, result.Identity);
+        Assert.Null(result.ProfileId);
+        Assert.Empty(result.SupportedPatterns);
         Assert.Equal("AA:BB:CC:DD:EE:FF", result.WifiMac);
         Assert.Equal("ESP32", result.Chip);
         Assert.True(result.WifiConnected);
         Assert.Equal("0123456789abcdef0123456789abcdef", result.SketchMd5);
-        Assert.Equal("1.0.34", result.FirmwareVersion);
+        Assert.Equal("1.0.34", result.Version);
         mocks.Verify<IPeripheral>(item => item.CancelConnection(), TimesSpec.Once);
     }
 
@@ -127,8 +131,8 @@ public sealed class StockDeviceProviderTests
         var identifier = new StockDeviceIdentifier("selected", "Chosen", peripheral, manager);
 
         var error = await Assert.ThrowsAsync<UnsettledDeviceCleanupException>(() =>
-            new StockDeviceProvider(new Lazy<IBleManager>(() => manager))
-                .ReadInformationAsync(identifier, TestContext.Current.CancellationToken));
+            CreateProvider(new Lazy<IBleManager>(() => manager))
+                .GetDeviceAsync(identifier, TestContext.Current.CancellationToken));
 
         Assert.IsType<IOException>(error.InnerException);
         mocks.Verify<IPeripheral>(item => item.CancelConnection(), TimesSpec.Once);
@@ -161,8 +165,8 @@ public sealed class StockDeviceProviderTests
         var identifier = new StockDeviceIdentifier("selected", "Chosen", peripheral, manager);
 
         await Assert.ThrowsAsync<InvalidDataException>(() =>
-            new StockDeviceProvider(new Lazy<IBleManager>(() => manager))
-                .ReadInformationAsync(identifier, TestContext.Current.CancellationToken));
+            CreateProvider(new Lazy<IBleManager>(() => manager))
+                .GetDeviceAsync(identifier, TestContext.Current.CancellationToken));
         mocks.Verify<IPeripheral>(item => item.CancelConnection(), TimesSpec.Once);
     }
 
@@ -173,8 +177,8 @@ public sealed class StockDeviceProviderTests
         using var cancellation = new CancellationTokenSource();
         var reading = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var (manager, _, identifier) = ArrangePendingRead(mocks, reading);
-        var read = new StockDeviceProvider(new Lazy<IBleManager>(() => manager))
-            .ReadInformationAsync(identifier, cancellation.Token);
+        var read = CreateProvider(new Lazy<IBleManager>(() => manager))
+            .GetDeviceAsync(identifier, cancellation.Token);
         await reading.Task.WaitAsync(TestContext.Current.CancellationToken);
 
         await cancellation.CancelAsync();
@@ -195,8 +199,8 @@ public sealed class StockDeviceProviderTests
             .Returns(Observable.Throw<BleCharacteristicResult>(new IOException("Native read failed.")));
 
         var error = await Assert.ThrowsAsync<IOException>(() =>
-            new StockDeviceProvider(new Lazy<IBleManager>(() => manager))
-                .ReadInformationAsync(identifier, TestContext.Current.CancellationToken));
+            CreateProvider(new Lazy<IBleManager>(() => manager))
+                .GetDeviceAsync(identifier, TestContext.Current.CancellationToken));
 
         Assert.Contains("Native read failed", error.Message, StringComparison.Ordinal);
         mocks.Verify<IPeripheral>(item => item.CancelConnection(), TimesSpec.Once);
@@ -209,8 +213,8 @@ public sealed class StockDeviceProviderTests
         var clock = new FakeTimeProvider();
         var reading = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var (manager, _, identifier) = ArrangePendingRead(mocks, reading);
-        var read = new StockDeviceProvider(new Lazy<IBleManager>(() => manager), clock)
-            .ReadInformationAsync(identifier, TestContext.Current.CancellationToken);
+        var read = CreateProvider(new Lazy<IBleManager>(() => manager), clock)
+            .GetDeviceAsync(identifier, TestContext.Current.CancellationToken);
         await reading.Task.WaitAsync(TestContext.Current.CancellationToken);
 
         clock.Advance(TimeSpan.FromSeconds(30));
@@ -242,8 +246,8 @@ public sealed class StockDeviceProviderTests
         ble.Setup(item => item.GetKnownPeripheral("selected")).Returns(peripheral);
         var manager = mocks.GetRequiredObject<IBleManager>();
         var identifier = new StockDeviceIdentifier("selected", "Chosen", peripheral, manager);
-        var read = new StockDeviceProvider(new Lazy<IBleManager>(() => manager), clock)
-            .ReadInformationAsync(identifier, TestContext.Current.CancellationToken);
+        var read = CreateProvider(new Lazy<IBleManager>(() => manager), clock)
+            .GetDeviceAsync(identifier, TestContext.Current.CancellationToken);
         await disconnectStarted.Task.WaitAsync(TestContext.Current.CancellationToken);
 
         clock.Advance(TimeSpan.FromSeconds(5));
@@ -266,12 +270,15 @@ public sealed class StockDeviceProviderTests
             "selected", "Chosen", mocks.GetRequiredObject<IPeripheral>(), manager);
 
         await Assert.ThrowsAsync<ObjectDisposedException>(() =>
-            new StockDeviceProvider(new Lazy<IBleManager>(() => manager))
-                .ReadInformationAsync(identifier, TestContext.Current.CancellationToken));
+            CreateProvider(new Lazy<IBleManager>(() => manager))
+                .GetDeviceAsync(identifier, TestContext.Current.CancellationToken));
         mocks.Verify<IBleManager>(item => item.GetKnownPeripheral("selected"), TimesSpec.NeverCalled);
         mocks.Verify<IPeripheral>(item => item.Connect(FastArg.Any<ConnectionConfig>()),
             TimesSpec.NeverCalled);
     }
+
+    private static StockDeviceProvider CreateProvider(Lazy<IBleManager> manager, TimeProvider? clock = null) =>
+        new(manager, clock ?? TimeProvider.System, DefaultScheduler.Instance);
 
     private static (IBleManager Manager, IPeripheral Peripheral, StockDeviceIdentifier Identifier)
         ArrangePendingRead(Mocker mocks, TaskCompletionSource reading)

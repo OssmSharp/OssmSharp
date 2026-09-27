@@ -22,9 +22,10 @@ behavior.
 ## External-change tests
 
 - P0: an unexplained timely effective-speed change publishes
-  `UnexpectedSpeedChangeException` and the controller locks.
-- P2: when implemented, an unexplained reported stroke, sensation, depth or
-  pattern change uses a separate semantic signal and the same controller lock.
+  `UnexpectedMotionChangeException` and the controller locks.
+- P2: an unexplained reported stroke, sensation, depth or pattern change uses
+  the same exception and controller lock. One report produces at most one
+  motion-change error, retaining the full prior, current and pending settings.
 - Keep P0 and P2 assertions separate. P2 must not weaken or delay P0.
 - Ignore ordinary timestamp and position changes when comparing control settings.
 - Clear reported-state and pending-write baselines across disconnect/reconnect.

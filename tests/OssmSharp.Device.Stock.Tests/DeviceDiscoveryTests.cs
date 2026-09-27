@@ -15,11 +15,11 @@ public sealed class DeviceDiscoveryTests
     {
         using var cancellation = new CancellationTokenSource();
         await cancellation.CancelAsync();
-        var discovery = new DeviceDiscovery(new Lazy<IBleManager>(() =>
+        var discovery = CreateProvider(new Lazy<IBleManager>(() =>
             throw new InvalidOperationException("Canceled scans must not initialize Bluetooth.")));
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            discovery.ScanAsync(cancellation.Token));
+            discovery.GetAvailableDevicesAsync(cancellation.Token));
     }
 
     [Fact]
@@ -43,9 +43,9 @@ public sealed class DeviceDiscoveryTests
                 new ScanResult(other, -45, missing),
             }.ToObservable());
 
-        var results = await new DeviceDiscovery(new Lazy<IBleManager>(
+        var results = await CreateProvider(new Lazy<IBleManager>(
                 () => mocks.GetRequiredObject<IBleManager>()))
-            .ScanAsync(TestContext.Current.CancellationToken);
+            .GetAvailableDevicesAsync(TestContext.Current.CancellationToken);
 
         Assert.Single(results);
         Assert.Equal("A", results[0].Id);
@@ -73,9 +73,9 @@ public sealed class DeviceDiscoveryTests
             .Returns(Observable.Return(new ScanResult(
                 peripheral, -30, Advertisement(mocks, service, "Advertised"))));
 
-        var discovered = await new DeviceDiscovery(new Lazy<IBleManager>(
+        var discovered = await CreateProvider(new Lazy<IBleManager>(
                 () => mocks.GetRequiredObject<IBleManager>()))
-            .ScanAsync(TestContext.Current.CancellationToken);
+            .GetAvailableDevicesAsync(TestContext.Current.CancellationToken);
         var selected = discovered.FirstOrDefault(device =>
             string.Equals(device.Id, "enrolled", StringComparison.OrdinalIgnoreCase));
 
@@ -97,9 +97,9 @@ public sealed class DeviceDiscoveryTests
                 subscribed.TrySetResult();
                 return Disposable.Create(() => disposed = true);
             }));
-        var scan = new DeviceDiscovery(new Lazy<IBleManager>(
+        var scan = CreateProvider(new Lazy<IBleManager>(
             () => mocks.GetRequiredObject<IBleManager>()), clock)
-            .ScanAsync(TestContext.Current.CancellationToken);
+            .GetAvailableDevicesAsync(TestContext.Current.CancellationToken);
         await subscribed.Task.WaitAsync(TestContext.Current.CancellationToken);
 
         clock.AdvanceBy(TimeSpan.FromSeconds(4));
@@ -121,9 +121,9 @@ public sealed class DeviceDiscoveryTests
         ble.Setup(manager => manager.Scan(Moq.It.IsAny<ScanConfig>()))
             .Returns(Observable.Empty<ScanResult>());
 
-        var scan = new DeviceDiscovery(new Lazy<IBleManager>(
+        var scan = CreateProvider(new Lazy<IBleManager>(
             () => mocks.GetRequiredObject<IBleManager>()), clock)
-            .ScanAsync(TestContext.Current.CancellationToken);
+            .GetAvailableDevicesAsync(TestContext.Current.CancellationToken);
 
         Assert.Empty(await scan.WaitAsync(TestContext.Current.CancellationToken));
         Assert.Equal(start, clock.Now);
@@ -143,9 +143,9 @@ public sealed class DeviceDiscoveryTests
                     Peripheral(mocks, $"device-{index}", "Name"), -30, advertised))
                 .Finally(() => disposed = true));
 
-        var results = await new DeviceDiscovery(new Lazy<IBleManager>(
+        var results = await CreateProvider(new Lazy<IBleManager>(
                 () => mocks.GetRequiredObject<IBleManager>()))
-            .ScanAsync(TestContext.Current.CancellationToken);
+            .GetAvailableDevicesAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(64, results.Count);
         Assert.Equal("device-0", results[0].Id);
@@ -161,9 +161,9 @@ public sealed class DeviceDiscoveryTests
         ble.Setup(manager => manager.RequestAccess()).Returns(Observable.Return(AccessState.Denied));
 
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
-            new DeviceDiscovery(new Lazy<IBleManager>(
+            CreateProvider(new Lazy<IBleManager>(
                     () => mocks.GetRequiredObject<IBleManager>()))
-                .ScanAsync(TestContext.Current.CancellationToken));
+                .GetAvailableDevicesAsync(TestContext.Current.CancellationToken));
         mocks.Verify<IBleManager>(manager => manager.Scan(FastArg.Any<ScanConfig>()),
             TimesSpec.NeverCalled);
     }
@@ -183,9 +183,9 @@ public sealed class DeviceDiscoveryTests
                 subscribed.SetResult();
                 return Disposable.Create(() => disposed = true);
             }));
-        var scan = new DeviceDiscovery(new Lazy<IBleManager>(
+        var scan = CreateProvider(new Lazy<IBleManager>(
                 () => mocks.GetRequiredObject<IBleManager>()))
-            .ScanAsync(cancellation.Token);
+            .GetAvailableDevicesAsync(cancellation.Token);
         await subscribed.Task.WaitAsync(TestContext.Current.CancellationToken);
 
         await cancellation.CancelAsync();
@@ -205,11 +205,14 @@ public sealed class DeviceDiscoveryTests
                 .Finally(() => disposed = true));
 
         await Assert.ThrowsAsync<IOException>(() =>
-            new DeviceDiscovery(new Lazy<IBleManager>(
+            CreateProvider(new Lazy<IBleManager>(
                     () => mocks.GetRequiredObject<IBleManager>()))
-                .ScanAsync(TestContext.Current.CancellationToken));
+                .GetAvailableDevicesAsync(TestContext.Current.CancellationToken));
         Assert.True(disposed);
     }
+
+    private static StockDeviceProvider CreateProvider(Lazy<IBleManager> manager, IScheduler? scheduler = null) =>
+        new(manager, TimeProvider.System, scheduler ?? DefaultScheduler.Instance);
 
     private static IPeripheral Peripheral(Mocker mocks, string id, string name)
     {

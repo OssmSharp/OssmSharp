@@ -128,7 +128,7 @@ public sealed class StockOssmDeviceTests
     }
 
     [Fact]
-    public async Task StockFirmwareDepthChangePublishesSeparateSettingsError()
+    public async Task StockFirmwareDepthChangePublishesMotionError()
     {
         await using var device = new StockSpeedTestDevice(new FakeTimeProvider(DateTimeOffset.UnixEpoch));
         var initial = StockFirmwareState(1, 20, 0);
@@ -148,6 +148,31 @@ public sealed class StockOssmDeviceTests
                 Assert.Equal(initial.MotionSettings, error.PreviousSettings);
                 Assert.Equal(changed.MotionSettings, error.CurrentSettings);
                 Assert.Null(error.PendingRequestedSettings);
+            });
+    }
+
+    [Fact]
+    public async Task StockFirmwareSpeedChangePublishesFullMotionError()
+    {
+        await using var device = new StockSpeedTestDevice(new FakeTimeProvider(DateTimeOffset.UnixEpoch));
+        var initial = StockFirmwareState(1, 20, 0);
+        var changed = StockFirmwareState(2, 20, 1.25, speed: 25);
+        device.ReportState(initial);
+        var changes = new List<OneOf<DeviceState, Exception>>();
+        device.DeviceStateChanged += changes.Add;
+
+        device.ReportState(changed);
+
+        Assert.Collection(
+            changes,
+            change => Assert.Same(changed, change.AsT0),
+            change =>
+            {
+                var error = Assert.IsType<UnexpectedMotionChangeException>(change.AsT1);
+                Assert.Same(initial.MotionSettings, error.PreviousSettings);
+                Assert.Same(changed.MotionSettings, error.CurrentSettings);
+                Assert.Null(error.PendingRequestedSettings);
+                Assert.Equal(changed.Timestamp, error.StateTimestamp);
             });
     }
 
@@ -215,9 +240,10 @@ public sealed class StockOssmDeviceTests
             ble => ble.ConnectAsync(FastArg.Any<DeviceIdentifier>(), StockFirmwareProfile.Service, FastArg.Any<CancellationToken>()),
             connection);
         var transport = mocks.GetRequiredObject<IDeviceTransport>();
+        var selected = new SelectedStockTestIdentifier("enrolled");
         await using var device = new StockOssmDevice(
             Options.Create(new DeviceRuntimeOptions()), TimeProvider.System,
-            NullLogger<StockOssmDevice>.Instance, new SelectedStockTestIdentifier("enrolled"), transport);
+            NullLogger<StockOssmDevice>.Instance, selected, transport);
         var connected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         device.ConnectionStateChanged += state =>
         {
@@ -240,6 +266,13 @@ public sealed class StockOssmDeviceTests
 
         Assert.Equal("enrolled", device.Device.Identity);
         Assert.Equal("1.0.34", device.Device.Version);
+        Assert.Same(selected, device.Device.Identifier);
+        Assert.Equal("stock-ble-1.0.34", device.Device.ProfileId);
+        Assert.Equal([MotionPattern.SimpleStroke], device.Device.SupportedPatterns);
+        Assert.Equal("A4:CF:12:34:56:78", device.Device.WifiMac);
+        Assert.Equal("ESP32-S3", device.Device.Chip);
+        Assert.True(device.Device.WifiConnected);
+        Assert.Equal("0123456789abcdef0123456789abcdef", device.Device.SketchMd5);
         Assert.Empty(states);
         mocks.Verify<IDeviceTransport>(
             ble => ble.ConnectAsync(FastArg.Any<DeviceIdentifier>(), StockFirmwareProfile.Service, FastArg.Any<CancellationToken>()),
@@ -561,7 +594,7 @@ public sealed class StockOssmDeviceTests
 
         Assert.Equal("selected-peripheral", device.Identity);
         Assert.Equal("1.0.34", device.Version);
-        Assert.Equal(normalizedMac, PairingIdentity.Parse(reportedIdentity).WifiMac);
+        Assert.Equal(normalizedMac, device.WifiMac);
     }
 
     [Theory]
@@ -644,10 +677,10 @@ public sealed class StockOssmDeviceTests
         MotionPattern.SimpleStroke,
         0);
 
-    private static DeviceState StockFirmwareState(uint firmwareTimestamp, int depth, double position) =>
+    private static DeviceState StockFirmwareState(uint firmwareTimestamp, int depth, double position, int speed = 0) =>
         StateResponse.Parse(
             $$"""
-            {"timestamp":{{firmwareTimestamp}},"state":"strokeEngine.idle","speed":0,"stroke":10,"sensation":50,"depth":{{depth}},"buffer":0,"pattern":0,"position":{{position}},"sessionId":""}
+            {"timestamp":{{firmwareTimestamp}},"state":"strokeEngine.idle","speed":{{speed}},"stroke":10,"sensation":50,"depth":{{depth}},"buffer":0,"pattern":0,"position":{{position}},"sessionId":""}
             """,
             DateTime.UnixEpoch.AddSeconds(firmwareTimestamp)).ToDeviceState();
 

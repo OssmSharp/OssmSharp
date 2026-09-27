@@ -18,7 +18,7 @@ public sealed class NativeStockBleTransportTests
         manager.Setup(item => item.GetKnownPeripheral("selected")).Returns(peripheral);
         var selected = new StockDeviceIdentifier(
             "selected", "Device", peripheral, mocks.GetRequiredObject<IBleManager>());
-        var discovery = mocks.GetRequiredObject<IDeviceDiscovery>();
+        var discovery = mocks.GetRequiredObject<IDeviceProvider>();
 
         var connection = await new NativeStockBleTransport(mocks.GetRequiredObject<IBleManager>(), discovery)
             .ConnectAsync(selected, StockFirmwareProfile.Service, TestContext.Current.CancellationToken);
@@ -28,8 +28,8 @@ public sealed class NativeStockBleTransportTests
         Assert.IsType<NativeStockBleConnection>(connection);
         native.Verify(item => item.Connect(It.Is<ConnectionConfig>(config => !config.AutoConnect)), Times.Once);
         native.Verify(item => item.CancelConnection(), Times.Once);
-        mocks.Verify<IDeviceDiscovery>(
-            item => item.ScanAsync(FastArg.Any<CancellationToken>()), TimesSpec.NeverCalled);
+        mocks.Verify<IDeviceProvider>(
+            item => item.GetAvailableDevicesAsync(FastArg.Any<CancellationToken>()), TimesSpec.NeverCalled);
     }
 
     [Fact]
@@ -42,22 +42,22 @@ public sealed class NativeStockBleTransportTests
         var (found, foundNative, disconnect) = ArrangePeripheral(mocks, "SELECTED");
         var owner = mocks.GetRequiredObject<IBleManager>();
         var selected = new StockDeviceIdentifier("Selected", "Same name", selectedPeripheral, owner);
-        var discovery = mocks.GetOrCreateMock<IDeviceDiscovery>().AsMoq();
+        var discovery = mocks.GetOrCreateMock<IDeviceProvider>().AsMoq();
         var token = TestContext.Current.CancellationToken;
-        discovery.Setup(item => item.ScanAsync(token))
+        discovery.Setup(item => item.GetAvailableDevicesAsync(token))
             .Returns(Task.FromResult<IReadOnlyList<DeviceIdentifier>>(
             [
                 new StockDeviceIdentifier("different", "Same name", unrelated, owner),
                 new StockDeviceIdentifier("SELECTED", "Same name", found, owner),
             ]));
 
-        var connection = await new NativeStockBleTransport(owner, mocks.GetRequiredObject<IDeviceDiscovery>())
+        var connection = await new NativeStockBleTransport(owner, mocks.GetRequiredObject<IDeviceProvider>())
             .ConnectAsync(selected, StockFirmwareProfile.Service, token);
         disconnect();
         await connection.DisposeAsync();
 
         manager.Verify(item => item.GetKnownPeripheral("Selected"), Times.Once);
-        mocks.Verify<IDeviceDiscovery>(item => item.ScanAsync(token), TimesSpec.Once);
+        mocks.Verify<IDeviceProvider>(item => item.GetAvailableDevicesAsync(token), TimesSpec.Once);
         foundNative.Verify(item => item.Connect(It.IsAny<ConnectionConfig>()), Times.Once);
         otherNative.Verify(item => item.Connect(It.IsAny<ConnectionConfig>()), Times.Never);
     }
@@ -71,19 +71,19 @@ public sealed class NativeStockBleTransportTests
         var (otherPeripheral, otherNative, _) = ArrangePeripheral(mocks, "different");
         var manager = mocks.GetRequiredObject<IBleManager>();
         var selected = new StockDeviceIdentifier("selected", "Same name", selectedPeripheral, manager);
-        mocks.GetOrCreateMock<IDeviceDiscovery>().AsMoq()
-            .Setup(item => item.ScanAsync(TestContext.Current.CancellationToken))
+        mocks.GetOrCreateMock<IDeviceProvider>().AsMoq()
+            .Setup(item => item.GetAvailableDevicesAsync(TestContext.Current.CancellationToken))
             .Returns(Task.FromResult<IReadOnlyList<DeviceIdentifier>>(
                 [new StockDeviceIdentifier("different", "Same name", otherPeripheral, manager)]));
 
         await Assert.ThrowsAsync<IOException>(() =>
-            new NativeStockBleTransport(manager, mocks.GetRequiredObject<IDeviceDiscovery>())
+            new NativeStockBleTransport(manager, mocks.GetRequiredObject<IDeviceProvider>())
                 .ConnectAsync(selected, StockFirmwareProfile.Service, TestContext.Current.CancellationToken));
 
         selectedNative.Verify(item => item.Connect(It.IsAny<ConnectionConfig>()), Times.Never);
         otherNative.Verify(item => item.Connect(It.IsAny<ConnectionConfig>()), Times.Never);
-        mocks.Verify<IDeviceDiscovery>(
-            item => item.ScanAsync(TestContext.Current.CancellationToken), TimesSpec.Once);
+        mocks.Verify<IDeviceProvider>(
+            item => item.GetAvailableDevicesAsync(TestContext.Current.CancellationToken), TimesSpec.Once);
     }
 
     [Fact]
@@ -99,12 +99,12 @@ public sealed class NativeStockBleTransportTests
 
         await Assert.ThrowsAsync<InvalidDataException>(() =>
             new NativeStockBleTransport(
-                mocks.GetRequiredObject<IBleManager>(), mocks.GetRequiredObject<IDeviceDiscovery>())
+                mocks.GetRequiredObject<IBleManager>(), mocks.GetRequiredObject<IDeviceProvider>())
                 .ConnectAsync(selected, StockFirmwareProfile.Service, TestContext.Current.CancellationToken));
 
         wrongNative.Verify(item => item.Connect(It.IsAny<ConnectionConfig>()), Times.Never);
-        mocks.Verify<IDeviceDiscovery>(
-            item => item.ScanAsync(FastArg.Any<CancellationToken>()), TimesSpec.NeverCalled);
+        mocks.Verify<IDeviceProvider>(
+            item => item.GetAvailableDevicesAsync(FastArg.Any<CancellationToken>()), TimesSpec.NeverCalled);
     }
 
     [Theory]
@@ -122,14 +122,14 @@ public sealed class NativeStockBleTransportTests
                 "selected", "Device", peripheral, mocks.CreateStandaloneFastMock<IBleManager>().Instance);
 
         await Assert.ThrowsAsync<ArgumentException>(() =>
-            new NativeStockBleTransport(manager, mocks.GetRequiredObject<IDeviceDiscovery>())
+            new NativeStockBleTransport(manager, mocks.GetRequiredObject<IDeviceProvider>())
                 .ConnectAsync(selected, StockFirmwareProfile.Service, TestContext.Current.CancellationToken));
 
         managerMock.Verify(item => item.RequestAccess(), Times.Never);
         managerMock.Verify(item => item.GetKnownPeripheral(It.IsAny<string>()), Times.Never);
         native.Verify(item => item.Connect(It.IsAny<ConnectionConfig>()), Times.Never);
-        mocks.Verify<IDeviceDiscovery>(
-            item => item.ScanAsync(FastArg.Any<CancellationToken>()), TimesSpec.NeverCalled);
+        mocks.Verify<IDeviceProvider>(
+            item => item.GetAvailableDevicesAsync(FastArg.Any<CancellationToken>()), TimesSpec.NeverCalled);
     }
 
     [Fact]
@@ -146,7 +146,7 @@ public sealed class NativeStockBleTransportTests
 
         var failure = await Assert.ThrowsAsync<IOException>(() =>
             new NativeStockBleTransport(
-                mocks.GetRequiredObject<IBleManager>(), mocks.GetRequiredObject<IDeviceDiscovery>())
+                mocks.GetRequiredObject<IBleManager>(), mocks.GetRequiredObject<IDeviceProvider>())
                 .ConnectAsync(selected, StockFirmwareProfile.Service, TestContext.Current.CancellationToken));
 
         Assert.Contains("Native connect failed", failure.Message, StringComparison.Ordinal);

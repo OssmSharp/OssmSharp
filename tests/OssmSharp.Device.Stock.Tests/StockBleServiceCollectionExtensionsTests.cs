@@ -33,7 +33,6 @@ public sealed class StockBleServiceCollectionExtensionsTests
 
         using var provider = services.BuildServiceProvider();
 
-        Assert.IsType<DeviceDiscovery>(provider.GetRequiredService<IDeviceDiscovery>());
         Assert.IsType<StockDeviceProvider>(provider.GetRequiredService<IDeviceProvider>());
         var createDevice = provider.GetRequiredService<Func<DeviceIdentifier, IOssmDevice>>();
         Assert.Throws<ArgumentException>(() => createDevice(new ForeignDeviceIdentifier()));
@@ -108,7 +107,6 @@ public sealed class StockBleServiceCollectionExtensionsTests
 
         Assert.Same(services, registered);
         Assert.Contains(services, descriptor => descriptor.ServiceType == typeof(IBleManager));
-        Assert.Contains(services, descriptor => descriptor.ServiceType == typeof(IDeviceDiscovery));
         Assert.Contains(services, descriptor => descriptor.ServiceType == typeof(IDeviceProvider));
         Assert.Contains(services, descriptor =>
             descriptor.ServiceType == typeof(Func<DeviceIdentifier, IOssmDevice>));
@@ -123,7 +121,6 @@ public sealed class StockBleServiceCollectionExtensionsTests
 
         Assert.Same(services, registered);
         Assert.Contains(services, descriptor => descriptor.ServiceType == typeof(IBleManager));
-        Assert.Contains(services, descriptor => descriptor.ServiceType == typeof(IDeviceDiscovery));
         Assert.Contains(services, descriptor => descriptor.ServiceType == typeof(IDeviceProvider));
         Assert.Contains(services, descriptor =>
             descriptor.ServiceType == typeof(Func<DeviceIdentifier, IOssmDevice>));
