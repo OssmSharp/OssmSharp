@@ -13,12 +13,46 @@ authority revisions and guards. Independent focused checks passed 78 Runtime,
 101 native macOS Stock, 98 CLI unit, two real native CLI composition and one
 portable process case, with zero failures or skips. Adversarial findings were
 addressed, with the final Stop/baseline corrections source-checked and independently
-tested by the coordinating agent. Windows-native and queue failure-path
-verification remain blocked.
+tested by the coordinating agent. Windows-native verification remains pending;
+the later queue-lifetime results are recorded below.
 Production composition has no qualified mapping, and the physical
 qualification allowlist remains empty. The
 [migration evidence](direct-device-migration.md#m4-interactive-direct-device-cli-and-first-real-control-command)
 records focused software results and unrun platform/resource-lifecycle checks.
+
+The follow-up implementation now checks every stopped intermediate against the
+caller's execution guard before replacing pending work, and checks the complete
+transition again when the writer becomes available. Previously, an intermediate
+could be rejected only after the request entered execution, causing Stop rather
+than a write-free admission rejection. The admission regression failed before
+the correction; admission and changed-guard dequeue regressions now pass.
+After the initial sandbox blockers were cleared, final focused checks passed
+71 portable CLI cases, 38 Runtime execution cases and two native macOS CLI
+composition cases, with zero failures or skips. The Runtime selection includes
+the guard-exception regression: a guard throwing at dequeue faults the owner
+and waits for safety Stop settlement, rather than taking the write-free
+rejection path. An earlier selection of 12 portable Stock motion cases also
+passed; it was not rerun after the final Runtime correction.
+
+Native macOS queue-lifetime verification now passes. The requester approved
+central suppression of `XCODE_27_0_PREVIEW` for macOS Stock builds after the
+compiler rejected queue-handle inspection. Shared build configuration now owns
+that exemption; redundant local pragmas were removed.
+Three real native queue tests verify registration-failure cleanup, caller
+cleanup after host-build failure, and host-before-queue disposal. Together with
+the two existing native CLI composition cases, five tests were discovered and
+passed, with zero failures or skips. Primitives also built independently with
+zero warnings or errors, and the portable native-unavailable CLI process case
+passed (one discovered, one passed, zero failures or skips). Three native Stock
+registration cases also passed after removing the local pragmas. Their first
+selection discovered zero tests because the native bundle contained a stale,
+trimmed xUnit assembly; cleaning that project's native outputs restored
+discovery without source changes. The coordinating agent independently reran
+all three registration cases successfully. Native checks used
+`EnableStockBle=true`, `StockMacOSApiVersion=27.0`, `UseAppHost=true` and
+per-command Xcode 27 selection. Existing apphost bundle-metadata warnings
+remain. No hardware was accessed; Windows-native and physical qualification
+remain outstanding. These results do not establish full plan acceptance.
 
 The resumed software increment separates missing implementation from physical
 qualification. Implement full Stock dispatch through an internal, injected,
@@ -128,8 +162,10 @@ using var host = builder.Build();
 
 The host is disposed before the queue. Registration failure releases acquired
 resources before rethrowing, with exactly one owner on every transfer path.
-Do not register an external queue expecting DI to dispose it. Retain the existing
-local preview-diagnostic exemption without adding suppressions.
+Do not register an external queue expecting DI to dispose it. As approved on
+27 September 2026, suppress `XCODE_27_0_PREVIEW` centrally for macOS Stock builds,
+including their tests, instead of maintaining local preview-diagnostic pragmas.
+Do not suppress other diagnostics.
 
 Stock owns native registrations and a shared deferred BLE manager. Registration,
 command construction, help/version and simulator paths must not initialize BLE.

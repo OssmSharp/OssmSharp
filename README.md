@@ -221,6 +221,20 @@ warnings; a CLI test-helper CA2025 warning also remains unsuppressed. Native
 integration tests use the same headless MTP entry-point pattern as Stock tests,
 clearing the unpumped Apple synchronization context before runner startup.
 
+The latest follow-up checks passed 71 portable CLI cases, 38 Runtime execution
+cases and five native macOS CLI composition/lifetime cases, with zero failures
+or skips. Three native Stock registration cases and one portable CLI process
+case also passed. Runtime now rejects forbidden intermediate settings before
+accepting a transition and
+rechecks the complete transition when queued work reaches the writer. A throwing
+guard retains the fault-and-Stop settlement path; its regression also passed.
+Native macOS tests now verify queue cleanup on registration and host-build
+failure, and host-before-queue disposal. The approved `XCODE_27_0_PREVIEW`
+exemption is centralized for macOS Stock builds instead of local pragmas.
+Primitives also built independently without warnings or errors.
+Native tests require `UseAppHost=true` with the native build properties.
+These focused results are not a complete acceptance result.
+
 Windows-native behavior needs a Windows environment. Native hardware behavior,
 physical qualification and full CLI simulator process checks remain outstanding;
 no hardware was accessed. See the

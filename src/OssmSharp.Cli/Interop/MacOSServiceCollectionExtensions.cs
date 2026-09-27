@@ -9,9 +9,7 @@ internal static class MacOSServiceCollectionExtensions
 {
     internal static IDisposable AddMacOSPlatformServices(this IServiceCollection services)
     {
-#pragma warning disable XCODE_27_0_PREVIEW
         var dispatchQueue = new DispatchQueue("org.ossm.devicecli");
-#pragma warning restore XCODE_27_0_PREVIEW
         IDisposable lifetime = dispatchQueue;
 
         try

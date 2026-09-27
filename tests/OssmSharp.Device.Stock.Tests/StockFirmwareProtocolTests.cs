@@ -539,20 +539,19 @@ public sealed class StockFirmwareProtocolTests
     [Fact]
     public void PatternMetadataParsesPinnedFirmwareJson()
     {
-        var patterns = PatternMetadata.Parse("[{\"name\":\"Simple Stroke\",\"idx\":0},{\"name\":\"Teasing Pounding\",\"idx\":1}]"u8);
+        var patterns = PatternMetadata.Parse("""[{"name":"Simple Stroke","idx":0},{"name":"Teasing Pounding","idx":1},{"name":"Robo Stroke","idx":2},{"name":"Half'n'Half","idx":3},{"name":"Deeper","idx":4},{"name":"Stop'n'Go","idx":5},{"name":"Insist","idx":6}]"""u8);
 
-        Assert.Collection(
-            patterns,
-            pattern =>
-            {
-                Assert.Equal("Simple Stroke", pattern.Name);
-                Assert.Equal(0, pattern.Index);
-            },
-            pattern =>
-            {
-                Assert.Equal("Teasing Pounding", pattern.Name);
-                Assert.Equal(1, pattern.Index);
-            });
+        Assert.Equal<PatternMetadata>(
+            [
+                new("Simple Stroke", 0),
+                new("Teasing Pounding", 1),
+                new("Robo Stroke", 2),
+                new("Half'n'Half", 3),
+                new("Deeper", 4),
+                new("Stop'n'Go", 5),
+                new("Insist", 6),
+            ],
+            patterns);
     }
 
     [Theory]

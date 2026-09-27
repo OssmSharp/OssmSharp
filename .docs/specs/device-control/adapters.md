@@ -158,6 +158,11 @@ Registering the manager does not scan, connect
 or grant device access. The portable build contains neither native registration
 nor a Shiny dependency.
 
+For native macOS Stock builds, the shared build configuration suppresses
+`XCODE_27_0_PREVIEW`. The Xcode 27 bindings mark even longstanding dispatch-queue
+APIs as experimental. This centrally approved exemption includes queue-lifetime
+tests; it does not suppress other diagnostics or establish physical qualification.
+
 In web use, Web.Api owns Web.Application's controller and selected device. Cli
 is a direct-device consumer and uses no web controller. The controller consumes
 `IOssmDevice`; ordinary service, UI and guest paths must not branch on concrete

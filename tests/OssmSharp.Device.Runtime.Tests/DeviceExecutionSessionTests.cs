@@ -61,6 +61,112 @@ public sealed class DeviceExecutionSessionTests
     }
 
     [Fact]
+    public async Task GuardRejectsUnpermittedIntermediateBeforeAcceptingTransition()
+    {
+        var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
+        await using var device = new TestDevice(clock, NullLogger<TestDevice>.Instance);
+        await using var owner = new DeviceExecutionSession(device, clock);
+        var baseline = Stopped() with { Stroke = 30, Depth = 50 };
+        device.Connect();
+        device.ReportState(baseline, clock.GetUtcNow().UtcDateTime);
+        await owner.InitializeAsync(owner.AuthorityRevision, TestContext.Current.CancellationToken);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            owner.SetAsync(
+                baseline with { Speed = 10, Stroke = 20, Depth = 40 },
+                owner.AuthorityRevision,
+                static settings => settings.Speed > 0 || settings.Stroke <= 20,
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(1, device.DispatchCount); // Initialization only.
+        Assert.Equal(DeviceExecutionState.Ready, owner.State);
+    }
+
+    [Fact]
+    public async Task PendingTransitionRechecksIntermediateGuardBeforeFirstWrite()
+    {
+        var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
+        await using var device = new TestDevice(clock, NullLogger<TestDevice>.Instance);
+        await using var owner = new DeviceExecutionSession(device, clock);
+        var baseline = Stopped();
+        device.Connect();
+        device.ReportState(baseline, clock.GetUtcNow().UtcDateTime);
+        await owner.InitializeAsync(owner.AuthorityRevision, TestContext.Current.CancellationToken);
+        await device.Dispatched.ReadAsync(TestContext.Current.CancellationToken);
+
+        device.BlockDispatch = true;
+        device.ReportStateDuringDispatch = true;
+        var issued = owner.SetAsync(
+            baseline with { Speed = 10 }, owner.AuthorityRevision,
+            static settings => settings.Stroke <= settings.Depth,
+            TestContext.Current.CancellationToken);
+        await device.Dispatched.ReadAsync(TestContext.Current.CancellationToken);
+
+        var permitStoppedSteps = true;
+        var pending = owner.SetAsync(
+            baseline with { Speed = 12, Stroke = 10, Depth = 30 },
+            owner.AuthorityRevision,
+            settings => settings.Speed > 0 || permitStoppedSteps,
+            TestContext.Current.CancellationToken);
+        permitStoppedSteps = false;
+        device.CompleteDispatch();
+
+        await issued;
+        await Assert.ThrowsAsync<InvalidOperationException>(() => pending);
+        Assert.Equal(2, device.DispatchCount); // Initialization and the earlier issued request.
+        Assert.Equal(DeviceExecutionState.Ready, owner.State);
+    }
+
+    [Fact]
+    public async Task ThrowingPendingIntermediateGuardAwaitsSafetyStopSettlement()
+    {
+        var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
+        await using var device = new TestDevice(clock, NullLogger<TestDevice>.Instance);
+        await using var owner = new DeviceExecutionSession(device, clock);
+        var baseline = Stopped();
+        device.Connect();
+        device.ReportState(baseline, clock.GetUtcNow().UtcDateTime);
+        await owner.InitializeAsync(owner.AuthorityRevision, TestContext.Current.CancellationToken);
+        await device.Dispatched.ReadAsync(TestContext.Current.CancellationToken);
+
+        device.BlockDispatch = true;
+        device.ReportStateDuringDispatch = true;
+        device.BlockSafetyStop = true;
+        var issued = owner.SetAsync(
+            baseline with { Speed = 10 }, owner.AuthorityRevision,
+            static settings => settings.Stroke <= settings.Depth,
+            TestContext.Current.CancellationToken);
+        await device.Dispatched.ReadAsync(TestContext.Current.CancellationToken);
+
+        var throwOnStoppedStep = false;
+        var guardFailure = new InvalidOperationException("The trusted guard failed.");
+        var pending = owner.SetAsync(
+            baseline with { Speed = 12, Stroke = 10, Depth = 30 },
+            owner.AuthorityRevision,
+            settings => settings.Speed > 0 || (!throwOnStoppedStep
+                ? true : throw guardFailure),
+            TestContext.Current.CancellationToken);
+        throwOnStoppedStep = true;
+        device.CompleteDispatch();
+
+        try
+        {
+            await issued;
+            await device.SafetyStopStarted.WaitAsync(TestContext.Current.CancellationToken);
+            Assert.False(pending.IsCompleted);
+        }
+        finally
+        {
+            device.CompleteSafetyStop();
+        }
+
+        Assert.Same(guardFailure, await Assert.ThrowsAsync<InvalidOperationException>(() => pending));
+        Assert.Same(guardFailure, owner.Fault);
+        Assert.Equal(DeviceExecutionState.Faulted, owner.State);
+        Assert.Equal(3, device.DispatchCount); // Initialization, earlier motion and safety Stop only.
+    }
+
+    [Fact]
     public async Task RejectedTransitionDoesNotReplaceAnAlreadyWaitingValidRequest()
     {
         var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);

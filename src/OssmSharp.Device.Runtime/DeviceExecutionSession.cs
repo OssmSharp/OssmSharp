@@ -502,11 +502,10 @@ public sealed class DeviceExecutionSession : IAsyncDisposable
             if (!CanWrite(settings, guard))
                 throw new InvalidOperationException("Device is not ready for motion.");
             var reported = _reported!.MotionSettings;
-            if (_device is IDeviceTransitionValidator validator)
-            {
-                var steps = BuildStoppedTransition(reported, settings);
-                validator.ValidateTransition(reported, [.. steps, settings]);
-            }
+            var steps = BuildStoppedTransition(reported, settings);
+            ValidateProviderTransition(reported, steps, settings);
+            if (!AreTransitionStepsPermitted(steps, guard))
+                throw new InvalidOperationException("A stopped transition step is outside the permitted envelope.");
             RevokeSynchronously(_pendingRequest?.Revocation);
             _pendingRequest = request;
             generation = _generation;
@@ -528,17 +527,20 @@ public sealed class DeviceExecutionSession : IAsyncDisposable
                     request.Revocation.Token.ThrowIfCancellationRequested();
                     reported = _reported!.MotionSettings;
                     transition = BuildStoppedTransition(reported, request.Settings);
-                    if (_device is IDeviceTransitionValidator validator)
+                    try
                     {
-                        try
-                        {
-                            validator.ValidateTransition(reported, [.. transition, request.Settings]);
-                        }
-                        catch (Exception exception) when (exception is InvalidOperationException or InvalidDataException or ArgumentException)
-                        {
-                            rejectedBeforeIssuance = true;
-                            throw;
-                        }
+                        ValidateProviderTransition(reported, transition, request.Settings);
+                    }
+                    catch (Exception exception) when (exception is InvalidOperationException or InvalidDataException or ArgumentException)
+                    {
+                        rejectedBeforeIssuance = true;
+                        throw;
+                    }
+                    if (!AreTransitionStepsPermitted(transition, request.Guard))
+                    {
+                        rejectedBeforeIssuance = true;
+                        throw new InvalidOperationException(
+                            "A stopped transition step is outside the permitted envelope.");
                     }
                     _pendingRequest = null;
                     issuedTransition = true;
@@ -941,6 +943,27 @@ public sealed class DeviceExecutionSession : IAsyncDisposable
                 _safetyStop = ObserveSafetyStopAsync(StopAsync(_ownerLifetime.Token));
             throw;
         }
+    }
+
+    private void ValidateProviderTransition(
+        MotionSettings reported,
+        IReadOnlyList<MotionSettings> transition,
+        MotionSettings desired)
+    {
+        if (_device is IDeviceTransitionValidator validator)
+            validator.ValidateTransition(reported, [.. transition, desired]);
+    }
+
+    private bool AreTransitionStepsPermitted(
+        IReadOnlyList<MotionSettings> transition,
+        Func<MotionSettings, bool> guard)
+    {
+        foreach (var step in transition)
+        {
+            if (!EvaluateGuard(step, guard))
+                return false;
+        }
+        return true;
     }
 
     private void CheckAlive() => ObjectDisposedException.ThrowIf(_disposed, this);

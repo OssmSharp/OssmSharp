@@ -512,9 +512,33 @@ Production composition still supplies no qualified mapping; passing controlled
 qualification/BLE-boundary tests does not populate the physical qualification
 allowlist or authorize physical positive motion. Native Windows checks have not
 run; live-device operation and physical qualification are not authorized.
-Queue ownership was reviewed in source and exercised by successful native CLI
-exit, but its registration/host-failure disposal paths lack executable checks.
-Broader suites were not run, and their not-run test counts are unknown.
+Queue ownership now has three passing native checks: registration-failure
+cleanup, caller cleanup after host-build failure, and host-before-queue
+disposal. After compiler errors confirmed the Xcode preview diagnostic on
+queue-handle inspection, the requester approved central suppression of
+`XCODE_27_0_PREVIEW` for macOS Stock builds. The shared build configuration owns
+the exemption; local pragmas were removed. The three queue cases and two
+existing native CLI composition cases passed together: five discovered, five
+passed, zero failures or skips. Primitives built independently with zero
+warnings or errors. The portable native-unavailable CLI process check also
+passed: one discovered, one passed, zero failures or skips.
+Three native Stock registration cases passed after centralizing the preview
+exemption. An initially empty selection was traced to a stale, trimmed xUnit
+assembly in the native app bundle. Cleaning the native test outputs restored
+discovery; the coordinating agent independently verified three discovered,
+three passed, zero failures or skips.
+
+The follow-up Runtime correction preflights the caller's guard for every stopped
+intermediate before replacing pending work, then repeats that check at dequeue.
+The admission regression failed before implementation. Final focused results
+after the sandbox blockers cleared were 71 portable CLI, 38 Runtime execution
+and two native macOS CLI composition cases, all passed with zero failures or
+skips. This includes the final guard-exception settlement correction and its
+regression. An earlier 12-case portable Stock motion selection passed but was
+not rerun after that correction. Native tests used `UseAppHost=true` alongside
+`EnableStockBle=true`, `StockMacOSApiVersion=27.0` and per-command Xcode 27
+selection. Existing apphost bundle-metadata warnings remain. Broader suites were
+not run, and their not-run test counts are unknown.
 
 Recorded evidence: no accepted foreground Stock CLI at the ordering checkpoint.
 M1 renamed the executable/tests but retained daemon/IPC, launcher ownership,

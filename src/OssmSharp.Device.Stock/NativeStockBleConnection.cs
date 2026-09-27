@@ -18,16 +18,16 @@ internal sealed class NativeStockBleConnection : IDeviceConnection
     private readonly IDisposable _disconnected;
     private readonly IDisposable _failed;
     private IDisposable? _subscription;
+    private bool _initialised;
 
     internal NativeStockBleConnection(IPeripheral peripheral, Guid service, TimeProvider? timeProvider = null)
     {
         _peripheral = peripheral;
         _service = service;
         _timeProvider = timeProvider ?? TimeProvider.System;
-        _disconnected = peripheral.WhenDisconnected().Subscribe(_ =>
-            _notifications.Writer.TryComplete(new IOException("The stock BLE connection was lost.")));
-        _failed = peripheral.WhenConnectionFailed().Subscribe(error =>
-            _notifications.Writer.TryComplete(new IOException("The stock BLE connection failed.", error)));
+        _disconnected = peripheral.WhenDisconnected().Subscribe(OnDisconnected);
+        _failed = peripheral.WhenConnectionFailed().Subscribe(OnConnectionFailed);
+        _initialised = true;
     }
 
     public async Task<StockGattProfile> ReadProfileAsync(CancellationToken cancellationToken)
@@ -124,6 +124,18 @@ internal sealed class NativeStockBleConnection : IDeviceConnection
             token => _peripheral.DisconnectAsync(token, DisconnectTimeout),
             _timeProvider,
             DisconnectTimeout).ConfigureAwait(false);
+    }
+
+    private void OnDisconnected(IPeripheral _)
+    {
+        if (_initialised)
+            _notifications.Writer.TryComplete(new IOException("The stock BLE connection was lost."));
+    }
+
+    private void OnConnectionFailed(BleException error)
+    {
+        if (_initialised)
+            _notifications.Writer.TryComplete(new IOException("The stock BLE connection failed.", error));
     }
 }
 #endif

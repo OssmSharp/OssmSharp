@@ -13,6 +13,11 @@
     <ArtifactsPath>$(MSBuildThisFileDirectory).artifacts</ArtifactsPath>
   </PropertyGroup>
 
+  <PropertyGroup Condition="'$(EnableStockBle)' == 'true' and $([MSBuild]::IsOSPlatform('OSX'))">
+    <!-- Xcode 27 preview bindings mark longstanding Apple APIs, including dispatch queues, experimental. -->
+    <NoWarn>$(NoWarn);XCODE_27_0_PREVIEW</NoWarn>
+  </PropertyGroup>
+
   <ItemGroup>
     <AdditionalFiles Include="$(MSBuildThisFileDirectory)stylecop.json" Link="stylecop.json" />
     <PackageReference Include="StyleCop.Analyzers">

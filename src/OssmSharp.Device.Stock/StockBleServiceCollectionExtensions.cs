@@ -26,11 +26,9 @@ public static class StockBleServiceCollectionExtensions
     /// The service collection does not take ownership of this queue.
     /// </param>
     /// <returns>The same service collection for composition.</returns>
-#pragma warning disable XCODE_27_0_PREVIEW // Xcode 27 preview bindings mark even longstanding Apple APIs experimental.
     public static IServiceCollection AddStockBluetooth(
         this IServiceCollection services,
         DispatchQueue dispatchQueue)
-#pragma warning restore XCODE_27_0_PREVIEW
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(dispatchQueue);

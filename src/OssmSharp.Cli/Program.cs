@@ -61,7 +61,6 @@ public sealed class Program
             using var platformResources = builder.Services.AddCliPlatformServices();
             builder.Services.AddLogging();
             builder.Logging.AddConsole(options => options.LogToStandardErrorThreshold = LogLevel.Trace);
-            builder.Logging.AddSimpleConsole(options => options.SingleLine = true);
             builder.Services.AddSingleton(TimeProvider.System);
             builder.Services.AddSingleton<Func<string, SimulatorBackgroundService>>(
                 _ => path => new SimulatorBackgroundService(path));

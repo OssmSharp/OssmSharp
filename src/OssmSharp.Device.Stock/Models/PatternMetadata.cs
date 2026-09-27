@@ -11,7 +11,7 @@ namespace OssmSharp.Device.Stock.Models;
 internal sealed record PatternMetadata(string Name, int Index)
 {
     private const int MaximumPatterns = 64;
-    private static readonly JsonSerializerOptions Json = new()
+    private static readonly PatternJsonContext Json = new(new JsonSerializerOptions
     {
         AllowDuplicateProperties = false,
         MaxDepth = 4,
@@ -19,7 +19,7 @@ internal sealed record PatternMetadata(string Name, int Index)
         RespectNullableAnnotations = true,
         RespectRequiredConstructorParameters = true,
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
-    };
+    });
 
     /// <summary>
     /// Parses the firmware's bounded list of supported motion patterns.
@@ -32,7 +32,7 @@ internal sealed record PatternMetadata(string Name, int Index)
         PatternPayload[] patterns;
         try
         {
-            patterns = JsonSerializer.Deserialize<PatternPayload[]>(payload, Json)
+            patterns = JsonSerializer.Deserialize(payload, Json.PatternPayloadArray)
                 ?? throw new InvalidDataException("The stock pattern payload is null.");
         }
         catch (JsonException exception)
@@ -63,8 +63,4 @@ internal sealed record PatternMetadata(string Name, int Index)
 
         return result;
     }
-
-    private sealed record PatternPayload(
-        [property: JsonPropertyName("name")] string Name,
-        [property: JsonPropertyName("idx")] int Index);
 }

@@ -13,7 +13,7 @@ export DEVELOPER_DIR CLI DEVICE_ID
 
 help:
 	@printf '%s\n' \
-		'make publish                    Publish the self-contained macOS BLE CLI (default).' \
+		'make publish                    Publish the macOS BLE CLI (default).' \
 		'make list                       Discover advertising Stock devices.' \
 		'make identify DEVICE_ID=...      Read the selected device identity, then disconnect.' \
 		'make prompt DEVICE_ID=...        Connect and open the foreground prompt.' \
@@ -28,10 +28,8 @@ publish:
 	dotnet publish src/OssmSharp.Cli/OssmSharp.Cli.csproj \
 		-c "$(CONFIGURATION)" \
 		-r "$(RUNTIME)" \
-		--self-contained true \
 		-p:EnableStockBle=true \
 		-p:StockMacOSApiVersion="$(MACOS_API_VERSION)" \
-		-p:TrimMode=copy \
 		-bl:.artifacts/cli-publish-{}.binlog
 	@test -x "$$CLI" || { printf '%s\n' 'Publish did not produce the expected executable in its .app bundle.' >&2; exit 1; }
 	@printf 'Published CLI: %s\n' "$$CLI"

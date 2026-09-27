@@ -23,9 +23,7 @@ public sealed class StockBleServiceCollectionExtensionsTests
     {
         var services = new ServiceCollection();
 #if MACOS
-#pragma warning disable XCODE_27_0_PREVIEW
         using var dispatchQueue = new DispatchQueue("org.ossm.stock.lazy.test");
-#pragma warning restore XCODE_27_0_PREVIEW
         services.AddStockBluetooth(dispatchQueue);
 #else
         services.AddStockBluetooth();
@@ -63,9 +61,7 @@ public sealed class StockBleServiceCollectionExtensionsTests
         var nativeManagerResolutions = 0;
         var services = new ServiceCollection();
 #if MACOS
-#pragma warning disable XCODE_27_0_PREVIEW
         using var dispatchQueue = new DispatchQueue("org.ossm.stock.factory.test");
-#pragma warning restore XCODE_27_0_PREVIEW
         services.AddStockBluetooth(dispatchQueue);
 #else
         services.AddStockBluetooth();
@@ -105,9 +101,7 @@ public sealed class StockBleServiceCollectionExtensionsTests
     [Fact]
     public void MacOSRegistrationUsesCallerOwnedDispatchQueue()
     {
-#pragma warning disable XCODE_27_0_PREVIEW
         using var dispatchQueue = new DispatchQueue("org.ossm.stock.test");
-#pragma warning restore XCODE_27_0_PREVIEW
         var services = new ServiceCollection();
 
         var registered = services.AddStockBluetooth(dispatchQueue);

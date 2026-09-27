@@ -35,6 +35,8 @@ public sealed class TestDevice(
     private readonly TaskCompletionSource _coreDisposalStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource _coreDisposalCompleted = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource _coreDisposed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource _safetyStopStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource _safetyStopCompleted = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly Channel<MotionSettings> _dispatched = Channel.CreateUnbounded<MotionSettings>();
     private Exception? _dispatchError;
     private int _coreDisposalCount;
@@ -45,6 +47,12 @@ public sealed class TestDevice(
     /// Gets or sets whether writes wait for <see cref="CompleteDispatch"/>; configure before issuing a write.
     /// </summary>
     public bool BlockDispatch { get; set; }
+
+    /// <summary>Gets or sets whether a safety Stop waits for explicit settlement.</summary>
+    public bool BlockSafetyStop { get; set; }
+
+    /// <summary>Gets when a safety Stop has reached its settlement gate.</summary>
+    public Task SafetyStopStarted => _safetyStopStarted.Task;
 
     /// <summary>Gets or sets whether provider preflight waits until explicitly settled.</summary>
     public bool BlockPreparation { get; set; }
@@ -116,6 +124,9 @@ public sealed class TestDevice(
     /// Settles blocked transport writes independently of caller cancellation.
     /// </summary>
     public void CompleteDispatch() => _dispatchCompleted.TrySetResult();
+
+    /// <summary>Settles a deliberately delayed safety Stop.</summary>
+    public void CompleteSafetyStop() => _safetyStopCompleted.TrySetResult();
 
     /// <summary>Settles a delayed provider preflight after Stop has latched.</summary>
     public void CompletePreparation() => _preparationCompleted.TrySetResult();
@@ -281,6 +292,11 @@ public sealed class TestDevice(
         try
         {
             await DispatchMotionAsync(reportedZero, revocationToken, settlementToken);
+            if (BlockSafetyStop)
+            {
+                _safetyStopStarted.TrySetResult();
+                await _safetyStopCompleted.Task;
+            }
         }
         finally
         {

@@ -1,0 +1,22 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "CLI prompt (Bluetooth)",
+      "type": "coreclr",
+      "request": "launch",
+      "program": "${workspaceFolder}/src/OssmSharp.Cli/bin/Debug/net10.0-macos27.0/osx-arm64/OssmSharp.Cli.app/Contents/MacOS/OssmSharp.Cli",
+      "args": ["prompt", "--bluetooth", "90C1E3C9-2D94-0A55-264E-C221EEF22006"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "preLaunchTask": "publish CLI",
+      "stopAtEntry": true
+    },
+    {
+      "name": "Attach to CLI prompt",
+      "type": "coreclr",
+      "request": "attach",
+      "processId": "${command:pickProcess}"
+    }
+  ]
+}
