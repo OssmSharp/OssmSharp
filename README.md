@@ -109,7 +109,9 @@ an executable path.
 
 Opt-in native CLI builds for Windows 11 and macOS 26+ expose `devices list`,
 `devices get <id>` and `prompt --bluetooth <id-or-name>`. List shows discovered
-platform IDs and names without connecting. Get requires a platform ID and reads
+platform IDs and names without connecting, then exits after the bounded scan.
+If no advertisements match, it prints `No stock devices found.` and exits
+successfully; it is not a continuous watcher. Get requires a platform ID and reads
 that device's live pairing identity without a numbered selector or motion writes.
 The Bluetooth prompt resolves the ID first, otherwise requires one exact and
 unambiguous discovered name. Connection cannot arm motion; Stock motion remains
@@ -129,6 +131,35 @@ connection prerequisite. A missing or ambiguous name fails; retry with an
 explicit platform ID. Get prints the reported Wi-Fi MAC, chip, Wi-Fi connection
 status, sketch MD5 and firmware version alongside the selected ID and name.
 Neither discovery nor connection implies that physical operation is qualified.
+
+#### macOS self-contained build with Make
+
+From the repository root, the [Makefile](Makefile) publishes the BLE-enabled
+CLI for Apple Silicon using Xcode 27:
+
+```sh
+make publish
+make list
+make identify DEVICE_ID='paste-the-platform-ID-from-the-list'
+make prompt DEVICE_ID='paste-the-platform-ID-from-the-list'
+```
+
+`make` defaults to publishing only; it does not access Bluetooth. The other
+targets use the published executable without rebuilding. Publish again after
+source changes. The prompt supports `help`, `status` and `quit`; Stock motion
+remains unsupported.
+
+The output is a self-contained `.app` bundle, not a single file. Keep the entire
+bundle together; its executable is under
+`src/OssmSharp.Cli/bin/Release/net10.0-macos27.0/osx-arm64/OssmSharp.Cli.app/Contents/MacOS/`.
+The Makefile enables Stock BLE explicitly: a runtime identifier or
+`PublishSingleFile=true` alone does not enable BLE.
+
+These defaults use preview Xcode 27 bindings while preserving macOS 26 as the
+minimum runtime OS. `make help` lists the targets and overrides. For another
+compatible toolchain, set `DEVELOPER_DIR` and `MACOS_API_VERSION`; use the same
+overrides for publishing and running. This Makefile is a macOS helper; Windows
+native builds continue to use the .NET commands above.
 
 The macOS Stock build targets `net10.0-macos` and imports the .NET macOS
 workload. Its full build checks for an Xcode app bundle; Apple's Command Line

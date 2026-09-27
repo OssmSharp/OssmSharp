@@ -28,6 +28,9 @@ public sealed class Program
         string[] args,
         CancellationToken cancellationToken)
     {
+        // The foreground CLI has no GUI message loop to run captured command continuations.
+        SynchronizationContext.SetSynchronizationContext(null);
+
         var parse = root.Parse(args);
         try
         {
