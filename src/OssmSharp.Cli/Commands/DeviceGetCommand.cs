@@ -1,4 +1,5 @@
-using OssmSharp.Device.Runtime;
+using OssmSharp.Device.Primitives;
+using OssmSharp.Device.Primitives.Models;
 
 namespace OssmSharp.Cli.Commands;
 
@@ -7,27 +8,18 @@ namespace OssmSharp.Cli.Commands;
 /// </summary>
 public sealed class DeviceGetCommand : Command
 {
-    internal DeviceGetCommand(TextWriter output, TextWriter error)
-        : this((_, _) =>
-        {
-            return ReportUnavailableAsync(error);
-        })
-    {
-    }
-
     internal DeviceGetCommand(
-        Func<string, CancellationToken, Task<string>> readIdentity,
+        IDeviceDiscovery discovery,
+        IDeviceProvider provider,
         TextWriter output,
         TextWriter error)
-        : this((id, cancellationToken) => RunAsync(
-            id, readIdentity, output, error, cancellationToken))
-    {
-    }
-
-    internal DeviceGetCommand(Func<string, CancellationToken, Task<int>> readIdentity)
         : base("get", "Read a specified stock device's identity without motion writes.")
     {
-        ArgumentNullException.ThrowIfNull(readIdentity);
+        ArgumentNullException.ThrowIfNull(discovery);
+        ArgumentNullException.ThrowIfNull(provider);
+        ArgumentNullException.ThrowIfNull(output);
+        ArgumentNullException.ThrowIfNull(error);
+
         var id = new Argument<string>("id")
         {
             Arity = ArgumentArity.ExactlyOne,
@@ -41,24 +33,36 @@ public sealed class DeviceGetCommand : Command
             }
         });
         Arguments.Add(id);
-        SetAction((parse, cancellationToken) => readIdentity(parse.GetValue(id)!, cancellationToken));
+        SetAction((parse, cancellationToken) => RunAsync(
+            parse.GetValue(id)!,
+            discovery,
+            provider,
+            output,
+            error,
+            cancellationToken));
     }
 
     private static async Task<int> RunAsync(
         string id,
-        Func<string, CancellationToken, Task<string>> readIdentity,
+        IDeviceDiscovery discovery,
+        IDeviceProvider provider,
         TextWriter output,
         TextWriter error,
         CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(readIdentity);
-        ArgumentNullException.ThrowIfNull(output);
-        ArgumentNullException.ThrowIfNull(error);
-
         try
         {
-            var details = await readIdentity(id, cancellationToken).ConfigureAwait(false);
-            await output.WriteLineAsync(details.AsMemory(), cancellationToken).ConfigureAwait(false);
+            var candidates = await discovery.ScanAsync(cancellationToken).ConfigureAwait(false);
+            var selected = candidates.FirstOrDefault(candidate =>
+                string.Equals(candidate.Id, id, StringComparison.OrdinalIgnoreCase));
+            if (selected is null)
+            {
+                throw new InvalidOperationException(
+                    $"No stock device with platform ID '{DeviceText.Sanitize(id)}' was discovered.");
+            }
+
+            var details = await provider.ReadInformationAsync(selected, cancellationToken).ConfigureAwait(false);
+            await output.WriteLineAsync(Format(details).AsMemory(), cancellationToken).ConfigureAwait(false);
             return 0;
         }
         catch (UnsettledDeviceCleanupException exception)
@@ -70,18 +74,32 @@ public sealed class DeviceGetCommand : Command
         {
             return 130;
         }
+        catch (PlatformNotSupportedException)
+        {
+            await error.WriteLineAsync("Stock BLE details require a Windows or macOS native BLE build.")
+                .ConfigureAwait(false);
+            return 1;
+        }
         catch (Exception exception) when (exception is DirectoryNotFoundException
-            or UnauthorizedAccessException or IOException or TimeoutException or InvalidOperationException)
+            or UnauthorizedAccessException or IOException or TimeoutException or InvalidOperationException
+            or ArgumentException)
         {
             await error.WriteLineAsync(exception.Message).ConfigureAwait(false);
             return 1;
         }
     }
 
-    private static async Task<int> ReportUnavailableAsync(TextWriter error)
+    private static string Format(DeviceIdentityDetails details)
     {
-        await error.WriteLineAsync("Stock BLE details require a Windows or macOS native BLE build.")
-            .ConfigureAwait(false);
-        return 1;
+        var identifier = details.Identifier;
+        var name = string.IsNullOrWhiteSpace(identifier.Name)
+            ? string.Empty
+            : $"Name: {DeviceText.Sanitize(identifier.Name)}{Environment.NewLine}";
+        return $"Peripheral ID: {DeviceText.Sanitize(identifier.Id)}{Environment.NewLine}{name}"
+            + $"Wi-Fi MAC: {DeviceText.Sanitize(details.WifiMac ?? string.Empty)}{Environment.NewLine}"
+            + $"Chip: {DeviceText.Sanitize(details.Chip ?? string.Empty)}{Environment.NewLine}"
+            + $"Wi-Fi connected: {details.WifiConnected?.ToString() ?? string.Empty}{Environment.NewLine}"
+            + $"Sketch MD5: {DeviceText.Sanitize(details.SketchMd5 ?? string.Empty)}{Environment.NewLine}"
+            + $"Firmware: {DeviceText.Sanitize(details.FirmwareVersion ?? string.Empty)}";
     }
 }

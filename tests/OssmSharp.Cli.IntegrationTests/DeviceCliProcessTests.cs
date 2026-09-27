@@ -11,6 +11,25 @@ namespace OssmSharp.Cli.IntegrationTests;
 public sealed class DeviceCliProcessTests
 {
     [Fact]
+    public async Task PortableDeviceCommandsReportNativeBleRequirements()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var list = await InvokeAsync(["devices", "list"], cancellationToken);
+        var get = await InvokeAsync(["devices", "get", "portable-id"], cancellationToken);
+
+        Assert.Equal(1, list.ExitCode);
+        Assert.Equal("Detecting devices. Please wait ..." + Environment.NewLine, list.Output);
+        Assert.Equal(
+            "Stock BLE discovery requires a native Windows or macOS build." + Environment.NewLine,
+            list.Error);
+        Assert.Equal(1, get.ExitCode);
+        Assert.Equal(string.Empty, get.Output);
+        Assert.Equal(
+            "Stock BLE details require a Windows or macOS native BLE build." + Environment.NewLine,
+            get.Error);
+    }
+
+    [Fact]
     public async Task PromptRejectsUnavailableSimulatorBeforeConnecting()
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
@@ -64,6 +83,11 @@ public sealed class DeviceCliProcessTests
             Assert.DoesNotContain("Simulator connection closed.", results, StringComparison.Ordinal);
             Assert.Contains("Simulator connection opened.", diagnostics, StringComparison.Ordinal);
             Assert.Contains("Simulator connection closed.", diagnostics, StringComparison.Ordinal);
+            Assert.Contains(
+                diagnostics.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries),
+                line => line.StartsWith(
+                    "info: OssmSharp.Device.Simulator.SimulatedDevice[100]", StringComparison.Ordinal)
+                    && line.Contains("Simulator connection opened.", StringComparison.Ordinal));
         }
         finally
         {

@@ -16,13 +16,15 @@ namespace OssmSharp.Defaults;
 public static class HostDefaultsExtensions
 {
     /// <summary>
-    /// Registers file logging, OpenTelemetry logging, runtime and HTTP instrumentation, and optional OTLP export.
+    /// Registers file logging, single-line console logging, OpenTelemetry logging, runtime and HTTP instrumentation, and optional OTLP export.
     /// </summary>
     /// <param name="builder">The application host builder.</param>
     /// <returns>The configured host builder.</returns>
     public static TBuilder AddHostDefaults<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
     {
         builder.ConfigureFileLogging();
+
+        builder.Logging.AddSimpleConsole(options => options.SingleLine = true);
 
         builder.Logging.AddOpenTelemetry(logging =>
         {

@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using OssmSharp.Cli.Interop;
 using OssmSharp.Device.Simulator.Models;
 
 namespace OssmSharp.Cli.Models;
@@ -53,11 +54,7 @@ internal sealed record PromptSelection
         }
 
         var path = Path.GetFullPath(simulator);
-        if (!File.Exists(path)
-            || (OperatingSystem.IsWindows()
-                ? !string.Equals(Path.GetExtension(path), ".exe", StringComparison.OrdinalIgnoreCase)
-                : (File.GetUnixFileMode(path)
-                    & (UnixFileMode.UserExecute | UnixFileMode.GroupExecute | UnixFileMode.OtherExecute)) == 0))
+        if (!ExecutableFile.IsExecutable(path))
         {
             throw new ArgumentException("The simulator path must identify an existing executable.");
         }

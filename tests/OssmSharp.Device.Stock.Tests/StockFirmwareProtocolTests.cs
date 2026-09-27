@@ -11,6 +11,10 @@ namespace OssmSharp.Device.Stock.Tests;
 public sealed class StockFirmwareProtocolTests
 {
     private static readonly DateTime ReceiptTime = new(2026, 9, 20, 1, 2, 3, DateTimeKind.Utc);
+    private static readonly StockQualifiedMapping Mapping = new(
+        new DeviceInformation("test", "stock-ble-1.0.34", "1.0.34", [MotionPattern.SimpleStroke]),
+        new PairingIdentity("A4:CF:12:34:56:78", "ESP32-S3", false, "0123456789abcdef0123456789abcdef", "1.0.34"),
+        100, 0, 100, 100);
 
     /// <summary>
     /// Gets the firmware state names and their expected motion states.
@@ -320,26 +324,26 @@ public sealed class StockFirmwareProtocolTests
     public void MapReturnsDeterministicSetCommandsIncludingZeroSpeed()
     {
         var settings = new MotionSettings(
-            MotionDeviceState.Restart,
+            MotionDeviceState.StrokeEngineIdle,
             0,
-            20,
-            30,
-            40,
+            25,
             50,
-            MotionPattern.Insist,
+            50,
+            0,
+            MotionPattern.SimpleStroke,
             12.5);
 
-        var requests = Request.FromMotionSettings(settings);
+        var requests = Request.FromValidatedMotion(Mapping.ValidateAndMap(settings));
         var payloads = requests.Select(static request => request.ToPayload());
 
         Assert.Equal(
             [
                 "set:speed:0",
-                "set:stroke:20",
-                "set:sensation:30",
-                "set:depth:40",
-                "set:buffer:50",
-                "set:pattern:6",
+                "set:stroke:25",
+                "set:sensation:50",
+                "set:depth:50",
+                "set:buffer:0",
+                "set:pattern:0",
             ],
             payloads);
         Assert.DoesNotContain(payloads, payload => payload.StartsWith("go:", StringComparison.Ordinal));
@@ -353,20 +357,20 @@ public sealed class StockFirmwareProtocolTests
         var settings = new MotionSettings(
             MotionDeviceState.StrokeEngineIdle,
             25,
-            20,
+            25,
             50,
-            40,
+            50,
             0,
             MotionPattern.SimpleStroke,
             0);
 
-        var payloads = Request.FromMotionSettings(settings).Select(request => request.ToPayload());
+        var payloads = Request.FromValidatedMotion(Mapping.ValidateAndMap(settings)).Select(request => request.ToPayload());
 
         Assert.Equal(
             [
-                "set:stroke:20",
+                "set:stroke:25",
                 "set:sensation:50",
-                "set:depth:40",
+                "set:depth:50",
                 "set:buffer:0",
                 "set:pattern:0",
                 "set:speed:25",
@@ -399,7 +403,7 @@ public sealed class StockFirmwareProtocolTests
             (MotionPattern)pattern,
             position);
 
-        var exception = Assert.Throws<InvalidDataException>(() => Request.FromMotionSettings(settings));
+        var exception = Assert.Throws<InvalidDataException>(() => Mapping.ValidateAndMap(settings));
 
         Assert.IsType<ValidationException>(exception.InnerException);
     }
@@ -407,7 +411,7 @@ public sealed class StockFirmwareProtocolTests
     [Fact]
     public void MapRejectsNullMotionSettings()
     {
-        Assert.Throws<ArgumentNullException>(() => Request.FromMotionSettings(null!));
+        Assert.Throws<ArgumentNullException>(() => Mapping.ValidateAndMap(null!));
     }
 
     [Fact]
@@ -564,16 +568,7 @@ public sealed class StockFirmwareProtocolTests
     private static DeviceState ParseState(string payload) =>
         StateResponse.Parse(payload, ReceiptTime).ToDeviceState();
 
-    private static Request ZeroSpeedRequest() => Request.FromMotionSettings(
-        new MotionSettings(
-            MotionDeviceState.Restart,
-            0,
-            20,
-            30,
-            40,
-            50,
-            MotionPattern.Insist,
-            12.5))[0];
+    private static Request ZeroSpeedRequest() => Request.ZeroSpeed();
 
     private static JsonObject ValidPayload() => new()
     {

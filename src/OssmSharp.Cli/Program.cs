@@ -3,18 +3,11 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using OssmSharp.Cli.Interop;
 using OssmSharp.Cli.Simulator;
 using OssmSharp.Device.Primitives;
-using OssmSharp.Device.Runtime;
 using OssmSharp.Device.Simulator;
 using OssmSharp.Device.Simulator.Models;
-#if MACOS
-using CoreFoundation;
-#endif
-#if WINDOWS || MACOS
-using OssmSharp.Device.Stock;
-using Shiny.BluetoothLE;
-#endif
 
 namespace OssmSharp.Cli;
 
@@ -65,8 +58,10 @@ public sealed class Program
         try
         {
             var builder = new HostApplicationBuilder();
+            using var platformResources = builder.Services.AddCliPlatformServices();
             builder.Services.AddLogging();
             builder.Logging.AddConsole(options => options.LogToStandardErrorThreshold = LogLevel.Trace);
+            builder.Logging.AddSimpleConsole(options => options.SingleLine = true);
             builder.Services.AddSingleton(TimeProvider.System);
             builder.Services.AddSingleton<Func<string, SimulatorBackgroundService>>(
                 _ => path => new SimulatorBackgroundService(path));
@@ -79,75 +74,8 @@ public sealed class Program
                     provider.GetRequiredService<TimeProvider>(),
                     provider.GetRequiredService<ILogger<SimulatedDevice>>());
             });
-
-#if MACOS
-#pragma warning disable XCODE_27_0_PREVIEW
-            using var dispatchQueue = new DispatchQueue("org.ossm.devicecli");
-#pragma warning restore XCODE_27_0_PREVIEW
-            builder.Services.AddStockBluetooth(dispatchQueue);
-#elif WINDOWS
-            builder.Services.AddStockBluetooth();
-#endif
-#if WINDOWS || MACOS
-            builder.Services.AddSingleton<Func<CancellationToken, Task<IReadOnlyList<(string Name, string Id)>>>>(
-                provider => cancellationToken => StockBleDiscovery.ScanAsync(
-                    provider.GetRequiredService<IBleManager>(), cancellationToken));
-            builder.Services.AddSingleton<StockIdentityReader>(provider =>
-                new StockIdentityReader(provider.GetRequiredService<IBleManager>()));
-            builder.Services.AddSingleton<Func<string, StockOssmDevice>>(provider =>
-                peripheralId => new StockOssmDevice(
-                    Options.Create(new DeviceRuntimeOptions()),
-                    Options.Create(new StockBleOptions { PeripheralId = peripheralId }),
-                    provider.GetRequiredService<IBleManager>(),
-                    provider.GetRequiredService<TimeProvider>(),
-                    provider.GetRequiredService<ILogger<StockOssmDevice>>()));
-#endif
-            builder.Services.AddSingleton<DeviceListCommand>(provider =>
-                new DeviceListCommand(
-#if WINDOWS || MACOS
-                    provider.GetRequiredService<Func<CancellationToken, Task<IReadOnlyList<(string Name, string Id)>>>>(),
-#else
-                    _ => Task.FromException<IReadOnlyList<(string Name, string Id)>>(
-                        new PlatformNotSupportedException("Stock BLE discovery requires a native Windows or macOS build.")),
-#endif
-                    Console.Out,
-                    Console.Error));
-            builder.Services.AddSingleton<DeviceGetCommand>(provider =>
-#if WINDOWS || MACOS
-                new DeviceGetCommand(
-                    (id, cancellationToken) =>
-                        provider.GetRequiredService<StockIdentityReader>().ReadAsync(id, cancellationToken),
-                    Console.Out,
-                    Console.Error));
-#else
-                new DeviceGetCommand(Console.Out, Console.Error));
-#endif
-            builder.Services.AddSingleton<DeviceCommand>(provider =>
-                new DeviceCommand(
-                    provider.GetRequiredService<DeviceGetCommand>(),
-                    provider.GetRequiredService<DeviceListCommand>()));
-
-            builder.Services.AddSingleton<PromptHandler>(_ =>
-                new PromptHandler(new ForegroundInputReader(Console.In), Console.Out, Console.Error));
-            builder.Services.AddSingleton<PromptSession>(provider =>
-                new PromptSession(
-                    provider.GetRequiredService<PromptHandler>(),
-                    provider.GetRequiredService<Func<string, SimulatorBackgroundService>>(),
-                    provider.GetRequiredService<Func<string, SimulatedDevice>>(),
-#if WINDOWS || MACOS
-                    provider.GetRequiredService<Func<string, StockOssmDevice>>(),
-                    provider.GetRequiredService<Func<CancellationToken, Task<IReadOnlyList<(string Name, string Id)>>>>(),
-#else
-                    null,
-                    null,
-#endif
-                    Console.Error));
-            builder.Services.AddSingleton<PromptCommand>(provider =>
-                new PromptCommand(provider.GetRequiredService<PromptSession>()));
-            builder.Services.AddSingleton<CliRootCommand>(provider =>
-                new CliRootCommand(
-                    provider.GetRequiredService<DeviceCommand>(),
-                    provider.GetRequiredService<PromptCommand>()));
+            RegisterDeviceCommands(builder.Services);
+            RegisterPromptCommands(builder.Services);
 
             using var host = builder.Build();
             var root = host.Services.GetRequiredService<CliRootCommand>();
@@ -157,5 +85,45 @@ public sealed class Program
         {
             Console.CancelKeyPress -= cancel;
         }
+    }
+
+    private static void RegisterDeviceCommands(IServiceCollection services)
+    {
+        services.AddSingleton<DeviceListCommand>(provider =>
+            new DeviceListCommand(
+                provider.GetRequiredService<IDeviceDiscovery>(),
+                Console.Out,
+                Console.Error));
+        services.AddSingleton<DeviceGetCommand>(provider =>
+            new DeviceGetCommand(
+                provider.GetRequiredService<IDeviceDiscovery>(),
+                provider.GetRequiredService<IDeviceProvider>(),
+                Console.Out,
+                Console.Error));
+        services.AddSingleton<DeviceCommand>(provider =>
+            new DeviceCommand(
+                provider.GetRequiredService<DeviceGetCommand>(),
+                provider.GetRequiredService<DeviceListCommand>()));
+    }
+
+    private static void RegisterPromptCommands(IServiceCollection services)
+    {
+        services.AddSingleton<PromptHandler>(_ =>
+            new PromptHandler(new ForegroundInputReader(Console.In), Console.Out, Console.Error));
+        services.AddSingleton<PromptSession>(provider =>
+            new PromptSession(
+                provider.GetRequiredService<PromptHandler>(),
+                provider.GetRequiredService<Func<string, SimulatorBackgroundService>>(),
+                provider.GetRequiredService<Func<string, SimulatedDevice>>(),
+                provider.GetService<Func<DeviceIdentifier, IOssmDevice>>(),
+                provider.GetRequiredService<IDeviceDiscovery>(),
+                provider.GetRequiredService<TimeProvider>(),
+                Console.Error));
+        services.AddSingleton<PromptCommand>(provider =>
+            new PromptCommand(provider.GetRequiredService<PromptSession>()));
+        services.AddSingleton<CliRootCommand>(provider =>
+            new CliRootCommand(
+                provider.GetRequiredService<DeviceCommand>(),
+                provider.GetRequiredService<PromptCommand>()));
     }
 }

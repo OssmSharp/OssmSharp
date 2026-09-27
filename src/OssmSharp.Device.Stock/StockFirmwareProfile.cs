@@ -66,10 +66,6 @@ internal static class StockFirmwareProfile
         }
 
         var identity = PairingIdentity.Parse(identityPayload);
-        if (identity.Version != "1.0.34")
-        {
-            throw new InvalidDataException("The stock device does not report supported firmware.");
-        }
 
         var patterns = PatternMetadata.Parse(patternsPayload);
         if (!patterns.Any(pattern => pattern.Index == (int)MotionPattern.SimpleStroke))

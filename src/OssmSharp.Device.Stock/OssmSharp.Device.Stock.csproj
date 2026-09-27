@@ -17,6 +17,7 @@
     <InternalsVisibleTo Include="OssmSharp.Device.Stock.Tests" />
     <InternalsVisibleTo Include="DynamicProxyGenAssembly2" />
     <InternalsVisibleTo Include="OssmSharp.Cli" />
+    <InternalsVisibleTo Include="OssmSharp.Cli.IntegrationTests" />
     <ProjectReference Include="../OssmSharp.Device.Primitives/OssmSharp.Device.Primitives.csproj" />
     <ProjectReference Include="../OssmSharp.Device.Runtime/OssmSharp.Device.Runtime.csproj" />
     <PackageReference Include="Microsoft.Extensions.Hosting" />

@@ -43,7 +43,7 @@ public sealed class SimulatorPromptTests
 
         Assert.Equal(0, exitCode);
         Assert.Contains("Stop and confirm zero", error.ToString(), StringComparison.Ordinal);
-        Assert.Equal(2, device.MotionCount);
+        Assert.Equal(3, device.MotionCount);
         Assert.Equal(0, device.LastMotion?.Speed);
     }
 
@@ -61,7 +61,7 @@ public sealed class SimulatorPromptTests
 
         Assert.Equal(0, exitCode);
         Assert.Contains("positive stroke", error.ToString(), StringComparison.Ordinal);
-        Assert.Equal(1, device.MotionCount);
+        Assert.Equal(2, device.MotionCount);
         Assert.Equal(0, device.LastMotion?.Speed);
     }
 
@@ -126,6 +126,57 @@ public sealed class SimulatorPromptTests
     }
 
     [Fact]
+    public async Task UnsettledAttachedSimulatorStopDoesNotDisposeOrDisconnectDeviceOrLaunchProcess()
+    {
+        using var input = new StringReader("quit\n");
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        var writeGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var device = new ReadOnlyTestDevice(acceptStopWrites: true)
+        {
+            InitialReport = StoppedReport(),
+            MotionWriteGate = writeGate,
+            MotionWriteGateOnWrite = 2,
+        };
+        var disconnects = 0;
+        var processCreated = false;
+        device.ConnectionStateChanged += state =>
+        {
+            if (state == DeviceConnectionState.Disconnected)
+                disconnects++;
+        };
+        var session = CreateSession(
+            input,
+            output,
+            error,
+            _ => device,
+            createSimulator: _ =>
+            {
+                processCreated = true;
+                throw new InvalidOperationException("Attached session attempted to launch a child.");
+            });
+
+        try
+        {
+            var failure = await Assert.ThrowsAsync<AggregateException>(() => session.RunAsync(
+                Attach(),
+                TestContext.Current.CancellationToken));
+
+            Assert.Contains("Stop is unconfirmed", error.ToString(), StringComparison.Ordinal);
+            Assert.Contains("did not settle", failure.Message, StringComparison.Ordinal);
+            Assert.False(device.Disposed);
+            Assert.Equal(DeviceConnectionState.Connected, device.ConnectionState);
+            Assert.Equal(0, disconnects);
+            Assert.Equal(2, device.Writes);
+            Assert.False(processCreated);
+        }
+        finally
+        {
+            writeGate.TrySetResult();
+        }
+    }
+
+    [Fact]
     public async Task SimulatorEofStillStopsAndDisposesDevice()
     {
         using var input = new StringReader(string.Empty);
@@ -148,7 +199,7 @@ public sealed class SimulatorPromptTests
         using var input = new StringReader("quit\n");
         using var output = new StringWriter();
         using var error = new StringWriter();
-        using var device = new ReadOnlyTestDevice();
+        using var device = new ReadOnlyTestDevice(acceptStopWrites: true);
         var connected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         device.ConnectionStateChanged += state =>
         {
@@ -162,9 +213,47 @@ public sealed class SimulatorPromptTests
         Assert.False(running.IsCompleted);
 
         device.Report(StoppedReport());
-        await Assert.ThrowsAsync<NotSupportedException>(() => running);
-        Assert.Equal(1, device.Writes);
+        Assert.Equal(0, await running);
+        Assert.Equal(2, device.Writes);
         Assert.True(device.Disposed);
+    }
+
+    [Fact]
+    public async Task NativeReadinessWaitsForInitialFeedbackBeforeAcceptingInput()
+    {
+        var exitGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var device = new ReadOnlyTestDevice(acceptStopWrites: true)
+        {
+            InitialReport = StoppedReport(),
+            ExitGate = exitGate,
+        };
+        var connected = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var firstReport = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        device.ConnectionStateChanged += state =>
+        {
+            if (state == DeviceConnectionState.Connected)
+                connected.TrySetResult(true);
+            else if (state == DeviceConnectionState.Disconnected)
+                connected.TrySetResult(false);
+        };
+
+        var readiness = PromptSession.WaitForReadinessAsync(
+            device,
+            device,
+            connected.Task,
+            firstReport.Task,
+            () => null,
+            TestContext.Current.CancellationToken);
+
+        await connected.Task.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
+        Assert.False(readiness.IsCompleted);
+
+        firstReport.SetResult(true);
+        await readiness;
+        exitGate.TrySetResult();
+        var deviceTask = device.ExecuteTask
+            ?? throw new InvalidOperationException("The readiness check did not start the device.");
+        await deviceTask.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -217,22 +306,28 @@ public sealed class SimulatorPromptTests
         using var input = new StringReader("status\nquit\n");
         using var output = new StringWriter();
         using var error = new StringWriter();
-        using var device = new ReadOnlyTestDevice();
-        var selectedId = string.Empty;
+        using var device = new ReadOnlyTestDevice(acceptStopWrites: true)
+        {
+            InitialReport = StoppedReport(),
+        };
+        DeviceIdentifier? selectedIdentifier = null;
+        var selected = new TestDeviceIdentifier("id-one", "First", new object());
+        var differentName = new AlternateTestDeviceIdentifier("id-two", "id-one", "other");
+        var scans = 0;
         var session = CreateSession(
             input,
             output,
             error,
             _ => throw new InvalidOperationException("Bluetooth selected a simulator."),
-            id =>
+            identifier =>
             {
-                selectedId = id;
+                selectedIdentifier = identifier;
                 return device;
             },
             _ =>
             {
-                return Task.FromResult<IReadOnlyList<(string Name, string Id)>>(
-                    [("First", "id-one"), ("id-one", "id-two")]);
+                scans++;
+                return Task.FromResult<IReadOnlyList<DeviceIdentifier>>([selected, differentName]);
             });
 
         var exitCode = await session.RunAsync(
@@ -240,10 +335,11 @@ public sealed class SimulatorPromptTests
             TestContext.Current.CancellationToken);
 
         Assert.Equal(0, exitCode);
-        Assert.Equal("id-one", selectedId);
-        Assert.Equal(0, device.Writes);
+        Assert.Same(selected, selectedIdentifier);
+        Assert.Equal(1, scans);
+        Assert.Equal(1, device.Writes);
         Assert.True(device.Disposed);
-        Assert.Contains("motion control unavailable", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("Readiness: Paused", output.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -252,31 +348,41 @@ public sealed class SimulatorPromptTests
         using var input = new StringReader("set --speed 25 --stroke 20 --depth 50 --pattern SimpleStroke\nstop\nquit\n");
         using var output = new StringWriter();
         using var error = new StringWriter();
-        using var device = new ReadOnlyTestDevice();
-        var selectedId = string.Empty;
+        using var device = new ReadOnlyTestDevice(acceptStopWrites: true)
+        {
+            InitialReport = StoppedReport(),
+        };
+        DeviceIdentifier? selectedIdentifier = null;
+        var other = new TestDeviceIdentifier("id-one", "Other", new object());
+        var selected = new AlternateTestDeviceIdentifier("id-two", "Named device", "service-key");
+        var scans = 0;
         var session = CreateSession(
             input,
             output,
             error,
             _ => throw new InvalidOperationException("Bluetooth selected a simulator."),
-            id =>
+            identifier =>
             {
-                selectedId = id;
+                selectedIdentifier = identifier;
                 return device;
             },
-            _ => Task.FromResult<IReadOnlyList<(string Name, string Id)>>(
-                [("Other", "id-one"), ("Named device", "id-two")]));
+            _ =>
+            {
+                scans++;
+                return Task.FromResult<IReadOnlyList<DeviceIdentifier>>([other, selected]);
+            });
 
         var exitCode = await session.RunAsync(
             PromptSelection.Parse("Named device", null),
             TestContext.Current.CancellationToken);
 
         Assert.Equal(0, exitCode);
-        Assert.Equal("id-two", selectedId);
-        Assert.Equal(0, device.Writes);
+        Assert.Same(selected, selectedIdentifier);
+        Assert.Equal(1, scans);
+        Assert.Equal(2, device.Writes);
         Assert.True(device.Disposed);
         Assert.Contains("Motion unavailable", error.ToString(), StringComparison.Ordinal);
-        Assert.Contains("Stop unavailable", error.ToString(), StringComparison.Ordinal);
+        Assert.Contains("Stop write settled", output.ToString(), StringComparison.Ordinal);
     }
 
     [Theory]
@@ -299,8 +405,12 @@ public sealed class SimulatorPromptTests
                 deviceCreated = true;
                 throw new InvalidOperationException("Invalid selection connected.");
             },
-            _ => Task.FromResult<IReadOnlyList<(string Name, string Id)>>(
-                [("Shared name", "id-one"), ("Shared name", "id-two"), ("Named device", "id-three")]));
+            _ => Task.FromResult<IReadOnlyList<DeviceIdentifier>>(
+            [
+                new TestDeviceIdentifier("id-one", "Shared name", new object()),
+                new AlternateTestDeviceIdentifier("id-two", "Shared name", "key-two"),
+                new TestDeviceIdentifier("id-three", "Named device", new object()),
+            ]));
 
         var exitCode = await session.RunAsync(
             PromptSelection.Parse(selection, null),
@@ -321,11 +431,14 @@ public sealed class SimulatorPromptTests
     public void BluetoothSelectionDiagnosticReplacesUnicodeFormatting()
     {
         var missing = Assert.Throws<ArgumentException>(() =>
-            PromptSession.ResolveBluetoothId("Unknown\u202Ename", []));
+            PromptSession.ResolveBluetoothIdentifier("Unknown\u202Ename", []));
         var ambiguous = Assert.Throws<ArgumentException>(() =>
-            PromptSession.ResolveBluetoothId(
+            PromptSession.ResolveBluetoothIdentifier(
                 "Shared\u202Ename",
-                [("Shared\u202Ename", "id\u202E-one"), ("Shared\u202Ename", "id-two")]));
+                [
+                    new TestDeviceIdentifier("id\u202E-one", "Shared\u202Ename", new object()),
+                    new AlternateTestDeviceIdentifier("id-two", "Shared\u202Ename", "key-two"),
+                ]));
 
         Assert.Contains("'Unknown name' not found", missing.Message, StringComparison.Ordinal);
         Assert.Contains("Shared name (id -one), Shared name (id-two)", ambiguous.Message, StringComparison.Ordinal);
@@ -343,7 +456,8 @@ public sealed class SimulatorPromptTests
             error,
             _ => throw new InvalidOperationException("Bluetooth selected a simulator."),
             _ => throw new InvalidOperationException("Bad\u202Eidentity"),
-            _ => Task.FromResult<IReadOnlyList<(string Name, string Id)>>([("Device", "id-one")]));
+            _ => Task.FromResult<IReadOnlyList<DeviceIdentifier>>(
+                [new TestDeviceIdentifier("id-one", "Device", new object())]));
 
         var exitCode = await session.RunAsync(
             PromptSelection.Parse("id-one", null),
@@ -359,11 +473,15 @@ public sealed class SimulatorPromptTests
         using var input = new StringReader("quit\n");
         using var output = new StringWriter();
         using var error = new StringWriter();
-        var session = CreateSession(
-            input,
-            output,
-            error,
-            _ => throw new InvalidOperationException("Bluetooth fell back to a simulator."));
+        var discovery = new TestDeviceDiscovery([]);
+        var session = new PromptSession(
+            new PromptHandler(input, output, error),
+            _ => throw new InvalidOperationException("Bluetooth started a simulator."),
+            _ => throw new InvalidOperationException("Bluetooth attached to a simulator."),
+            null,
+            discovery,
+            TimeProvider.System,
+            error);
 
         var exitCode = await session.RunAsync(
             PromptSelection.Parse("selected-id", null),
@@ -371,14 +489,18 @@ public sealed class SimulatorPromptTests
 
         Assert.Equal(1, exitCode);
         Assert.Contains("Stock BLE connection unavailable", error.ToString(), StringComparison.Ordinal);
+        Assert.Equal(0, discovery.ScanCount);
     }
 
     [Fact]
     public void AmbiguousDeviceDiagnosticsSanitizeDiscoveredControlCharacters()
     {
-        var failure = Assert.Throws<ArgumentException>(() => PromptSession.ResolveBluetoothId(
+        var failure = Assert.Throws<ArgumentException>(() => PromptSession.ResolveBluetoothIdentifier(
             "Shared\nName",
-            [("Shared\nName", "first\tid"), ("Shared\nName", "second\u001bid")]));
+            [
+                new TestDeviceIdentifier("first\tid", "Shared\nName", new object()),
+                new AlternateTestDeviceIdentifier("second\u001bid", "Shared\nName", "key"),
+            ]));
 
         Assert.Contains("first id", failure.Message, StringComparison.Ordinal);
         Assert.Contains("second id", failure.Message, StringComparison.Ordinal);
@@ -387,21 +509,21 @@ public sealed class SimulatorPromptTests
     }
 
     [Fact]
-    public async Task FailedPreliminaryStopStillDisposesDevice()
+    public async Task SimulatorRuntimeInitializesAndStopsBeforeDisposingDevice()
     {
         using var input = new StringReader("quit\n");
         using var output = new StringWriter();
         using var error = new StringWriter();
-        using var device = new ReadOnlyTestDevice
+        using var device = new ReadOnlyTestDevice(acceptStopWrites: true)
         {
             InitialReport = StoppedReport(),
         };
         var session = CreateSession(input, output, error, _ => device);
 
-        await Assert.ThrowsAsync<NotSupportedException>(() =>
-            session.RunAsync(Attach(), TestContext.Current.CancellationToken));
+        var exitCode = await session.RunAsync(Attach(), TestContext.Current.CancellationToken);
 
-        Assert.Equal(1, device.Writes);
+        Assert.Equal(0, exitCode);
+        Assert.Equal(2, device.Writes);
         Assert.True(device.Disposed);
     }
 
@@ -411,21 +533,67 @@ public sealed class SimulatorPromptTests
         using var input = new StringReader("quit\n");
         using var output = new StringWriter();
         using var error = new StringWriter();
-        using var device = new ReadOnlyTestDevice { FailDispose = true };
+        using var device = new ReadOnlyTestDevice(acceptStopWrites: true)
+        {
+            FailDispose = true,
+            InitialReport = StoppedReport(),
+        };
         var session = CreateSession(
             input,
             output,
             error,
             _ => throw new InvalidOperationException("Bluetooth selected a simulator."),
             _ => device,
-            _ => Task.FromResult<IReadOnlyList<(string Name, string Id)>>([("Device", "device-id")]));
+            _ => Task.FromResult<IReadOnlyList<DeviceIdentifier>>(
+                [new TestDeviceIdentifier("device-id", "Device", new object())]));
 
         var failure = await Assert.ThrowsAsync<IOException>(() => session.RunAsync(
             PromptSelection.Parse("device-id", null),
             TestContext.Current.CancellationToken));
 
         Assert.Contains("did not settle", failure.Message, StringComparison.Ordinal);
-        Assert.Equal(0, device.Writes);
+        Assert.Equal(1, device.Writes);
+    }
+
+    [Fact]
+    public async Task UnsettledNativeStopDoesNotDisposeOrDisconnectDevice()
+    {
+        using var input = new StringReader("quit\n");
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        var writeGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var device = new ReadOnlyTestDevice(acceptStopWrites: true)
+        {
+            InitialReport = StoppedReport(),
+            MotionWriteGate = writeGate,
+        };
+        var disconnects = 0;
+        device.ConnectionStateChanged += state =>
+        {
+            if (state == DeviceConnectionState.Disconnected)
+                disconnects++;
+        };
+        var session = CreateSession(
+            input,
+            output,
+            error,
+            _ => throw new InvalidOperationException("Bluetooth selected a simulator."),
+            _ => device,
+            _ => Task.FromResult<IReadOnlyList<DeviceIdentifier>>(
+                [new TestDeviceIdentifier("device-id", "Device", new object())]));
+
+        var failure = await Assert.ThrowsAsync<AggregateException>(() => session.RunAsync(
+            PromptSelection.Parse("device-id", null),
+            TestContext.Current.CancellationToken));
+
+        Assert.Contains("Stop is unconfirmed", error.ToString(), StringComparison.Ordinal);
+        Assert.Contains("did not settle", failure.Message, StringComparison.Ordinal);
+        Assert.False(device.Disposed);
+        Assert.Equal(DeviceConnectionState.Connected, device.ConnectionState);
+        Assert.Equal(0, disconnects);
+        Assert.Equal(1, device.Writes);
+
+        writeGate.TrySetResult();
     }
 
     [Fact]
@@ -441,7 +609,8 @@ public sealed class SimulatorPromptTests
             error,
             _ => throw new InvalidOperationException("Bluetooth selected a simulator."),
             _ => device,
-            _ => Task.FromResult<IReadOnlyList<(string Name, string Id)>>([("Device", "device-id")]));
+            _ => Task.FromResult<IReadOnlyList<DeviceIdentifier>>(
+                [new TestDeviceIdentifier("device-id", "Device", new object())]));
 
         var exitCode = await session.RunAsync(
             PromptSelection.Parse("device-id", null),
@@ -521,14 +690,15 @@ public sealed class SimulatorPromptTests
         TextWriter output,
         TextWriter error,
         Func<string, IOssmDevice> simulatedDevice,
-        Func<string, IOssmDevice>? stockDevice = null,
-        Func<CancellationToken, Task<IReadOnlyList<(string Name, string Id)>>>? scan = null,
+        Func<DeviceIdentifier, IOssmDevice>? stockDevice = null,
+        Func<CancellationToken, Task<IReadOnlyList<DeviceIdentifier>>>? scan = null,
         Func<string, SimulatorBackgroundService>? createSimulator = null) =>
         new(
             new PromptHandler(input, output, error),
             createSimulator ?? (_ => throw new InvalidOperationException("No child launch was expected.")),
             simulatedDevice,
             stockDevice,
-            scan,
+            scan is null ? null : new TestDeviceDiscovery(scan),
+            TimeProvider.System,
             error);
 }

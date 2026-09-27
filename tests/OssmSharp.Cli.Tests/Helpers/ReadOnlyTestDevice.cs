@@ -5,7 +5,10 @@ using OssmSharp.Device.Primitives.Models;
 
 namespace OssmSharp.Cli.Tests.Helpers;
 
-internal sealed class ReadOnlyTestDevice(bool connects = true, DeviceInformation? information = null)
+internal sealed class ReadOnlyTestDevice(
+    bool connects = true,
+    DeviceInformation? information = null,
+    bool acceptStopWrites = false)
     : BackgroundService, IOssmDevice
 {
     public event Action<DeviceConnectionState>? ConnectionStateChanged;
@@ -27,11 +30,23 @@ internal sealed class ReadOnlyTestDevice(bool connects = true, DeviceInformation
 
     public TaskCompletionSource? ExitGate { get; init; }
 
+    public TaskCompletionSource? MotionWriteGate { get; init; }
+
+    public int MotionWriteGateOnWrite { get; init; } = 1;
+
     public bool FailDispose { get; set; }
 
     public Task SetMotionAsync(MotionSettings settings, CancellationToken cancellationToken)
     {
         Writes++;
+        if (settings.Speed == 0
+            && Writes == MotionWriteGateOnWrite
+            && MotionWriteGate is { } gate)
+            return gate.Task;
+
+        if (acceptStopWrites && settings.Speed == 0)
+            return Task.CompletedTask;
+
         throw new NotSupportedException();
     }
 
@@ -53,13 +68,12 @@ internal sealed class ReadOnlyTestDevice(bool connects = true, DeviceInformation
         ConnectionState = DeviceConnectionState.Connecting;
         ConnectionStateChanged?.Invoke(ConnectionState);
         ConnectionState = connects ? DeviceConnectionState.Connected : DeviceConnectionState.Disconnected;
+        ConnectionStateChanged?.Invoke(ConnectionState);
         if (connects)
         {
             if (InitialReport is { } report)
                 Report(report);
         }
-
-        ConnectionStateChanged?.Invoke(ConnectionState);
 
         if (connects)
         {

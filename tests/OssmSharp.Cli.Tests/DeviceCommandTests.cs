@@ -191,66 +191,52 @@ public sealed class DeviceCommandTests
     [Fact]
     public async Task GetRequiresAPositionalIdWithoutOpeningASelector()
     {
-        string? selectedId = null;
-        var command = new DeviceGetCommand((peripheralId, _) =>
-        {
-            selectedId = peripheralId;
-            return Task.FromResult(0);
-        });
+        var identifier = new TestDeviceIdentifier("selected-device", "Device", new object());
+        var discovery = new TestDeviceDiscovery([identifier]);
+        var provider = new TestDeviceProvider(new DeviceIdentityDetails(identifier, null, null, null, null, null));
+        var command = new DeviceGetCommand(discovery, provider, TextWriter.Null, TextWriter.Null);
 
         Assert.NotEmpty(command.Parse(["get"]).Errors);
         Assert.NotEmpty(command.Parse(["get", "--peripheral-id", "selected-device"]).Errors);
         Assert.NotEmpty(command.Parse(["get", " "]).Errors);
-        Assert.Null(selectedId);
+        Assert.Equal(0, discovery.ScanCount);
 
         var exitCode = await command.Parse(["get", "selected-device"])
             .InvokeAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(0, exitCode);
-        Assert.Equal("selected-device", selectedId);
     }
 
     [Fact]
-    public async Task IdentifyForwardsOnlyTheSelectedPeripheral()
-    {
-        string? selectedId = null;
-        var command = new DeviceGetCommand((peripheralId, _) =>
-        {
-            selectedId = peripheralId;
-            return Task.FromResult(0);
-        });
-
-        var exitCode = await command.Parse(["get", "selected-device"])
-            .InvokeAsync(cancellationToken: TestContext.Current.CancellationToken);
-
-        Assert.Equal(0, exitCode);
-        Assert.Equal("selected-device", selectedId);
-    }
-
-    [Fact]
-    public async Task GetReadsOnlyTheDiscoveredPlatformId()
+    public async Task GetRoutesTheExactDiscoveredIdentifierAndCancellableRequestsOnce()
     {
         using var output = new StringWriter();
         using var error = new StringWriter();
-        string? readId = null;
-        var reader = new StockIdentityReader(
-            _ => Task.FromResult<IReadOnlyList<(string Name, string Id)>>(
-                [("Other", "id-other"), ("Selected\nName", "id-selected")]),
-            (id, _) =>
-            {
-                readId = id;
-                return Task.FromResult("Firmware: 1.0.34");
-            });
-        var command = new DeviceGetCommand(reader.ReadAsync, output, error);
+        var other = new TestDeviceIdentifier("id-other", "Other", new object());
+        var selected = new AlternateTestDeviceIdentifier("id-selected", "Selected\nName", "route-key");
+        var discovery = new TestDeviceDiscovery([other, selected]);
+        var provider = new TestDeviceProvider(
+            new DeviceIdentityDetails(selected, "aa:bb:cc:dd:ee:ff", "chip", true, "digest", "1.0.34"));
+        using var cancellation = new CancellationTokenSource();
+        var command = new DeviceGetCommand(discovery, provider, output, error);
 
-        var exitCode = await command.Parse(["get", "id-selected"])
-            .InvokeAsync(cancellationToken: TestContext.Current.CancellationToken);
+        var exitCode = await command.Parse(["get", "ID-SELECTED"])
+            .InvokeAsync(cancellationToken: cancellation.Token);
 
         Assert.Equal(0, exitCode);
-        Assert.Equal("id-selected", readId);
-        Assert.Contains("Peripheral ID: id-selected", output.ToString(), StringComparison.Ordinal);
-        Assert.Contains("Name: Selected Name", output.ToString(), StringComparison.Ordinal);
-        Assert.Contains("Firmware: 1.0.34", output.ToString(), StringComparison.Ordinal);
+        Assert.Same(selected, provider.Identifier);
+        Assert.True(discovery.LastCancellationToken.CanBeCanceled);
+        Assert.True(provider.LastCancellationToken.CanBeCanceled);
+        Assert.Equal(1, discovery.ScanCount);
+        Assert.Equal(
+            $"Peripheral ID: id-selected{Environment.NewLine}"
+            + $"Name: Selected Name{Environment.NewLine}"
+            + $"Wi-Fi MAC: aa:bb:cc:dd:ee:ff{Environment.NewLine}"
+            + $"Chip: chip{Environment.NewLine}"
+            + $"Wi-Fi connected: True{Environment.NewLine}"
+            + $"Sketch MD5: digest{Environment.NewLine}"
+            + "Firmware: 1.0.34" + Environment.NewLine,
+            output.ToString());
         Assert.Equal(string.Empty, error.ToString());
     }
 
@@ -259,15 +245,17 @@ public sealed class DeviceCommandTests
     {
         using var output = new StringWriter();
         using var error = new StringWriter();
-        var reader = new StockIdentityReader(
-            _ => Task.FromResult<IReadOnlyList<(string Name, string Id)>>([("Device", "id-present")]),
-            (_, _) => throw new InvalidOperationException("Unknown ID must not be read."));
-        var command = new DeviceGetCommand(reader.ReadAsync, output, error);
+        var identifier = new TestDeviceIdentifier("id-present", "Device", new object());
+        var discovery = new TestDeviceDiscovery([identifier]);
+        var provider = new TestDeviceProvider((_, _) =>
+            throw new InvalidOperationException("Unknown ID must not be read."));
+        var command = new DeviceGetCommand(discovery, provider, output, error);
 
         var exitCode = await command.Parse(["get", "id-absent"])
             .InvokeAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(1, exitCode);
+        Assert.Null(provider.Identifier);
         Assert.Equal(string.Empty, output.ToString());
         Assert.Contains("id-absent", error.ToString(), StringComparison.Ordinal);
     }
@@ -275,33 +263,46 @@ public sealed class DeviceCommandTests
     [Fact]
     public async Task GetOmitsAnUnavailableDeviceName()
     {
-        var reader = new StockIdentityReader(
-            _ => Task.FromResult<IReadOnlyList<(string Name, string Id)>>([("", "id-unknown-name")]),
-            (_, _) => Task.FromResult("Firmware: 1.0.34"));
+        using var output = new StringWriter();
+        var identifier = new TestDeviceIdentifier("id-unknown-name", "", new object());
+        var command = new DeviceGetCommand(
+            new TestDeviceDiscovery([identifier]),
+            new TestDeviceProvider(new DeviceIdentityDetails(
+                identifier, "aa:bb", "chip", false, "digest", "1.0.34")),
+            output,
+            TextWriter.Null);
 
-        var details = await reader.ReadAsync("id-unknown-name", TestContext.Current.CancellationToken);
+        var exitCode = await command.Parse(["get", "id-unknown-name"])
+            .InvokeAsync(cancellationToken: TestContext.Current.CancellationToken);
 
-        Assert.Contains("Peripheral ID: id-unknown-name", details, StringComparison.Ordinal);
-        Assert.DoesNotContain("Name:", details, StringComparison.Ordinal);
-        Assert.Contains("Firmware: 1.0.34", details, StringComparison.Ordinal);
+        Assert.Equal(0, exitCode);
+        Assert.Contains("Peripheral ID: id-unknown-name", output.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("Name:", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("Firmware: 1.0.34", output.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]
     public async Task GetDoesNotAcceptADeviceNameAsThePositionalId()
     {
-        var read = false;
-        var reader = new StockIdentityReader(
-            _ => Task.FromResult<IReadOnlyList<(string Name, string Id)>>([("Matching name", "id-1")]),
-            (_, _) =>
-            {
-                read = true;
-                return Task.FromResult("Firmware: 1.0.34");
-            });
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        var identifier = new TestDeviceIdentifier("id-1", "Matching name", new object());
+        var provider = new TestDeviceProvider(new DeviceIdentityDetails(
+            identifier, null, null, null, null, null));
+        var command = new DeviceGetCommand(
+            new TestDeviceDiscovery([identifier]),
+            provider,
+            output,
+            error);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            reader.ReadAsync("Matching name", TestContext.Current.CancellationToken));
+        var exitCode = await command.Parse(["get", "Matching name"])
+            .InvokeAsync(cancellationToken: TestContext.Current.CancellationToken);
 
-        Assert.False(read);
+        Assert.Equal(1, exitCode);
+        Assert.Null(provider.Identifier);
+        Assert.Equal(
+            $"No stock device with platform ID 'Matching name' was discovered.{Environment.NewLine}",
+            error.ToString());
     }
 
     [Fact]
@@ -309,10 +310,13 @@ public sealed class DeviceCommandTests
     {
         using var output = new StringWriter();
         using var error = new StringWriter();
+        var identifier = new TestDeviceIdentifier("id-selected", "Device", new object());
         var command = new DeviceGetCommand(
-            (_, _) => throw new UnsettledDeviceCleanupException(
-                "Stock BLE disconnection did not settle.", new TimeoutException()),
-            output, error);
+            new TestDeviceDiscovery([identifier]),
+            new TestDeviceProvider((_, _) => throw new UnsettledDeviceCleanupException(
+                "Stock BLE disconnection did not settle.", new TimeoutException())),
+            output,
+            error);
 
         var exitCode = await command.Parse(["get", "id-selected"])
             .InvokeAsync(cancellationToken: TestContext.Current.CancellationToken);
@@ -328,13 +332,15 @@ public sealed class DeviceCommandTests
         using var output = new StringWriter();
         using var error = new StringWriter();
         var command = new DeviceListCommand(
-            _ => Task.FromResult<IReadOnlyList<(string Name, string Id)>>([]), output, error);
+            new TestDeviceDiscovery([]), output, error);
 
         var exitCode = await command.Parse(["list"])
             .InvokeAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(0, exitCode);
-        Assert.Contains("No stock devices found", output.ToString(), StringComparison.Ordinal);
+        Assert.Equal(
+            $"Detecting devices. Please wait ...{Environment.NewLine}No devices found.{Environment.NewLine}",
+            output.ToString());
         Assert.Equal(string.Empty, error.ToString());
     }
 
@@ -345,8 +351,8 @@ public sealed class DeviceCommandTests
         using var error = new StringWriter();
 
         var command = new DeviceListCommand(
-            _ => Task.FromResult<IReadOnlyList<(string Name, string Id)>>(
-                [("Found device", "platform-id")]),
+            new TestDeviceDiscovery(
+                [new AlternateTestDeviceIdentifier("platform-id", "Found device", "endpoint")]),
             output, error);
 
         var exitCode = await command.RunAsync(TestContext.Current.CancellationToken);
@@ -363,21 +369,42 @@ public sealed class DeviceCommandTests
         using var error = new StringWriter();
         const string id = "id\u202E-selected";
         const string name = "Pa\u202Eir\u2028ing";
-        var candidates = new (string Name, string Id)[] { (name, id) };
+        var identifier = new TestDeviceIdentifier(id, name, new object());
         var list = new DeviceListCommand(
-            _ => Task.FromResult<IReadOnlyList<(string Name, string Id)>>(candidates),
+            new TestDeviceDiscovery([identifier]),
             output, error);
-        var reader = new StockIdentityReader(
-            _ => Task.FromResult<IReadOnlyList<(string Name, string Id)>>(candidates),
-            (_, _) => Task.FromResult("Firmware: 1.0.34"));
+        var provider = new TestDeviceProvider(
+            new DeviceIdentityDetails(
+                identifier,
+                "aa\u202E:bb",
+                "ch\u2028ip",
+                true,
+                "di\u202Egest",
+                "1.0\u202E34"));
+        using var getOutput = new StringWriter();
+        var get = new DeviceGetCommand(
+            new TestDeviceDiscovery([identifier]),
+            provider,
+            getOutput,
+            TextWriter.Null);
 
         var exitCode = await list.RunAsync(TestContext.Current.CancellationToken);
-        var details = await reader.ReadAsync(id, TestContext.Current.CancellationToken);
+        await get.Parse(["get", id]).InvokeAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(0, exitCode);
-        Assert.Equal($"1. Pa ir ing (id -selected){Environment.NewLine}", output.ToString());
-        Assert.Equal($"Peripheral ID: id -selected{Environment.NewLine}"
-            + $"Name: Pa ir ing{Environment.NewLine}Firmware: 1.0.34", details);
+        Assert.Equal(
+            $"Detecting devices. Please wait ...{Environment.NewLine}1. Pa ir ing (id -selected){Environment.NewLine}",
+            output.ToString());
+        Assert.Same(identifier, provider.Identifier);
+        Assert.Equal(
+            $"Peripheral ID: id -selected{Environment.NewLine}"
+            + $"Name: Pa ir ing{Environment.NewLine}"
+            + $"Wi-Fi MAC: aa :bb{Environment.NewLine}"
+            + $"Chip: ch ip{Environment.NewLine}"
+            + $"Wi-Fi connected: True{Environment.NewLine}"
+            + $"Sketch MD5: di gest{Environment.NewLine}"
+            + $"Firmware: 1.0 34{Environment.NewLine}",
+            getOutput.ToString());
         Assert.Equal(string.Empty, error.ToString());
     }
 
@@ -387,7 +414,8 @@ public sealed class DeviceCommandTests
         using var output = new StringWriter();
         using var error = new StringWriter();
         var command = new DeviceListCommand(
-            _ => throw new PlatformNotSupportedException("A native BLE build is required."),
+            new TestDeviceDiscovery(_ => Task.FromException<IReadOnlyList<DeviceIdentifier>>(
+                new PlatformNotSupportedException("A native BLE build is required."))),
             output, error);
 
         var exitCode = await command.Parse(["list"])
@@ -395,7 +423,7 @@ public sealed class DeviceCommandTests
 
         Assert.Equal(1, exitCode);
         Assert.Contains("native BLE build", error.ToString(), StringComparison.Ordinal);
-        Assert.Equal(string.Empty, output.ToString());
+        Assert.Equal("Detecting devices. Please wait ..." + Environment.NewLine, output.ToString());
     }
 
     [Fact]
@@ -490,7 +518,10 @@ public sealed class DeviceCommandTests
         using var input = new StringReader("help\nstatus\nquit\n");
         using var output = new StringWriter();
         using var error = new StringWriter();
-        using var device = new ReadOnlyTestDevice();
+        using var device = new ReadOnlyTestDevice(acceptStopWrites: true)
+        {
+            InitialReport = StoppedReport(),
+        };
 
         var handler = new PromptHandler(input, output, error);
         var session = CreateReadOnlySession(handler, _ => device, error);
@@ -524,7 +555,10 @@ public sealed class DeviceCommandTests
         using var input = new StringReader("status\nstop\nacknowledge\nquit\n");
         using var output = new StringWriter();
         using var error = new StringWriter();
-        using var device = new ReadOnlyTestDevice();
+        using var device = new ReadOnlyTestDevice(acceptStopWrites: true)
+        {
+            InitialReport = StoppedReport(),
+        };
 
         var handler = new PromptHandler(input, output, error);
         var session = CreateReadOnlySession(handler, _ => device, error);
@@ -537,9 +571,9 @@ public sealed class DeviceCommandTests
         Assert.Contains("Connected", output.ToString(), StringComparison.Ordinal);
         Assert.Contains("1.0.34", output.ToString(), StringComparison.Ordinal);
         Assert.Contains("SimpleStroke", output.ToString(), StringComparison.Ordinal);
-        Assert.Contains("No reported feedback", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("Reported at", output.ToString(), StringComparison.Ordinal);
         Assert.Contains("unavailable", error.ToString(), StringComparison.OrdinalIgnoreCase);
-        Assert.Equal(0, device.Writes);
+        Assert.Equal(2, device.Writes);
         Assert.True(device.Disposed);
     }
 
@@ -549,8 +583,13 @@ public sealed class DeviceCommandTests
         using var input = new StringReader("status\nquit\n");
         using var output = new StringWriter();
         using var error = new StringWriter();
-        using var device = new ReadOnlyTestDevice(information: new DeviceInformation(
-            "id\u202E-one", "sto\u2028ck", "1.0\u202E34", [MotionPattern.SimpleStroke]));
+        using var device = new ReadOnlyTestDevice(
+            information: new DeviceInformation(
+                "id\u202E-one", "sto\u2028ck", "1.0\u202E34", [MotionPattern.SimpleStroke]),
+            acceptStopWrites: true)
+        {
+            InitialReport = StoppedReport(),
+        };
 
         var session = CreateReadOnlySession(
             new PromptHandler(input, output, error), _ => device, error);
@@ -588,7 +627,11 @@ public sealed class DeviceCommandTests
         using var input = new StringReader("quit\n");
         using var output = new StringWriter();
         using var error = new StringWriter();
-        using var device = new ReadOnlyTestDevice { FailDispose = true };
+        using var device = new ReadOnlyTestDevice(acceptStopWrites: true)
+        {
+            FailDispose = true,
+            InitialReport = StoppedReport(),
+        };
 
         var handler = new PromptHandler(input, output, error);
         var session = CreateReadOnlySession(handler, _ => device, error);
@@ -596,7 +639,7 @@ public sealed class DeviceCommandTests
             PromptSelection.Parse("enrolled-device", null), TestContext.Current.CancellationToken));
 
         Assert.Contains("did not settle", failure.Message, StringComparison.Ordinal);
-        Assert.Equal(0, device.Writes);
+        Assert.Equal(1, device.Writes);
     }
 
     [Fact]
@@ -605,7 +648,7 @@ public sealed class DeviceCommandTests
         using var input = new StringReader("status\nquit\n");
         using var output = new StringWriter();
         using var error = new StringWriter();
-        using var device = new ReadOnlyTestDevice
+        using var device = new ReadOnlyTestDevice(acceptStopWrites: true)
         {
             InitialReport = new DeviceState
             {
@@ -624,7 +667,7 @@ public sealed class DeviceCommandTests
         Assert.Contains("2026-09-26T12:00:00", output.ToString(), StringComparison.Ordinal);
         Assert.Contains("effective speed 25%", output.ToString(), StringComparison.Ordinal);
         Assert.Contains("velocity unknown", output.ToString(), StringComparison.Ordinal);
-        Assert.Equal(0, device.Writes);
+        Assert.Equal(1, device.Writes);
     }
 
     [Fact]
@@ -633,7 +676,10 @@ public sealed class DeviceCommandTests
         using var output = new StringWriter();
         using var error = new StringWriter();
         using var eofInput = new StringReader(string.Empty);
-        using var eofDevice = new ReadOnlyTestDevice();
+        using var eofDevice = new ReadOnlyTestDevice(acceptStopWrites: true)
+        {
+            InitialReport = StoppedReport(),
+        };
 
         var eofHandler = new PromptHandler(eofInput, output, error);
         var eofSession = CreateReadOnlySession(eofHandler, _ => eofDevice, error);
@@ -659,8 +705,9 @@ public sealed class DeviceCommandTests
         using var input = new PendingLineReader();
         using var output = new StringWriter();
         using var error = new StringWriter();
-        using var device = new ReadOnlyTestDevice
+        using var device = new ReadOnlyTestDevice(acceptStopWrites: true)
         {
+            InitialReport = StoppedReport(),
             ExitGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously),
         };
 
@@ -685,7 +732,10 @@ public sealed class DeviceCommandTests
         using var output = new StringWriter();
         using var error = new StringWriter();
         using var cancellation = new CancellationTokenSource();
-        using var device = new ReadOnlyTestDevice();
+        using var device = new ReadOnlyTestDevice(acceptStopWrites: true)
+        {
+            InitialReport = StoppedReport(),
+        };
         var session = CreateReadOnlySession(
             new PromptHandler(input, output, error), _ => device, error);
         var invocation = Program.InvokeAsync(
@@ -719,17 +769,15 @@ public sealed class DeviceCommandTests
     public async Task CanceledDeviceListReturnsCancellationExitCode()
     {
         using var cancellation = new CancellationTokenSource();
+        var scan = new TestDeviceDiscovery(async _ =>
+        {
+            await cancellation.CancelAsync();
+            return await Task.FromCanceled<IReadOnlyList<DeviceIdentifier>>(cancellation.Token);
+        });
         var root = new CliRootCommand(
             new DeviceCommand(
-                new DeviceGetCommand((_, _) => Task.FromResult(0)),
-                new DeviceListCommand(
-                    async _ =>
-                    {
-                        await cancellation.CancelAsync();
-                        return await Task.FromCanceled<IReadOnlyList<(string Name, string Id)>>(cancellation.Token);
-                    },
-                    TextWriter.Null,
-                    TextWriter.Null)),
+                CreateGetCommand(),
+                new DeviceListCommand(scan, TextWriter.Null, TextWriter.Null)),
             new PromptCommand((_, _) => Task.FromResult(0)));
 
         var exitCode = await Program.InvokeAsync(root, ["devices", "list"], cancellation.Token);
@@ -741,20 +789,20 @@ public sealed class DeviceCommandTests
     public async Task CanceledDeviceGetReturnsCancellationExitCode()
     {
         using var cancellation = new CancellationTokenSource();
+        var identifier = new TestDeviceIdentifier("selected-id", "Device", new object());
+        var provider = new TestDeviceProvider(async (_, _) =>
+        {
+            await cancellation.CancelAsync();
+            return await Task.FromCanceled<DeviceIdentityDetails>(cancellation.Token);
+        });
         var root = new CliRootCommand(
             new DeviceCommand(
                 new DeviceGetCommand(
-                    async (_, _) =>
-                    {
-                        await cancellation.CancelAsync();
-                        return await Task.FromCanceled<string>(cancellation.Token);
-                    },
+                    new TestDeviceDiscovery([identifier]),
+                    provider,
                     TextWriter.Null,
                     TextWriter.Null),
-                new DeviceListCommand(
-                    _ => Task.FromResult<IReadOnlyList<(string Name, string Id)>>([]),
-                    TextWriter.Null,
-                    TextWriter.Null)),
+                new DeviceListCommand(new TestDeviceDiscovery([]), TextWriter.Null, TextWriter.Null)),
             new PromptCommand((_, _) => Task.FromResult(0)));
 
         var exitCode = await Program.InvokeAsync(root, ["devices", "get", "selected-id"], cancellation.Token);
@@ -799,8 +847,11 @@ public sealed class DeviceCommandTests
     {
         using var output = new StringWriter();
         var command = new DeviceListCommand(
-            _ => Task.FromResult<IReadOnlyList<(string Name, string Id)>>(
-                [("Other\nDevice", "platform-id-one"), ("Device Two", "platform-id-two")]),
+            new TestDeviceDiscovery(
+            [
+                new TestDeviceIdentifier("platform-id-one", "Other\nDevice", new object()),
+                new AlternateTestDeviceIdentifier("platform-id-two", "Device Two", "local-key"),
+            ]),
             output, TextWriter.Null);
 
         await command.RunAsync(TestContext.Current.CancellationToken);
@@ -815,7 +866,13 @@ public sealed class DeviceCommandTests
     {
         using var output = new StringWriter();
         using var error = new StringWriter();
-        var command = new DeviceGetCommand(output, error);
+        var identifier = new TestDeviceIdentifier("selected-device", "Device", new object());
+        var command = new DeviceGetCommand(
+            new TestDeviceDiscovery([identifier]),
+            new TestDeviceProvider((_, _) => throw new PlatformNotSupportedException(
+                "Stock BLE details require a Windows or macOS native BLE build.")),
+            output,
+            error);
 
         var exitCode = await command.Parse(["get", "selected-device"])
             .InvokeAsync(cancellationToken: TestContext.Current.CancellationToken);
@@ -828,17 +885,17 @@ public sealed class DeviceCommandTests
     [Fact]
     public async Task DeviceGetRoutesToItsReadOperation()
     {
-        string? selectedId = null;
+        var identifier = new AlternateTestDeviceIdentifier("selected-device", "Device", "opaque-selection");
+        var provider = new TestDeviceProvider(new DeviceIdentityDetails(
+            identifier, null, null, null, null, "1.0.34"));
         var command = new CliRootCommand(
             new DeviceCommand(
-                new DeviceGetCommand((peripheralId, _) =>
-                {
-                    selectedId = peripheralId;
-                    return Task.FromResult(0);
-                }),
-                new DeviceListCommand(
-                    _ => throw new InvalidOperationException("Get must not scan."),
-                    TextWriter.Null, TextWriter.Null)),
+                new DeviceGetCommand(
+                    new TestDeviceDiscovery([identifier]),
+                    provider,
+                    TextWriter.Null,
+                    TextWriter.Null),
+                new DeviceListCommand(new TestDeviceDiscovery([]), TextWriter.Null, TextWriter.Null)),
             new PromptCommand((_, _) =>
                 throw new InvalidOperationException("Get must not open the prompt.")));
 
@@ -846,7 +903,7 @@ public sealed class DeviceCommandTests
             .InvokeAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(0, exitCode);
-        Assert.Equal("selected-device", selectedId);
+        Assert.Same(identifier, provider.Identifier);
     }
 
     [Fact]
@@ -890,16 +947,41 @@ public sealed class DeviceCommandTests
 
     private static CliRootCommand CreateRoot(PromptCommand prompt) => new(
         new DeviceCommand(
-            new DeviceGetCommand((_, _) => Task.FromResult(0)),
-            new DeviceListCommand(
-                _ => Task.FromResult<IReadOnlyList<(string Name, string Id)>>([]),
-                TextWriter.Null,
-                TextWriter.Null)),
+            CreateGetCommand(),
+            new DeviceListCommand(new TestDeviceDiscovery([]), TextWriter.Null, TextWriter.Null)),
         prompt);
+
+    private static DeviceGetCommand CreateGetCommand() =>
+        new(
+            new TestDeviceDiscovery([]),
+            new TestDeviceProvider(new DeviceIdentityDetails(
+                new TestDeviceIdentifier("unused", "Unused", new object()),
+                null,
+                null,
+                null,
+                null,
+                null)),
+            TextWriter.Null,
+            TextWriter.Null);
+
+    private static DeviceState StoppedReport() => new()
+    {
+        Timestamp = DateTime.UtcNow,
+        MotionSettings = new MotionSettings(
+            MotionDeviceState.StrokeEngineIdle,
+            0,
+            20,
+            50,
+            60,
+            0,
+            MotionPattern.SimpleStroke,
+            10),
+        SessionId = Guid.NewGuid(),
+    };
 
     private static PromptSession CreateReadOnlySession(
         PromptHandler prompt,
-        Func<string, IOssmDevice>? createStockDevice,
+        Func<DeviceIdentifier, IOssmDevice>? createStockDevice,
         TextWriter error) => new(
             prompt,
             _ => throw new InvalidOperationException("A stock session must not launch the simulator."),
@@ -907,8 +989,9 @@ public sealed class DeviceCommandTests
             createStockDevice,
             createStockDevice is null
                 ? null
-                : _ => Task.FromResult<IReadOnlyList<(string Name, string Id)>>(
-                    [("enrolled-device", "enrolled-device")]),
+                : new TestDeviceDiscovery(
+                [new TestDeviceIdentifier("enrolled-device", "enrolled-device", new object())]),
+            TimeProvider.System,
             error);
 
     private static string CreateTemporaryExecutableFile()

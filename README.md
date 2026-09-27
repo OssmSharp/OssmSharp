@@ -28,22 +28,40 @@ Files roll daily and at 10 MiB; at most seven files per application are kept,
 and files older than seven days are removed. Frequent size rolls may therefore
 shorten the effective history. Set `Logging__File__Directory` to an absolute
 path to change the directory, or `Logging__File__Enabled=false` to disable file
-logging. Console output and Aspire telemetry remain available.
+logging. Console output uses a single line per event; Aspire telemetry remains
+available.
 
 ## Device libraries
 
 The device API currently has four independently buildable libraries:
 
 - `OssmSharp.Device.Primitives` contains `IOssmDevice` and immutable device models.
-- `OssmSharp.Device.Runtime` contains the shared `DeviceBase`, options and
-  device lifecycle logging; shared Stop and interruption mechanics remain planned.
-- `OssmSharp.Device.Stock` contains stock protocol codecs and a read-only BLE
-  connection; physical motion writes remain unavailable.
+- `OssmSharp.Device.Runtime` contains `DeviceBase`, the foreground execution
+  owner, options and device lifecycle logging. The owner serializes transitions,
+  Stop and initialization and tracks feedback freshness and interruption.
+- `OssmSharp.Device.Stock` contains stock protocol codecs, discovery, information
+  reads and a BLE connection. Nonzero physical motion remains unavailable.
 - `OssmSharp.Device.Simulator` contains the loopback TCP `SimulatedDevice` adapter.
 
 These libraries do not depend on Web.Application, Aspire, or either web host.
 `OssmSharp.Cli` is the only CLI; it uses the device libraries directly,
 not Web.Api.
+
+Discovery and device information use injected `IDeviceDiscovery` and
+`IDeviceProvider` services. Discovery returns `DeviceIdentifier` records with
+public `Id` and `Name`; provider-specific state stays opaque. Consumers pass
+the selected record unchanged to information reads or the registered
+`Func<DeviceIdentifier, IOssmDevice>` factory. Identifiers are valid only within
+their owning composition, are not persisted, and do not establish connection,
+readiness or authority. The factory's caller owns the created device.
+
+Stock's registration composes its discovery, information provider and native
+transport. The native device constructor no longer creates its own transport.
+CLI platform composition lives in `Interop`, with separate macOS and Windows
+registration extensions and explicit unavailable services for portable builds.
+The macOS dispatch queue is caller-owned and outlives the host; resolving
+commands does not initialize Bluetooth. Identity details remain separate typed
+data, formatted by the CLI rather than embedded in identifiers.
 
 `OssmSharp.Device.Simulator` connects to an
 [`ossm-sim-bridge`](tools/ossm-sim-bridge/README.md) on IPv4 loopback. The
@@ -105,18 +123,36 @@ externally started bridge. Only `tcp://127.0.0.1:<port>` (ports 1-65535) is
 supported; a remote address is rejected rather than silently interpreted as
 an executable path.
 
-### Stock discovery and read-only CLI
+### Stock discovery and guarded CLI initialization
 
 Opt-in native CLI builds for Windows 11 and macOS 26+ expose `devices list`,
 `devices get <id>` and `prompt --bluetooth <id-or-name>`. List shows discovered
 platform IDs and names without connecting, then exits after the bounded scan.
-If no advertisements match, it prints `No stock devices found.` and exits
+Discovery first prints `Detecting devices. Please wait ...`.
+If no advertisements match, it prints `No devices found.` and exits
 successfully; it is not a continuous watcher. Get requires a platform ID and reads
 that device's live pairing identity without a numbered selector or motion writes.
 The Bluetooth prompt resolves the ID first, otherwise requires one exact and
-unambiguous discovered name. Connection cannot arm motion; Stock motion remains
-unsupported pending separate Runtime/Stock work and physical
+unambiguous discovered name. Connection cannot arm motion. Stock's software
+dispatch path is implemented and tested with controlled BLE and qualification
+boundaries, but production has no qualified mapping. Nonzero motion and envelope
+changes therefore remain blocked pending physical
 [qualification](.docs/specs/device-control/spec.md#physical-qualification).
+
+The native prompt supports `help`, `status`, `initialize`, `stop`,
+`acknowledge` and `quit`. Status distinguishes device-reported feedback from
+submitted settings. An explicit `initialize` attempts serialized zero, enables
+the physical knob limit and verifies its live readback, then requires fresh
+stopped play-state feedback. It never homes or calibrates the device; those
+operations belong to its physical controls. Identity-only `devices get` does
+not perform these writes.
+
+The pinned firmware reports state changes, not periodic heartbeats, and can
+miss its initial notification before subscription. Missing or stale required
+feedback therefore prevents readiness; cached reads and successful writes do
+not refresh it. A successful initialization does not qualify hardware or remove
+the nonzero-motion gate. Cleanup reports unconfirmed Stop when it cannot
+establish its outcome; write completion is not proof of physical stopping.
 
 With .NET 10, the platform workload and native tooling installed, run:
 
@@ -146,8 +182,8 @@ make prompt DEVICE_ID='paste-the-platform-ID-from-the-list'
 
 `make` defaults to publishing only; it does not access Bluetooth. The other
 targets use the published executable without rebuilding. Publish again after
-source changes. The prompt supports `help`, `status` and `quit`; Stock motion
-remains unsupported.
+source changes. The native prompt commands and qualification restrictions
+described above apply to this build too.
 
 The output is a self-contained `.app` bundle, not a single file. Keep the entire
 bundle together; its executable is under
@@ -173,15 +209,23 @@ dotnet test --project tests/OssmSharp.Device.Stock.Tests/OssmSharp.Device.Stock.
 dotnet test --project tests/OssmSharp.Cli.IntegrationTests/OssmSharp.Cli.IntegrationTests.csproj --filter-class '*SimulatorPromptIntegrationTests'
 ```
 
-These checks passed locally: 93 CLI unit tests, 177 deterministic Stock tests,
-and six simulator process integration tests. The macOS 26.5 native CLI and
-Stock C# sources also passed a compile-only check. This does not build or run
-the macOS BLE executable; a local full build requires Xcode, and native BLE
-runtime validation remains outstanding. Windows-native behavior needs a Windows
-environment. Full CLI simulator process tests remain outstanding. No hardware
-has been accessed in this work. See the
+The current composition work passed focused selections of 98 CLI unit tests,
+78 Runtime tests, 101 native macOS Stock tests with deterministic BLE fakes,
+two native CLI composition tests, and one portable command process test.
+Each selection had zero failures and skips.
+These are not full-project or full-solution results. The native macOS 27 CLI
+also completed a full build with Xcode 27, and its actual application executable
+ran `--help` and `--version` successfully without device operations. The build
+still reports existing simulator analyzer, trim-analysis and apphost metadata
+warnings; a CLI test-helper CA2025 warning also remains unsuppressed. Native
+integration tests use the same headless MTP entry-point pattern as Stock tests,
+clearing the unpumped Apple synchronization context before runner startup.
+
+Windows-native behavior needs a Windows environment. Native hardware behavior,
+physical qualification and full CLI simulator process checks remain outstanding;
+no hardware was accessed. See the
 [no-Xcode investigation](.docs/plans/cli-no-xcode-investigation.md) for
-the evidence and alternatives, and the
+the earlier toolchain investigation and alternatives, and the
 [device adapter design](.docs/specs/device-control/adapters.md#physical-device-selection-and-connection)
 for remaining integration and qualification requirements.
 

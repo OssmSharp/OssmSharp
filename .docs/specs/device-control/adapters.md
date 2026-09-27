@@ -95,17 +95,53 @@ physical I/O.
 
 ## Composition and ownership
 
+### Provider-neutral selection and information
+
+The CLI selection boundary uses injected `IDeviceDiscovery` and
+`IDeviceProvider` contracts from Primitives. Discovery returns `DeviceIdentifier`
+records exposing `Id` and `Name`; any native selection state remains private to
+the provider implementation. Generic consumers pass the original identifier to
+information reads and selected-device creation, without inspecting, casting or
+reconstructing provider state. The provider validates compatibility and the
+selected identity before I/O.
+
+CLI discovery prints `Detecting devices. Please wait ...` before scanning and
+`No devices found.` when the scan completes without matches. A discovery
+failure still returns its error and nonzero exit code after the progress line.
+
+An identifier does not establish a connection, readiness or authority. Its
+validity is limited to its owning composition, and it owns no live connection.
+Information reads return separate typed `DeviceIdentityDetails`; the CLI
+formats those details without accessing native types. The existing
+`DeviceInformation` contract continues to describe a verified connected profile,
+not an identity-only read.
+
+Stock registers discovery, information reading and the selected-device factory
+through its `IServiceCollection` extension. Native transport services are
+injected, not constructed by consuming device constructors. Per-operation
+connections retain explicit ownership and awaited cleanup. CLI platform
+extensions live under Interop, preserving lazy native-manager creation and
+caller-owned macOS dispatch-queue lifetime.
+
+The [CLI composition plan](../../plans/cli-platform-interop.md) owns the current
+implementation sequence. Native command availability requires the execution
+guarantees in DC-01 through DC-09; this selection design alone does not enable
+motion or establish software conformance.
+
 | Selected implementation | Device path                                                                                  | Resources owned by the adapter                                          |
 | ----------------------- | -------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
 | Physical                | `IOssmDevice` → `OssmDevice` → Shiny → native OS BLE → OSSM                                  | One peripheral connection, subscriptions and native-operation lifetimes |
 | Simulator | `IOssmDevice` to `SimulatedDevice` to loopback TCP JSONL to `ossm-sim-bridge` to `ossm-motion` | One client connection, bounded request correlation and stream readers; no process ownership |
 
 Each implementation supplies its component-owned `IServiceCollection`
-registration. Register the selected concrete device once as a singleton, then
-resolve that same instance as both `IOssmDevice` and the hosted service. Do not
-construct another instance in hosted-service registration, register both
-implementations and choose the last, or select implementations inside consumers.
-Reject conflicting registrations before starting either transport.
+registration. For a hosted device lifetime, register the selected concrete
+device once and resolve that same instance as both `IOssmDevice` and the hosted
+service. For the foreground CLI, register a selected-device factory; the prompt
+owns and disposes its returned device rather than making DI capture an
+operation-owned instance. Do not construct another instance in hosted-service
+registration, register both implementations and choose the last, or select
+implementations inside consumers. Reject conflicting registrations before
+starting either transport.
 
 Shiny's `IBleManager` and platform registration belong only to Device.Stock.
 Device.Simulator references the provider-neutral base in Device.Runtime, never
@@ -117,8 +153,8 @@ Native hosts call `AddStockBluetooth()` on Windows or
 the `CoreFoundation.DispatchQueue`, keeping it alive through service-provider
 disposal and settled BLE cleanup; neither the adapter nor discovery creates a
 second container or assumes a GUI event loop. Use the same registered
-`IBleManager` for `StockBleDiscovery.ScanAsync` and the selected
-`StockOssmDevice` constructor. Registering the manager does not scan, connect
+`IBleManager` for the injected `DeviceDiscovery` and selected-device factory.
+Registering the manager does not scan, connect
 or grant device access. The portable build contains neither native registration
 nor a Shiny dependency.
 
@@ -148,11 +184,67 @@ Web.Application checks admin/authority before delegating acknowledgement to the
 same runtime latch/revision that the CLI acknowledges directly. Hardware Stop
 and unexpected observed changes never cause restoration of old settings.
 
+### Stock qualification and dispatch composition
+
+DC-02 and DC-03 require software dispatch to remain separate from physical
+qualification. A Stock-internal service resolves an immutable mapping for the
+verified connected identity/profile. The adapter retains it only for that
+connection and clears it on disconnect. Default composition has no qualified
+mapping; discovery, identity reads and simulator results cannot create one.
+There is no public configuration switch that bypasses qualification.
+
+Stock implements a Runtime-owned transition-validation capability. Runtime
+uses it to reject the desired tuple and any invalid intermediate before
+creating pending work. Stock repeats validation at dispatch and supplies only
+exact validated values to motion encoding. A mapping that would require
+unqualified rounding or clamping rejects the request. A missing mapping
+rejects envelope edits and nonzero output without writes, while explicit Stop
+and initialization can still issue speed-only zero.
+
+Each mapping must explicitly bound requested speed as well as travel and
+keepout geometry; qualifying an envelope does not qualify every speed.
+Its minimum and maximum endpoint bounds are measured in StrokeEngine coordinates:
+engine zero is 6 mm inward from the physical home switch, not the rail origin.
+The calibrated travel is the full measured home-to-far-switch span; the engine's
+upper endpoint is at most that span minus both 6 mm keepouts.
+Connection matching uses stable firmware and device identity fields and
+supported-pattern values, not collection reference equality, a platform locator
+or changing Wi-Fi connection status. A speed-only safety Stop remains available
+outside the play-ready state and must not be rejected as an envelope change.
+Runtime identifies that operation separately from ordinary settings writes. Stock
+sends only zero through the same serialized transport owner even if a newer
+report changes geometry after Runtime derived the Stop tuple; ordinary edits
+still require transition and mapping validation before any write.
+
+For the pinned Simple Stroke implementation, the configured scale is
+[20 steps/mm](https://github.com/KinkyMakers/OSSM-hardware/blob/4871a84c54ae0734b1f8bc3d02fcc0098f12fbad/Software/src/constants/Config.h#L19-L34).
+[Percentage conversion](https://github.com/KinkyMakers/OSSM-hardware/blob/4871a84c54ae0734b1f8bc3d02fcc0098f12fbad/Software/src/ossm/stroke_engine/stroke_engine.cpp#L23-L59)
+uses single-precision arithmetic against calibrated travel and a 6 mm keepout
+at each end. The engine truncates depth and stroke independently to integer
+steps before clipping targets. Qualification must check the intended step
+coordinates against that conversion and reject truncation or clipping, rather
+than assuming whole-millimetre resolution or adding an arbitrary tolerance.
+This source evidence establishes software conversion, not calibration accuracy
+or physical qualification of a unit.
+
+The Runtime authority revision and synchronous guard travel with each pending
+request. Authority changes revoke its operation token immediately; the provider
+checks revocation before each command while separately retaining ownership of
+already-issued I/O. Acknowledgement or initialization never restores an earlier
+tuple. Deterministic tests may substitute the qualification and BLE boundaries
+to prove the real software path; they must not populate the production
+qualification allowlist or claim physical safety.
+
 ### Startup configuration
 
 The following are selected startup bindings, not new public device-interface
 members. Bind typed options with DataAnnotations, cross-field validation and
 `ValidateOnStart()` as required by the repository.
+
+Implementation note: the current CLI selects its provider through prompt
+arguments and uses a fixed five-second cleanup budget. It does not yet bind
+`OSSM:Device:ShutdownTimeout`; the table describes the target configuration,
+not proof that each binding is implemented.
 
 | Key                               | Meaning and validation                                                                                                                                                                       |
 | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -290,6 +382,22 @@ All custom UUIDs below expand `522b443a-4f53-534d-XXXX-420badbabe69`:
 | `1010`         | Knob-limit configuration; enable and read back during authorized initialization |
 | `2000`         | State notifications; cached reads and `ok:<command>` are not new state evidence |
 | `3000`, `3010` | Pattern metadata; discovery does not expand the qualified pattern set           |
+
+For the pinned firmware, knob limiting is enabled by writing ASCII `true` to
+`1010`, then reading canonical `true` from its live configuration read handler.
+Do not infer success from the write response alone. The
+[configuration handler][firmware-knob-config] supplies this protocol; it is not
+a state-feedback heartbeat.
+
+The [state characteristic][firmware-state-characteristic] has no live read or
+subscription callback. The [notification loop][firmware-notification-loop]
+clears its fingerprint on connection-count changes and can then notify a fresh
+complete state, but that notification can precede client subscription.
+Subscribing later does not replay it. Missing initial feedback must therefore
+fail readiness within its bound; reading the cached characteristic must not
+manufacture a new sample. The same loop does not notify unchanged state on its
+one-second timer, so sustained-motion freshness remains a real compatibility
+limit, not a reason to renew deadlines.
 
 Reuse the stock protocol records rather than writing another protocol stack.
 Their existence does not justify submitting a whole command list without
@@ -446,3 +554,9 @@ support then requires evidence against the existing
   https://github.com/shinyorg/shiny/blob/1aec024c2a32711ce58a1174c0df69de02be0c52/src/Shiny.BluetoothLE.Linux/Peripheral.cs
 [shiny-macos-notify]:
   https://github.com/shinyorg/shiny/blob/1aec024c2a32711ce58a1174c0df69de02be0c52/src/Shiny.BluetoothLE/Platforms/MacOS/Peripheral_Characteristics.cs
+[firmware-knob-config]:
+  https://github.com/KinkyMakers/OSSM-hardware/blob/4871a84c54ae0734b1f8bc3d02fcc0098f12fbad/Software/src/services/communication/config.hpp
+[firmware-state-characteristic]:
+  https://github.com/KinkyMakers/OSSM-hardware/blob/4871a84c54ae0734b1f8bc3d02fcc0098f12fbad/Software/src/services/communication/state.hpp
+[firmware-notification-loop]:
+  https://github.com/KinkyMakers/OSSM-hardware/blob/4871a84c54ae0734b1f8bc3d02fcc0098f12fbad/Software/src/services/communication/nimble.cpp

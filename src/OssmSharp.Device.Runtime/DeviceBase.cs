@@ -78,117 +78,18 @@ public abstract class DeviceBase : BackgroundService, IOssmDevice, IAsyncDisposa
     }
 
     /// <inheritdoc />
-    public async Task SetMotionAsync(MotionSettings motionSettings, CancellationToken cancellationToken)
-    {
-        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
-        ArgumentNullException.ThrowIfNull(motionSettings);
-        ValidateSettings(motionSettings);
-        cancellationToken.ThrowIfCancellationRequested();
-
-        await _operationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
-            cancellationToken.ThrowIfCancellationRequested();
-            PendingWrite pending;
-            lock (_stateGate)
-            {
-                pending = new PendingWrite(
-                    motionSettings,
-                    _lastRequestedMotion?.Speed,
-                    _lastStateSpeed,
-                    _timeProvider.GetTimestamp(),
-                    _matchingContextVersion);
-                _pendingWrite = pending;
-            }
-
-            try
-            {
-                await DispatchMotionAsync(motionSettings, _hostCancellationToken).ConfigureAwait(false);
-            }
-            catch
-            {
-                lock (_stateGate)
-                {
-                    if (ReferenceEquals(_pendingWrite, pending))
-                    {
-                        _pendingWrite = null;
-                    }
-                }
-
-                throw;
-            }
-
-            lock (_stateGate)
-            {
-                // A disconnect clears the request history and changes this version number.
-                // If that happened while sending, do not put this old request back.
-                if (_matchingContextVersion == pending.MatchingContextVersion)
-                {
-                    _lastRequestedMotion = motionSettings;
-                }
-            }
-
-            cancellationToken.ThrowIfCancellationRequested();
-        }
-        finally
-        {
-            _operationGate.Release();
-        }
-    }
+    public Task SetMotionAsync(MotionSettings motionSettings, CancellationToken cancellationToken) =>
+        SetMotionCoreAsync(motionSettings, safetyStop: false, cancellationToken);
 
     /// <inheritdoc />
     public ValueTask DisposeAsync()
     {
         lock (_disposalGate)
         {
-            return new ValueTask(_disposalTask ??= DisposeDeviceAsync());
+            var disposal = _disposalTask ??= DisposeDeviceAsync();
+            GC.SuppressFinalize(this);
+            return new ValueTask(disposal);
         }
-    }
-
-    private async Task DisposeDeviceAsync()
-    {
-        Interlocked.Exchange(ref _disposed, 1);
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        try
-        {
-            await StopAsync(timeout.Token).ConfigureAwait(false);
-            if (ExecuteTask is { } executionTask)
-            {
-                try
-                {
-                    await executionTask.WaitAsync(timeout.Token).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException) when (executionTask.IsCanceled && !timeout.IsCancellationRequested)
-                {
-                }
-            }
-
-            await _operationGate.WaitAsync(timeout.Token).ConfigureAwait(false);
-            try
-            {
-                timeout.Token.ThrowIfCancellationRequested();
-                await DisposeCoreAsync().AsTask().WaitAsync(timeout.Token).ConfigureAwait(false);
-                timeout.Token.ThrowIfCancellationRequested();
-            }
-            finally
-            {
-                _operationGate.Release();
-            }
-        }
-        catch (OperationCanceledException) when (timeout.IsCancellationRequested)
-        {
-            throw new TimeoutException("Device cleanup did not settle during disposal.");
-        }
-
-        lock (_stateGate)
-        {
-            _connectionState = DeviceConnectionState.Disconnected;
-        }
-
-        _operationGate.Dispose();
-        Dispose();
-        GC.SuppressFinalize(this);
     }
 
     /// <summary>
@@ -240,13 +141,19 @@ public abstract class DeviceBase : BackgroundService, IOssmDevice, IAsyncDisposa
                      state.MotionSettings.Speed));
             var settingsExpected = pending is not null &&
                 isOwnWrite is not false &&
-                SameReportedControlSettings(pending.Settings, state.MotionSettings);
+                HasOnlyExpectedControlChanges(pending.PreviousStateMotion, pending.Settings, state.MotionSettings);
+            var fullTupleReported = pending is not null
+                && pending.Completed
+                && speedExpected
+                && SameReportedControlSettings(pending.Settings, state.MotionSettings)
+                && (state.MotionSettings.Speed != pending.PreviousStateSpeed
+                    || pending.Settings.Speed == pending.PreviousStateSpeed);
 
-            if (speedExpected)
+            if (fullTupleReported)
             {
                 _pendingWrite = null;
             }
-            else if (_lastStateSpeed is { } previousStateSpeed &&
+            else if (!speedExpected && _lastStateSpeed is { } previousStateSpeed &&
                      previousStateSpeed != state.MotionSettings.Speed)
             {
                 unexpectedSpeed = new UnexpectedSpeedChangeException(
@@ -318,6 +225,47 @@ public abstract class DeviceBase : BackgroundService, IOssmDevice, IAsyncDisposa
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// Dispatches with a revocable pre-write token and a separately owned settlement token.
+    /// Existing single-write implementations can continue using the original dispatch hook.
+    /// </summary>
+    protected virtual Task DispatchMotionAsync(
+        MotionSettings motionSettings,
+        CancellationToken revocationToken,
+        CancellationToken settlementToken) =>
+        DispatchMotionAsync(motionSettings, settlementToken);
+
+    /// <summary>Serializes a provider's explicit speed-zero safety Stop with ordinary device writes.</summary>
+    /// <param name="reportedZero">A valid reported tuple with zero speed.</param>
+    /// <param name="cancellationToken">Cancels pre-issuance work.</param>
+    /// <returns>Completion after issued I/O settles.</returns>
+    protected Task SetSafetyStopCoreAsync(MotionSettings reportedZero, CancellationToken cancellationToken) =>
+        SetMotionCoreAsync(reportedZero, safetyStop: true, cancellationToken);
+
+    /// <summary>Dispatches only a speed-zero safety Stop, without qualifying stale non-speed fields.</summary>
+    /// <param name="reportedZero">The validated stopped tuple derived by the execution owner.</param>
+    /// <param name="revocationToken">Prevents unissued work after Stop is revoked.</param>
+    /// <param name="settlementToken">Retains ownership of I/O already issued.</param>
+    /// <returns>Completion after the zero-speed write settles.</returns>
+    protected virtual Task DispatchSafetyStopAsync(
+        MotionSettings reportedZero,
+        CancellationToken revocationToken,
+        CancellationToken settlementToken) =>
+        throw new NotSupportedException("This provider has no explicit safety-Stop dispatch.");
+
+    /// <summary>Records that at least one write has been issued and may settle after a later failure.</summary>
+    protected void MarkWriteIssued()
+    {
+        lock (_stateGate)
+        {
+            if (_pendingWrite is { } pending)
+            {
+                pending.Issued = true;
+                pending.LastIssuedTimestamp = _timeProvider.GetTimestamp();
+            }
+        }
+    }
+
+    /// <summary>
     /// Releases resources owned by the concrete implementation after its transport stops.
     /// </summary>
     /// <returns>Completion after implementation resources are released.</returns>
@@ -360,12 +308,137 @@ public abstract class DeviceBase : BackgroundService, IOssmDevice, IAsyncDisposa
         first.Stroke == second.Stroke &&
         first.Sensation == second.Sensation &&
         first.Depth == second.Depth &&
+        first.Buffer == second.Buffer &&
         first.Pattern == second.Pattern;
+
+    private static bool HasOnlyExpectedControlChanges(
+        MotionSettings? previous,
+        MotionSettings requested,
+        MotionSettings reported) =>
+        previous is not null
+        && (reported.Stroke == previous.Stroke || reported.Stroke == requested.Stroke)
+        && (reported.Sensation == previous.Sensation || reported.Sensation == requested.Sensation)
+        && (reported.Depth == previous.Depth || reported.Depth == requested.Depth)
+        && (reported.Buffer == previous.Buffer || reported.Buffer == requested.Buffer)
+        && (reported.Pattern == previous.Pattern || reported.Pattern == requested.Pattern);
+
+    private async Task SetMotionCoreAsync(
+        MotionSettings motionSettings,
+        bool safetyStop,
+        CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        ArgumentNullException.ThrowIfNull(motionSettings);
+        ValidateSettings(motionSettings);
+        if (safetyStop && motionSettings.Speed != 0)
+            throw new ArgumentException("A safety Stop requires zero speed.", nameof(motionSettings));
+        cancellationToken.ThrowIfCancellationRequested();
+
+        await _operationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+            cancellationToken.ThrowIfCancellationRequested();
+            PendingWrite pending;
+            lock (_stateGate)
+            {
+                pending = new PendingWrite(
+                    motionSettings,
+                    _lastRequestedMotion?.Speed,
+                    _lastStateSpeed,
+                    _lastStateMotion,
+                    _timeProvider.GetTimestamp(),
+                    _matchingContextVersion);
+                _pendingWrite = pending;
+            }
+
+            try
+            {
+                if (safetyStop)
+                    await DispatchSafetyStopAsync(motionSettings, cancellationToken, _hostCancellationToken)
+                        .ConfigureAwait(false);
+                else
+                    await DispatchMotionAsync(motionSettings, cancellationToken, _hostCancellationToken)
+                        .ConfigureAwait(false);
+            }
+            catch
+            {
+                lock (_stateGate)
+                {
+                    if (ReferenceEquals(_pendingWrite, pending) && !pending.Issued)
+                        _pendingWrite = null;
+                }
+
+                throw;
+            }
+
+            lock (_stateGate)
+            {
+                // A disconnect clears the request history and changes this version number.
+                // If that happened while sending, do not put this old request back.
+                if (_matchingContextVersion == pending.MatchingContextVersion)
+                {
+                    _lastRequestedMotion = motionSettings;
+                    pending.Completed = true;
+                }
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+        }
+        finally
+        {
+            _operationGate.Release();
+        }
+    }
+
+    private async Task DisposeDeviceAsync()
+    {
+        Interlocked.Exchange(ref _disposed, 1);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5), _timeProvider);
+        try
+        {
+            await StopAsync(timeout.Token).ConfigureAwait(false);
+            if (ExecuteTask is { } executionTask)
+            {
+                try
+                {
+                    await executionTask.WaitAsync(timeout.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (executionTask.IsCanceled && !timeout.IsCancellationRequested)
+                {
+                }
+            }
+
+            await _operationGate.WaitAsync(timeout.Token).ConfigureAwait(false);
+            try
+            {
+                timeout.Token.ThrowIfCancellationRequested();
+                await DisposeCoreAsync().AsTask().WaitAsync(timeout.Token).ConfigureAwait(false);
+                timeout.Token.ThrowIfCancellationRequested();
+            }
+            finally
+            {
+                _operationGate.Release();
+            }
+        }
+        catch (OperationCanceledException) when (timeout.IsCancellationRequested)
+        {
+            throw new TimeoutException("Device cleanup did not settle during disposal.");
+        }
+
+        lock (_stateGate)
+        {
+            _connectionState = DeviceConnectionState.Disconnected;
+        }
+
+        _operationGate.Dispose();
+        Dispose();
+    }
 
     private PendingWrite? GetValidPendingWrite()
     {
         if (_pendingWrite is { } pending &&
-            _timeProvider.GetElapsedTime(pending.Timestamp) >= _expectationLifetime)
+            _timeProvider.GetElapsedTime(pending.LastIssuedTimestamp ?? pending.Timestamp) >= _expectationLifetime)
         {
             _pendingWrite = null;
         }
@@ -435,6 +508,14 @@ public abstract class DeviceBase : BackgroundService, IOssmDevice, IAsyncDisposa
         MotionSettings Settings,
         int? PreviousRequestedSpeed,
         int? PreviousStateSpeed,
+        MotionSettings? PreviousStateMotion,
         long Timestamp,
-        long MatchingContextVersion);
+        long MatchingContextVersion)
+    {
+        internal bool Issued { get; set; }
+
+        internal bool Completed { get; set; }
+
+        internal long? LastIssuedTimestamp { get; set; }
+    }
 }

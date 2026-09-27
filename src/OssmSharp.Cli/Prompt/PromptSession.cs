@@ -4,6 +4,8 @@ using OneOf;
 using OssmSharp.Cli.Models;
 using OssmSharp.Cli.Simulator;
 using OssmSharp.Device.Primitives;
+using OssmSharp.Device.Primitives.Models;
+using OssmSharp.Device.Runtime;
 
 namespace OssmSharp.Cli;
 
@@ -15,32 +17,35 @@ internal sealed class PromptSession
     private readonly PromptHandler _prompt;
     private readonly Func<string, SimulatorBackgroundService> _createSimulator;
     private readonly Func<string, IOssmDevice> _createSimulatedDevice;
-    private readonly Func<string, IOssmDevice>? _createStockDevice;
-    private readonly Func<CancellationToken, Task<IReadOnlyList<(string Name, string Id)>>>? _scan;
+    private readonly Func<DeviceIdentifier, IOssmDevice>? _createStockDevice;
+    private readonly IDeviceDiscovery? _discovery;
+    private readonly TimeProvider _timeProvider;
     private readonly TextWriter _error;
 
     internal PromptSession(
         PromptHandler prompt,
         Func<string, SimulatorBackgroundService> createSimulator,
         Func<string, IOssmDevice> createSimulatedDevice,
-        Func<string, IOssmDevice>? createStockDevice,
-        Func<CancellationToken, Task<IReadOnlyList<(string Name, string Id)>>>? scan,
+        Func<DeviceIdentifier, IOssmDevice>? createStockDevice,
+        IDeviceDiscovery? discovery,
+        TimeProvider timeProvider,
         TextWriter error)
     {
         _prompt = prompt ?? throw new ArgumentNullException(nameof(prompt));
         _createSimulator = createSimulator ?? throw new ArgumentNullException(nameof(createSimulator));
         _createSimulatedDevice = createSimulatedDevice ?? throw new ArgumentNullException(nameof(createSimulatedDevice));
         _createStockDevice = createStockDevice;
-        _scan = scan;
+        _discovery = discovery;
+        _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
         _error = error ?? throw new ArgumentNullException(nameof(error));
     }
 
     /// <summary>
     /// Prefers a platform ID over a case-sensitive exact unique device name from the same bounded scan.
     /// </summary>
-    internal static string ResolveBluetoothId(
+    internal static DeviceIdentifier ResolveBluetoothIdentifier(
         string selection,
-        IReadOnlyList<(string Name, string Id)> candidates)
+        IReadOnlyList<DeviceIdentifier> candidates)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(selection);
         ArgumentNullException.ThrowIfNull(candidates);
@@ -48,14 +53,14 @@ internal sealed class PromptSession
         foreach (var candidate in candidates)
         {
             if (string.Equals(candidate.Id, selection, StringComparison.OrdinalIgnoreCase))
-                return candidate.Id;
+                return candidate;
         }
 
         var matches = candidates
             .Where(candidate => string.Equals(candidate.Name, selection, StringComparison.Ordinal))
             .ToArray();
         if (matches.Length == 1)
-            return matches[0].Id;
+            return matches[0];
 
         if (matches.Length == 0)
             throw new ArgumentException($"Bluetooth device '{DeviceText.Sanitize(selection)}' not found.");
@@ -69,21 +74,18 @@ internal sealed class PromptSession
     }
 
     /// <summary>
-    /// Waits for connection and, for simulation, the first observed state before accepting input.
+    /// Waits for a connection and its first reported state before accepting input.
     /// </summary>
     internal static async Task WaitForReadinessAsync(
         IOssmDevice device,
         BackgroundService service,
         Task<bool> connected,
         Task<bool> firstReport,
-        bool simulatorControl,
         Func<Exception?> getFault,
         CancellationToken cancellationToken)
     {
         await service.StartAsync(cancellationToken).ConfigureAwait(false);
-        using var readiness = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        readiness.CancelAfter(TimeSpan.FromSeconds(5));
-        var timeout = Task.Delay(Timeout.InfiniteTimeSpan, readiness.Token);
+        var timeout = Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
         var completed = await Task.WhenAny(
                 connected,
                 service.ExecuteTask ?? Task.CompletedTask,
@@ -103,15 +105,12 @@ internal sealed class PromptSession
             throw new IOException("Device connection ended before readiness.");
         }
 
-        if (!await connected.ConfigureAwait(false)
-            || device.ConnectionState != DeviceConnectionState.Connected)
+        if (!await connected.ConfigureAwait(false) || !IsDeviceConnected(device))
         {
             throw new IOException("Device connection failed for the selected device.");
         }
 
         cancellationToken.ThrowIfCancellationRequested();
-        if (!simulatorControl)
-            return;
 
         completed = await Task.WhenAny(
                 firstReport,
@@ -121,7 +120,7 @@ internal sealed class PromptSession
         if (completed == timeout)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            throw new TimeoutException("Simulator did not report initial feedback within five seconds.");
+            throw new TimeoutException("Device did not report initial feedback within five seconds.");
         }
 
         if (completed != firstReport)
@@ -129,13 +128,13 @@ internal sealed class PromptSession
             if (service.ExecuteTask is { IsFaulted: true } execution)
                 await execution.ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
-            throw new IOException("Simulator disconnected before initial feedback.");
+            throw new IOException("Device disconnected before initial feedback.");
         }
 
         if (!await firstReport.ConfigureAwait(false))
-            throw new IOException("Simulator feedback failed before readiness.", getFault());
-        if (device.ConnectionState != DeviceConnectionState.Connected)
-            throw new IOException("Simulator disconnected during initial feedback.");
+            throw new IOException("Device feedback failed before readiness.", getFault());
+        if (!IsDeviceConnected(device))
+            throw new IOException("Device disconnected during initial feedback.");
         cancellationToken.ThrowIfCancellationRequested();
     }
 
@@ -148,37 +147,25 @@ internal sealed class PromptSession
 
         IOssmDevice? device = null;
         SimulatorBackgroundService? child = null;
+        DeviceExecutionSession? execution = null;
         Action<DeviceConnectionState>? onConnectionChanged = null;
         Action<OneOf<DeviceState, Exception>>? onStateChanged = null;
-        DeviceState? reported = null;
-        MotionSettings? submitted = null;
-        Exception? fault = null;
         Task<int>? activePrompt = null;
-
-        ValueTask CleanupAsync() => CleanupOwnedResourcesAsync(
-            selection.Mode,
-            device,
-            child,
-            onConnectionChanged,
-            onStateChanged,
-            submitted,
-            Volatile.Read(ref reported),
-            activePrompt);
 
         try
         {
             switch (selection.Mode)
             {
                 case PromptMode.Bluetooth:
-                    if (_scan is null || _createStockDevice is null)
+                    if (_createStockDevice is null || _discovery is null)
                     {
                         throw new InvalidOperationException(
                             "Stock BLE connection unavailable: use a native BLE build.");
                     }
 
-                    var candidates = await _scan(cancellationToken).ConfigureAwait(false);
-                    var selectedId = ResolveBluetoothId(selection.Value, candidates);
-                    device = _createStockDevice(selectedId);
+                    var candidates = await _discovery.ScanAsync(cancellationToken).ConfigureAwait(false);
+                    var selected = ResolveBluetoothIdentifier(selection.Value, candidates);
+                    device = _createStockDevice(selected);
                     break;
 
                 case PromptMode.SimulatorLaunch:
@@ -203,7 +190,12 @@ internal sealed class PromptSession
                     throw new ArgumentOutOfRangeException(nameof(selection), "Unknown device selection mode.");
             }
 
-            if (device is not BackgroundService service)
+            var selectedDevice = device
+                ?? throw new InvalidOperationException("The selected session has no device.");
+            var deviceExecution = CreateDeviceExecutionSession(selectedDevice);
+            execution = deviceExecution;
+
+            if (selectedDevice is not BackgroundService service)
                 throw new InvalidOperationException("The selected device cannot start a foreground connection.");
 
             var connected = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -216,40 +208,31 @@ internal sealed class PromptSession
                     connected.TrySetResult(false);
             };
             onStateChanged = change =>
-            {
-                if (change.IsT0)
-                {
-                    Volatile.Write(ref reported, change.AsT0);
-                    firstReport.TrySetResult(true);
-                }
-                else
-                {
-                    Volatile.Write(ref fault, change.AsT1);
-                    if (selection.Mode != PromptMode.Bluetooth)
-                        firstReport.TrySetResult(false);
-                }
-            };
-            device.ConnectionStateChanged += onConnectionChanged;
-            device.DeviceStateChanged += onStateChanged;
+                firstReport.TrySetResult(change.IsT0);
+            selectedDevice.ConnectionStateChanged += onConnectionChanged;
+            selectedDevice.DeviceStateChanged += onStateChanged;
 
             await WaitForReadinessAsync(
-                    device,
+                    selectedDevice,
                     service,
                     connected.Task,
                     firstReport.Task,
-                    selection.Mode != PromptMode.Bluetooth,
-                    () => Volatile.Read(ref fault),
+                    () => deviceExecution.Fault,
                     cancellationToken)
                 .ConfigureAwait(false);
 
+            if (selection.Mode != PromptMode.Bluetooth)
+            {
+                var authorityRevision = deviceExecution.AuthorityRevision;
+                await deviceExecution.InitializeAsync(authorityRevision, cancellationToken).ConfigureAwait(false);
+            }
+
             return await RunPromptAsync(
-                    device,
+                    selectedDevice,
                     service,
                     child,
                     selection.Mode != PromptMode.Bluetooth,
-                    () => Volatile.Read(ref reported),
-                    () => Volatile.Read(ref fault),
-                    settings => submitted = settings,
+                    deviceExecution,
                     task => activePrompt = task,
                     cancellationToken)
                 .ConfigureAwait(false);
@@ -266,7 +249,34 @@ internal sealed class PromptSession
         }
         finally
         {
-            await CleanupAsync().ConfigureAwait(false);
+            await CleanupOwnedResourcesAsync(
+                    device,
+                    child,
+                    execution,
+                    onConnectionChanged,
+                    onStateChanged,
+                    activePrompt)
+                .ConfigureAwait(false);
+        }
+    }
+
+    private static bool IsDeviceConnected(IOssmDevice device) =>
+        device.ConnectionState == DeviceConnectionState.Connected;
+
+    private static async Task AwaitCleanupWithinBudgetAsync(Task cleanup, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await cleanup.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            _ = cleanup.ContinueWith(
+                static task => _ = task.Exception,
+                CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+            throw new TimeoutException("Device cleanup did not settle within five seconds.");
         }
     }
 
@@ -275,20 +285,18 @@ internal sealed class PromptSession
         BackgroundService service,
         SimulatorBackgroundService? child,
         bool simulatorControl,
-        Func<DeviceState?> getReported,
-        Func<Exception?> getFault,
-        Action<MotionSettings> recordSubmission,
+        DeviceExecutionSession execution,
         Action<Task<int>> recordPrompt,
         CancellationToken cancellationToken)
     {
         using var promptCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var prompt = _prompt.RunAsync(
             device,
-            getReported,
-            getFault,
+            () => execution.Reported,
+            () => execution.Fault,
             promptCancellation.Token,
             simulatorControl,
-            recordSubmission);
+            execution: execution);
         recordPrompt(prompt);
 
         var deviceTask = service.ExecuteTask ?? new TaskCompletionSource().Task;
@@ -331,59 +339,72 @@ internal sealed class PromptSession
     }
 
     private async ValueTask CleanupOwnedResourcesAsync(
-        PromptMode mode,
         IOssmDevice? device,
         SimulatorBackgroundService? child,
+        DeviceExecutionSession? execution,
         Action<DeviceConnectionState>? onConnectionChanged,
         Action<OneOf<DeviceState, Exception>>? onStateChanged,
-        MotionSettings? submitted,
-        DeviceState? reported,
         Task<int>? activePrompt)
     {
         var failures = new List<Exception>();
+        using var cleanupBudget = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var cleanupToken = cleanupBudget.Token;
+        var executionDisposalFailed = false;
 
         if (device is not null)
         {
             try
             {
-                if (mode != PromptMode.Bluetooth && device.ConnectionState == DeviceConnectionState.Connected)
+                if (execution is not null && device.ConnectionState == DeviceConnectionState.Connected)
+                    await execution.StopAsync(cleanupToken).ConfigureAwait(false);
+            }
+            catch (Exception exception)
+            {
+                failures.Add(exception);
+            }
+
+            try
+            {
+                if (execution is not null)
                 {
-                    using var stopTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-                    await device.SetMotionAsync(
-                            PromptHandler.StoppedSettings(submitted ?? reported?.MotionSettings),
-                            stopTimeout.Token)
-                        .WaitAsync(stopTimeout.Token)
+                    await AwaitCleanupWithinBudgetAsync(
+                            execution.DisposeAsync().AsTask(),
+                            cleanupToken)
                         .ConfigureAwait(false);
                 }
             }
             catch (Exception exception)
             {
                 failures.Add(exception);
+                executionDisposalFailed = true;
             }
 
-            try
+            if (!executionDisposalFailed)
             {
-                await device.DisposeAsync().ConfigureAwait(false);
+                try
+                {
+                    await AwaitCleanupWithinBudgetAsync(
+                            device.DisposeAsync().AsTask(),
+                            cleanupToken)
+                        .ConfigureAwait(false);
+                }
+                catch (Exception exception)
+                {
+                    failures.Add(exception);
+                }
             }
-            catch (Exception exception)
-            {
-                failures.Add(exception);
-            }
-            finally
-            {
-                if (onConnectionChanged is not null)
-                    device.ConnectionStateChanged -= onConnectionChanged;
-                if (onStateChanged is not null)
-                    device.DeviceStateChanged -= onStateChanged;
-            }
+
+            if (onConnectionChanged is not null)
+                device.ConnectionStateChanged -= onConnectionChanged;
+            if (onStateChanged is not null)
+                device.DeviceStateChanged -= onStateChanged;
         }
 
         if (child is not null)
         {
             try
             {
-                using var childTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-                await child.StopAsync(childTimeout.Token).ConfigureAwait(false);
+                await child.StopAsync(cleanupToken).ConfigureAwait(false);
             }
             catch (Exception exception)
             {
@@ -405,5 +426,8 @@ internal sealed class PromptSession
         if (failures.Count == 1)
             ExceptionDispatchInfo.Capture(failures[0]).Throw();
     }
+
+    private DeviceExecutionSession CreateDeviceExecutionSession(IOssmDevice device) =>
+        new(device, _timeProvider);
 
 }

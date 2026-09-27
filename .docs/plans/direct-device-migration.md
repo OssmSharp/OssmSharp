@@ -455,6 +455,67 @@ interruption/reconnect, and explicit unknown outcomes on cleanup timeout.
 
 ### M4. Interactive direct-device CLI and first real control command
 
+Composition checkpoint, 27 September 2026: the
+[CLI Interop plan](cli-platform-interop.md) is being implemented. Discovery,
+typed information reads and selected-device creation now share opaque
+`DeviceIdentifier` records through injected contracts. The coordinating agent
+independently reran these focused handoff checks:
+
+- Native macOS Stock device/connection/discovery/provider/identifier/transport/
+  registration/mapping/dispatch selection: 101 discovered, 101 passed, 0 failed, 0 skipped.
+- Runtime execution/DeviceBase selection:
+  78 discovered, 78 passed, 0 failed, 0 skipped.
+- Portable CLI command/selection/platform/prompt selection:
+  98 discovered, 98 passed, 0 failed, 0 skipped.
+- Native macOS CLI discovery, registered Stock factory, prompt, Runtime and
+  native protocol composition with controlled BLE/qualification boundaries:
+  2 discovered, 2 passed, 0 failed, 0 skipped.
+- Portable native-unavailable actual-process regression:
+  1 discovered, 1 passed, 0 failed, 0 skipped.
+
+The full native macOS CLI build succeeded with Xcode 27 and
+`StockMacOSApiVersion=27.0`; its actual application executable ran help and
+version successfully. Remaining diagnostics include unchanged simulator
+analyzer warnings, trim analysis, apphost metadata and an unsuppressed CLI
+test-helper CA2025 warning.
+
+Independent reruns exposed two test-lifecycle races before the final passes:
+the Runtime disposal test's teardown mishandled a canceled hosted task, and
+the prompt Stop test did not order its input after initial feedback and issued
+I/O. Bounded cleanup and explicit test gates replaced those assumptions;
+timeouts and behavior assertions were not weakened.
+
+The final targeted adversarial review accepted the corrected initialization,
+interruption, feedback, prompt responsiveness and cleanup paths. Cleanup retains
+unsettled device I/O in both native and simulator modes. Runtime disposal
+deadline tests use injected clocks; the CLI cleanup regressions still use their
+bounded real-time budgets.
+
+These checkpoint results did not establish native control acceptance. The
+resumed software increment implements an internal connection-bound qualified
+mapping, exact native dispatch and mandatory Runtime authority revisions and
+guards. The coordinating agent independently verified 78 Runtime and 101 native
+macOS Stock cases, all passed with zero failures or skips. These selections
+include qualification bounds, firmware step conversion, Stop outside play-ready
+states, Stop racing newer geometry, and write-free rejection of invalid
+transitions and unsupported baselines. Real CLI composition checks now pass:
+they assert exact stopped geometry writes before speed, reported speed separate
+from requested speed, default-DI rejection and cleanup Stop before disconnect.
+The native MTP runner now clears the unpumped Apple synchronization context,
+following the existing Stock test entry point. Adversarial review accepted the
+real CLI composition. Its remaining Stop/report-race and unsupported-baseline
+findings were corrected, source-checked and independently tested by the
+coordinating agent. The CLI freshness regression also proves that its readiness
+decision uses Runtime's injected clock, not a second system-clock check.
+
+Production composition still supplies no qualified mapping; passing controlled
+qualification/BLE-boundary tests does not populate the physical qualification
+allowlist or authorize physical positive motion. Native Windows checks have not
+run; live-device operation and physical qualification are not authorized.
+Queue ownership was reviewed in source and exercised by successful native CLI
+exit, but its registration/host-failure disposal paths lack executable checks.
+Broader suites were not run, and their not-run test counts are unknown.
+
 Recorded evidence: no accepted foreground Stock CLI at the ordering checkpoint.
 M1 renamed the executable/tests but retained daemon/IPC, launcher ownership,
 ASP.NET and both providers. Continue current CLI changes toward the stock BLE

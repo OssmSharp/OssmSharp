@@ -6,34 +6,28 @@ using OssmSharp.Device.Stock.Models;
 namespace OssmSharp.Device.Stock.Tests;
 
 /// <summary>
-/// Checks stock device options, speed matching, and behavior when the BLE transport is unavailable.
+/// Checks stock device options, speed matching, and selected BLE behavior.
 /// </summary>
-public sealed class StockOssmDeviceTests : MockerTestBase<StockOssmDevice>, IAsyncDisposable
+public sealed class StockOssmDeviceTests
 {
     private static readonly byte[] Identity = "a4:cf:12:34:56:78;ESP32-S3;1;0123456789abcdef0123456789abcdef;1.0.34"u8.ToArray();
     private static readonly byte[] Patterns = "[{\"name\":\"Simple Stroke\",\"idx\":0},{\"name\":\"Teasing Pounding\",\"idx\":1}]"u8.ToArray();
-
-    protected override Type[] ComponentConstructorParameterTypes =>
-        [typeof(IOptions<DeviceRuntimeOptions>), typeof(TimeProvider), typeof(ILogger<StockOssmDevice>)];
-
-    protected override Action<Mocker> SetupMocksAction => mocks =>
-    {
-        mocks.SetupOptions(new DeviceRuntimeOptions());
-        mocks.AddType<TimeProvider>(TimeProvider.System);
-        mocks.AddMethodResult<ILogger<StockOssmDevice>, bool>(
-            logger => logger.IsEnabled(FastArg.Any<LogLevel>()),
-            true);
-    };
 
     [Fact]
     public void ConstructorRejectsMissingDependencies()
     {
         var options = Options.Create(new DeviceRuntimeOptions());
         var logger = NullLogger<StockOssmDevice>.Instance;
+        var selected = new SelectedStockTestIdentifier("selected-peripheral");
+        using var mocks = new Mocker();
+        var transport = mocks.GetRequiredObject<IDeviceTransport>();
 
-        Assert.Throws<ArgumentNullException>(() => new StockOssmDevice(null!, TimeProvider.System, logger));
-        Assert.Throws<ArgumentNullException>(() => new StockOssmDevice(options, null!, logger));
-        Assert.Throws<ArgumentNullException>(() => new StockOssmDevice(options, TimeProvider.System, null!));
+        Assert.Throws<ArgumentNullException>(() => new StockOssmDevice(null!, TimeProvider.System, logger, selected, transport));
+        Assert.Throws<ArgumentNullException>(() => new StockOssmDevice(options, null!, logger, selected, transport));
+        Assert.Throws<ArgumentNullException>(() => new StockOssmDevice(options, TimeProvider.System, null!, selected, transport));
+        Assert.Throws<ArgumentNullException>(() => new StockOssmDevice(options, TimeProvider.System, logger, null!, transport));
+        Assert.Throws<ArgumentNullException>(() => new StockOssmDevice(options, TimeProvider.System, logger, selected, null!));
+        Assert.Empty(typeof(StockOssmDevice).GetConstructors(BindingFlags.Public | BindingFlags.Instance));
     }
 
     [Fact]
@@ -44,7 +38,8 @@ public sealed class StockOssmDeviceTests : MockerTestBase<StockOssmDevice>, IAsy
         Assert.IsAssignableFrom<DeviceRuntimeOptions>(options);
         Assert.IsAssignableFrom<IValidatableObject>(options);
         Assert.Throws<ValidationException>(() => new StockOssmDevice(
-            Options.Create(options), TimeProvider.System, NullLogger<StockOssmDevice>.Instance));
+            Options.Create(options), TimeProvider.System, NullLogger<StockOssmDevice>.Instance,
+            new SelectedStockTestIdentifier("selected-peripheral"), null!));
     }
 
     [Fact]
@@ -58,15 +53,15 @@ public sealed class StockOssmDeviceTests : MockerTestBase<StockOssmDevice>, IAsy
 
 #if MACOS
     [Fact]
-    public async Task MacOSConstructorAcceptsSelectedIdWithoutWifiMacOrBluetoothAccess()
+    public async Task MacOSConstructorAcceptsInjectedSelectedDeviceWithoutBluetoothAccess()
     {
         using var mocks = new Mocker();
         await using var device = new StockOssmDevice(
             Options.Create(new DeviceRuntimeOptions()),
-            Options.Create(new StockBleOptions { PeripheralId = "selected-peripheral" }),
-            mocks.GetRequiredObject<Shiny.BluetoothLE.IBleManager>(),
             TimeProvider.System,
-            NullLogger<StockOssmDevice>.Instance);
+            NullLogger<StockOssmDevice>.Instance,
+            new SelectedStockTestIdentifier("selected-peripheral"),
+            mocks.GetRequiredObject<IDeviceTransport>());
 
         Assert.Equal(DeviceConnectionState.Disconnected, device.ConnectionState);
         Assert.Throws<InvalidOperationException>(() => device.Device);
@@ -175,40 +170,32 @@ public sealed class StockOssmDeviceTests : MockerTestBase<StockOssmDevice>, IAsy
     }
 
     [Fact]
-    public async Task BlePlaceholderStaysDisconnectedLogsUnsupportedConnectionFailureAndRejectsWrites()
+    public async Task InjectedTransportFailureLeavesDeviceDisconnectedAndCannotWrite()
     {
-        var changes = new List<OneOf<DeviceState, Exception>>();
+        var transport = new UnavailableTransport();
+        await using var device = new StockOssmDevice(
+            Options.Create(new DeviceRuntimeOptions()), TimeProvider.System,
+            NullLogger<StockOssmDevice>.Instance,
+            new SelectedStockTestIdentifier("selected-peripheral"), transport);
         var connections = Channel.CreateUnbounded<DeviceConnectionState>();
-        Component.DeviceStateChanged += changes.Add;
-        Component.ConnectionStateChanged += state => connections.Writer.TryWrite(state);
+        var changes = new List<OneOf<DeviceState, Exception>>();
+        device.ConnectionStateChanged += state => connections.Writer.TryWrite(state);
+        device.DeviceStateChanged += changes.Add;
 
-        Assert.Equal(DeviceConnectionState.Disconnected, Component.ConnectionState);
-        Assert.Throws<InvalidOperationException>(() => Component.Device);
-        await Component.StartAsync(TestContext.Current.CancellationToken);
-
-        Assert.Equal(DeviceConnectionState.Connecting, await connections.Reader.ReadAsync(TestContext.Current.CancellationToken));
-        Assert.Equal(DeviceConnectionState.Disconnected, await connections.Reader.ReadAsync(TestContext.Current.CancellationToken));
-        await Component.StopAsync(TestContext.Current.CancellationToken);
+        await device.StartAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(
+            DeviceConnectionState.Connecting,
+            await connections.Reader.ReadAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(
+            DeviceConnectionState.Disconnected,
+            await connections.Reader.ReadAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(1, transport.ConnectCalls);
         Assert.Empty(changes);
-        Assert.Equal(DeviceConnectionState.Disconnected, Component.ConnectionState);
-        Assert.Throws<InvalidOperationException>(() => Component.Device);
-        Mocks.VerifyLogged(LogLevel.Warning, "Device connection failed", TimesSpec.Once);
-
-        var write = new MotionSettings(
-            MotionDeviceState.StrokeEngineIdle,
-            0,
-            20,
-            50,
-            40,
-            0,
-            MotionPattern.SimpleStroke,
-            0);
-
-        await Assert.ThrowsAsync<NotSupportedException>(() =>
-            Component.SetMotionAsync(write, TestContext.Current.CancellationToken));
-
-        Assert.Empty(changes);
-        Assert.Equal(DeviceConnectionState.Disconnected, Component.ConnectionState);
+        Assert.Equal(DeviceConnectionState.Disconnected, device.ConnectionState);
+        Assert.Throws<InvalidOperationException>(() => device.Device);
+        await Assert.ThrowsAsync<IOException>(
+            () => device.SetMotionAsync(Settings(0), TestContext.Current.CancellationToken));
+        Assert.Equal(1, transport.ConnectCalls);
     }
 
     [Fact]
@@ -216,21 +203,21 @@ public sealed class StockOssmDeviceTests : MockerTestBase<StockOssmDevice>, IAsy
     {
         using var mocks = new Mocker();
         var notifications = Channel.CreateUnbounded<byte[]>();
-        mocks.AddMethodResultAsync<IStockBleConnection, StockGattProfile>(
+        mocks.AddMethodResultAsync<IDeviceConnection, StockGattProfile>(
             ble => ble.ReadProfileAsync(FastArg.Any<CancellationToken>()),
             new StockGattProfile(
                 "enrolled", StockFirmwareProfile.Service,
                 [StockFirmwareProfile.Identity, StockFirmwareProfile.Command, StockFirmwareProfile.KnobConfiguration,
                     StockFirmwareProfile.State, StockFirmwareProfile.Patterns, StockFirmwareProfile.PatternData],
                 Identity, Patterns, notifications.Reader));
-        var connection = mocks.GetRequiredObject<IStockBleConnection>();
-        mocks.AddMethodResultAsync<IStockBleTransport, IStockBleConnection>(
-            ble => ble.ConnectAsync("enrolled", StockFirmwareProfile.Service, FastArg.Any<CancellationToken>()),
+        var connection = mocks.GetRequiredObject<IDeviceConnection>();
+        mocks.AddMethodResultAsync<IDeviceTransport, IDeviceConnection>(
+            ble => ble.ConnectAsync(FastArg.Any<DeviceIdentifier>(), StockFirmwareProfile.Service, FastArg.Any<CancellationToken>()),
             connection);
-        var transport = mocks.GetRequiredObject<IStockBleTransport>();
+        var transport = mocks.GetRequiredObject<IDeviceTransport>();
         await using var device = new StockOssmDevice(
             Options.Create(new DeviceRuntimeOptions()), TimeProvider.System,
-            NullLogger<StockOssmDevice>.Instance, "enrolled", transport);
+            NullLogger<StockOssmDevice>.Instance, new SelectedStockTestIdentifier("enrolled"), transport);
         var connected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         device.ConnectionStateChanged += state =>
         {
@@ -254,32 +241,157 @@ public sealed class StockOssmDeviceTests : MockerTestBase<StockOssmDevice>, IAsy
         Assert.Equal("enrolled", device.Device.Identity);
         Assert.Equal("1.0.34", device.Device.Version);
         Assert.Empty(states);
-        mocks.Verify<IStockBleTransport>(
-            ble => ble.ConnectAsync("enrolled", StockFirmwareProfile.Service, FastArg.Any<CancellationToken>()),
+        mocks.Verify<IDeviceTransport>(
+            ble => ble.ConnectAsync(FastArg.Any<DeviceIdentifier>(), StockFirmwareProfile.Service, FastArg.Any<CancellationToken>()),
             TimesSpec.Once);
         await device.StopAsync(TestContext.Current.CancellationToken);
-        mocks.Verify<IStockBleConnection>(ble => ble.DisposeAsync(), TimesSpec.Once);
+        mocks.Verify<IDeviceConnection>(ble => ble.DisposeAsync(), TimesSpec.Once);
+    }
+
+    [Fact]
+    public async Task ConnectedStockDispatchesOnlyZeroSpeedWithoutVerifiedMotionReadiness()
+    {
+        using var mocks = new Mocker();
+        var notifications = Channel.CreateUnbounded<byte[]>();
+        await using var connection = new RecordingStockConnection(
+            new StockGattProfile(
+                "enrolled", StockFirmwareProfile.Service,
+                [StockFirmwareProfile.Identity, StockFirmwareProfile.Command, StockFirmwareProfile.KnobConfiguration,
+                    StockFirmwareProfile.State, StockFirmwareProfile.Patterns, StockFirmwareProfile.PatternData],
+                Identity, Patterns, notifications.Reader));
+        mocks.AddMethodResultAsync<IDeviceTransport, IDeviceConnection>(
+            ble => ble.ConnectAsync(FastArg.Any<DeviceIdentifier>(), StockFirmwareProfile.Service, FastArg.Any<CancellationToken>()),
+            connection);
+        await using var device = new StockOssmDevice(
+            Options.Create(new DeviceRuntimeOptions()), TimeProvider.System,
+            NullLogger<StockOssmDevice>.Instance, new SelectedStockTestIdentifier("enrolled"),
+            mocks.GetRequiredObject<IDeviceTransport>());
+        var connected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        device.ConnectionStateChanged += state =>
+        {
+            if (state == DeviceConnectionState.Connected)
+                connected.TrySetResult();
+        };
+
+        await device.StartAsync(TestContext.Current.CancellationToken);
+        await connected.Task.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => device.SetMotionAsync(Settings(12), TestContext.Current.CancellationToken));
+        Assert.Empty(connection.Commands);
+
+        await device.SetMotionAsync(Settings(0), TestContext.Current.CancellationToken);
+        Assert.Equal(["set:speed:0"], connection.Commands);
+    }
+
+    [Fact]
+    public async Task UnqualifiedStoppedGeometryNeverWritesEvenAfterKnobPreparation()
+    {
+        await using var scenario = await StockMotionScenario.ConnectAsync(
+            new UnqualifiedStockMotion(), 20, 40, TestContext.Current.CancellationToken);
+        await scenario.Device.PrepareAsync(
+            TestContext.Current.CancellationToken, TestContext.Current.CancellationToken);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => scenario.Device.SetMotionAsync(
+                Settings(0) with { Stroke = 10 }, TestContext.Current.CancellationToken));
+
+        Assert.Empty(scenario.Connection.Commands);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task VerifiedStoppedFieldWriteChecksRevocationAndFreshness(
+        bool revokeAfterZero,
+        bool stale)
+    {
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        using var mocks = new Mocker();
+        var notifications = Channel.CreateUnbounded<byte[]>();
+        await using var connection = new RecordingStockConnection(
+            new StockGattProfile(
+                "enrolled", StockFirmwareProfile.Service,
+                [StockFirmwareProfile.Identity, StockFirmwareProfile.Command, StockFirmwareProfile.KnobConfiguration,
+                    StockFirmwareProfile.State, StockFirmwareProfile.Patterns, StockFirmwareProfile.PatternData],
+                Identity, Patterns, notifications.Reader));
+        mocks.AddMethodResultAsync<IDeviceTransport, IDeviceConnection>(
+            ble => ble.ConnectAsync(FastArg.Any<DeviceIdentifier>(), StockFirmwareProfile.Service, FastArg.Any<CancellationToken>()),
+            connection);
+        await using var device = new StockOssmDevice(
+            Options.Create(new DeviceRuntimeOptions()), clock,
+            NullLogger<StockOssmDevice>.Instance, new SelectedStockTestIdentifier("enrolled"),
+            mocks.GetRequiredObject<IDeviceTransport>(), new TestStockQualificationResolver());
+        var connected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var reported = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        device.ConnectionStateChanged += state =>
+        {
+            if (state == DeviceConnectionState.Connected)
+                connected.TrySetResult();
+        };
+        device.DeviceStateChanged += change =>
+        {
+            if (change.IsT0)
+                reported.TrySetResult();
+        };
+        await device.StartAsync(TestContext.Current.CancellationToken);
+        await connected.Task.WaitAsync(TestContext.Current.CancellationToken);
+        await notifications.Writer.WriteAsync(
+            """{"timestamp":1,"state":"strokeEngine.idle","speed":0,"stroke":50,"sensation":50,"depth":75,"buffer":0,"pattern":0,"position":0,"sessionId":""}"""u8.ToArray(),
+            TestContext.Current.CancellationToken);
+        await reported.Task.WaitAsync(TestContext.Current.CancellationToken);
+        await device.PrepareAsync(
+            TestContext.Current.CancellationToken, TestContext.Current.CancellationToken);
+        if (stale)
+            clock.Advance(TimeSpan.FromSeconds(6));
+
+        using var revocation = new CancellationTokenSource();
+        if (revokeAfterZero)
+            connection.AfterWrite = command =>
+            {
+                if (command.Setting == "speed")
+                    revocation.Cancel();
+            };
+
+        var requested = Settings(0) with { Stroke = 25, Depth = 75 };
+        if (stale)
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => device.SetMotionAsync(requested, revocation.Token));
+            Assert.Empty(connection.Commands);
+        }
+        else if (revokeAfterZero)
+        {
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                () => device.SetMotionAsync(requested, revocation.Token));
+            Assert.Equal(["set:speed:0"], connection.Commands);
+        }
+        else
+        {
+            await device.SetMotionAsync(requested, revocation.Token);
+            Assert.Equal(["set:speed:0", "set:stroke:25"], connection.Commands);
+        }
     }
 
     [Fact]
     public async Task DifferentConnectedPeripheralNeverPublishesConnectedAndReleasesConnection()
     {
         using var mocks = new Mocker();
-        mocks.AddMethodResultAsync<IStockBleConnection, StockGattProfile>(
+        mocks.AddMethodResultAsync<IDeviceConnection, StockGattProfile>(
             ble => ble.ReadProfileAsync(FastArg.Any<CancellationToken>()),
             new StockGattProfile(
                 "different-peripheral", StockFirmwareProfile.Service,
                 [StockFirmwareProfile.Identity, StockFirmwareProfile.Command, StockFirmwareProfile.KnobConfiguration,
                     StockFirmwareProfile.State, StockFirmwareProfile.Patterns, StockFirmwareProfile.PatternData],
                 Identity, Patterns, Channel.CreateUnbounded<byte[]>().Reader));
-        var connection = mocks.GetRequiredObject<IStockBleConnection>();
-        mocks.AddMethodResultAsync<IStockBleTransport, IStockBleConnection>(
-            ble => ble.ConnectAsync("enrolled", StockFirmwareProfile.Service, FastArg.Any<CancellationToken>()),
+        var connection = mocks.GetRequiredObject<IDeviceConnection>();
+        mocks.AddMethodResultAsync<IDeviceTransport, IDeviceConnection>(
+            ble => ble.ConnectAsync(FastArg.Any<DeviceIdentifier>(), StockFirmwareProfile.Service, FastArg.Any<CancellationToken>()),
             connection);
         await using var device = new StockOssmDevice(
             Options.Create(new DeviceRuntimeOptions()), TimeProvider.System,
-            NullLogger<StockOssmDevice>.Instance, "enrolled",
-            mocks.GetRequiredObject<IStockBleTransport>());
+            NullLogger<StockOssmDevice>.Instance, new SelectedStockTestIdentifier("enrolled"),
+            mocks.GetRequiredObject<IDeviceTransport>());
         var disconnected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var connections = new List<DeviceConnectionState>();
         device.ConnectionStateChanged += state =>
@@ -296,7 +408,7 @@ public sealed class StockOssmDeviceTests : MockerTestBase<StockOssmDevice>, IAsy
 
         Assert.Equal([DeviceConnectionState.Connecting, DeviceConnectionState.Disconnected], connections);
         Assert.Throws<InvalidOperationException>(() => device.Device);
-        mocks.Verify<IStockBleConnection>(ble => ble.DisposeAsync(), TimesSpec.Once);
+        mocks.Verify<IDeviceConnection>(ble => ble.DisposeAsync(), TimesSpec.Once);
     }
 
     [Fact]
@@ -304,13 +416,13 @@ public sealed class StockOssmDeviceTests : MockerTestBase<StockOssmDevice>, IAsy
     {
         using var mocks = new Mocker();
         await using var connection = new UnsettledProfileConnection();
-        mocks.AddMethodResultAsync<IStockBleTransport, IStockBleConnection>(
-            ble => ble.ConnectAsync("selected", StockFirmwareProfile.Service, FastArg.Any<CancellationToken>()),
+        mocks.AddMethodResultAsync<IDeviceTransport, IDeviceConnection>(
+            ble => ble.ConnectAsync(FastArg.Any<DeviceIdentifier>(), StockFirmwareProfile.Service, FastArg.Any<CancellationToken>()),
             connection);
         using var device = new StockOssmDevice(
             Options.Create(new DeviceRuntimeOptions()), TimeProvider.System,
-            NullLogger<StockOssmDevice>.Instance, "selected",
-            mocks.GetRequiredObject<IStockBleTransport>());
+            NullLogger<StockOssmDevice>.Instance, new SelectedStockTestIdentifier("selected"),
+            mocks.GetRequiredObject<IDeviceTransport>());
         var disconnected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         device.ConnectionStateChanged += state =>
         {
@@ -332,21 +444,21 @@ public sealed class StockOssmDeviceTests : MockerTestBase<StockOssmDevice>, IAsy
         using var mocks = new Mocker();
         var notifications = Channel.CreateUnbounded<byte[]>();
         notifications.Writer.TryComplete(new IOException("Connection lost during identification."));
-        mocks.AddMethodResultAsync<IStockBleConnection, StockGattProfile>(
+        mocks.AddMethodResultAsync<IDeviceConnection, StockGattProfile>(
             ble => ble.ReadProfileAsync(FastArg.Any<CancellationToken>()),
             new StockGattProfile(
                 "enrolled", StockFirmwareProfile.Service,
                 [StockFirmwareProfile.Identity, StockFirmwareProfile.Command, StockFirmwareProfile.KnobConfiguration,
                     StockFirmwareProfile.State, StockFirmwareProfile.Patterns, StockFirmwareProfile.PatternData],
                 Identity, Patterns, notifications.Reader));
-        var connection = mocks.GetRequiredObject<IStockBleConnection>();
-        mocks.AddMethodResultAsync<IStockBleTransport, IStockBleConnection>(
-            ble => ble.ConnectAsync("enrolled", StockFirmwareProfile.Service, FastArg.Any<CancellationToken>()),
+        var connection = mocks.GetRequiredObject<IDeviceConnection>();
+        mocks.AddMethodResultAsync<IDeviceTransport, IDeviceConnection>(
+            ble => ble.ConnectAsync(FastArg.Any<DeviceIdentifier>(), StockFirmwareProfile.Service, FastArg.Any<CancellationToken>()),
             connection);
         await using var device = new StockOssmDevice(
             Options.Create(new DeviceRuntimeOptions()), TimeProvider.System,
-            NullLogger<StockOssmDevice>.Instance, "enrolled",
-            mocks.GetRequiredObject<IStockBleTransport>());
+            NullLogger<StockOssmDevice>.Instance, new SelectedStockTestIdentifier("enrolled"),
+            mocks.GetRequiredObject<IDeviceTransport>());
         var disconnected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var connections = new List<DeviceConnectionState>();
         device.ConnectionStateChanged += state =>
@@ -370,21 +482,21 @@ public sealed class StockOssmDeviceTests : MockerTestBase<StockOssmDevice>, IAsy
     {
         using var mocks = new Mocker();
         var notifications = Channel.CreateUnbounded<byte[]>();
-        mocks.AddMethodResultAsync<IStockBleConnection, StockGattProfile>(
+        mocks.AddMethodResultAsync<IDeviceConnection, StockGattProfile>(
             ble => ble.ReadProfileAsync(FastArg.Any<CancellationToken>()),
             new StockGattProfile(
                 "enrolled", StockFirmwareProfile.Service,
                 [StockFirmwareProfile.Identity, StockFirmwareProfile.Command, StockFirmwareProfile.KnobConfiguration,
                     StockFirmwareProfile.State, StockFirmwareProfile.Patterns, StockFirmwareProfile.PatternData],
                 Identity, Patterns, notifications.Reader));
-        var connection = mocks.GetRequiredObject<IStockBleConnection>();
-        mocks.AddMethodResultAsync<IStockBleTransport, IStockBleConnection>(
-            ble => ble.ConnectAsync("enrolled", StockFirmwareProfile.Service, FastArg.Any<CancellationToken>()),
+        var connection = mocks.GetRequiredObject<IDeviceConnection>();
+        mocks.AddMethodResultAsync<IDeviceTransport, IDeviceConnection>(
+            ble => ble.ConnectAsync(FastArg.Any<DeviceIdentifier>(), StockFirmwareProfile.Service, FastArg.Any<CancellationToken>()),
             connection);
         await using var device = new StockOssmDevice(
             Options.Create(new DeviceRuntimeOptions()), TimeProvider.System,
-            NullLogger<StockOssmDevice>.Instance, "enrolled",
-            mocks.GetRequiredObject<IStockBleTransport>());
+            NullLogger<StockOssmDevice>.Instance, new SelectedStockTestIdentifier("enrolled"),
+            mocks.GetRequiredObject<IDeviceTransport>());
         var received = new TaskCompletionSource<DeviceState>(TaskCreationOptions.RunContinuationsAsynchronously);
         var disconnected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         device.DeviceStateChanged += change =>
@@ -413,24 +525,8 @@ public sealed class StockOssmDeviceTests : MockerTestBase<StockOssmDevice>, IAsy
         Assert.Equal(MotionDeviceState.StrokeEngineIdle, state.MotionSettings.State);
         Assert.Equal(DateTimeKind.Utc, state.Timestamp.Kind);
         Assert.Null(state.VelocityMillimetresPerSecond);
-        mocks.Verify<IStockBleConnection>(ble => ble.DisposeAsync(), TimesSpec.Once);
+        mocks.Verify<IDeviceConnection>(ble => ble.DisposeAsync(), TimesSpec.Once);
     }
-
-#if WINDOWS || MACOS
-    [Theory]
-    [InlineData("enrolled", true, true)]
-    [InlineData("ENROLLED", true, true)]
-    [InlineData("another-device", true, false)]
-    [InlineData("enrolled", false, false)]
-    public void NativeScanSelectsOnlyTheExactLocatorAdvertisingTheService(
-        string seenLocator, bool advertisesService, bool expected)
-    {
-        var services = advertisesService ? new[] { StockFirmwareProfile.Service.ToString() } : Array.Empty<string>();
-
-        Assert.Equal(expected, StockBleDiscovery.Matches(
-            seenLocator, services, "enrolled", StockFirmwareProfile.Service));
-    }
-#endif
 
     [Fact]
     public void VerifiedGattSurfaceReportsIdentityAndOnlyReportedPatterns()
@@ -471,16 +567,18 @@ public sealed class StockOssmDeviceTests : MockerTestBase<StockOssmDevice>, IAsy
     [Theory]
     [InlineData("1.0.35")]
     [InlineData("1.0.33")]
-    public void VerificationRejectsUnsupportedFirmware(string version)
+    public void VerificationAcceptsDifferentReportedFirmwareVersion(string version)
     {
         var identity = System.Text.Encoding.UTF8.GetBytes(
             $"a4:cf:12:34:56:78;ESP32-S3;1;0123456789abcdef0123456789abcdef;{version}");
 
-        Assert.Throws<InvalidDataException>(() => StockFirmwareProfile.Verify(
+        var device = StockFirmwareProfile.Verify(
             "selected-peripheral", StockFirmwareProfile.Service,
             [StockFirmwareProfile.Identity, StockFirmwareProfile.Command, StockFirmwareProfile.KnobConfiguration,
                 StockFirmwareProfile.State, StockFirmwareProfile.Patterns, StockFirmwareProfile.PatternData],
-            identity, Patterns));
+            identity, Patterns);
+
+        Assert.Equal(version, device.Version);
     }
 
     [Fact]
@@ -536,18 +634,6 @@ public sealed class StockOssmDeviceTests : MockerTestBase<StockOssmDevice>, IAsy
             characteristics, Identity, "{}"u8.ToArray()));
     }
 
-    public async ValueTask DisposeAsync()
-    {
-        try
-        {
-            await Component.DisposeAsync();
-        }
-        finally
-        {
-            base.Dispose();
-        }
-    }
-
     private static MotionSettings Settings(int speed) => new(
         MotionDeviceState.StrokeEngineIdle,
         speed,
@@ -565,12 +651,34 @@ public sealed class StockOssmDeviceTests : MockerTestBase<StockOssmDevice>, IAsy
             """,
             DateTime.UnixEpoch.AddSeconds(firmwareTimestamp)).ToDeviceState();
 
-    private sealed class UnsettledProfileConnection : IStockBleConnection
+    private sealed class UnavailableTransport : IDeviceTransport
+    {
+        public int ConnectCalls { get; private set; }
+
+        public Task<IDeviceConnection> ConnectAsync(
+            DeviceIdentifier selected,
+            Guid service,
+            CancellationToken cancellationToken)
+        {
+            ConnectCalls++;
+            throw new NotSupportedException("Native BLE service unavailable.");
+        }
+    }
+
+    private sealed class UnsettledProfileConnection : IDeviceConnection
     {
         public bool DisposalAttempted { get; private set; }
 
         public Task<StockGattProfile> ReadProfileAsync(CancellationToken cancellationToken) =>
             Task.FromException<StockGattProfile>(new InvalidDataException("Invalid stock identity."));
+
+        public Task WriteCommandAsync(Request command, CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("Profile failed before motion could be written.");
+
+        public Task EnableKnobLimitingAsync(
+            CancellationToken revocationToken,
+            CancellationToken settlementToken) =>
+            throw new InvalidOperationException("Profile failed before configuration.");
 
         public ValueTask DisposeAsync()
         {

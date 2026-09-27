@@ -13,6 +13,11 @@ internal sealed class SimulatorHostTestDevice()
     internal int MotionCount { get; private set; }
     internal MotionSettings? LastMotion { get; private set; }
     internal TaskCompletionSource? ShutdownGate { get; init; }
+    internal TaskCompletionSource? MotionGate { get; init; }
+    internal TaskCompletionSource MotionIssued { get; } =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+    internal TaskCompletionSource MotionRevoked { get; } =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     internal void Disconnect() => PublishDisconnected();
 
@@ -36,13 +41,34 @@ internal sealed class SimulatorHostTestDevice()
         }
     }
 
-    protected override Task DispatchMotionAsync(MotionSettings motionSettings, CancellationToken cancellationToken)
+    protected override async Task DispatchMotionAsync(MotionSettings motionSettings, CancellationToken cancellationToken)
     {
         MotionCount++;
         LastMotion = motionSettings;
         _state = _state! with { Timestamp = DateTime.UtcNow, MotionSettings = motionSettings };
         PublishState(_state, isOwnWrite: true);
-        return Task.CompletedTask;
+        if (motionSettings.Speed > 0 && MotionGate is not null)
+        {
+            MotionIssued.TrySetResult();
+            await MotionGate.Task;
+        }
+    }
+
+    protected override async Task DispatchMotionAsync(
+        MotionSettings motionSettings,
+        CancellationToken revocationToken,
+        CancellationToken settlementToken)
+    {
+        if (motionSettings.Speed > 0)
+        {
+            using var registration = revocationToken.Register(
+                static state => ((TaskCompletionSource)state!).TrySetResult(), MotionRevoked);
+            await DispatchMotionAsync(motionSettings, settlementToken);
+        }
+        else
+        {
+            await DispatchMotionAsync(motionSettings, settlementToken);
+        }
     }
 
     protected override ValueTask DisposeCoreAsync()

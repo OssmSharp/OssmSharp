@@ -235,7 +235,8 @@ or a strict `tcp://127.0.0.1:<port>` endpoint that it only attaches to. Missing,
 ambiguous, combined or obsolete inputs fail before device access; startup
 failures never change modes implicitly. After device selection and
 connection/readiness checks, the prompt
-accepts `help [command]`, `status`, `set <speed> <stroke> <depth> <pattern>`,
+accepts `help [command]`, `status`, `initialize`,
+`set <speed> <stroke> <depth> <pattern>`,
 `stop`, `acknowledge` and `quit`. Reuse System.CommandLine for command parsing;
 do not evaluate shell code. Invalid commands report an error and return to the
 prompt without writing, reconnecting or changing the last accepted intent.
@@ -288,7 +289,18 @@ exit. Redirected stdin uses the same line-command parser without interactive
 prompts; EOF still stops before exit. It cannot supply missing startup options
 through an interactive selection. `--help`/`--version` need no device. Prompts/diagnostics go to stderr, command
 results/help to stdout. Use standard ILogger diagnostics, with no independent
-logging system or web dependency.
+logging system or web dependency. CLI console logs use one line per event.
+
+For the native provider, connecting enters a read-only/paused prompt rather
+than implicitly authorizing initialization writes. The explicit local
+`initialize` command authorizes the DC-01 zero and knob-limit enable/readback
+sequence. It requires actual fresh stopped feedback in a supported play state
+before accepting nonzero input. It must not navigate, home or calibrate:
+initial homing and navigation remain actions on the device's physical controls
+under DC-06. Missing feedback or failed readback leaves motion inhibited with
+an actionable error. Re-initialization never restores prior motion, and an
+external-change lock still requires its distinct revision-checked
+acknowledgement. Identity-only `devices get` performs none of these writes.
 
 ## Requirement ownership
 
@@ -703,7 +715,8 @@ and `TimeProvider` elapsed-time APIs. Wall-clock changes must not renew authorit
 or freshness. Reuse existing pinned packages; this design requests no new
 dependency or external service.
 
-The local admin observes standard logs and web health/UI state without Aspire.
+The local admin observes single-line console logs and web health/UI state
+without Aspire.
 An optional development dashboard is another consumer, not an operational
 prerequisite. Liveness must not imply device
 readiness. Application logs use `ILogger<T>` and shared OpenTelemetry, with

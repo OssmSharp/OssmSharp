@@ -1,3 +1,5 @@
+using System.Threading.Channels;
+
 namespace OssmSharp.Device.Runtime.Tests;
 
 /// <summary>
@@ -14,7 +16,7 @@ public sealed class TestDevice(
             ExpectationLifetime = TimeSpan.FromSeconds(1),
         },
         timeProvider,
-        logger)
+        logger), IDevicePreparation, IDeviceTransitionValidator, IDeviceSafetyStop
 {
     /// <summary>
     /// Provides the identity reported by this fake transport.
@@ -26,18 +28,29 @@ public sealed class TestDevice(
         [MotionPattern.SimpleStroke]);
 
     private readonly TaskCompletionSource _dispatchCompleted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource _preparationCompleted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource _preparationStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource _stopped = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource _dispatchStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource _coreDisposalStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource _coreDisposalCompleted = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource _coreDisposed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly Channel<MotionSettings> _dispatched = Channel.CreateUnbounded<MotionSettings>();
     private Exception? _dispatchError;
     private int _coreDisposalCount;
+    private bool _revocationObserved;
+    private bool _dispatchingSafetyStop;
 
     /// <summary>
     /// Gets or sets whether writes wait for <see cref="CompleteDispatch"/>; configure before issuing a write.
     /// </summary>
     public bool BlockDispatch { get; set; }
+
+    /// <summary>Gets or sets whether provider preflight waits until explicitly settled.</summary>
+    public bool BlockPreparation { get; set; }
+
+    /// <summary>Gets when provider preflight has entered its owned native operation.</summary>
+    public Task PreparationStarted => _preparationStarted.Task;
 
     /// <summary>
     /// Gets or sets whether core cleanup waits for <see cref="CompleteCoreDisposal"/>.
@@ -58,6 +71,15 @@ public sealed class TestDevice(
     /// Gets or sets whether dispatch reports its own state before settling; configure before issuing a write.
     /// </summary>
     public bool ReportStateDuringDispatch { get; set; }
+
+    /// <summary>Simulates a transport error after an irreversible write was issued.</summary>
+    public bool IssueBeforeFailure { get; set; }
+
+    /// <summary>Validates a proposed transition before the fake records a write.</summary>
+    public Action<MotionSettings, IReadOnlyList<MotionSettings>>? TransitionValidation { get; set; }
+
+    /// <summary>Observes the dispatch kind before the fake records a write.</summary>
+    public Action<MotionSettings, bool>? BeforeDispatch { get; set; }
 
     /// <summary>
     /// Gets completion when a write reaches the transport.
@@ -84,10 +106,36 @@ public sealed class TestDevice(
     /// </summary>
     public int DispatchCount { get; private set; }
 
+    /// <summary>Gets each issued motion tuple without relying on arbitrary delays.</summary>
+    public ChannelReader<MotionSettings> Dispatched => _dispatched.Reader;
+
+    /// <summary>Gets whether Stop canceled the issued transition's revocation token.</summary>
+    public bool RevocationObserved => Volatile.Read(ref _revocationObserved);
+
     /// <summary>
     /// Settles blocked transport writes independently of caller cancellation.
     /// </summary>
     public void CompleteDispatch() => _dispatchCompleted.TrySetResult();
+
+    /// <summary>Settles a delayed provider preflight after Stop has latched.</summary>
+    public void CompletePreparation() => _preparationCompleted.TrySetResult();
+
+    /// <inheritdoc />
+    public void ValidateTransition(MotionSettings reported, IReadOnlyList<MotionSettings> planned) =>
+        TransitionValidation?.Invoke(reported, planned);
+
+    /// <inheritdoc />
+    public Task SetSafetyStopAsync(MotionSettings reportedZero, CancellationToken cancellationToken) =>
+        SetSafetyStopCoreAsync(reportedZero, cancellationToken);
+
+    /// <inheritdoc />
+    public async Task PrepareAsync(CancellationToken revocationToken, CancellationToken settlementToken)
+    {
+        _preparationStarted.TrySetResult();
+        if (BlockPreparation)
+            await _preparationCompleted.Task;
+        revocationToken.ThrowIfCancellationRequested();
+    }
 
     /// <summary>
     /// Settles blocked core transport cleanup.
@@ -177,8 +225,19 @@ public sealed class TestDevice(
     /// <inheritdoc />
     protected override async Task DispatchMotionAsync(MotionSettings motionSettings, CancellationToken cancellationToken)
     {
+        if (BeforeDispatch is { } beforeDispatch)
+        {
+            await Task.Yield();
+            beforeDispatch(motionSettings, _dispatchingSafetyStop);
+        }
         DispatchCount++;
+        _dispatched.Writer.TryWrite(motionSettings);
         _dispatchStarted.TrySetResult();
+        if (IssueBeforeFailure)
+        {
+            MarkWriteIssued();
+        }
+
         if (_dispatchError is { } error)
         {
             throw error;
@@ -199,6 +258,33 @@ public sealed class TestDevice(
         if (BlockDispatch)
         {
             await _dispatchCompleted.Task;
+        }
+    }
+
+    /// <inheritdoc />
+    protected override async Task DispatchMotionAsync(
+        MotionSettings motionSettings,
+        CancellationToken revocationToken,
+        CancellationToken settlementToken)
+    {
+        using var registration = revocationToken.Register(() => Volatile.Write(ref _revocationObserved, true));
+        await DispatchMotionAsync(motionSettings, settlementToken);
+    }
+
+    /// <inheritdoc />
+    protected override async Task DispatchSafetyStopAsync(
+        MotionSettings reportedZero,
+        CancellationToken revocationToken,
+        CancellationToken settlementToken)
+    {
+        _dispatchingSafetyStop = true;
+        try
+        {
+            await DispatchMotionAsync(reportedZero, revocationToken, settlementToken);
+        }
+        finally
+        {
+            _dispatchingSafetyStop = false;
         }
     }
 

@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Console;
 
 namespace OssmSharp.Web.ServiceDefaults.Tests;
 
@@ -69,6 +70,23 @@ public sealed class ServiceDefaultsRegistrationTests
             if (Directory.Exists(logDirectory))
                 Directory.Delete(logDirectory, recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task SharedLoggingFormatsConsoleEventsOnOneLine()
+    {
+        var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+        {
+            Args = [],
+            EnvironmentName = Environments.Development
+        });
+        builder.Configuration["Logging:File:Enabled"] = "false";
+        builder.AddServiceDefaults();
+        await using var app = builder.Build();
+
+        var formatter = app.Services.GetRequiredService<IOptionsMonitor<SimpleConsoleFormatterOptions>>().CurrentValue;
+
+        Assert.True(formatter.SingleLine);
     }
 
     [Theory]

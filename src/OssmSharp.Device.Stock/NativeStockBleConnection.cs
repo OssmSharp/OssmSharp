@@ -1,11 +1,13 @@
 #if WINDOWS || MACOS
 using System.Reactive.Linq;
+using System.Text;
 using System.Threading.Channels;
+using OssmSharp.Device.Stock.Models;
 using Shiny.BluetoothLE;
 
 namespace OssmSharp.Device.Stock;
 
-internal sealed class NativeStockBleConnection : IStockBleConnection
+internal sealed class NativeStockBleConnection : IDeviceConnection
 {
     private static readonly TimeSpan DisconnectTimeout = TimeSpan.FromSeconds(5);
     private readonly IPeripheral _peripheral;
@@ -70,6 +72,40 @@ internal sealed class NativeStockBleConnection : IStockBleConnection
 
         return new StockGattProfile(
             _peripheral.Uuid, _service, characteristicIds, identity.Data, patterns.Data, _notifications.Reader);
+    }
+
+    public async Task WriteCommandAsync(Request command, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+        cancellationToken.ThrowIfCancellationRequested();
+        var payload = Encoding.UTF8.GetBytes(command.ToPayload());
+        await _peripheral.WriteCharacteristicAsync(
+                _service.ToString(), StockFirmwareProfile.Command.ToString(), payload,
+                withResponse: true, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    public async Task EnableKnobLimitingAsync(
+        CancellationToken revocationToken,
+        CancellationToken settlementToken)
+    {
+        revocationToken.ThrowIfCancellationRequested();
+        var serviceId = _service.ToString();
+        var configurationId = StockFirmwareProfile.KnobConfiguration.ToString();
+        await _peripheral.WriteCharacteristicAsync(
+                serviceId, configurationId, "true"u8.ToArray(),
+                withResponse: true, settlementToken)
+            .ConfigureAwait(false);
+        revocationToken.ThrowIfCancellationRequested();
+        var readback = await _peripheral.ReadCharacteristicAsync(
+                serviceId, configurationId, settlementToken)
+            .ConfigureAwait(false);
+        if (readback.Event != BleCharacteristicEvent.Read
+            || readback.Data is null
+            || !readback.Data.AsSpan().SequenceEqual("true"u8))
+            throw new InvalidDataException(
+                "The stock device did not confirm knob limiting through a live configuration read.");
+        revocationToken.ThrowIfCancellationRequested();
     }
 
     public async ValueTask DisposeAsync()

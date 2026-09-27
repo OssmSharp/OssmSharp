@@ -1,4 +1,3 @@
-using System.ComponentModel.DataAnnotations;
 using System.Globalization;
 
 namespace OssmSharp.Device.Stock.Models;
@@ -28,21 +27,13 @@ internal sealed record Request
     /// Converts motion settings into the ordered stock-firmware setting commands.
     /// </summary>
     /// <remarks>Changing the motion envelope requires a confirmed stop and a validated intermediate sequence before these commands are dispatched.</remarks>
-    /// <param name="settings">The motion settings to validate and send.</param>
+    /// <param name="mapped">The connection-qualified exact motion settings to encode.</param>
     /// <returns>Commands for stroke, sensation, depth, buffer and pattern, with speed first when zero and last otherwise.</returns>
-    /// <exception cref="InvalidDataException">The motion settings fail validation.</exception>
-    public static IReadOnlyList<Request> FromMotionSettings(MotionSettings settings)
+    /// <exception cref="ArgumentNullException">No validated tuple was supplied.</exception>
+    public static IReadOnlyList<Request> FromValidatedMotion(StockValidatedMotionTuple mapped)
     {
-        ArgumentNullException.ThrowIfNull(settings);
-
-        try
-        {
-            Validator.ValidateObject(settings, new ValidationContext(settings), validateAllProperties: true);
-        }
-        catch (ValidationException exception)
-        {
-            throw new InvalidDataException("The motion settings are invalid.", exception);
-        }
+        ArgumentNullException.ThrowIfNull(mapped);
+        var settings = mapped.Settings;
 
         var requests = new List<Request>(6);
         if (settings.Speed == 0)
@@ -70,4 +61,25 @@ internal sealed record Request
     /// <returns>The command text using invariant numeric formatting.</returns>
     public string ToPayload() =>
         $"set:{Setting}:{Value.ToString(CultureInfo.InvariantCulture)}";
+
+    internal static Request ZeroSpeed() => new("speed", 0);
+
+    internal static Request Speed(StockValidatedMotionTuple mapped) =>
+        new("speed", (mapped ?? throw new ArgumentNullException(nameof(mapped))).Settings.Speed);
+
+    internal static IReadOnlyList<Request> ChangedSettings(
+        MotionSettings previous,
+        MotionSettings next)
+    {
+        var changed = new List<Request>(5);
+        if (previous.Stroke != next.Stroke) changed.Add(new("stroke", next.Stroke));
+        if (previous.Sensation != next.Sensation) changed.Add(new("sensation", next.Sensation));
+        if (previous.Depth != next.Depth) changed.Add(new("depth", next.Depth));
+        if (previous.Buffer != next.Buffer) changed.Add(new("buffer", next.Buffer));
+        if (previous.Pattern != next.Pattern) changed.Add(new("pattern", (int)next.Pattern));
+        return changed;
+    }
+
+    internal static Request? ChangedSetting(MotionSettings previous, StockValidatedMotionTuple mapped) =>
+        ChangedSettings(previous, mapped.Settings).SingleOrDefault();
 }

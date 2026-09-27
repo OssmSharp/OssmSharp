@@ -253,6 +253,25 @@ public sealed class DeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisposab
     }
 
     [Fact]
+    public async Task PartialSettingsReportsDoNotLockOrPrematurelyClearPendingSpeed()
+    {
+        var device = Component;
+        var initial = Settings(0);
+        device.ReportState(State(initial, DateTime.UnixEpoch));
+        var requested = initial with { Speed = 30, Depth = 50 };
+        await device.SetMotionAsync(requested, TestContext.Current.CancellationToken);
+        var changes = new List<OneOf<DeviceState, Exception>>();
+        device.DeviceStateChanged += changes.Add;
+
+        device.ReportState(State(initial, DateTime.UnixEpoch.AddMilliseconds(100)));
+        device.ReportState(State(initial with { Depth = 50 }, DateTime.UnixEpoch.AddMilliseconds(200)));
+        device.ReportState(State(requested, DateTime.UnixEpoch.AddMilliseconds(300)));
+
+        Assert.Equal(3, changes.Count);
+        Assert.All(changes, change => Assert.True(change.IsT0));
+    }
+
+    [Fact]
     public async Task OwnedFeedbackWithWrongTuplePublishesSettingsError()
     {
         var device = Component;
@@ -335,6 +354,24 @@ public sealed class DeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisposab
                 Assert.Equal(30, error.StateSpeed);
                 Assert.Null(error.PendingRequestedSpeed);
             });
+    }
+
+    [Fact]
+    public async Task IssuedWriteFailureKeepsExpectationUntilFeedbackOrDeadline()
+    {
+        var device = Component;
+        device.ReportState(State(Settings(10), DateTime.UnixEpoch));
+        device.IssueBeforeFailure = true;
+        device.FailDispatchWith(new IOException("Failed after issuing the first write."));
+        var changes = new List<OneOf<DeviceState, Exception>>();
+        device.DeviceStateChanged += changes.Add;
+
+        await Assert.ThrowsAsync<IOException>(() =>
+            device.SetMotionAsync(Settings(30), TestContext.Current.CancellationToken));
+        var reported = State(Settings(30), DateTime.UnixEpoch.AddMilliseconds(100));
+        device.ReportState(reported);
+
+        Assert.Same(reported, Assert.Single(changes).AsT0);
     }
 
     [Fact]
@@ -634,6 +671,7 @@ public sealed class DeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisposab
     public async Task DisposalTimesOutWhileIssuedDispatchRemainsUnsettled()
     {
         var device = Component;
+        var clock = Mocks.GetRequiredObject<FakeTimeProvider>();
         device.BlockDispatch = true;
         await device.StartAsync(TestContext.Current.CancellationToken);
         var write = device.SetMotionAsync(Settings(30), TestContext.Current.CancellationToken);
@@ -646,8 +684,9 @@ public sealed class DeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisposab
         try
         {
             Assert.False(concurrent.IsCompleted);
+            clock.Advance(TimeSpan.FromSeconds(6));
             firstFailure = await Assert.ThrowsAsync<TimeoutException>(() =>
-                disposal.WaitAsync(TimeSpan.FromSeconds(7), TestContext.Current.CancellationToken));
+                disposal.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken));
             Assert.True(disposal.IsCompleted);
             var concurrentFailure = await Assert.ThrowsAsync<TimeoutException>(() => concurrent);
             Assert.Same(firstFailure, concurrentFailure);
@@ -671,6 +710,7 @@ public sealed class DeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisposab
     public async Task DisposalBoundsCoreCleanupWithoutRepeatingIt()
     {
         var device = Component;
+        var clock = Mocks.GetRequiredObject<FakeTimeProvider>();
         device.BlockCoreDisposal = true;
         var disposal = device.DisposeAsync().AsTask();
         _expectDisposalTimeout = true;
@@ -678,8 +718,9 @@ public sealed class DeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisposab
         try
         {
             await device.CoreDisposalStarted.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
+            clock.Advance(TimeSpan.FromSeconds(6));
             var failure = await Assert.ThrowsAsync<TimeoutException>(() =>
-                disposal.WaitAsync(TimeSpan.FromSeconds(7), TestContext.Current.CancellationToken));
+                disposal.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken));
             Assert.True(disposal.IsFaulted);
             Assert.False(device.CoreDisposed.IsCompleted);
             Assert.Equal(1, device.CoreDisposalCount);
@@ -728,6 +769,7 @@ public sealed class DeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisposab
     public async Task DisposalTimesOutWithoutReleasingAnUnsettledConnection()
     {
         var device = Component;
+        var clock = Mocks.GetRequiredObject<FakeTimeProvider>();
         device.IgnoreStopCancellation = true;
         var connected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         device.ConnectionStateChanged += state =>
@@ -745,8 +787,9 @@ public sealed class DeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisposab
 
             var disposal = device.DisposeAsync().AsTask();
             _expectDisposalTimeout = true;
+            clock.Advance(TimeSpan.FromSeconds(6));
             await Assert.ThrowsAsync<TimeoutException>(() =>
-                disposal.WaitAsync(TimeSpan.FromSeconds(7), TestContext.Current.CancellationToken));
+                disposal.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken));
 
             Assert.True(disposal.IsCompleted);
             Assert.False(device.CoreDisposed.IsCompleted);
@@ -774,7 +817,15 @@ public sealed class DeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisposab
                 Component.EndTransport();
                 if (Component.ExecuteTask is { } transport)
                 {
-                    await transport.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
+                    try
+                    {
+                        await transport.WaitAsync(TimeSpan.FromSeconds(2));
+                    }
+                    catch (OperationCanceledException) when (transport.IsCanceled)
+                    {
+                        // Host Stop may cancel ExecuteTask after disposal's timeout;
+                        // cancellation is settled transport lifetime, not a cleanup fault.
+                    }
                 }
             }
             else

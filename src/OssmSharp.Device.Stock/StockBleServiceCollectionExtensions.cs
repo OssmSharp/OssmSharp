@@ -1,5 +1,8 @@
 #if WINDOWS || MACOS
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
+using OssmSharp.Device.Runtime;
 using Shiny;
 using Shiny.BluetoothLE;
 #if MACOS
@@ -31,7 +34,8 @@ public static class StockBleServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(dispatchQueue);
-        return services.AddBluetoothLE(new AppleBleConfiguration(DispatchQueue: dispatchQueue));
+        services.AddBluetoothLE(new AppleBleConfiguration(DispatchQueue: dispatchQueue));
+        return services.AddStockDeviceServices();
     }
 #else
     /// <summary>
@@ -42,8 +46,41 @@ public static class StockBleServiceCollectionExtensions
     public static IServiceCollection AddStockBluetooth(this IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
-        return services.AddBluetoothLE();
+        services.AddBluetoothLE();
+        return services.AddStockDeviceServices();
     }
 #endif
+
+    private static IServiceCollection AddStockDeviceServices(this IServiceCollection services)
+    {
+        services.TryAddSingleton<TimeProvider>(TimeProvider.System);
+        services.AddSingleton(provider => new Lazy<IBleManager>(
+            () => provider.GetRequiredService<IBleManager>()));
+        services.AddSingleton<DeviceDiscovery>();
+        services.AddSingleton<IDeviceDiscovery>(provider => provider.GetRequiredService<DeviceDiscovery>());
+        services.AddSingleton<IDeviceProvider, StockDeviceProvider>();
+        services.AddSingleton<IStockQualificationResolver, UnqualifiedStockMotion>();
+        services.AddSingleton<IDeviceTransport>(provider =>
+            new NativeStockBleTransport(
+                provider.GetRequiredService<Lazy<IBleManager>>().Value,
+                provider.GetRequiredService<IDeviceDiscovery>()));
+        services.AddSingleton<Func<DeviceIdentifier, IOssmDevice>>(provider => identifier =>
+        {
+            if (identifier is not StockDeviceIdentifier)
+            {
+                throw new ArgumentException("The selected device does not belong to this stock BLE composition.", nameof(identifier));
+            }
+
+            StockDeviceIdentifier.Validate(identifier, provider.GetRequiredService<Lazy<IBleManager>>().Value);
+            return new StockOssmDevice(
+                Options.Create(new DeviceRuntimeOptions()),
+                provider.GetRequiredService<TimeProvider>(),
+                provider.GetRequiredService<ILogger<StockOssmDevice>>(),
+                identifier,
+                provider.GetRequiredService<IDeviceTransport>(),
+                provider.GetRequiredService<IStockQualificationResolver>());
+        });
+        return services;
+    }
 }
 #endif

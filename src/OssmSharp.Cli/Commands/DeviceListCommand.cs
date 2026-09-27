@@ -1,8 +1,4 @@
-using OssmSharp.Device.Runtime;
-#if WINDOWS || MACOS
-using OssmSharp.Device.Stock;
-using Shiny.BluetoothLE;
-#endif
+using OssmSharp.Device.Primitives;
 
 namespace OssmSharp.Cli.Commands;
 
@@ -11,27 +7,17 @@ namespace OssmSharp.Cli.Commands;
 /// </summary>
 public sealed class DeviceListCommand : Command
 {
-    private readonly Func<CancellationToken, Task<IReadOnlyList<(string Name, string Id)>>> _scan;
+    private readonly IDeviceDiscovery _discovery;
     private readonly TextWriter _output;
     private readonly TextWriter _error;
 
-#if WINDOWS || MACOS
-    internal DeviceListCommand(IBleManager manager)
-        : this(
-            cancellationToken => StockBleDiscovery.ScanAsync(manager, cancellationToken),
-            Console.Out,
-            Console.Error)
-    {
-    }
-#endif
-
     internal DeviceListCommand(
-        Func<CancellationToken, Task<IReadOnlyList<(string Name, string Id)>>> scan,
+        IDeviceDiscovery discovery,
         TextWriter output,
         TextWriter error)
         : base("list", "List stock devices and their platform peripheral IDs without connecting.")
     {
-        _scan = scan ?? throw new ArgumentNullException(nameof(scan));
+        _discovery = discovery ?? throw new ArgumentNullException(nameof(discovery));
         _output = output ?? throw new ArgumentNullException(nameof(output));
         _error = error ?? throw new ArgumentNullException(nameof(error));
         SetAction((_, cancellationToken) => RunAsync(cancellationToken));
@@ -41,10 +27,11 @@ public sealed class DeviceListCommand : Command
     {
         try
         {
-            var candidates = await _scan(cancellationToken).ConfigureAwait(false);
+            await _output.WriteLineAsync("Detecting devices. Please wait ...");
+            var candidates = await _discovery.ScanAsync(cancellationToken).ConfigureAwait(false);
             if (candidates.Count == 0)
             {
-                await _output.WriteLineAsync("No stock devices found.").ConfigureAwait(false);
+                await _output.WriteLineAsync("No devices found.").ConfigureAwait(false);
             }
             else
             {
@@ -73,5 +60,4 @@ public sealed class DeviceListCommand : Command
             return 1;
         }
     }
-
 }
