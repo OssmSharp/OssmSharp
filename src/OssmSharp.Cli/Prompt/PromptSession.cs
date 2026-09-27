@@ -4,17 +4,15 @@ using OneOf;
 using OssmSharp.Cli.Models;
 using OssmSharp.Cli.Simulator;
 using OssmSharp.Device.Primitives;
-using OssmSharp.Device.Runtime;
 
 namespace OssmSharp.Cli;
 
 /// <summary>
-/// Owns the selected foreground device, optional simulator child, and machine lease through cleanup.
+/// Owns the selected foreground device and optional simulator child through cleanup.
 /// </summary>
 internal sealed class PromptSession
 {
     private readonly PromptHandler _prompt;
-    private readonly Func<IDisposable?> _acquireOwnership;
     private readonly Func<string, SimulatorBackgroundService> _createSimulator;
     private readonly Func<string, IOssmDevice> _createSimulatedDevice;
     private readonly Func<string, IOssmDevice>? _createStockDevice;
@@ -23,7 +21,6 @@ internal sealed class PromptSession
 
     internal PromptSession(
         PromptHandler prompt,
-        Func<IDisposable?> acquireOwnership,
         Func<string, SimulatorBackgroundService> createSimulator,
         Func<string, IOssmDevice> createSimulatedDevice,
         Func<string, IOssmDevice>? createStockDevice,
@@ -31,7 +28,6 @@ internal sealed class PromptSession
         TextWriter error)
     {
         _prompt = prompt ?? throw new ArgumentNullException(nameof(prompt));
-        _acquireOwnership = acquireOwnership ?? throw new ArgumentNullException(nameof(acquireOwnership));
         _createSimulator = createSimulator ?? throw new ArgumentNullException(nameof(createSimulator));
         _createSimulatedDevice = createSimulatedDevice ?? throw new ArgumentNullException(nameof(createSimulatedDevice));
         _createStockDevice = createStockDevice;
@@ -144,30 +140,11 @@ internal sealed class PromptSession
     }
 
     /// <summary>
-    /// Holds one lease while selecting, connecting, running the prompt and disposing owned resources.
+    /// Selects, connects, runs the prompt and disposes owned resources.
     /// </summary>
     internal async Task<int> RunAsync(PromptSelection selection, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(selection);
-
-        IDisposable? lease;
-        try
-        {
-            lease = _acquireOwnership();
-        }
-        catch (Exception exception) when (exception is DirectoryNotFoundException
-            or UnauthorizedAccessException
-            or IOException)
-        {
-            await _error.WriteLineAsync(exception.Message).ConfigureAwait(false);
-            return 1;
-        }
-
-        if (lease is null)
-        {
-            await _error.WriteLineAsync("Device is already owned by another process.").ConfigureAwait(false);
-            return 1;
-        }
 
         IOssmDevice? device = null;
         SimulatorBackgroundService? child = null;
@@ -289,13 +266,7 @@ internal sealed class PromptSession
         }
         finally
         {
-            if (lease is DeviceOwnershipLock machineLease)
-                await machineLease.ReleaseAfterAsync(CleanupAsync).ConfigureAwait(false);
-            else
-            {
-                await CleanupAsync().ConfigureAwait(false);
-                lease.Dispose();
-            }
+            await CleanupAsync().ConfigureAwait(false);
         }
     }
 
@@ -428,7 +399,7 @@ internal sealed class PromptSession
             failures.Add(new TimeoutException("The prompt did not settle during cleanup."));
 
         if (failures.Count > 0)
-            await _error.WriteLineAsync("Device cleanup did not settle; ownership is retained.").ConfigureAwait(false);
+            await _error.WriteLineAsync("Device cleanup did not settle; Stop is unconfirmed.").ConfigureAwait(false);
         if (failures.Count > 1)
             throw new AggregateException("Device session cleanup did not settle.", failures);
         if (failures.Count == 1)

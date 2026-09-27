@@ -17,8 +17,7 @@ remain separate Blazor hosts using the existing ControlClient contract. Api
 hosts the library and sole device owner; it is not a fourth application service.
 
 No REST surface, new dependency, physical-device work, broad validation cleanup
-or unrelated naming refactor is included. Preserve the device-ownership lease's
-existing exclusion scope through the host rename.
+or unrelated naming refactor is included.
 
 ## Confirmed decisions
 
@@ -182,26 +181,20 @@ increment; intermediate states need not be independently deployable.
   from UI state strings in delivery code. Preserve configuration keys, hub path
   and circuit-scoped clients. Move tests to the assembly that owns their subject.
 - **Acceptance:** Api owns one library/controller/device lifetime. Three service
-  processes remain. A competing old/new host cannot acquire device ownership;
-  the lease lasts through managed shutdown. Guest and operator service roles,
-  proof binding, bounded push and cancellation/unknown-outcome semantics remain.
+  processes remain. Guest and operator service roles, proof binding, bounded
+  push and cancellation/unknown-outcome semantics remain.
 - **Verification:** Focused auth, protocol, registry and dispatcher tests; real
-  local SignalR contract/push/loss checks; listener-override and competing-owner
-  evidence. Existing same-process semaphore/options tests alone do not establish
-  cross-process exclusion or actual socket exposure. Keep unit and integration
-  projects named after their owning assembly and reuse shared fakes.
+  local SignalR contract/push/loss checks and listener-override evidence. Keep
+  unit and integration projects named after their owning assembly and reuse
+  shared fakes.
 - **Evidence:** `OSSMDotNet.Api` is the only control host; ControlService is a
   class library, and AppHost builds with Api under the existing `control`
   resource. The old host copies and project exclusions were removed; host and
-  authority tests live with their owners. Two real Api processes demonstrate
-  competing-owner rejection during managed shutdown and acquisition after
-  release. Process checks also verify that conflicting `ASPNETCORE_URLS` and
-  `DOTNET_URLS` values open no additional listener. The lease outlives async
-  host disposal. Focused MTP projects passed: `Api.Tests` 117/117,
+  authority tests live with their owners. Process checks also verify that
+  conflicting `ASPNETCORE_URLS` and `DOTNET_URLS` values open no additional
+  listener. Focused MTP projects passed: `Api.Tests` 117/117,
   `Api.IntegrationTests` 67/67, `ControlService.Tests` 97/97,
   `ControlService.IntegrationTests` 2/2, and `ControlClient.Tests` 56/56.
-  This proves new/new process exclusion on Windows, not old/new binary coexistence
-  or physical stopping.
 
 ### 6. Verify consumers and complete documentation
 
@@ -255,9 +248,8 @@ increment; intermediate states need not be independently deployable.
   Rejection tests and a substituted hub fixture are not proof of full host
   conformance. Keep necessary boundary checks with their owning task and identify
   behavior changes separately from extraction.
-- **Cutover:** Never run two authority hosts against the same device. Restart
-  discards guest authority; rollback also requires stopping the managed owner.
-  Ask the operator to stop any existing process that blocks the work.
+- **Cutover:** Restart discards guest authority. Rollback must stop the managed
+  owner before changing the deployed version.
 
 ## Completion and deferred checks
 

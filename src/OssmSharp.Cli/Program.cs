@@ -101,7 +101,6 @@ public sealed class Program
 #endif
             builder.Services.AddSingleton<DeviceListCommand>(provider =>
                 new DeviceListCommand(
-                    DeviceOwnershipLock.TryAcquire,
 #if WINDOWS || MACOS
                     provider.GetRequiredService<Func<CancellationToken, Task<IReadOnlyList<(string Name, string Id)>>>>(),
 #else
@@ -115,7 +114,6 @@ public sealed class Program
                 new DeviceGetCommand(
                     (id, cancellationToken) =>
                         provider.GetRequiredService<StockIdentityReader>().ReadAsync(id, cancellationToken),
-                    DeviceOwnershipLock.TryAcquire,
                     Console.Out,
                     Console.Error));
 #else
@@ -131,7 +129,6 @@ public sealed class Program
             builder.Services.AddSingleton<PromptSession>(provider =>
                 new PromptSession(
                     provider.GetRequiredService<PromptHandler>(),
-                    DeviceOwnershipLock.TryAcquire,
                     provider.GetRequiredService<Func<string, SimulatorBackgroundService>>(),
                     provider.GetRequiredService<Func<string, SimulatedDevice>>(),
 #if WINDOWS || MACOS

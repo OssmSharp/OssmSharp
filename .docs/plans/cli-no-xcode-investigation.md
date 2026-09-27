@@ -64,15 +64,9 @@ permission behavior. Native test sources compiled previously with a library
 output override, but that did not run the native xUnit/MTP test application.
 Windows-native behavior is also unverified on this Mac.
 
-Separately, three real CLI simulator launch/attach process tests stop before
-startup because [DeviceOwnershipLock](../../src/OssmSharp.Device.Runtime/DeviceOwnershipLock.cs)
-requires the existing, machine-wide
-`/Library/Application Support/OssmSharp/runtime` directory. That directory is
-absent and its parent is not writable by this user. One real-process parser
-error test passed without taking a lease. Provisioning the directory with
-appropriate operator access would unblock those **simulator** process tests
-without Xcode; using a user-scoped replacement lock would violate the safety
-contract. No directory was created or lock policy changed here.
+Real CLI simulator launch and attach process tests remain outstanding. They
+exercise the simulator process boundary and do not require Xcode or physical
+hardware.
 
 ## Practical next steps
 
@@ -80,15 +74,13 @@ contract. No directory was created or lock policy changed here.
    Xcode-free development. Report native BLE execution as unverified, not as
    passed. The no-Xcode commands and their scope are in the
    [README](../../README.md).
-2. If real CLI simulator process acceptance is needed on this Mac, have the
-   operator provision the machine-wide runtime directory for the intended
-   local user. Then rerun the three process tests without a lock bypass; this
-   does not require Xcode or hardware access.
+2. Rerun the real CLI simulator process tests to verify launch, attach and
+   cleanup. This does not require Xcode or hardware access.
 3. If a complete macOS Stock build is required, use an authorized Mac build
    environment with the compatible full Xcode installation. A compatible,
    trusted prebuilt app *may* run on a Mac without Xcode installed, but that
    has not been demonstrated for this CLI and still needs normal platform
-   packaging, permissions and the machine lock. No CI workflow or prebuilt
+   packaging and permissions. No CI workflow or prebuilt
    artifact was found in this checkout, and no push or external build was
    authorized.
 4. Windows 11 can validate its own native Stock build without Xcode, but

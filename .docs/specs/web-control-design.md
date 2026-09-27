@@ -14,9 +14,8 @@ to `OssmSharp`. This is a WIP migration with no backwards-compatibility shims.
 
 `OssmSharp.Web.Api` is the device-owning web backend, not a gateway to another
 device service. `OssmSharp.Cli` is an alternative direct owner of the same
-device. The machine-wide lock makes these ownership modes mutually exclusive.
-Both web UIs remain separately runnable processes. API restart also restarts
-web device ownership; that shared lifetime is an accepted MVP trade-off.
+device. Both web UIs remain separately runnable processes. API restart also
+restarts web device ownership; that shared lifetime is an accepted MVP trade-off.
 
 The audience is application/UI implementers, device-library maintainers and the
 admin configuring the computer. The detailed choices below close the design
@@ -73,9 +72,8 @@ not full physical qualification or evidence that all release gates have passed.
 | Scenario | Action and observable result |
 | --- | --- |
 | Start locally | Start the three web executables directly or use the optional simulated AppHost arrangement. AdminWeb displays the validated invitation automatically. Device control starts disarmed at zero; page load and invitation retrieval do not arm it. |
-| Use the software remote | Start `prompt --bluetooth <id-or-name>` for a Stock device, `prompt --simulator <path>` for a CLI-owned simulator child, or `prompt --simulator tcp://127.0.0.1:<port>` to attach to an external simulator. One prompt retains the device connection and ownership lock across help, status, motion, Stop and quit. No web process or guest session exists. |
-| Compete for ownership | CLI or Web.Api fails before device access when the other holds the machine-wide lock. It never steals ownership or silently starts another simulator. |
-| Exit the CLI | Quit, EOF, Ctrl+C and handled shutdown inhibit new motion, prioritize a bounded awaited Stop, disconnect and release the lock last. Report unconfirmed Stop rather than successful stopping. |
+| Use the software remote | Start `prompt --bluetooth <id-or-name>` for a Stock device, `prompt --simulator <path>` for a CLI-owned simulator child, or `prompt --simulator tcp://127.0.0.1:<port>` to attach to an external simulator. One prompt retains the device connection across help, status, motion, Stop and quit. No web process or guest session exists. |
+| Exit the CLI | Quit, EOF, Ctrl+C and handled shutdown inhibit new motion, prioritize a bounded awaited Stop and disconnect. Report unconfirmed Stop rather than successful stopping. |
 | Admit and approve | A guest opens the invitation. Exactly one connection becomes pending. AdminWeb shows the waiting notice. **Allow control** approves that exact guest and arms only when stopped feedback and valid limits permit it. Motion still requires a new guest Send. |
 | Send and edit | Send commits the selected tuple. Further slider edits remain drafts unless Auto send is enabled. The active browser can renew only explicitly sent values with fresh grants; status refresh never sends drafts. |
 | Change limits | The operator applies speed/depth together. Compatible limits take effect without pausing or rearming; conflicting limits reject atomically with guidance to Stop and wait for stopped feedback. |
@@ -102,7 +100,7 @@ inability. Firmware facts remain descriptive.
 | `OssmSharp.Web.Contracts` library | Web DTOs, request/result values and error contracts | Mutable authority, clients, hosts or UI components |
 | `OssmSharp.Web.Common` library | Shared Blazor layout/widgets using RetroWebUi | API authority, native I/O or provider selection |
 | `OssmSharp.Device.Primitives` library | IOssmDevice, device values/units, intrinsic validation and semantic errors | Hosting/defaults, application models, transport packages or controller policy |
-| `OssmSharp.Device.Runtime` library | Shared provider-neutral DeviceBase, serialized I/O coordination, ownership lease, interruption latch and bounded Stop/cleanup mechanics | Web sessions/grants, HTTP, BLE packages or simulator process ownership |
+| `OssmSharp.Device.Runtime` library | Shared provider-neutral DeviceBase, serialized I/O coordination, interruption latch and bounded Stop/cleanup mechanics | Web sessions/grants, HTTP, BLE packages or simulator process ownership |
 | `OssmSharp.Device.Stock` library | Stock codecs, profile mapping and Shiny/native BLE integration | Simulator, web policy or UI |
 | `OssmSharp.Device.Simulator` library | Loopback simulator connection and native-data mapping | Stock provider, BLE, web policy or process launch/kill |
 | `OssmSharp.Defaults` library | Common configurable logging, metrics and tracing through standard .NET hosting | ASP.NET Core, UI, device providers or required Aspire/service discovery |
@@ -235,7 +233,7 @@ Exactly one of `--bluetooth` or `--simulator` is required for a prompt.
 `--simulator` accepts either an executable path that the CLI starts and owns,
 or a strict `tcp://127.0.0.1:<port>` endpoint that it only attaches to. Missing,
 ambiguous, combined or obsolete inputs fail before device access; startup
-failures never change modes implicitly. After exclusive ownership and
+failures never change modes implicitly. After device selection and
 connection/readiness checks, the prompt
 accepts `help [command]`, `status`, `set <speed> <stroke> <depth> <pattern>`,
 `stop`, `acknowledge` and `quit`. Reuse System.CommandLine for command parsing;
@@ -251,8 +249,9 @@ qualification; the hardware release gate remains separate. There are no guest
 grants, session credentials, Allow control steps or web-policy speed caps in the
 CLI. Device validity, Stop precedence and interruption checks still apply.
 
-One prompt owns one device and lock. `stop` writes zero and retains the prompt
-and connection. Motion interrupted by an external change stays inhibited until
+One prompt operates one selected device connection. `stop` writes zero and
+retains the prompt and connection. Motion interrupted by an external change
+stays inhibited until
 `acknowledge` succeeds against the current interruption revision and stopped
 baseline; acknowledgement leaves paused. Only a new explicit `set` can move.
 Help, status, Stop and quit remain available while interrupted. No automatic
@@ -260,9 +259,9 @@ motion retries or replay occur on reconnect. Loss reports the failure and
 requires explicit restart of the CLI; it does not silently connect to another
 device or simulator.
 
-Quit, EOF, Ctrl+C, SIGTERM and catchable terminal-close/hangup events share one exit path:
-reject new motion, discard pending intent, wait for already-issued I/O to settle,
-then prioritize zero before disconnecting and releasing ownership last. Give
+Quit, EOF, Ctrl+C, SIGTERM and catchable terminal-close/hangup events share one
+exit path: reject new motion, discard pending intent, wait for already-issued I/O
+to settle, then prioritize zero before disconnecting. Give
 cleanup its own validated finite budget (default five seconds), not the already
 cancelled input token. Retry only zero-speed Stop after the preceding attempt
 has actually settled and within the same budget; never issue a concurrent write
@@ -273,13 +272,14 @@ confirmation. Register the appropriate macOS SIGINT/SIGTERM/SIGQUIT/SIGHUP and
 Windows console-close/shutdown handlers; do not rely on asynchronous work in
 ProcessExit. Platform termination may shorten the available cleanup time, so
 the five-second budget is a ceiling, not an OS guarantee. Signal handlers request
-the one owner shutdown path rather than writing the device concurrently.
+the shared shutdown path rather than writing the device concurrently.
 
 Web.Api uses this same Runtime shutdown path from its hosted owner, after
 revoking web authority and before adapter teardown. Configure its normal host
 shutdown allowance above the cleanup budget (default ten seconds for a
-five-second device budget). Test ordered Stop, disconnect and lock release on
-both owners, including early host cancellation and shortened OS deadlines.
+five-second device budget). Test ordered Stop and disconnect on both CLI and
+Web.Api paths,
+including early host cancellation and shortened OS deadlines.
 
 Normal quit/EOF returns 0 after successful command cleanup, startup/connection
 or unconfirmed-shutdown failure returns 1, startup usage errors return 2, and
@@ -309,7 +309,7 @@ IDs are retained for traceability, not new parallel versions of device rules.
 | CC-11 | Faults, logical timeouts and disposal follow [DC-07](device-control/spec.md#dc-07-feedback-loss-and-disposal), retaining unsettled I/O ownership and never reviving motion. |
 | PST-01 | Source/test organization matches namespaces and ownership. Logical requirements survive project renames; this design's target host/library names do not rename external packages. |
 | PST-02 | Defaults owns common host-neutral logging/telemetry; Web.ServiceDefaults adds web-only hosting. Device libraries depend on neither. Web.Application owns capabilities. |
-| PST-03 | Models are pure data. Web clients/orchestration own no device. Cli is the explicitly approved alternative direct device owner, excluded concurrently by the shared machine lock. |
+| PST-03 | Models are pure data. Web clients/orchestration own no device. Cli is the explicitly approved alternative direct device owner. |
 | PST-04 | Device abstractions and implementations remain independently buildable/consumable with no controller, application-model, service or UI dependency. |
 
 DEP-01, SESSION-01/02 and OUI/GUI IDs are defined in their sections below.
@@ -353,8 +353,7 @@ requires neither simulator assets nor Rust. AppHost never owns BLE or calls
 device operations. For Stock CLI development, start the Stock-targeted CLI
 directly; no simulator or AppHost is required. For a CLI Simulator session,
 `prompt --simulator <path>` starts its own child; a local endpoint attaches to
-an already running listener. Do not launch Web.Api
-as another device owner. A runtime launch profile does not replace provider
+an already running listener. A runtime launch profile does not replace provider
 selection before restore/publish.
 
 Use the MSBuild property `DeviceProvider=Simulator|Stock`, default Simulator,
@@ -398,27 +397,6 @@ isolation. Hardened remote deployments require distinct process identities and
 native permissions. GuestWeb must not access privileged bootstrap storage or
 native device permissions. A compromised guest host can forge input within a
 capability it possesses, but cannot bypass service policy, grants or core limits.
-
-Web.Api or Cli must exclusively own its device lifetime. Both must acquire the
-same machine-wide ownership lease before discovery, connection or writes and
-retain it through managed shutdown. Put the lease in Device.Runtime, not a web
-assembly or per-user CLI daemon. Use a crash-released exclusive OS file lock in
-a provisioned machine-wide runtime directory, with one stable device-owner key,
-not a per-user temp path. Keep the file in place after release to avoid unlink/
-recreate races. Provision access only to intended local operator identities;
-missing permissions fail clearly, without fallback to a weaker lock. This
-excludes cooperating software on one computer, not the physical remote or
-arbitrary compromised local code. Do not steal a lock on a timeout.
-
-Resolve the lock as `OssmSharp/runtime/device.lock` beneath Windows common
-application data (`ProgramData`) or the macOS system-domain
-`Library/Application Support` directory, not a user Library or temporary
-directory. Installation/setup documentation must provision the directory and
-grant the intended local admin identity access; neither running owner escalates
-privileges automatically. There is no production option/environment override
-for the lock path. Internal test helpers may inject isolated directories for
-unit/helper-process tests; tests of the real CLI/API use the production path on
-dedicated test machines, never steal or terminate an operator's existing owner.
 
 Unexpected observed parameter changes must latch an interruption, invalidate
 pending motion/guest authority and request serialized Stop. Never restore the
@@ -706,7 +684,7 @@ Applications must not patch copied assets or duplicate shared widget states.
 | Decision | Strongest practical alternative | Deciding trade-off |
 | --- | --- | --- |
 | Web.Api owns the device for the MVP | Separate device executable and SignalR client hop | Accepted for one computer/device/admin/guest: fewer lifecycles and credentials. API restart also disrupts device ownership. Revisit only for a concrete remote-host or independent-restart requirement. |
-| CLI is a direct interactive remote | Web-controller/service client or send-and-exit tool | No web policy/dependencies; a persistent prompt retains exclusive ownership and can strongly attempt Stop before exit. |
+| CLI is a direct interactive remote | Web-controller/service client or send-and-exit tool | No web policy/dependencies; a persistent prompt keeps the selected device connection open and can strongly attempt Stop before exit. |
 | Separate Primitives, Runtime and providers | Keep the shared base in Stock or put web policy in Primitives | Runtime serves two real providers/consumers and isolates BLE; web authority/controller stays in Web.Application. |
 | DI plus selected-provider build profiles | Ship every provider and select at runtime | Runtime options do not prune package dependencies. Stock and Simulator artifacts contain only their selected provider. |
 | Independent loopback simulator | Adapter-owned child, native ABI or network service | Retain Rust motion and bounded JSONL, move it to loopback TCP, keep the process alive across client exit. No additional engine or remote-service auth is required in the trusted-local MVP. |
@@ -780,9 +758,9 @@ runner. No browser or physical device is required for core conformance.
 | --- | --- |
 | Application library | One admitted connection; proof/generation binding; exact approval; atomic rotation with unsettled I/O; session expiry; policy/grant invalidation without lease extension; stale callbacks cannot revoke replacement guests |
 | Web.Api and Web.Client | Service-role separation; closed schemas and envelope bounds; ordered initial/live push; unchanged projections do not republish; expired authority closes the guest connection; loss and cancellation do not revive motion |
-| Local host | Wrong Host and missing/foreign mutation Origin reject; listener overrides cannot expose AdminWeb; a second authority host cannot acquire device ownership; one-box startup works without external networking |
+| Local host | Wrong Host and missing/foreign mutation Origin reject; listener overrides cannot expose AdminWeb; one-box startup works without external networking |
 | Controller/device | DC safeguards tested by reference: one writer, execution-time guards, Stop priority, unconfirmed I/O and paused recovery; adapter checks remain host-independent |
-| Cli and shared runtime | Stock BLE control from the persistent CLI without web/simulator/AppHost; complete tuple/pattern validation; CLI/API cross-process exclusion; interruption acknowledgment into paused; strong bounded Stop on all handled exits; Simulator-profile exit stops its CLI-owned child after device cleanup |
+| Cli and shared runtime | Stock BLE control from the persistent CLI without web/simulator/AppHost; complete tuple/pattern validation; interruption acknowledgment into paused; strong bounded Stop on all handled exits; Simulator-profile exit stops its CLI-owned child after device cleanup |
 | Packaging/defaults | Simulator publish has no BLE/native platform dependency; Stock has no simulator/Rust dependency; CLI has no ASP.NET/UI/Aspire/application-policy dependency; logs/export work without Aspire and startup works without a collector |
 | UI/components | OUI/GUI contracts, responsive keyboard order and focus, reduced motion, send/draft separation, freshness labels, clipboard fallback, connection-loss precedence and restart behavior |
 

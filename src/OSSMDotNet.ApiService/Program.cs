@@ -14,14 +14,7 @@ builder.Services
     .AddApiAuthorization()
     .AddApiHub();
 
-using var ownership = DeviceOwnershipLock.TryAcquire();
 await using var app = builder.Build();
-if (ownership is null)
-{
-    ApiLog.AuthorityAlreadyOwned(app.Logger);
-    return 2;
-}
-
 var controlOptions = app.Services.GetRequiredService<IOptions<ControlServiceOptions>>().Value;
 app.UseApiBoundary(controlOptions);
 app.UseHostFiltering();

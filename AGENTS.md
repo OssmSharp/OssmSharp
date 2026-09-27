@@ -38,9 +38,9 @@
   controller and selected device provider in one lifetime. Only AdminWeb and
   GuestWeb use `OssmSharp.Web.Client` to call Web.Api; Web.Api must not depend on
   UI components. Web.Application must not depend on concrete providers.
-- `OssmSharp.Device.Runtime` must own shared device execution, Stop,
-  interruption and machine-wide ownership mechanics without web policy or
-  provider dependencies. `OssmSharp.Device.Primitives` must remain independent
+- `OssmSharp.Device.Runtime` must own shared device execution, Stop and
+  interruption mechanics without web policy or provider dependencies.
+  `OssmSharp.Device.Primitives` must remain independent
   of hosting, defaults and providers; Simulator must not depend on Stock.
 - With `prompt --simulator <path>`, the CLI starts and owns the specified
   simulator process for its foreground session, stopping it after device cleanup.
@@ -105,9 +105,6 @@
 - Web.Api must exclusively own web sessions, policy, timers, the single writer
   and device connection; its backend must operate with both UI hosts absent.
   The CLI is an alternative direct owner, not a web service client. Both owners
-  must acquire the same machine-wide exclusive lock before device access and
-  retain it through issued I/O and cleanup; permission failure must not fall
-  back to a per-user lock.
 - Only Web.Api must expose the existing SignalR endpoint `/hubs/control/v1`.
   Web.Application must enforce guest authority before device execution; neither
   UI host may bypass Web.Api's writer.

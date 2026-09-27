@@ -36,7 +36,7 @@ The device API currently has four independently buildable libraries:
 
 - `OssmSharp.Device.Primitives` contains `IOssmDevice` and immutable device models.
 - `OssmSharp.Device.Runtime` contains the shared `DeviceBase`, options and
-  device lifecycle logging; shared ownership and interruption mechanics remain planned.
+  device lifecycle logging; shared Stop and interruption mechanics remain planned.
 - `OssmSharp.Device.Stock` contains stock protocol codecs and a read-only BLE
   connection; physical motion writes remain unavailable.
 - `OssmSharp.Device.Simulator` contains the loopback TCP `SimulatedDevice` adapter.
@@ -74,9 +74,7 @@ require AppHost. The old CLI daemon and named-pipe commands have been removed.
 ### Simulator CLI prompt
 
 Build the bridge, then start a CLI-owned simulator session from the repository
-root. The machine-wide `OssmSharp/runtime` ownership directory must already be
-provisioned for the operator under Windows CommonApplicationData or macOS
-`/Library/Application Support`.
+root.
 
 ```powershell
 cargo build --locked --release --manifest-path tools/ossm-sim-bridge/Cargo.toml
@@ -90,8 +88,7 @@ Inside the prompt, use `status`, `set --speed 12 --stroke 20 --depth 50
 before closing the device, then stops only the simulator process it started.
 Write settlement is not independent proof of motion or physical stopping.
 The native bridge and simulator adapter passed local integration checks, but
-real CLI launch and attach could not be verified on this Mac because its
-machine-wide ownership directory is not provisioned. No physical device was
+real CLI launch and attach were not verified on this Mac. No physical device was
 used.
 
 Alternatively, leave an independently started bridge running and attach without
@@ -150,9 +147,8 @@ and six simulator process integration tests. The macOS 26.5 native CLI and
 Stock C# sources also passed a compile-only check. This does not build or run
 the macOS BLE executable; a local full build requires Xcode, and native BLE
 runtime validation remains outstanding. Windows-native behavior needs a Windows
-environment. Full CLI simulator process tests additionally need the provisioned
-machine-wide ownership directory described above; they must not substitute a
-per-user lock. No hardware has been accessed in this work. See the
+environment. Full CLI simulator process tests remain outstanding. No hardware
+has been accessed in this work. See the
 [no-Xcode investigation](.docs/plans/cli-no-xcode-investigation.md) for
 the evidence and alternatives, and the
 [device adapter design](.docs/specs/device-control/adapters.md#physical-device-selection-and-connection)

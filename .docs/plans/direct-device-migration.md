@@ -21,9 +21,9 @@ priority; the accepted design owns runtime contracts, not a competing schedule.
 One computer, one device, one local admin/device user and one guest. Web.Api
 owns the selected device when the web application runs. Cli is a persistent
 interactive alternative owner, with no web controller, sessions, authentication
-or service client. A machine-wide lock excludes concurrent owners; detected
-external changes latch an interruption requiring explicit local acknowledgement
-into paused state. Neither acknowledgement nor reconnect resumes motion.
+or service client. Detected external changes latch an interruption requiring
+explicit local acknowledgement into paused state. Neither acknowledgement nor
+reconnect resumes motion.
 
 The CLI starts its simulator child only for an explicit `prompt --simulator <path>`
 session, or attaches without owning a child for
@@ -60,7 +60,7 @@ OSSMDotNet identities and remain unchanged.
 | Repository identity OSSMDotNet | OssmSharp. The checkout directory name is not proof of hosted repository identity; verify the hosted name and update owned remote/badge/package/release references only in an authorized publication step. |
 | OSSMDotNet.slnx / OSSMDotNet.code-workspace | OssmSharp.slnx / OssmSharp.code-workspace; update project entries, relative paths, launch tasks and developer documentation. |
 | OSSMDotNet.Abstractions | OssmSharp.Device.Primitives: IOssmDevice, values, enums and semantic device exceptions. |
-| Shared DeviceBase, neutral options, lifecycle/Stop machinery and device lease | OssmSharp.Device.Runtime, extracted from OSSMDotNet, ControlCore and API/CLI ownership code. No web policy, BLE, process launcher or Defaults dependency. |
+| Shared DeviceBase, neutral options, lifecycle/Stop and interruption machinery | OssmSharp.Device.Runtime, extracted from OSSMDotNet, ControlCore and API/CLI code. No web policy, BLE, process launcher or Defaults dependency. |
 | OSSMDotNet stock codecs/provider | OssmSharp.Device.Stock; move Shiny/native integration out of the CLI and isolate platform targets here and in selected hosts. |
 | OSSMDotNet.Simulator | OssmSharp.Device.Simulator; depend on Primitives/Runtime, not Stock; replace child-process transport. |
 | OSSMDotNet.ControlCore + OSSMDotNet.ControlService | OssmSharp.Web.Application: retain full web controller, authority, operations and activity policy as transport-neutral classes. Extract only genuinely shared mechanics to Runtime; do not expose web policy to Cli. |
@@ -142,8 +142,7 @@ command dispatch without diverting into simulator or web functionality.
 
 **First acceptance scenario:** under separate explicit hardware authorization,
 with the device unloaded and the operator able to cut power independently,
-start the CLI without simulator, web hosts or AppHost. The machine-wide runtime
-directory must already be provisioned for the operator. Discover/select the
+start the CLI without simulator, web hosts or AppHost. Discover/select the
 intended real device; connect over BLE and verify
 its identity and required GATT service; submit an explicit supported control
 command from the CLI; verify the stock provider sent the corresponding GATT
@@ -201,8 +200,8 @@ Replace the obsolete rules with these exact architectural requirements:
   API composition referencing providers. Only UI hosts use Web.Client.
 - Keep AdminWeb, GuestWeb and Web.Api separate processes. Require CLI-only and
   API-without-UI deployments; do not claim API/device restart independence.
-- Put machine-wide exclusive ownership and mechanical interruption/Stop rules
-  in Runtime. Local admin equals device user. Physical override acknowledgment
+- Put mechanical interruption/Stop rules in Runtime. Local admin equals
+  device user. Physical override acknowledgment
   leaves paused, never restores the old tuple, and is a CLI command in REPL mode.
 - The simulator starter owns its process. Clients may connect/disconnect but
   must not launch/kill it. AppHost is optional and never owns BLE.
@@ -292,8 +291,8 @@ conformance remain outstanding.
 
 `OssmSharp.Web.Api` now names the existing device-owning backend and its unit
 and integration test assemblies. The API and AppHost built on Windows with
-.NET SDK 10.0.401. Focused unit checks passed 41 and 22, real URL-override
-process cases passed 2, and cross-process shutdown ownership passed 1.
+.NET SDK 10.0.401. Focused unit checks passed 41 and 22, and real URL-override
+process cases passed 2.
 Before the rename, both URL-override cases failed specifically because the
 new executable was absent. A positive certificate-path test exposed a Unix-
 only fixture on Windows; it now passes with a platform-qualified test path,
@@ -399,40 +398,30 @@ without postponing implementation until simulator or web acceptance.
 
 ### M2. Runtime support within the Stock and CLI phases
 
-Status: in progress on 26 September 2026; **not accepted**. Runtime now owns a
-fixed machine-wide lock-file path, and Web.Api and the current Cli simulator
-host acquire that lock before device access. Isolated tests cover contention,
-release, missing directory and access denial. Web.Api retains ownership on a
-reported cleanup failure by terminating the owner; DeviceBase shares one
-disposal outcome and bounds Stop, connection settlement, issued-write waiting
-and core cleanup within five seconds. Focused DeviceBase/lock tests passed
-48/48, two simulator disposal cases passed, and the API built. These checks
-do not prove the full M2 safety contract.
+Status: in progress on 26 September 2026; **not accepted**. DeviceBase shares
+one disposal outcome and bounds Stop, connection settlement, issued-write
+waiting and core cleanup within five seconds. These checks do not prove the
+full M2 safety contract.
 
-The production runtime directory was absent on the Windows development
-machine and was not provisioned automatically. Four real CLI/API process
-cases were not run against the new lock. Windows/macOS cross-user competition,
-owner crash, permission and delayed-cleanup evidence still require a dedicated
-provisioned native CI environment. Cli's macOS `identify` path still reaches
-BLE discovery without first acquiring the shared lock; macOS must also fail
-closed if .NET file locking is disabled. The sole Runtime interruption latch,
+Windows/macOS native behavior and delayed-cleanup evidence still require a
+dedicated native CI environment. The sole Runtime interruption latch,
 stale-revision acknowledgement, shared Stop path and between-write revocation
 checks are not implemented. Existing CLI daemon and API disposal evidence
 cannot substitute for those requirements.
 
 Depends on: M1. Implement the mechanics needed by the stock command path with
-M7 before M4 uses them. Web projection, CLI/API competition and the full native
-platform acceptance matrix follow in M5/M6; they do not block stock-core coding.
+M7 before M4 uses them. Web projection and the full native platform acceptance
+matrix follow in M5/M6; they do not block stock-core coding.
 
-Scope now: the single I/O owner, machine lease, interruption revision, explicit
-Stop semantics, between-write revocation and bounded cleanup needed by Stock
-and Cli. Scope later: Web.Application projection and CLI/API competition in M5,
-then the remaining native matrix in M6. The full M2 acceptance below is not a
+Scope now: the single I/O owner, interruption revision, explicit Stop
+semantics, between-write revocation and bounded cleanup needed by Stock and
+Cli. Scope later: Web.Application projection in M5, then the remaining native
+matrix in M6. The full M2 acceptance below is not a
 prerequisite for starting M7 or composing M4; its applicable runtime protections
 must be in place before the operations they protect.
 
-Owner/scope: DeviceBase and device options, DeviceOwnershipLock, common
-operation settlement/Stop coordination and semantic error publication.
+Owner/scope: DeviceBase and device options, common operation
+settlement/Stop coordination and semantic error publication.
 
 Extract the single I/O gate and minimal interruption revision into Runtime.
 Preserve no-full-state-cache DeviceBase behavior; each consuming owner retains
@@ -446,37 +435,23 @@ projects that state and adds role/authority-revision checks before Runtime ackno
 it must not keep a separately clearable device lock. Reuse one acknowledged
 paused outcome across web and CLI paths.
 
-Use one crash-released exclusive lock-file handle in a machine-wide provisioned
-runtime directory. Both executable identities resolve the same stable key,
-including different launches/users with permitted access. Do not use per-user
-temporary paths, unlink an active lock file, steal ownership after a timeout or
-fall back on permission failure. Acquire before discovery/connection; retain
-until issued I/O/cleanup is complete or the owning process terminates.
-
-Provision the design's common-application-data/system-Library runtime directory
-through documented administrator setup, with no automatic elevation or
-production path override. Keep helper-test path injection internal; run real
-CLI/API process competition in dedicated native CI environments using the
-production location. A pre-existing operator owner blocks that test rather than
-being killed or bypassed.
-
 Detected external changes raise the common semantic event and latch inhibition.
 In M5, Web.Application revokes guest authority. In M4, Cli reports and accepts only
 non-motion commands until explicit acknowledgement. Acknowledge verifies the
 current revision and stopped baseline; it never resumes. Missing/late feedback
 remains unknown/faulted, not a fabricated override or confirmation.
 
-Verification now: reuse DeviceOwnershipLockTests and adapter expectation tests;
-add deterministic Stop-vs-issued-write, stale-ack, failure-before-connect and
-cleanup-ownership checks for the Stock/CLI path. Verification in M5: reuse
-ApiProcessOwnershipTests, ControlExecutionTests/ExecutionOwnershipTests and
-CoreRig/FakeBridge for web projection and CLI/API competition. Complete remaining
-native crash, permission and delayed-cleanup cases in M6. Do not require those
-later consumers to exist before verifying the Stock/CLI mechanics.
+Verification now: reuse adapter expectation tests; add deterministic
+Stop-vs-issued-write, stale-ack, failure-before-connect and
+cleanup checks for the Stock/CLI path. Verification in M5: reuse
+ControlExecutionTests/ExecutionOwnershipTests and CoreRig/FakeBridge for web
+projection and CLI integration. Complete remaining native crash and
+delayed-cleanup cases in M6. Do not require those later consumers to exist
+before verifying the Stock/CLI mechanics.
 
-Acceptance: one writer and shared exclusion in either consumer, no web-policy
-dependency in Runtime/Cli, zero-speed priority without concurrent I/O, no replay
-after interruption/reconnect, and explicit unknown outcomes on cleanup timeout.
+Acceptance: one writer in each consumer, no web-policy dependency in Runtime/Cli,
+zero-speed priority without concurrent I/O, no replay after
+interruption/reconnect, and explicit unknown outcomes on cleanup timeout.
 
 ### M4. Interactive direct-device CLI and first real control command
 
@@ -493,7 +468,7 @@ Owner/scope: Cli entry point, DeviceCommand/runner, device selection/options and
 the existing DeviceCli unit/integration tests.
 
 Replace per-command daemon IPC with the design's foreground prompt. Keep one
-stock connection/lock across help, status, set, Stop and acknowledgement. Reuse
+stock device connection across help, status, set, Stop and acknowledgement. Reuse
 pinned System.CommandLine parsing; commands have three numeric inputs and
 pattern, with provider capabilities and model validation enforced. Help/version
 require no connection. Invalid input returns to the prompt without sending work.
@@ -509,9 +484,9 @@ supported commands still cannot reach the Stock provider.
 
 All handled exits share the five-second-default cleanup budget: stop intake,
 invalidate pending work, wait for issued I/O, attempt serialized zero, then
-disconnect and release ownership last. Only retry zero after actual settlement
-and within the budget. Report unconfirmed cleanup, preserve cancellation exit
-semantics and never background a replacement owner. Move required bounds,
+disconnect. Only retry zero after actual settlement and within the budget.
+Report unconfirmed cleanup, preserve cancellation exit semantics, and do not
+open a replacement connection before cleanup settles. Move required bounds,
 validation and Stop assertions to the direct CLI/provider tests, then remove
 SimulatorHost/IPC, launcher code and the obsolete executable-path shim in this
 phase. Do not restore legacy simulator motion to satisfy the old harness. Do
@@ -520,8 +495,7 @@ not postpone replacement/removal until simulator acceptance or M8 cleanup.
 Verification: reuse DeviceCommandTests and in-process session tests with a
 controlled BLE boundary for deterministic command/lifecycle cases. Use
 DeviceCliProcessTests for no-hardware scenarios such as help/version, invalid
-usage and startup failure; real owner-process tests require the provisioned
-runtime directory. Add no production provider or lock-path override for tests.
+usage and startup failure.
 Record the actual native CLI-to-device command result separately. Cover multiple commands,
 supported patterns, rejected tuples, help, Stop retaining the prompt,
 acknowledgement without motion, EOF/quit/Ctrl+C, startup failure and
@@ -627,7 +601,7 @@ runtime interruption, shutdown and full browser/API acceptance cases below
 have not passed under the new transport and ownership model.
 
 Depends on: M4's stock CLI scenario, then M3. Complete web-specific M2
-integration here; M4 supplies the competing-owner acceptance executable.
+integration here using the CLI and API tests for their separate compositions.
 
 Owner/scope: Web.Api, Web.Application, Web.Client, Web.Contracts and the two UI
 hosts. UI component design is not being changed.
@@ -647,19 +621,19 @@ same stopped-ready checks govern acknowledgement and subsequent Allow control.
 
 The hosted device owner must invoke Runtime's shared bounded shutdown path
 before transport teardown. Set normal HostOptions shutdown time above the
-cleanup budget and test early cancellation explicitly. No request/circuit
-disposal may release the process-wide owner.
+cleanup budget and test early cancellation explicitly. Request/circuit
+disposal must not bypass the shared cleanup path.
 
 Verification: move/reuse ControlAuthorityRevisionTests, InvitationLifecycleTests,
 LimitsPolicyTests, GuestControlOperationsTests, ControlProtocolContractTests,
 ControlHubPayloadTests, ControlHubContractTests and client lifecycle tests.
 Exercise API startup with both UIs/AppHost absent, role-specific in-process
-clients, CLI competition, actual envelope bounds, expiry closing connections,
+clients, actual envelope bounds, expiry closing connections,
 and Stop/cycle while I/O remains unsettled. Focused browser checks retain
 draft/send, guest loss, acknowledgement/paused recovery and notification rules.
 
-Add API graceful-termination evidence showing Stop before disconnect and lock
-release, matching the CLI's ordering rather than merely observing process exit.
+Add API graceful-termination evidence showing Stop before disconnect, matching
+the CLI's ordering rather than merely observing process exit.
 With the Simulator profile, API exit must leave the independent simulator alive
 at zero. Apply the existing provider-selection contract to Web.Api here; keep
 the broader artifact/platform matrix in M6.
@@ -778,18 +752,17 @@ that a code revert reverses device effects is permitted.
 | Supported arrangement | Required proof |
 | --- | --- |
 | **First: Cli + real Stock device over BLE** | Without simulator, web hosts or AppHost: select/connect to the intended device, submit a supported control command from the CLI, record the corresponding GATT write and real response/observed state, then Stop/disconnect. Discovery or identity alone does not pass. |
-| Cli + CLI-owned simulator child | No web/API/controller/AppHost dependency; persistent prompt; correct writes/status/interruption; strong Stop attempt on exit; stop the child after device cleanup while retaining ownership until settled. |
+| Cli + CLI-owned simulator child | No web/API/controller/AppHost dependency; persistent prompt; correct writes/status/interruption; strong Stop attempt on exit; settle device cleanup before stopping the child. |
 | Web.Api + simulator, UIs absent | Startup and API role tests work without UI/AppHost; one controller/device lifetime; no direct guest adapter access. |
 | Full web + simulator | Existing invite/approve/send/Stop/limits/leave/cycle and interruption/acknowledgement scenarios survive moves. |
-| Cli and Web.Api competing | Exactly one acquires the same machine-wide lease before device I/O, including shutdown and owner crash cases. |
 | Selected-provider publish | Simulator has no Stock/BLE/native workload requirements; Stock has no simulator/Cargo requirements; options cannot select missing providers. |
 | Logging and telemetry | Same relevant settings and behavior in CLI/web without Aspire; configured export works; collector absence does not prevent startup. |
 | Stock modes | Build and native/physical qualification separately recorded; no simulator result substitutes for these gates. |
 
 These rows are cumulative migration evidence, not prerequisites for the first
-row. M7/M4 prove their required Stock dependency isolation, ownership and
-cleanup before the live command; M3 proves simulator/CLI; M5 proves web and
-CLI/API competition; M6 completes cross-platform/artifact/telemetry evidence.
+row. M7/M4 prove their required Stock dependency isolation and cleanup before
+the live command; M3 proves simulator/CLI; M5 proves web; M6 completes
+cross-platform/artifact/telemetry evidence.
 Physical release qualification is recorded separately. The first command does
 not imply all rows passed.
 

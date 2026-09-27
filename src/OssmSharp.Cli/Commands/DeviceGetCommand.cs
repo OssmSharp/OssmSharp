@@ -17,11 +17,10 @@ public sealed class DeviceGetCommand : Command
 
     internal DeviceGetCommand(
         Func<string, CancellationToken, Task<string>> readIdentity,
-        Func<IDisposable?> acquireOwnership,
         TextWriter output,
         TextWriter error)
         : this((id, cancellationToken) => RunAsync(
-            id, readIdentity, acquireOwnership, output, error, cancellationToken))
+            id, readIdentity, output, error, cancellationToken))
     {
     }
 
@@ -48,40 +47,22 @@ public sealed class DeviceGetCommand : Command
     private static async Task<int> RunAsync(
         string id,
         Func<string, CancellationToken, Task<string>> readIdentity,
-        Func<IDisposable?> acquireOwnership,
         TextWriter output,
         TextWriter error,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(readIdentity);
-        ArgumentNullException.ThrowIfNull(acquireOwnership);
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(error);
 
-        IDisposable? lease = null;
-        var cleanupSettled = true;
         try
         {
-            lease = acquireOwnership();
-            if (lease is null)
-            {
-                await error.WriteLineAsync("Device is already owned by another process.").ConfigureAwait(false);
-                return 1;
-            }
-
             var details = await readIdentity(id, cancellationToken).ConfigureAwait(false);
             await output.WriteLineAsync(details.AsMemory(), cancellationToken).ConfigureAwait(false);
             return 0;
         }
         catch (UnsettledDeviceCleanupException exception)
         {
-            cleanupSettled = false;
-            if (lease is DeviceOwnershipLock machineLease)
-            {
-                await machineLease.ReleaseAfterAsync(() => ValueTask.FromException(exception))
-                    .ConfigureAwait(false);
-            }
-
             await error.WriteLineAsync(exception.Message).ConfigureAwait(false);
             return 1;
         }
@@ -94,13 +75,6 @@ public sealed class DeviceGetCommand : Command
         {
             await error.WriteLineAsync(exception.Message).ConfigureAwait(false);
             return 1;
-        }
-        finally
-        {
-            if (cleanupSettled)
-            {
-                lease?.Dispose();
-            }
         }
     }
 

@@ -29,13 +29,12 @@ from presentation state. The device contract must be usable directly without
 the controller, while an application composing a controller must not allow
 callers to bypass its writer.
 
-The accepted 25 September 2026 composition has two alternative local owners:
-Web.Api with its full web controller, or the standalone Cli REPL. Shared
-Device.Runtime mechanics own the single transport gate, machine-wide lease,
-interruption revision and Stop/cleanup path. Device.Primitives owns values and
-contracts, not hosting or policy. Neither provider depends on the other; the
-simulator is independently started. These are target requirements, not claims
-that the current projects have migrated.
+The accepted 25 September 2026 composition has two local consumers: Web.Api
+with its full web controller, or the standalone Cli REPL. Shared Device.Runtime
+mechanics own the single transport gate, interruption revision and Stop/cleanup
+path. Device.Primitives owns values and contracts, not hosting or policy.
+Neither provider depends on the other; the simulator is independently started.
+These are target requirements, not claims that the current projects have migrated.
 
 DC IDs remain stable. DC-01 readiness, DC-03 intrinsic validity, DC-04/05 owned
 I/O and Stop, DC-06 valid transitions, DC-07 honest feedback/cleanup, DC-08
@@ -512,10 +511,10 @@ command token; normal web host shutdown must allow more time (ten seconds by
 default). Do not renew the budget per retry. Retry only a settled zero write,
 never concurrent I/O or motion. Handle quit/EOF/Ctrl+C, graceful termination and
 catchable terminal-close events; OS deadlines may shorten the budget. If I/O
-does not settle, report unconfirmed Stop and retain ownership until shutdown
+does not settle, report unconfirmed Stop and retain I/O ownership until shutdown
 terminates the owner rather than admitting a new writer within that process.
-Release the machine-wide lock last. An independently started simulator remains
-alive after its client leaves, and must zero on connection loss.
+An independently started simulator remains alive after its client leaves, and
+must zero on connection loss.
 
 Cleanup must use stored callback identities, unsubscribe, cancel timers, stop
 notifications and release owned resources after successful use, failure or

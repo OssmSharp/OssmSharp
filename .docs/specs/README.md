@@ -44,10 +44,9 @@ This design contract does not establish runtime migration acceptance.
 	It has no web controller, guest session, authentication or service-client
 	dependency. Handled exit paths make a bounded, awaited best-effort Stop before
 	disconnecting and releasing ownership.
-- One machine-wide ownership lock excludes concurrent cooperating CLI/API
-	owners. Detected external parameter changes latch an interruption; only the
-	local admin can acknowledge it, into paused state. In the CLI this is an
-	explicit local command, not a call to an admin website.
+- Detected external parameter changes latch an interruption; only the local
+	admin can acknowledge it, into paused state. In the CLI this is an explicit
+	local command, not a call to an admin website.
 - `Device.Stock` and `Device.Simulator` implement the same device contract.
 	Provider-specific packages are isolated by build/publish profiles. With
 	`prompt --simulator <path>`, the CLI owns the simulator child for that prompt;
@@ -72,8 +71,8 @@ AppHost absent, first controlling the real Stock device over BLE and later a
 CLI-owned simulator child. Web integration follows, including API operation without
 either UI host or AppHost. The migration plan owns this sequence; provider
 defaults do not change it. Verify configured
-logging/telemetry, provider dependency isolation, cross-process exclusion,
-latched interruption, shutdown Stop attempts, CLI-owned child cleanup and
+logging/telemetry, provider dependency isolation, latched interruption,
+shutdown Stop attempts, CLI-owned child cleanup and
 independent Web.Api simulator lifetime.
 Documentation changes and compilation do not establish these outcomes.
 

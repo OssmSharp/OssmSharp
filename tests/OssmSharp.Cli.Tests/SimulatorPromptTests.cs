@@ -9,16 +9,15 @@ namespace OssmSharp.Cli.Tests;
 public sealed class SimulatorPromptTests
 {
     [Fact]
-    public async Task SimulatorSetAndStopSettleAtZeroBeforeReleasingOwnership()
+    public async Task SimulatorSetAndStopSettleAtZeroBeforeClosingDevice()
     {
         using var input = new StringReader(
             "set --speed 12 --stroke 20 --depth 50 --pattern SimpleStroke\nstop\nquit\n");
         using var output = new StringWriter();
         using var error = new StringWriter();
-        using var lease = new MemoryStream();
         await using var device = new SimulatorHostTestDevice();
 
-        var session = CreateSession(input, output, error, () => lease, _ => device);
+        var session = CreateSession(input, output, error, _ => device);
         var exitCode = await session.RunAsync(Attach(), TestContext.Current.CancellationToken);
 
         Assert.Equal(0, exitCode);
@@ -27,7 +26,6 @@ public sealed class SimulatorPromptTests
         Assert.True(device.MotionCount >= 3);
         Assert.Equal(0, device.LastMotion?.Speed);
         Assert.True(device.Disposed);
-        Assert.False(lease.CanRead);
     }
 
     [Fact]
@@ -38,17 +36,15 @@ public sealed class SimulatorPromptTests
             + "set --speed 12 --stroke 30 --depth 60 --pattern SimpleStroke\nquit\n");
         using var output = new StringWriter();
         using var error = new StringWriter();
-        using var lease = new MemoryStream();
         await using var device = new SimulatorHostTestDevice();
 
-        var session = CreateSession(input, output, error, () => lease, _ => device);
+        var session = CreateSession(input, output, error, _ => device);
         var exitCode = await session.RunAsync(Attach(), TestContext.Current.CancellationToken);
 
         Assert.Equal(0, exitCode);
         Assert.Contains("Stop and confirm zero", error.ToString(), StringComparison.Ordinal);
         Assert.Equal(2, device.MotionCount);
         Assert.Equal(0, device.LastMotion?.Speed);
-        Assert.False(lease.CanRead);
     }
 
     [Fact]
@@ -58,10 +54,9 @@ public sealed class SimulatorPromptTests
             "set --speed 20 --stroke 0 --depth 50 --pattern SimpleStroke\nquit\n");
         using var output = new StringWriter();
         using var error = new StringWriter();
-        using var lease = new MemoryStream();
         await using var device = new SimulatorHostTestDevice();
 
-        var session = CreateSession(input, output, error, () => lease, _ => device);
+        var session = CreateSession(input, output, error, _ => device);
         var exitCode = await session.RunAsync(Attach(), TestContext.Current.CancellationToken);
 
         Assert.Equal(0, exitCode);
@@ -79,7 +74,6 @@ public sealed class SimulatorPromptTests
             $"set --speed {speed} --stroke {stroke} --depth {depth} --pattern SimpleStroke\nquit\n");
         using var output = new StringWriter();
         using var error = new StringWriter();
-        using var lease = new MemoryStream();
         await using var device = new SimulatorHostTestDevice();
         var reported = new List<MotionSettings>();
         device.DeviceStateChanged += change =>
@@ -88,7 +82,7 @@ public sealed class SimulatorPromptTests
                 reported.Add(change.AsT0.MotionSettings);
         };
 
-        var session = CreateSession(input, output, error, () => lease, _ => device);
+        var session = CreateSession(input, output, error, _ => device);
         var exitCode = await session.RunAsync(Attach(), TestContext.Current.CancellationToken);
 
         Assert.Equal(0, exitCode);
@@ -96,35 +90,6 @@ public sealed class SimulatorPromptTests
         Assert.Contains(reported, settings =>
             settings.Speed == speed && settings.Stroke == stroke && settings.Depth == depth);
         Assert.Equal(0, device.LastMotion?.Speed);
-        Assert.False(lease.CanRead);
-    }
-
-    [Fact]
-    public async Task BusyOwnerPreventsSimulatorProcessAndDeviceStartup()
-    {
-        using var input = new StringReader("quit\n");
-        using var output = new StringWriter();
-        using var error = new StringWriter();
-        var processCreated = false;
-        var session = CreateSession(
-            input,
-            output,
-            error,
-            () => null,
-            _ => throw new InvalidOperationException("Created device without ownership."),
-            createSimulator: _ =>
-            {
-                processCreated = true;
-                throw new InvalidOperationException("Created child without ownership.");
-            });
-
-        var exitCode = await session.RunAsync(
-            PromptSelection.Parse(null, Environment.ProcessPath!),
-            TestContext.Current.CancellationToken);
-
-        Assert.Equal(1, exitCode);
-        Assert.False(processCreated);
-        Assert.Contains("owned", error.ToString(), StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -133,7 +98,6 @@ public sealed class SimulatorPromptTests
         using var input = new StringReader("help\nstatus\nquit\n");
         using var output = new StringWriter();
         using var error = new StringWriter();
-        using var lease = new MemoryStream();
         await using var device = new SimulatorHostTestDevice();
         var processCreated = false;
         var endpoint = string.Empty;
@@ -141,7 +105,6 @@ public sealed class SimulatorPromptTests
             input,
             output,
             error,
-            () => lease,
             selected =>
             {
                 endpoint = selected;
@@ -159,27 +122,24 @@ public sealed class SimulatorPromptTests
         Assert.Equal(Attach().Value, endpoint);
         Assert.False(processCreated);
         Assert.True(device.Disposed);
-        Assert.False(lease.CanRead);
         Assert.Contains("Reported", output.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]
-    public async Task SimulatorEofStillStopsAndDisposesBeforeLeaseRelease()
+    public async Task SimulatorEofStillStopsAndDisposesDevice()
     {
         using var input = new StringReader(string.Empty);
         using var output = new StringWriter();
         using var error = new StringWriter();
-        using var lease = new MemoryStream();
         await using var device = new SimulatorHostTestDevice();
 
-        var session = CreateSession(input, output, error, () => lease, _ => device);
+        var session = CreateSession(input, output, error, _ => device);
         var exitCode = await session.RunAsync(Attach(), TestContext.Current.CancellationToken);
 
         Assert.Equal(0, exitCode);
         Assert.True(device.MotionCount >= 1);
         Assert.Equal(0, device.LastMotion?.Speed);
         Assert.True(device.Disposed);
-        Assert.False(lease.CanRead);
     }
 
     [Fact]
@@ -188,7 +148,6 @@ public sealed class SimulatorPromptTests
         using var input = new StringReader("quit\n");
         using var output = new StringWriter();
         using var error = new StringWriter();
-        using var lease = new MemoryStream();
         using var device = new ReadOnlyTestDevice();
         var connected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         device.ConnectionStateChanged += state =>
@@ -196,7 +155,7 @@ public sealed class SimulatorPromptTests
             if (state == DeviceConnectionState.Connected)
                 connected.TrySetResult();
         };
-        var session = CreateSession(input, output, error, () => lease, _ => device);
+        var session = CreateSession(input, output, error, _ => device);
 
         var running = session.RunAsync(Attach(), TestContext.Current.CancellationToken);
         await connected.Task.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
@@ -206,7 +165,6 @@ public sealed class SimulatorPromptTests
         await Assert.ThrowsAsync<NotSupportedException>(() => running);
         Assert.Equal(1, device.Writes);
         Assert.True(device.Disposed);
-        Assert.True(lease.CanRead);
     }
 
     [Fact]
@@ -215,36 +173,31 @@ public sealed class SimulatorPromptTests
         using var input = new StringReader("help\nacknowledge\nquit\n");
         using var output = new StringWriter();
         using var error = new StringWriter();
-        using var lease = new MemoryStream();
         await using var device = new SimulatorHostTestDevice();
 
-        var session = CreateSession(input, output, error, () => lease, _ => device);
+        var session = CreateSession(input, output, error, _ => device);
         var exitCode = await session.RunAsync(Attach(), TestContext.Current.CancellationToken);
 
         Assert.Equal(0, exitCode);
         Assert.Contains("acknowledge", output.ToString(), StringComparison.Ordinal);
         Assert.Contains("Acknowledgement unavailable", error.ToString(), StringComparison.Ordinal);
         Assert.Equal(0, device.LastMotion?.Speed);
-        Assert.False(lease.CanRead);
     }
 
     [Fact]
-    public async Task ChildFactoryFailureReleasesLeaseWithoutConstructingDevice()
+    public async Task ChildFactoryFailureDoesNotConstructDevice()
     {
         using var input = new StringReader("quit\n");
         using var output = new StringWriter();
         using var error = new StringWriter();
-        using var lease = new MemoryStream();
         var childFactoryCalled = false;
         var session = CreateSession(
             input,
             output,
             error,
-            () => lease,
             _ => throw new InvalidOperationException("Device started after child failure."),
             createSimulator: _ =>
             {
-                Assert.True(lease.CanRead);
                 childFactoryCalled = true;
                 throw new IOException("Simulator startup failed.");
             });
@@ -255,7 +208,6 @@ public sealed class SimulatorPromptTests
 
         Assert.Equal(1, exitCode);
         Assert.True(childFactoryCalled);
-        Assert.False(lease.CanRead);
         Assert.Contains("Simulator startup failed", error.ToString(), StringComparison.Ordinal);
     }
 
@@ -265,24 +217,20 @@ public sealed class SimulatorPromptTests
         using var input = new StringReader("status\nquit\n");
         using var output = new StringWriter();
         using var error = new StringWriter();
-        using var lease = new MemoryStream();
         using var device = new ReadOnlyTestDevice();
         var selectedId = string.Empty;
         var session = CreateSession(
             input,
             output,
             error,
-            () => lease,
             _ => throw new InvalidOperationException("Bluetooth selected a simulator."),
             id =>
             {
-                Assert.True(lease.CanRead);
                 selectedId = id;
                 return device;
             },
             _ =>
             {
-                Assert.True(lease.CanRead);
                 return Task.FromResult<IReadOnlyList<(string Name, string Id)>>(
                     [("First", "id-one"), ("id-one", "id-two")]);
             });
@@ -295,7 +243,6 @@ public sealed class SimulatorPromptTests
         Assert.Equal("id-one", selectedId);
         Assert.Equal(0, device.Writes);
         Assert.True(device.Disposed);
-        Assert.False(lease.CanRead);
         Assert.Contains("motion control unavailable", output.ToString(), StringComparison.Ordinal);
     }
 
@@ -305,14 +252,12 @@ public sealed class SimulatorPromptTests
         using var input = new StringReader("set --speed 25 --stroke 20 --depth 50 --pattern SimpleStroke\nstop\nquit\n");
         using var output = new StringWriter();
         using var error = new StringWriter();
-        using var lease = new MemoryStream();
         using var device = new ReadOnlyTestDevice();
         var selectedId = string.Empty;
         var session = CreateSession(
             input,
             output,
             error,
-            () => lease,
             _ => throw new InvalidOperationException("Bluetooth selected a simulator."),
             id =>
             {
@@ -330,7 +275,6 @@ public sealed class SimulatorPromptTests
         Assert.Equal("id-two", selectedId);
         Assert.Equal(0, device.Writes);
         Assert.True(device.Disposed);
-        Assert.False(lease.CanRead);
         Assert.Contains("Motion unavailable", error.ToString(), StringComparison.Ordinal);
         Assert.Contains("Stop unavailable", error.ToString(), StringComparison.Ordinal);
     }
@@ -344,13 +288,11 @@ public sealed class SimulatorPromptTests
         using var input = new StringReader("quit\n");
         using var output = new StringWriter();
         using var error = new StringWriter();
-        using var lease = new MemoryStream();
         var deviceCreated = false;
         var session = CreateSession(
             input,
             output,
             error,
-            () => lease,
             _ => throw new InvalidOperationException("Bluetooth selected a simulator."),
             _ =>
             {
@@ -373,7 +315,6 @@ public sealed class SimulatorPromptTests
             Assert.Contains("id-two", error.ToString(), StringComparison.Ordinal);
         }
 
-        Assert.False(lease.CanRead);
     }
 
     [Fact]
@@ -396,12 +337,10 @@ public sealed class SimulatorPromptTests
         using var input = new StringReader("quit\n");
         using var output = new StringWriter();
         using var error = new StringWriter();
-        using var lease = new MemoryStream();
         var session = CreateSession(
             input,
             output,
             error,
-            () => lease,
             _ => throw new InvalidOperationException("Bluetooth selected a simulator."),
             _ => throw new InvalidOperationException("Bad\u202Eidentity"),
             _ => Task.FromResult<IReadOnlyList<(string Name, string Id)>>([("Device", "id-one")]));
@@ -412,7 +351,6 @@ public sealed class SimulatorPromptTests
 
         Assert.Equal(1, exitCode);
         Assert.Contains("Device connection failed: Bad identity", error.ToString(), StringComparison.Ordinal);
-        Assert.False(lease.CanRead);
     }
 
     [Fact]
@@ -421,12 +359,10 @@ public sealed class SimulatorPromptTests
         using var input = new StringReader("quit\n");
         using var output = new StringWriter();
         using var error = new StringWriter();
-        using var lease = new MemoryStream();
         var session = CreateSession(
             input,
             output,
             error,
-            () => lease,
             _ => throw new InvalidOperationException("Bluetooth fell back to a simulator."));
 
         var exitCode = await session.RunAsync(
@@ -435,7 +371,6 @@ public sealed class SimulatorPromptTests
 
         Assert.Equal(1, exitCode);
         Assert.Contains("Stock BLE connection unavailable", error.ToString(), StringComparison.Ordinal);
-        Assert.False(lease.CanRead);
     }
 
     [Fact]
@@ -452,40 +387,35 @@ public sealed class SimulatorPromptTests
     }
 
     [Fact]
-    public async Task FailedPreliminaryStopStillDisposesDeviceAndRetainsLease()
+    public async Task FailedPreliminaryStopStillDisposesDevice()
     {
         using var input = new StringReader("quit\n");
         using var output = new StringWriter();
         using var error = new StringWriter();
-        using var lease = new MemoryStream();
         using var device = new ReadOnlyTestDevice
         {
             InitialReport = StoppedReport(),
         };
-        device.OnDispose = () => Assert.True(lease.CanRead);
-        var session = CreateSession(input, output, error, () => lease, _ => device);
+        var session = CreateSession(input, output, error, _ => device);
 
         await Assert.ThrowsAsync<NotSupportedException>(() =>
             session.RunAsync(Attach(), TestContext.Current.CancellationToken));
 
         Assert.Equal(1, device.Writes);
         Assert.True(device.Disposed);
-        Assert.True(lease.CanRead);
     }
 
     [Fact]
-    public async Task BluetoothConnectionCleanupFailureKeepsLease()
+    public async Task BluetoothConnectionCleanupFailureIsReported()
     {
         using var input = new StringReader("quit\n");
         using var output = new StringWriter();
         using var error = new StringWriter();
-        using var lease = new MemoryStream();
         using var device = new ReadOnlyTestDevice { FailDispose = true };
         var session = CreateSession(
             input,
             output,
             error,
-            () => lease,
             _ => throw new InvalidOperationException("Bluetooth selected a simulator."),
             _ => device,
             _ => Task.FromResult<IReadOnlyList<(string Name, string Id)>>([("Device", "device-id")]));
@@ -495,7 +425,6 @@ public sealed class SimulatorPromptTests
             TestContext.Current.CancellationToken));
 
         Assert.Contains("did not settle", failure.Message, StringComparison.Ordinal);
-        Assert.True(lease.CanRead);
         Assert.Equal(0, device.Writes);
     }
 
@@ -505,14 +434,11 @@ public sealed class SimulatorPromptTests
         using var input = new StringReader("status\nquit\n");
         using var output = new StringWriter();
         using var error = new StringWriter();
-        using var lease = new MemoryStream();
         using var device = new ReadOnlyTestDevice(connects: false);
-        device.OnDispose = () => Assert.True(lease.CanRead);
         var session = CreateSession(
             input,
             output,
             error,
-            () => lease,
             _ => throw new InvalidOperationException("Bluetooth selected a simulator."),
             _ => device,
             _ => Task.FromResult<IReadOnlyList<(string Name, string Id)>>([("Device", "device-id")]));
@@ -525,7 +451,6 @@ public sealed class SimulatorPromptTests
         Assert.Equal(string.Empty, output.ToString());
         Assert.Contains("connection", error.ToString(), StringComparison.OrdinalIgnoreCase);
         Assert.True(device.Disposed);
-        Assert.False(lease.CanRead);
     }
 
     [Fact]
@@ -534,13 +459,11 @@ public sealed class SimulatorPromptTests
         using var input = new StringReader("quit\n");
         using var output = new StringWriter();
         using var error = new StringWriter();
-        using var lease = new MemoryStream();
         using var cancellation = new CancellationTokenSource();
         var session = CreateSession(
             input,
             output,
             error,
-            () => lease,
             _ => throw new InvalidOperationException("Bluetooth selected a simulator."),
             _ => throw new InvalidOperationException("Scanner failure started a device."),
             async _ =>
@@ -554,23 +477,20 @@ public sealed class SimulatorPromptTests
             cancellation.Token);
 
         Assert.Equal(1, exitCode);
-        Assert.False(lease.CanRead);
         Assert.Contains("Scan failed", error.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]
-    public async Task BluetoothScanCancellationReleasesLeaseBeforeThrowing()
+    public async Task BluetoothScanCancellationThrows()
     {
         using var input = new StringReader("quit\n");
         using var output = new StringWriter();
         using var error = new StringWriter();
-        using var lease = new MemoryStream();
         using var cancellation = new CancellationTokenSource();
         var session = CreateSession(
             input,
             output,
             error,
-            () => lease,
             _ => throw new InvalidOperationException("Bluetooth selected a simulator."),
             _ => throw new InvalidOperationException("Canceled scan started a device."),
             async _ =>
@@ -583,7 +503,6 @@ public sealed class SimulatorPromptTests
             PromptSelection.Parse("device-id", null),
             cancellation.Token));
 
-        Assert.False(lease.CanRead);
     }
 
     private static PromptSelection Attach() =>
@@ -601,14 +520,12 @@ public sealed class SimulatorPromptTests
         TextReader input,
         TextWriter output,
         TextWriter error,
-        Func<IDisposable?> acquireOwnership,
         Func<string, IOssmDevice> simulatedDevice,
         Func<string, IOssmDevice>? stockDevice = null,
         Func<CancellationToken, Task<IReadOnlyList<(string Name, string Id)>>>? scan = null,
         Func<string, SimulatorBackgroundService>? createSimulator = null) =>
         new(
             new PromptHandler(input, output, error),
-            acquireOwnership,
             createSimulator ?? (_ => throw new InvalidOperationException("No child launch was expected.")),
             simulatedDevice,
             stockDevice,

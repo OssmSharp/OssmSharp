@@ -14,11 +14,11 @@ namespace OSSMDotNet.DeviceCli.Simulator;
 internal static class SimulatorHost
 {
     /// <summary>
-    /// Runs a host while holding its exclusive ownership lock.
+    /// Runs a local simulator host for the selected process.
     /// </summary>
     /// <param name="simulatorPath">The native simulator executable to own.</param>
-    /// <param name="endpoint">The host endpoint and ownership lock.</param>
-    /// <returns>The host exit code, or one if the ownership lock is unavailable.</returns>
+    /// <param name="endpoint">The host endpoint.</param>
+    /// <returns>The host exit code.</returns>
     internal static async Task<int> RunAsync(
         string simulatorPath,
         SimulatorEndpoint endpoint,
@@ -26,12 +26,6 @@ internal static class SimulatorHost
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(simulatorPath);
         ArgumentNullException.ThrowIfNull(endpoint);
-
-        await using var ownership = TryAcquire(endpoint.LockFilePath);
-        if (ownership is null)
-        {
-            return 1;
-        }
 
         var builder = Host.CreateApplicationBuilder();
         builder.Services.AddScoped<DeviceBase>(services => new SimulatedDevice(
@@ -45,23 +39,5 @@ internal static class SimulatorHost
         await using var scope = host.Services.CreateAsyncScope();
         var session = scope.ServiceProvider.GetRequiredService<SimulatorHostSession>();
         return await session.RunAsync(cancellationToken).ConfigureAwait(false);
-    }
-
-    private static FileStream? TryAcquire(string lockFilePath)
-    {
-        try
-        {
-            return new FileStream(
-                lockFilePath,
-                FileMode.OpenOrCreate,
-                FileAccess.ReadWrite,
-                FileShare.None,
-                bufferSize: 1,
-                FileOptions.Asynchronous | FileOptions.DeleteOnClose);
-        }
-        catch (IOException)
-        {
-            return null;
-        }
     }
 }

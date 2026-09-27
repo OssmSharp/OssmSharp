@@ -85,7 +85,7 @@ physical I/O.
 | Scenario                                        | Expected result                                                                                                                                            |
 | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Start local simulation | The operator/AppHost starts the simulator. One selected adapter connects to its configured loopback endpoint; Bluetooth is not accessed. |
-| Close a client | Its Stop/cleanup path releases only the connection and lock; the simulator remains alive at zero for a later explicit connection. |
+| Close a client | Its Stop/cleanup path closes the connection; the simulator remains alive at zero for a later explicit connection. |
 | Start with a selected physical device | One `StockOssmDevice` resolves the selected platform peripheral ID, validates live identity and discovers the required GATT surface. Connection alone does not arm motion. |
 | Another nearby device has the same name | It is not selected by signal strength or discovery order; exact name selection must be unambiguous and resolve to one frozen platform ID. |
 | Selected device is absent or differs | Connection fails without motion writes, substitution or fallback to simulation. A different reported Wi-Fi MAC alone does not fail connection. |
@@ -123,12 +123,12 @@ or grant device access. The portable build contains neither native registration
 nor a Shiny dependency.
 
 In web use, Web.Api owns Web.Application's controller and selected device. Cli
-is the mutually exclusive direct-device owner and uses no web controller. The
-controller consumes `IOssmDevice`; ordinary service, UI and guest paths must not
-branch on concrete adapter types. Profile/capability metadata may describe real
-differences, including a simulator label, without selecting another control
-algorithm. Simulator fault controls remain a separate trusted local
-operator/test facility, never members of `IOssmDevice` or guest operations.
+is a direct-device consumer and uses no web controller. The controller consumes
+`IOssmDevice`; ordinary service, UI and guest paths must not branch on concrete
+adapter types. Profile/capability metadata may describe real differences,
+including a simulator label, without selecting another control algorithm.
+Simulator fault controls remain a separate trusted local operator/test
+facility, never members of `IOssmDevice` or guest operations.
 
 Lifetime ordering is explicit:
 
@@ -137,10 +137,10 @@ Lifetime ordering is explicit:
 2. Start the selected adapter; apply DC-01 readiness separately from connection.
 3. On shutdown, revoke authority and run the controller's bounded Stop and
    settlement handling before cancelling the adapter's transport lifetime.
-4. Release subscriptions, readers and connections through one lifecycle owner,
-  then release the shared machine-wide lock last. Never stop the independently
-  started simulator process. Unconfirmed stopping remains unconfirmed; DI
-  aliasing does not make repeated disposal/shutdown ordering correct by itself.
+4. Release subscriptions, readers and connections through one lifecycle owner.
+  Never stop the independently started simulator process. Unconfirmed stopping
+  remains unconfirmed; DI aliasing does not make repeated disposal/shutdown
+  ordering correct by itself.
 
 Both owners use Device.Runtime's single interruption latch and cleanup path.
 DeviceBase publishes state/semantic errors; it does not implement guest policy.
@@ -265,9 +265,9 @@ calibration or motion. On failure, release only settled resources, expose the
 failure through the specified lifecycle/exception paths, and do not retry or
 restore prior intent automatically.
 Read-only identification and normal connections must await bounded native
-disconnect cleanup before releasing device ownership. A disconnect timeout or
-failure is unresolved I/O, not a successful cleanup or permission to release the
-machine lease to another writer.
+disconnect cleanup. A disconnect timeout or failure is unresolved I/O, not a
+successful cleanup or permission to admit another writer within the same
+runtime.
 
 ### Shiny and the stock GATT profile
 
@@ -389,7 +389,7 @@ the authoritative task list. Its relevant integration sequence is:
   server failure. Keep fault injection isolated from the guest contract.
 3. Verify the intended Shiny host targets and provider corrections before wiring
    physical motion. Add selected-locator validation and read-only
-   identity/discovery under exclusive ownership first.
+   identity/discovery first.
 4. Add serialized stock writes and ordered state handling with integrated
    revocation/settlement checks. Only separately authorized qualification can
    enable a physical profile.
@@ -404,7 +404,7 @@ Acceptance evidence extends the existing
   inspect transitive restore/publish output, not only DI registrations.
 - Independently started simulator tests prove second-client rejection, zero on
   lost connection, no old-generation writes and process survival after CLI/API
-  disposal. CLI/API competition tests prove a single machine-wide lock owner.
+  disposal.
 - Common contract/controller tests use the same typed states and operations for
   both implementations. Deterministic fakes prove policy and timing; native
   simulator integration proves the Rust boundary, not BLE semantics.

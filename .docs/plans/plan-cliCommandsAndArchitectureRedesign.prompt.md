@@ -7,7 +7,7 @@ Keep the CLI architectural cleanup, but supersede the earlier requirements to pr
 
 The final simulator decision supersedes the interim --endpoint, --path and --simulator-path proposals: use one required --simulator value, interpreted as an executable path or a local simulator endpoint.
 
-The CLI remains a direct foreground consumer, independent of Web and Aspire. Runtime retains shared safety and machine-lock policy. Include only the provider changes necessary for the approved cross-platform connection and identity behavior; completing the Stock motion protocol or shared Runtime safety features remains separate work.
+The CLI remains a direct foreground consumer, independent of Web and Aspire. Runtime retains shared safety policy. Include only the provider changes necessary for the approved cross-platform connection and identity behavior; completing the Stock motion protocol or shared Runtime safety features remains separate work.
 
 ## Command contract
 | Command | Inputs | Behavior |
@@ -44,16 +44,16 @@ Use System.CommandLine validation, System.Uri and platform path APIs. A native f
 - Path: start exactly one owned child on an allocated loopback endpoint; await the existing `ready` protocol; connect only after readiness.
 - Endpoint: attach only. If unavailable or not a compatible simulator, fail; never search for or launch a binary as fallback.
 - Quit, EOF and cancellation still clean up the device connection. Only the path branch may terminate a process, and only its own child.
-- Owned-child order remains device cleanup, child cleanup, lease release last. The attach branch disconnects after its device cleanup but leaves the external process alive.
-- Never treat cancellation or timeout as proof of settled I/O or completed process exit. Preserve DeviceOwnershipLock.ReleaseAfterAsync's fail-closed behavior.
+- Owned-child order remains device cleanup, then child cleanup. The attach branch disconnects after its device cleanup but leaves the external process alive.
+- Never treat cancellation or timeout as proof of settled I/O or completed process exit. Surface unsettled device cleanup explicitly.
 
 ## Architecture to retain and improve
-1. Program is the one composition root: HostApplicationBuilder, DI, Options, Configuration, standard logging, native registrations, streams and command invocation. No nested BuildServiceProvider. Help/version/parse errors must not open BLE, acquire ownership or spawn children.
+1. Program is the one composition root: HostApplicationBuilder, DI, Options, Configuration, standard logging, native registrations, streams and command invocation. No nested BuildServiceProvider. Help/version/parse errors must not open BLE or spawn children.
 2. CliRootCommand/DeviceCommand assemble the renamed tree. PromptCommand exclusively owns startup grammar and forwards a validated Bluetooth, simulator-launch or simulator-attach selection; avoid combinations of nullable values and boolean mode flags.
-3. PromptHandler becomes a plain REPL rather than a Command with duplicate startup options. It does not create devices/processes or acquire/release the machine lease. Retain current motion mapping and limitations until the separate Runtime/Stock work changes them; do not duplicate safety policy in a new CLI controller.
-4. Extract one internal PromptSession for foreground resource lifetime, readiness, subscriptions and observations. Keep reported state separate from submitted intent. It owns the selected provider and optional child, using Runtime's existing ownership gate rather than inventing a second queue or interruption latch.
-5. Centralize native BLE DI for Windows and macOS. Inject StockIdentityReader instead of letting it create a second container; retain explicit ownership of the macOS dispatch queue. List, get and prompt all use the shared lock before BLE access. Get retains ownership through read/disconnect cleanup; prompt retains it for the session. Do not nest another acquisition while resolving a name under the same session lease.
-6. SimulatorBackgroundService remains the CLI-owned process boundary. Endpoint attachment never constructs it. Avoid combining explicit provider startup with AddOssmSimulator's IHostedService registration in a way that creates competing owners or starts the device before the lease.
+3. PromptHandler becomes a plain REPL rather than a Command with duplicate startup options. It does not create devices or processes. Retain current motion mapping and limitations until the separate Runtime/Stock work changes them; do not duplicate safety policy in a new CLI controller.
+4. Extract one internal PromptSession for foreground resource lifetime, readiness, subscriptions and observations. Keep reported state separate from submitted intent. It owns the selected provider and optional child, using Runtime's existing lifecycle rather than inventing a second queue or interruption latch.
+5. Centralize native BLE DI for Windows and macOS. Inject StockIdentityReader instead of letting it create a second container; retain explicit ownership of the macOS dispatch queue. Get and prompt must complete their device cleanup through the owning session.
+6. SimulatorBackgroundService remains the CLI-owned process boundary. Endpoint attachment never constructs it. Avoid combining explicit provider startup with AddOssmSimulator's IHostedService registration in a way that creates competing owners or starts the device before the session is ready.
 7. Intentionally connect command cancellation and host shutdown to one awaited session cleanup path. Preserve ordinary failure over cancellation when mapping exit codes. Runtime's fail-fast path is not an ordinary catch-and-return failure and must not be weakened.
 
 No new projects or dependencies are required by this design. Add internal types only where they represent the concrete selection/lifetime responsibilities above; no plugin registry, general command framework or parallel logging system.
@@ -75,7 +75,7 @@ No new projects or dependencies are required by this design. Add internal types 
    - Step 5 depends on the agreed selection contract; simulator parsing/process work can proceed in parallel with native BLE work, but session wiring depends on step 5. Do not edit shared Program/PromptCommand files concurrently without a designated owner.
 
 ### D. Lifetime verification and documentation
-7. Retain/fix CLI-local lifecycle guarantees: provider disposal is attempted after failed preliminary Stop; child cleanup is attempted where owned; failures remain observable; unresolved cleanup never releases the lease to a new writer. Preserve existing Stop semantics and Runtime policy rather than claiming the pending shared safety work is finished.
+7. Retain/fix CLI-local lifecycle guarantees: provider disposal is attempted after failed preliminary Stop; child cleanup is attempted where owned; failures remain observable. Preserve existing Stop semantics and Runtime policy rather than claiming the pending shared safety work is finished.
 8. Extend the existing integration surface to prove actual CLI invocation, stdin/EOF/cancellation and process ownership for launch and attach. Exercise both native builds without operating hardware; use deterministic BLE boundaries for list/get/resolve/connect behavior. Update existing README/help/migration status for the final commands and actual verified limitations.
    - Depends on the affected implementation slices. Windows and macOS checks can run independently. Full solution or expensive runs still require approval; report unavailable environments and pending evidence.
 
@@ -97,7 +97,7 @@ Provider changes/reuse:
 - d:/src/ossm-web-controls/src/OssmSharp.Device.Stock/StockFirmwareProfile.cs: remove enrolled-MAC comparison, retain firmware/GATT/payload checks.
 - d:/src/ossm-web-controls/src/OssmSharp.Device.Stock/StockOssmDevice.cs: constructor/connection plumbing for the revised identity contract and supported native composition.
 - d:/src/ossm-web-controls/src/OssmSharp.Device.Simulator/Models/SimulatedDeviceOptions.cs: reuse endpoint validation, do not bypass it with unvalidated Options.Create.
-- d:/src/ossm-web-controls/src/OssmSharp.Device.Runtime/DeviceOwnershipLock.cs and DeviceBase.cs: reference authoritative lifetime behavior; no new shared safety implementation.
+- d:/src/ossm-web-controls/src/OssmSharp.Device.Runtime/DeviceBase.cs: reference authoritative lifetime behavior; no new shared safety implementation.
 - d:/src/ossm-web-controls/tools/ossm-sim-bridge/src/main.rs: reuse existing --listen/ready protocol; no Rust or sibling changes currently required.
 Tests/docs:
 - d:/src/ossm-web-controls/tests/OssmSharp.Cli.Tests/DeviceCommandTests.cs
@@ -118,8 +118,8 @@ New internal types only as needed: d:/src/ossm-web-controls/src/OssmSharp.Cli/Pr
 - --bluetooth accepts an ID or uniquely matching name. Tests prove reuse of discovery, exact forwarding of the resolved ID, no-match/duplicate-name failures, ID precedence and no device access on invalid input. No name-to-first-device fallback or motion on connect.
 - No configured Wi-Fi MAC is required. Tests still reject wrong connected peripheral, unsupported firmware, missing GATT surface and malformed/oversized identity/pattern payloads. Reported MAC remains data.
 - --simulator accepts either an executable path or the documented loopback TCP endpoint. Tests cover Windows/Unix path handling, whitespace/quoting, missing executable, invalid/nonlocal endpoint, missing mode/value, mutually exclusive modes and rejected obsolete flags.
-- Owned-child tests prove startup readiness, Stop/disposal-before-child-cleanup and lease-last ordering. Attach tests prove no process launch/termination and that the externally started simulator survives CLI exit. Connection/startup failures never cause implicit launch/attach fallback.
-- Preserve early feedback, invalid REPL input with no writes, EOF/cancellation cleanup, lease retention on cleanup failure and ordinary failure not being overwritten by exit 130. Keep command results separate from host/diagnostic output.
+- Owned-child tests prove startup readiness, Stop/disposal-before-child-cleanup ordering. Attach tests prove no process launch/termination and that the externally started simulator survives CLI exit. Connection/startup failures never cause implicit launch/attach fallback.
+- Preserve early feedback, invalid REPL input with no writes, EOF/cancellation cleanup, cleanup failure reporting and ordinary failure not being overwritten by exit 130. Keep command results separate from host/diagnostic output.
 - Use existing .NET 10, xUnit v3/MTP v2, FastMoq, AwesomeAssertions, deterministic time/BLE fakes and current simulator fixtures. Load approved runner guidance before forming executable commands. No extra dependencies, skipped failures or test-framework migrations.
 - Run focused tests and native compilation; real simulator integration owns process/connection proof. Inspect direct/transitive dependencies for forbidden Web/Aspire coupling. Do not use source scans to substitute for argument or behavior assertions.
 - Verify Windows and macOS separately; this Windows planning session does not prove macOS runtime behavior. No tests or builds have been run for this plan update.

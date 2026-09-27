@@ -7,11 +7,10 @@ using Shiny.BluetoothLE;
 namespace OssmSharp.Cli.Commands;
 
 /// <summary>
-/// Lists bounded stock-device discovery results while holding device ownership.
+/// Lists bounded stock-device discovery results.
 /// </summary>
 public sealed class DeviceListCommand : Command
 {
-    private readonly Func<IDisposable?> _acquireOwnership;
     private readonly Func<CancellationToken, Task<IReadOnlyList<(string Name, string Id)>>> _scan;
     private readonly TextWriter _output;
     private readonly TextWriter _error;
@@ -19,7 +18,6 @@ public sealed class DeviceListCommand : Command
 #if WINDOWS || MACOS
     internal DeviceListCommand(IBleManager manager)
         : this(
-            DeviceOwnershipLock.TryAcquire,
             cancellationToken => StockBleDiscovery.ScanAsync(manager, cancellationToken),
             Console.Out,
             Console.Error)
@@ -28,13 +26,11 @@ public sealed class DeviceListCommand : Command
 #endif
 
     internal DeviceListCommand(
-        Func<IDisposable?> acquireOwnership,
         Func<CancellationToken, Task<IReadOnlyList<(string Name, string Id)>>> scan,
         TextWriter output,
         TextWriter error)
         : base("list", "List stock devices and their platform peripheral IDs without connecting.")
     {
-        _acquireOwnership = acquireOwnership ?? throw new ArgumentNullException(nameof(acquireOwnership));
         _scan = scan ?? throw new ArgumentNullException(nameof(scan));
         _output = output ?? throw new ArgumentNullException(nameof(output));
         _error = error ?? throw new ArgumentNullException(nameof(error));
@@ -45,13 +41,6 @@ public sealed class DeviceListCommand : Command
     {
         try
         {
-            using var lease = _acquireOwnership();
-            if (lease is null)
-            {
-                await _error.WriteLineAsync("Device is already owned by another process.").ConfigureAwait(false);
-                return 1;
-            }
-
             var candidates = await _scan(cancellationToken).ConfigureAwait(false);
             if (candidates.Count == 0)
             {
