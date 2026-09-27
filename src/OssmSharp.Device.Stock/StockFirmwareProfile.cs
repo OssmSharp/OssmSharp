@@ -41,14 +41,12 @@ internal static class StockFirmwareProfile
 
     internal static DeviceInformation Verify(
         string peripheralId,
-        string expectedWifiMac,
         Guid service,
         IReadOnlyCollection<Guid> characteristics,
         ReadOnlySpan<byte> identityPayload,
         ReadOnlySpan<byte> patternsPayload)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(peripheralId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(expectedWifiMac);
         ArgumentNullException.ThrowIfNull(characteristics);
 
         if (service != Service ||
@@ -68,10 +66,9 @@ internal static class StockFirmwareProfile
         }
 
         var identity = PairingIdentity.Parse(identityPayload);
-        if (!string.Equals(identity.WifiMac, expectedWifiMac, StringComparison.OrdinalIgnoreCase) ||
-            identity.Version != "1.0.34")
+        if (identity.Version != "1.0.34")
         {
-            throw new InvalidDataException("The stock device does not match the enrolled identity and supported firmware.");
+            throw new InvalidDataException("The stock device does not report supported firmware.");
         }
 
         var patterns = PatternMetadata.Parse(patternsPayload);

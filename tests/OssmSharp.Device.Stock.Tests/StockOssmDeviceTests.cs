@@ -48,6 +48,32 @@ public sealed class StockOssmDeviceTests : MockerTestBase<StockOssmDevice>, IAsy
     }
 
     [Fact]
+    public void StockBleOptionsRequiresOnlySelectedPeripheralId()
+    {
+        var options = new StockBleOptions { PeripheralId = "selected-peripheral" };
+
+        Validator.ValidateObject(options, new ValidationContext(options), validateAllProperties: true);
+        Assert.Null(typeof(StockBleOptions).GetProperty("ExpectedWifiMac"));
+    }
+
+#if MACOS
+    [Fact]
+    public async Task MacOSConstructorAcceptsSelectedIdWithoutWifiMacOrBluetoothAccess()
+    {
+        using var mocks = new Mocker();
+        await using var device = new StockOssmDevice(
+            Options.Create(new DeviceRuntimeOptions()),
+            Options.Create(new StockBleOptions { PeripheralId = "selected-peripheral" }),
+            mocks.GetRequiredObject<Shiny.BluetoothLE.IBleManager>(),
+            TimeProvider.System,
+            NullLogger<StockOssmDevice>.Instance);
+
+        Assert.Equal(DeviceConnectionState.Disconnected, device.ConnectionState);
+        Assert.Throws<InvalidOperationException>(() => device.Device);
+    }
+#endif
+
+    [Fact]
     public void SpeedMatchingHelperIsInternalStatic()
     {
         var method = typeof(StockOssmDevice).GetMethod(
@@ -186,7 +212,7 @@ public sealed class StockOssmDeviceTests : MockerTestBase<StockOssmDevice>, IAsy
     }
 
     [Fact]
-    public async Task ConnectSelectsEnrolledLocatorAndVerifiesBeforePublishing()
+    public async Task ConnectSelectsPeripheralIdAndVerifiesBeforePublishing()
     {
         using var mocks = new Mocker();
         var notifications = Channel.CreateUnbounded<byte[]>();
@@ -204,7 +230,7 @@ public sealed class StockOssmDeviceTests : MockerTestBase<StockOssmDevice>, IAsy
         var transport = mocks.GetRequiredObject<IStockBleTransport>();
         await using var device = new StockOssmDevice(
             Options.Create(new DeviceRuntimeOptions()), TimeProvider.System,
-            NullLogger<StockOssmDevice>.Instance, "enrolled", "A4:CF:12:34:56:78", transport);
+            NullLogger<StockOssmDevice>.Instance, "enrolled", transport);
         var connected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         device.ConnectionStateChanged += state =>
         {
@@ -236,13 +262,13 @@ public sealed class StockOssmDeviceTests : MockerTestBase<StockOssmDevice>, IAsy
     }
 
     [Fact]
-    public async Task MismatchedLiveIdentityNeverPublishesConnectedAndReleasesConnection()
+    public async Task DifferentConnectedPeripheralNeverPublishesConnectedAndReleasesConnection()
     {
         using var mocks = new Mocker();
         mocks.AddMethodResultAsync<IStockBleConnection, StockGattProfile>(
             ble => ble.ReadProfileAsync(FastArg.Any<CancellationToken>()),
             new StockGattProfile(
-                "enrolled", StockFirmwareProfile.Service,
+                "different-peripheral", StockFirmwareProfile.Service,
                 [StockFirmwareProfile.Identity, StockFirmwareProfile.Command, StockFirmwareProfile.KnobConfiguration,
                     StockFirmwareProfile.State, StockFirmwareProfile.Patterns, StockFirmwareProfile.PatternData],
                 Identity, Patterns, Channel.CreateUnbounded<byte[]>().Reader));
@@ -252,7 +278,7 @@ public sealed class StockOssmDeviceTests : MockerTestBase<StockOssmDevice>, IAsy
             connection);
         await using var device = new StockOssmDevice(
             Options.Create(new DeviceRuntimeOptions()), TimeProvider.System,
-            NullLogger<StockOssmDevice>.Instance, "enrolled", "A4:CF:12:34:56:79",
+            NullLogger<StockOssmDevice>.Instance, "enrolled",
             mocks.GetRequiredObject<IStockBleTransport>());
         var disconnected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var connections = new List<DeviceConnectionState>();
@@ -274,6 +300,33 @@ public sealed class StockOssmDeviceTests : MockerTestBase<StockOssmDevice>, IAsy
     }
 
     [Fact]
+    public async Task UnsettledDisconnectAfterFailedProfileReadFailsDeviceDisposal()
+    {
+        using var mocks = new Mocker();
+        await using var connection = new UnsettledProfileConnection();
+        mocks.AddMethodResultAsync<IStockBleTransport, IStockBleConnection>(
+            ble => ble.ConnectAsync("selected", StockFirmwareProfile.Service, FastArg.Any<CancellationToken>()),
+            connection);
+        using var device = new StockOssmDevice(
+            Options.Create(new DeviceRuntimeOptions()), TimeProvider.System,
+            NullLogger<StockOssmDevice>.Instance, "selected",
+            mocks.GetRequiredObject<IStockBleTransport>());
+        var disconnected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        device.ConnectionStateChanged += state =>
+        {
+            if (state == DeviceConnectionState.Disconnected)
+                disconnected.TrySetResult();
+        };
+
+        await device.StartAsync(TestContext.Current.CancellationToken);
+        await disconnected.Task.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+
+        var failure = await Assert.ThrowsAsync<TimeoutException>(() => device.DisposeAsync().AsTask());
+        Assert.Contains("did not settle", failure.Message, StringComparison.Ordinal);
+        Assert.True(connection.DisposalAttempted);
+    }
+
+    [Fact]
     public async Task DisconnectedDuringProfileReadNeverPublishesConnected()
     {
         using var mocks = new Mocker();
@@ -292,7 +345,7 @@ public sealed class StockOssmDeviceTests : MockerTestBase<StockOssmDevice>, IAsy
             connection);
         await using var device = new StockOssmDevice(
             Options.Create(new DeviceRuntimeOptions()), TimeProvider.System,
-            NullLogger<StockOssmDevice>.Instance, "enrolled", "A4:CF:12:34:56:78",
+            NullLogger<StockOssmDevice>.Instance, "enrolled",
             mocks.GetRequiredObject<IStockBleTransport>());
         var disconnected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var connections = new List<DeviceConnectionState>();
@@ -330,7 +383,7 @@ public sealed class StockOssmDeviceTests : MockerTestBase<StockOssmDevice>, IAsy
             connection);
         await using var device = new StockOssmDevice(
             Options.Create(new DeviceRuntimeOptions()), TimeProvider.System,
-            NullLogger<StockOssmDevice>.Instance, "enrolled", "A4:CF:12:34:56:78",
+            NullLogger<StockOssmDevice>.Instance, "enrolled",
             mocks.GetRequiredObject<IStockBleTransport>());
         var received = new TaskCompletionSource<DeviceState>(TaskCreationOptions.RunContinuationsAsynchronously);
         var disconnected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -363,17 +416,18 @@ public sealed class StockOssmDeviceTests : MockerTestBase<StockOssmDevice>, IAsy
         mocks.Verify<IStockBleConnection>(ble => ble.DisposeAsync(), TimesSpec.Once);
     }
 
-#if WINDOWS
+#if WINDOWS || MACOS
     [Theory]
     [InlineData("enrolled", true, true)]
+    [InlineData("ENROLLED", true, true)]
     [InlineData("another-device", true, false)]
     [InlineData("enrolled", false, false)]
-    public void WindowsScanSelectsOnlyTheExactLocatorAdvertisingTheService(
+    public void NativeScanSelectsOnlyTheExactLocatorAdvertisingTheService(
         string seenLocator, bool advertisesService, bool expected)
     {
         var services = advertisesService ? new[] { StockFirmwareProfile.Service.ToString() } : Array.Empty<string>();
 
-        Assert.Equal(expected, WindowsStockBleTransport.Matches(
+        Assert.Equal(expected, StockBleDiscovery.Matches(
             seenLocator, services, "enrolled", StockFirmwareProfile.Service));
     }
 #endif
@@ -383,7 +437,6 @@ public sealed class StockOssmDeviceTests : MockerTestBase<StockOssmDevice>, IAsy
     {
         var device = StockFirmwareProfile.Verify(
             "selected-peripheral",
-            "A4:CF:12:34:56:78",
             StockFirmwareProfile.Service,
             [StockFirmwareProfile.Identity, StockFirmwareProfile.Command, StockFirmwareProfile.KnobConfiguration,
                 StockFirmwareProfile.State, StockFirmwareProfile.Patterns, StockFirmwareProfile.PatternData],
@@ -396,15 +449,35 @@ public sealed class StockOssmDeviceTests : MockerTestBase<StockOssmDevice>, IAsy
     }
 
     [Theory]
-    [InlineData("A4:CF:12:34:56:79", "1.0.34")]
-    [InlineData("A4:CF:12:34:56:78", "1.0.35")]
-    public void VerificationRejectsWrongEnrollmentOrFirmware(string expectedMac, string version)
+    [InlineData("a4:cf:12:34:56:78", "A4:CF:12:34:56:78")]
+    [InlineData("00:11:22:33:44:55", "00:11:22:33:44:55")]
+    public void VerificationAcceptsDifferentReportedWifiMacWithoutEnrollment(string reportedMac, string normalizedMac)
+    {
+        var reportedIdentity = System.Text.Encoding.UTF8.GetBytes(
+            $"{reportedMac};ESP32-S3;1;0123456789abcdef0123456789abcdef;1.0.34");
+        var device = StockFirmwareProfile.Verify(
+            "selected-peripheral",
+            StockFirmwareProfile.Service,
+            [StockFirmwareProfile.Identity, StockFirmwareProfile.Command, StockFirmwareProfile.KnobConfiguration,
+                StockFirmwareProfile.State, StockFirmwareProfile.Patterns, StockFirmwareProfile.PatternData],
+            reportedIdentity,
+            Patterns);
+
+        Assert.Equal("selected-peripheral", device.Identity);
+        Assert.Equal("1.0.34", device.Version);
+        Assert.Equal(normalizedMac, PairingIdentity.Parse(reportedIdentity).WifiMac);
+    }
+
+    [Theory]
+    [InlineData("1.0.35")]
+    [InlineData("1.0.33")]
+    public void VerificationRejectsUnsupportedFirmware(string version)
     {
         var identity = System.Text.Encoding.UTF8.GetBytes(
             $"a4:cf:12:34:56:78;ESP32-S3;1;0123456789abcdef0123456789abcdef;{version}");
 
         Assert.Throws<InvalidDataException>(() => StockFirmwareProfile.Verify(
-            "selected-peripheral", expectedMac, StockFirmwareProfile.Service,
+            "selected-peripheral", StockFirmwareProfile.Service,
             [StockFirmwareProfile.Identity, StockFirmwareProfile.Command, StockFirmwareProfile.KnobConfiguration,
                 StockFirmwareProfile.State, StockFirmwareProfile.Patterns, StockFirmwareProfile.PatternData],
             identity, Patterns));
@@ -414,7 +487,7 @@ public sealed class StockOssmDeviceTests : MockerTestBase<StockOssmDevice>, IAsy
     public void VerificationRejectsMissingRequiredGattCharacteristic()
     {
         Assert.Throws<InvalidDataException>(() => StockFirmwareProfile.Verify(
-            "selected-peripheral", "A4:CF:12:34:56:78", StockFirmwareProfile.Service,
+            "selected-peripheral", StockFirmwareProfile.Service,
             [StockFirmwareProfile.Identity, StockFirmwareProfile.Command, StockFirmwareProfile.State,
                 StockFirmwareProfile.Patterns, StockFirmwareProfile.PatternData],
             Identity, Patterns));
@@ -424,7 +497,7 @@ public sealed class StockOssmDeviceTests : MockerTestBase<StockOssmDevice>, IAsy
     public void VerificationRejectsMissingSimpleStroke()
     {
         Assert.Throws<InvalidDataException>(() => StockFirmwareProfile.Verify(
-            "selected-peripheral", "A4:CF:12:34:56:78", StockFirmwareProfile.Service,
+            "selected-peripheral", StockFirmwareProfile.Service,
             [StockFirmwareProfile.Identity, StockFirmwareProfile.Command, StockFirmwareProfile.KnobConfiguration,
                 StockFirmwareProfile.State, StockFirmwareProfile.Patterns, StockFirmwareProfile.PatternData],
             Identity, "[{\"name\":\"Other\",\"idx\":1}]"u8.ToArray()));
@@ -438,13 +511,13 @@ public sealed class StockOssmDeviceTests : MockerTestBase<StockOssmDevice>, IAsy
             StockFirmwareProfile.Patterns, StockFirmwareProfile.PatternData };
 
         Assert.Throws<InvalidDataException>(() => StockFirmwareProfile.Verify(
-            "selected-peripheral", "A4:CF:12:34:56:78", Guid.Empty,
+            "selected-peripheral", Guid.Empty,
             characteristics, Identity, Patterns));
         Assert.Throws<InvalidDataException>(() => StockFirmwareProfile.Verify(
-            "selected-peripheral", "A4:CF:12:34:56:78", StockFirmwareProfile.Service,
+            "selected-peripheral", StockFirmwareProfile.Service,
             characteristics, new byte[257], Patterns));
         Assert.Throws<InvalidDataException>(() => StockFirmwareProfile.Verify(
-            "selected-peripheral", "A4:CF:12:34:56:78", StockFirmwareProfile.Service,
+            "selected-peripheral", StockFirmwareProfile.Service,
             characteristics, Identity, new byte[4097]));
     }
 
@@ -456,10 +529,10 @@ public sealed class StockOssmDeviceTests : MockerTestBase<StockOssmDevice>, IAsy
             StockFirmwareProfile.Patterns, StockFirmwareProfile.PatternData };
 
         Assert.Throws<InvalidDataException>(() => StockFirmwareProfile.Verify(
-            "selected-peripheral", "A4:CF:12:34:56:78", StockFirmwareProfile.Service,
+            "selected-peripheral", StockFirmwareProfile.Service,
             characteristics, [0xff], Patterns));
         Assert.Throws<InvalidDataException>(() => StockFirmwareProfile.Verify(
-            "selected-peripheral", "A4:CF:12:34:56:78", StockFirmwareProfile.Service,
+            "selected-peripheral", StockFirmwareProfile.Service,
             characteristics, Identity, "{}"u8.ToArray()));
     }
 
@@ -491,5 +564,22 @@ public sealed class StockOssmDeviceTests : MockerTestBase<StockOssmDevice>, IAsy
             {"timestamp":{{firmwareTimestamp}},"state":"strokeEngine.idle","speed":0,"stroke":10,"sensation":50,"depth":{{depth}},"buffer":0,"pattern":0,"position":{{position}},"sessionId":""}
             """,
             DateTime.UnixEpoch.AddSeconds(firmwareTimestamp)).ToDeviceState();
+
+    private sealed class UnsettledProfileConnection : IStockBleConnection
+    {
+        public bool DisposalAttempted { get; private set; }
+
+        public Task<StockGattProfile> ReadProfileAsync(CancellationToken cancellationToken) =>
+            Task.FromException<StockGattProfile>(new InvalidDataException("Invalid stock identity."));
+
+        public ValueTask DisposeAsync()
+        {
+            if (DisposalAttempted)
+                return ValueTask.CompletedTask;
+
+            DisposalAttempted = true;
+            return ValueTask.FromException(new TimeoutException("Stock BLE disconnection did not settle."));
+        }
+    }
 
 }

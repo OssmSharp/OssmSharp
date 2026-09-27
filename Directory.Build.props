@@ -8,6 +8,8 @@
     <AnalysisMode>latest-All</AnalysisMode>
     <LanguageVersion>latest</LanguageVersion>
     <UseArtifactsOutput>true</UseArtifactsOutput>
+    <!-- The macOS SDK composes bundle paths relative to the project; absolute artifacts paths split the bundle. -->
+    <UseArtifactsOutput Condition="'$(EnableStockBle)' == 'true' and $([MSBuild]::IsOSPlatform('OSX'))">false</UseArtifactsOutput>
     <ArtifactsPath>$(MSBuildThisFileDirectory).artifacts</ArtifactsPath>
   </PropertyGroup>
 

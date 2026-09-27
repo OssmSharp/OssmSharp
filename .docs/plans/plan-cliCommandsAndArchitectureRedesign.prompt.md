@@ -1,6 +1,6 @@
 # Plan: CLI Commands and Architecture Redesign
 
-Status: updated for the user's latest command decisions on 2026-09-26; ready for review. Planning only. No production source, repository documentation, tests, processes or hardware changed. The untitled draft was read before this update and was empty; this session document is the updated plan.
+Status: command and architecture changes implemented in source on 2026-09-26. Native execution and real CLI launch/attach remain unverified on this machine; see the adjacent implementation log for completed checks and blockers. This document records the agreed direction, not evidence of physical qualification.
 
 ## Approved direction
 Keep the CLI architectural cleanup, but supersede the earlier requirements to preserve startup syntax, platform asymmetry and MAC enrollment. The user explicitly requests cross-platform devices list/get, selection by Bluetooth ID or name, simulator launch or attach, and removal of expected-MAC verification.

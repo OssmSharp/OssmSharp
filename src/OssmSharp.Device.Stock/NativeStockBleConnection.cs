@@ -1,24 +1,27 @@
-#if WINDOWS
+#if WINDOWS || MACOS
 using System.Reactive.Linq;
 using System.Threading.Channels;
 using Shiny.BluetoothLE;
 
 namespace OssmSharp.Device.Stock;
 
-internal sealed class WindowsStockBleConnection : IStockBleConnection
+internal sealed class NativeStockBleConnection : IStockBleConnection
 {
+    private static readonly TimeSpan DisconnectTimeout = TimeSpan.FromSeconds(5);
     private readonly IPeripheral _peripheral;
     private readonly Guid _service;
+    private readonly TimeProvider _timeProvider;
     private readonly Channel<byte[]> _notifications = Channel.CreateBounded<byte[]>(
         new BoundedChannelOptions(32) { SingleReader = true, SingleWriter = false });
     private readonly IDisposable _disconnected;
     private readonly IDisposable _failed;
     private IDisposable? _subscription;
 
-    internal WindowsStockBleConnection(IPeripheral peripheral, Guid service)
+    internal NativeStockBleConnection(IPeripheral peripheral, Guid service, TimeProvider? timeProvider = null)
     {
         _peripheral = peripheral;
         _service = service;
+        _timeProvider = timeProvider ?? TimeProvider.System;
         _disconnected = peripheral.WhenDisconnected().Subscribe(_ =>
             _notifications.Writer.TryComplete(new IOException("The stock BLE connection was lost.")));
         _failed = peripheral.WhenConnectionFailed().Subscribe(error =>
@@ -69,14 +72,22 @@ internal sealed class WindowsStockBleConnection : IStockBleConnection
             _peripheral.Uuid, _service, characteristicIds, identity.Data, patterns.Data, _notifications.Reader);
     }
 
-    public ValueTask DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
         _subscription?.Dispose();
         _disconnected.Dispose();
         _failed.Dispose();
         _notifications.Writer.TryComplete();
-        _peripheral.CancelConnection();
-        return ValueTask.CompletedTask;
+        if (_peripheral.Status == ConnectionState.Disconnected)
+        {
+            _peripheral.CancelConnection();
+            return;
+        }
+
+        await StockBleDisconnection.DisconnectAsync(
+            token => _peripheral.DisconnectAsync(token, DisconnectTimeout),
+            _timeProvider,
+            DisconnectTimeout).ConfigureAwait(false);
     }
 }
 #endif

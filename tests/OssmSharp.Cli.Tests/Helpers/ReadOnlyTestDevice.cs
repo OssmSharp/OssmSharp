@@ -5,7 +5,8 @@ using OssmSharp.Device.Primitives.Models;
 
 namespace OssmSharp.Cli.Tests.Helpers;
 
-internal sealed class ReadOnlyTestDevice(bool connects = true) : BackgroundService, IOssmDevice
+internal sealed class ReadOnlyTestDevice(bool connects = true, DeviceInformation? information = null)
+    : BackgroundService, IOssmDevice
 {
     public event Action<DeviceConnectionState>? ConnectionStateChanged;
 
@@ -13,7 +14,8 @@ internal sealed class ReadOnlyTestDevice(bool connects = true) : BackgroundServi
 
     public DeviceConnectionState ConnectionState { get; private set; }
 
-    public DeviceInformation Device { get; } = new("enrolled-device", "stock", "1.0.34", [MotionPattern.SimpleStroke]);
+    public DeviceInformation Device { get; } =
+        information ?? new("enrolled-device", "stock", "1.0.34", [MotionPattern.SimpleStroke]);
 
     public bool Disposed { get; private set; }
 
@@ -22,6 +24,8 @@ internal sealed class ReadOnlyTestDevice(bool connects = true) : BackgroundServi
     public Action? OnDispose { get; set; }
 
     public DeviceState? InitialReport { get; set; }
+
+    public TaskCompletionSource? ExitGate { get; init; }
 
     public bool FailDispose { get; set; }
 
@@ -61,7 +65,10 @@ internal sealed class ReadOnlyTestDevice(bool connects = true) : BackgroundServi
         {
             try
             {
-                await Task.Delay(Timeout.InfiniteTimeSpan, stoppingToken);
+                if (ExitGate is { } gate)
+                    await gate.Task.WaitAsync(stoppingToken);
+                else
+                    await Task.Delay(Timeout.InfiniteTimeSpan, stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {

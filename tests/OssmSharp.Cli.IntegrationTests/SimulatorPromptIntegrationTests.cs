@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Reflection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -8,6 +9,7 @@ using OssmSharp.Device.Simulator.Models;
 
 namespace OssmSharp.Cli.IntegrationTests;
 
+[Collection("NativeSimulatorProcessTests")]
 public sealed class SimulatorPromptIntegrationTests
 {
     [Fact]
@@ -89,7 +91,140 @@ public sealed class SimulatorPromptIntegrationTests
         }
     }
 
-    private static string SimulatorPath()
+    [Fact]
+    public async Task FailedReadinessReapsTheChildBeforeReportingFailure()
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(10));
+        var executable = OperatingSystem.IsWindows()
+            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "where.exe")
+            : "/usr/bin/yes";
+        using var bridge = new SimulatorBackgroundService(executable);
+
+        try
+        {
+            await bridge.StartAsync(timeout.Token);
+            await Assert.ThrowsAsync<IOException>(() => bridge.WaitUntilReadyAsync(timeout.Token));
+            var pid = OwnedProcessId(bridge);
+            Assert.False(IsRunning(pid), "A child that rejects the readiness handshake must not be orphaned.");
+        }
+        finally
+        {
+            await bridge.StopAsync(timeout.Token);
+        }
+    }
+
+    [Fact]
+    public async Task TimedOutReadinessReapsTheChildBeforeReportingTimeout()
+    {
+        if (OperatingSystem.IsWindows())
+            return; // The native Windows fixture does not provide a silent startup mode.
+
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(12));
+        var silentExecutable = Path.Combine(Path.GetTempPath(), $"ossm-sim-no-ready-{Guid.NewGuid():N}");
+        await File.WriteAllTextAsync(silentExecutable, "#!/bin/sh\nexec /bin/sleep 60\n", timeout.Token);
+        File.SetUnixFileMode(
+            silentExecutable,
+            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        using var bridge = new SimulatorBackgroundService(silentExecutable);
+
+        try
+        {
+            await bridge.StartAsync(timeout.Token);
+            await Assert.ThrowsAsync<TimeoutException>(() => bridge.WaitUntilReadyAsync(timeout.Token));
+            var pid = OwnedProcessId(bridge);
+            Assert.False(IsRunning(pid), "A timed-out startup must not leave its child running.");
+        }
+        finally
+        {
+            try
+            {
+                await bridge.StopAsync(timeout.Token);
+            }
+            finally
+            {
+                File.Delete(silentExecutable);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task CancelledStopStillAwaitsTheOwnedSimulatorExit()
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(12));
+        using var bridge = new SimulatorBackgroundService(SimulatorPath());
+        int? processId = null;
+
+        try
+        {
+            await bridge.StartAsync(timeout.Token);
+            await bridge.WaitUntilReadyAsync(timeout.Token);
+            processId = OwnedProcessId(bridge);
+            using var cancelled = new CancellationTokenSource();
+            await cancelled.CancelAsync();
+
+            await bridge.StopAsync(cancelled.Token);
+
+            Assert.False(IsRunning(processId.Value), "Cancellation does not establish that the child exited.");
+            Assert.True(bridge.ExecuteTask?.IsCompleted);
+        }
+        finally
+        {
+            if (processId is { } pid && IsRunning(pid))
+            {
+                using var orphan = Process.GetProcessById(pid);
+                orphan.Kill(entireProcessTree: true);
+                await orphan.WaitForExitAsync(timeout.Token);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task StopDuringProcessStartCannotReportSettledCleanup()
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(15));
+        using var startGate = new ManualResetEventSlim();
+        var enteringStart = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        int? processId = null;
+        using var bridge = new SimulatorBackgroundService(SimulatorPath(), start =>
+        {
+            enteringStart.TrySetResult();
+            startGate.Wait();
+            var process = Process.Start(start);
+            processId = process?.Id;
+            return process;
+        });
+
+        await bridge.StartAsync(timeout.Token);
+        await enteringStart.Task.WaitAsync(timeout.Token);
+
+        try
+        {
+            var failure = await Assert.ThrowsAsync<TimeoutException>(() =>
+                bridge.StopAsync(CancellationToken.None).WaitAsync(timeout.Token));
+            Assert.Contains("did not exit", failure.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            startGate.Set();
+            try
+            {
+                if (bridge.ExecuteTask is { } execution)
+                    await execution.WaitAsync(timeout.Token);
+            }
+            finally
+            {
+                await bridge.StopAsync(timeout.Token);
+            }
+        }
+
+        Assert.True(processId is { } pid && !IsRunning(pid), "Startup cleanup must reap the child.");
+    }
+
+    internal static string SimulatorPath()
     {
         var root = Path.GetFullPath(typeof(SimulatorPromptIntegrationTests).Assembly
             .GetCustomAttributes<AssemblyMetadataAttribute>()
@@ -98,5 +233,26 @@ public sealed class SimulatorPromptIntegrationTests
         var path = Path.Combine(root, "tools", "ossm-sim-bridge", "target", "release", executable);
         Assert.True(File.Exists(path), "Build the pinned OSSM-RS simulator adapter before running integration tests.");
         return path;
+    }
+
+    private static int OwnedProcessId(SimulatorBackgroundService bridge)
+    {
+        var child = typeof(SimulatorBackgroundService)
+            .GetField("_process", BindingFlags.Instance | BindingFlags.NonPublic)?
+            .GetValue(bridge);
+        return Assert.IsType<Process>(child).Id;
+    }
+
+    private static bool IsRunning(int processId)
+    {
+        try
+        {
+            using var process = Process.GetProcessById(processId);
+            return !process.HasExited;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
     }
 }

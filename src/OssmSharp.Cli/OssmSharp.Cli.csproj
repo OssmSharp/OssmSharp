@@ -3,10 +3,15 @@
     <OutputType>Exe</OutputType>
     <AssemblyName>OssmSharp.Cli</AssemblyName>
     <RootNamespace>OssmSharp.Cli</RootNamespace>
-    <ApplicationId Condition="'$(TargetFramework)' == 'net10.0-macos26.0'">org.ossm.devicecli</ApplicationId>
+    <ApplicationId Condition="'$(EnableStockBle)' == 'true' and $([MSBuild]::IsOSPlatform('OSX'))">org.ossm.devicecli</ApplicationId>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(StockMacOSApiVersion)' == ''">
+    <StockMacOSApiVersion>26.0</StockMacOSApiVersion>
   </PropertyGroup>
   <PropertyGroup Condition="'$(EnableStockBle)' == 'true' and $([MSBuild]::IsOSPlatform('OSX'))">
-    <TargetFramework>net10.0-macos26.0</TargetFramework>
+    <TargetFramework>net10.0-macos$(StockMacOSApiVersion)</TargetFramework>
+    <SupportedOSPlatformVersion>26.0</SupportedOSPlatformVersion>
+    <RunWithOpen>false</RunWithOpen>
   </PropertyGroup>
   <PropertyGroup Condition="'$(EnableStockBle)' == 'true' and $([MSBuild]::IsOSPlatform('Windows'))">
     <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
@@ -14,7 +19,7 @@
   <ItemGroup>
     <PackageReference Include="System.CommandLine" />
     <PackageReference Include="Shiny.BluetoothLE"
-      Condition="'$(TargetFramework)' == 'net10.0-macos26.0' or '$(TargetFramework)' == 'net10.0-windows10.0.19041.0'" />
+      Condition="'$(EnableStockBle)' == 'true'" />
     <ProjectReference Include="../OssmSharp.Device.Primitives/OssmSharp.Device.Primitives.csproj" />
     <ProjectReference Include="../OssmSharp.Device.Runtime/OssmSharp.Device.Runtime.csproj" />
     <ProjectReference Include="../OssmSharp.Device.Stock/OssmSharp.Device.Stock.csproj" />

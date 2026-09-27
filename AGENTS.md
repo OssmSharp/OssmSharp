@@ -44,6 +44,8 @@
   of hosting, defaults and providers; Simulator must not depend on Stock.
 - With `prompt --simulator <path>`, the CLI starts and owns the specified
   simulator process for its foreground session, stopping it after device cleanup.
+  With `prompt --simulator tcp://127.0.0.1:<port>`, it attaches to an already
+  running simulator and must not launch or terminate that external process.
   Web.Api connects to an independently started simulator; the simulator adapter
   never launches or terminates it. AppHost may start the web simulator for local
   development but must never own BLE.

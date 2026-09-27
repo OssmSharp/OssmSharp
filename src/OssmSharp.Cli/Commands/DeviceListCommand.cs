@@ -1,11 +1,14 @@
 using OssmSharp.Device.Runtime;
-#if WINDOWS
+#if WINDOWS || MACOS
 using OssmSharp.Device.Stock;
 using Shiny.BluetoothLE;
 #endif
 
 namespace OssmSharp.Cli.Commands;
 
+/// <summary>
+/// Lists bounded stock-device discovery results while holding device ownership.
+/// </summary>
 public sealed class DeviceListCommand : Command
 {
     private readonly Func<IDisposable?> _acquireOwnership;
@@ -13,7 +16,7 @@ public sealed class DeviceListCommand : Command
     private readonly TextWriter _output;
     private readonly TextWriter _error;
 
-#if WINDOWS
+#if WINDOWS || MACOS
     internal DeviceListCommand(IBleManager manager)
         : this(
             DeviceOwnershipLock.TryAcquire,
@@ -61,8 +64,8 @@ public sealed class DeviceListCommand : Command
                     var candidate = candidates[index];
                     var name = string.IsNullOrWhiteSpace(candidate.Name)
                         ? "Unnamed device"
-                        : string.Concat(candidate.Name.Select(character => char.IsControl(character) ? ' ' : character));
-                    var id = string.Concat(candidate.Id.Select(character => char.IsControl(character) ? ' ' : character));
+                        : DeviceText.Sanitize(candidate.Name);
+                    var id = DeviceText.Sanitize(candidate.Id);
                     await _output.WriteLineAsync($"{index + 1}. {name} ({id})".AsMemory(), cancellationToken)
                         .ConfigureAwait(false);
                 }
@@ -72,9 +75,10 @@ public sealed class DeviceListCommand : Command
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            throw;
+            return 130;
         }
-        catch (Exception exception) when (exception is DirectoryNotFoundException or UnauthorizedAccessException or IOException or TimeoutException)
+        catch (Exception exception) when (exception is DirectoryNotFoundException or UnauthorizedAccessException
+            or IOException or TimeoutException or PlatformNotSupportedException)
         {
             await _error.WriteLineAsync(exception.Message).ConfigureAwait(false);
             return 1;

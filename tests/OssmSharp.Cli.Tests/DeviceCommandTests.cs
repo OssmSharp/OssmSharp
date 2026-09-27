@@ -1,5 +1,7 @@
 using OssmSharp.Cli.Commands;
+using OssmSharp.Cli.Models;
 using OssmSharp.Cli.Tests.Helpers;
+using OssmSharp.Device.Primitives;
 using OssmSharp.Device.Primitives.Models;
 
 namespace OssmSharp.Cli.Tests;
@@ -10,31 +12,33 @@ namespace OssmSharp.Cli.Tests;
 public sealed class DeviceCommandTests
 {
     [Fact]
-    public void OnlyDeviceAndPromptCommandsAreExposed()
+    public void OnlyDevicesAndPromptCommandsAreExposed()
     {
-        var command = CreateRoot(new PromptCommand((_, _, _, _) => Task.FromResult(0)));
+        var command = CreateRoot(new PromptCommand((_, _) => Task.FromResult(0)));
 
-        Assert.Equal(["device", "prompt"], command.Subcommands.Select(child => child.Name));
-        foreach (var name in new[] { "simulator", "start-simulator", "status", "identify", "scan", "move", "stop" })
+        Assert.Equal(["devices", "prompt"], command.Subcommands.Select(child => child.Name));
+        foreach (var name in new[] { "device", "simulator", "start-simulator", "status", "identify", "scan", "move", "stop" })
         {
             Assert.NotEmpty(command.Parse([name]).Errors);
         }
     }
 
     [Fact]
-    public void SimulatorPromptRequiresAnAbsoluteExistingExecutable()
+    public void SimulatorPromptRequiresAnExistingExecutableOrLocalEndpoint()
     {
-        var command = CreateRoot(new PromptCommand((_, _, _, _) => Task.FromResult(0)));
+        var command = CreateRoot(new PromptCommand((_, _) => Task.FromResult(0)));
 
         var missing = command.Parse(["prompt"]);
-        var relative = command.Parse(["prompt", "--simulator", "simulator"]);
+        var nonlocal = command.Parse(["prompt", "--simulator", "tcp://192.168.1.2:6000"]);
+        var malformed = command.Parse(["prompt", "--simulator", "tcp://127.0.0.1:0"]);
         var absent = command.Parse([
             "prompt", "--simulator",
             Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString()),
         ]);
 
         Assert.NotEmpty(missing.Errors);
-        Assert.NotEmpty(relative.Errors);
+        Assert.NotEmpty(nonlocal.Errors);
+        Assert.NotEmpty(malformed.Errors);
         Assert.NotEmpty(absent.Errors);
     }
 
@@ -42,13 +46,13 @@ public sealed class DeviceCommandTests
     public async Task InvalidPromptDoesNotRunTheDevice()
     {
         var invoked = false;
-        var command = CreateRoot(new PromptCommand((_, _, _, _) =>
+        var command = CreateRoot(new PromptCommand((_, _) =>
         {
             invoked = true;
             return Task.FromResult(0);
         }));
 
-        var parse = command.Parse(["prompt", "--peripheral-id", "selected-device"]);
+        var parse = command.Parse(["prompt", "--bluetooth", " ", "--simulator", "tcp://127.0.0.1:6123"]);
         await parse.InvokeAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.NotEmpty(parse.Errors);
@@ -58,13 +62,13 @@ public sealed class DeviceCommandTests
     [Fact]
     public async Task PromptForwardsTheSimulatorPath()
     {
-        var path = CreateTemporaryFile();
-        string? selectedPath = null;
+        var path = CreateTemporaryExecutableFile();
+        PromptSelection? selected = null;
         try
         {
-            var command = CreateRoot(new PromptCommand((_, _, simulator, _) =>
+            var command = CreateRoot(new PromptCommand((selection, _) =>
             {
-                selectedPath = simulator;
+                selected = selection;
                 return Task.FromResult(0);
             }));
 
@@ -72,7 +76,8 @@ public sealed class DeviceCommandTests
                 .InvokeAsync(cancellationToken: TestContext.Current.CancellationToken);
 
             Assert.Equal(0, exitCode);
-            Assert.Equal(Path.GetFullPath(path), selectedPath);
+            Assert.Equal(PromptMode.SimulatorLaunch, selected?.Mode);
+            Assert.Equal(Path.GetFullPath(path), selected?.Value);
         }
         finally
         {
@@ -81,21 +86,128 @@ public sealed class DeviceCommandTests
     }
 
     [Fact]
-    public async Task IdentifyAllowsDiscoveryWithoutAnIdButRejectsABlankId()
+    public async Task PromptForwardsTheLocalSimulatorEndpoint()
     {
-        string? selectedId = "not-called";
+        PromptSelection? selected = null;
+        var command = CreateRoot(new PromptCommand((selection, _) =>
+        {
+            selected = selection;
+            return Task.FromResult(0);
+        }));
+
+        var exitCode = await command.Parse(["prompt", "--simulator", "tcp://127.0.0.1:6123"])
+            .InvokeAsync(cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(0, exitCode);
+        Assert.Equal(PromptMode.SimulatorAttach, selected?.Mode);
+        Assert.Equal("tcp://127.0.0.1:6123", selected?.Value);
+    }
+
+    [Theory]
+    [InlineData("tcp://localhost:6123")]
+    [InlineData("tcp://127.0.0.1:0")]
+    [InlineData("tcp://127.0.0.1:65536")]
+    [InlineData("tcp://127.0.0.1:6123/other")]
+    [InlineData("tcp://user@127.0.0.1:6123")]
+    [InlineData("http://127.0.0.1:6123")]
+    [InlineData("tcp://127.0.0.1:6123?token=x")]
+    public void PromptRejectsInvalidSimulatorEndpointsWithoutInvoking(string endpoint)
+    {
+        var invoked = false;
+        var command = new PromptCommand((_, _) =>
+        {
+            invoked = true;
+            return Task.FromResult(0);
+        });
+
+        var parse = command.Parse(["prompt", "--simulator", endpoint]);
+
+        Assert.NotEmpty(parse.Errors);
+        Assert.False(invoked);
+    }
+
+    [Fact]
+    public async Task PromptResolvesRelativeExecutablePathsContainingSpaces()
+    {
+        var path = CreateTemporaryExecutableFile();
+        try
+        {
+            PromptSelection? selected = null;
+            var command = new PromptCommand((selection, _) =>
+            {
+                selected = selection;
+                return Task.FromResult(0);
+            });
+            var relative = Path.GetRelativePath(Directory.GetCurrentDirectory(), path);
+
+            var exitCode = await command.Parse(["prompt", "--simulator", relative])
+                .InvokeAsync(cancellationToken: TestContext.Current.CancellationToken);
+
+            Assert.Equal(0, exitCode);
+            Assert.Equal(PromptMode.SimulatorLaunch, selected?.Mode);
+            Assert.Equal(path, selected?.Value);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void PromptRejectsAnExistingNonExecutableFile()
+    {
+        var path = Path.GetTempFileName();
+        try
+        {
+            var command = new PromptCommand((_, _) =>
+                throw new InvalidOperationException("A nonexecutable file must not start the session."));
+
+            var parse = command.Parse(["prompt", "--simulator", path]);
+
+            Assert.NotEmpty(parse.Errors);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void WindowsDrivePathIsNotInterpretedAsAnEndpointOnUnix()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var path = $"C:\\missing-{Guid.NewGuid():N}\\bridge.exe";
+
+        var error = Assert.Throws<ArgumentException>(() => PromptSelection.Parse(null, path));
+
+        Assert.Contains("executable", error.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("endpoint", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task GetRequiresAPositionalIdWithoutOpeningASelector()
+    {
+        string? selectedId = null;
         var command = new DeviceGetCommand((peripheralId, _) =>
         {
             selectedId = peripheralId;
             return Task.FromResult(0);
         });
 
-        Assert.NotEmpty(command.Parse(["get", "--peripheral-id", " "]).Errors);
-        var exitCode = await command.Parse(["get"])
+        Assert.NotEmpty(command.Parse(["get"]).Errors);
+        Assert.NotEmpty(command.Parse(["get", "--peripheral-id", "selected-device"]).Errors);
+        Assert.NotEmpty(command.Parse(["get", " "]).Errors);
+        Assert.Null(selectedId);
+
+        var exitCode = await command.Parse(["get", "selected-device"])
             .InvokeAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(0, exitCode);
-        Assert.Null(selectedId);
+        Assert.Equal("selected-device", selectedId);
     }
 
     [Fact]
@@ -108,11 +220,133 @@ public sealed class DeviceCommandTests
             return Task.FromResult(0);
         });
 
-        var exitCode = await command.Parse(["get", "--peripheral-id", "selected-device"])
+        var exitCode = await command.Parse(["get", "selected-device"])
             .InvokeAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(0, exitCode);
         Assert.Equal("selected-device", selectedId);
+    }
+
+    [Fact]
+    public async Task GetReadsOnlyTheDiscoveredPlatformIdUnderOwnership()
+    {
+        using var lease = new MemoryStream();
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        string? readId = null;
+        var reader = new StockIdentityReader(
+            _ => Task.FromResult<IReadOnlyList<(string Name, string Id)>>(
+                [("Other", "id-other"), ("Selected\nName", "id-selected")]),
+            (id, _) =>
+            {
+                Assert.True(lease.CanRead);
+                readId = id;
+                return Task.FromResult("Firmware: 1.0.34");
+            });
+        var command = new DeviceGetCommand(reader.ReadAsync, () => lease, output, error);
+
+        var exitCode = await command.Parse(["get", "id-selected"])
+            .InvokeAsync(cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(0, exitCode);
+        Assert.Equal("id-selected", readId);
+        Assert.Contains("Peripheral ID: id-selected", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("Name: Selected Name", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("Firmware: 1.0.34", output.ToString(), StringComparison.Ordinal);
+        Assert.Equal(string.Empty, error.ToString());
+        Assert.False(lease.CanRead);
+    }
+
+    [Fact]
+    public async Task GetDoesNotConnectForAnUnknownPlatformId()
+    {
+        using var lease = new MemoryStream();
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        var reader = new StockIdentityReader(
+            _ => Task.FromResult<IReadOnlyList<(string Name, string Id)>>([("Device", "id-present")]),
+            (_, _) => throw new InvalidOperationException("Unknown ID must not be read."));
+        var command = new DeviceGetCommand(reader.ReadAsync, () => lease, output, error);
+
+        var exitCode = await command.Parse(["get", "id-absent"])
+            .InvokeAsync(cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, exitCode);
+        Assert.Equal(string.Empty, output.ToString());
+        Assert.Contains("id-absent", error.ToString(), StringComparison.Ordinal);
+        Assert.False(lease.CanRead);
+    }
+
+    [Fact]
+    public async Task GetOmitsAnUnavailableDeviceName()
+    {
+        var reader = new StockIdentityReader(
+            _ => Task.FromResult<IReadOnlyList<(string Name, string Id)>>([("", "id-unknown-name")]),
+            (_, _) => Task.FromResult("Firmware: 1.0.34"));
+
+        var details = await reader.ReadAsync("id-unknown-name", TestContext.Current.CancellationToken);
+
+        Assert.Contains("Peripheral ID: id-unknown-name", details, StringComparison.Ordinal);
+        Assert.DoesNotContain("Name:", details, StringComparison.Ordinal);
+        Assert.Contains("Firmware: 1.0.34", details, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task GetDoesNotAcceptADeviceNameAsThePositionalId()
+    {
+        var read = false;
+        var reader = new StockIdentityReader(
+            _ => Task.FromResult<IReadOnlyList<(string Name, string Id)>>([("Matching name", "id-1")]),
+            (_, _) =>
+            {
+                read = true;
+                return Task.FromResult("Firmware: 1.0.34");
+            });
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            reader.ReadAsync("Matching name", TestContext.Current.CancellationToken));
+
+        Assert.False(read);
+    }
+
+    [Fact]
+    public async Task GetRefusesAnotherOwnerBeforeScanning()
+    {
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        var scanned = false;
+        var command = new DeviceGetCommand((_, _) =>
+        {
+            scanned = true;
+            return Task.FromResult(string.Empty);
+        }, () => null, output, error);
+
+        var exitCode = await command.Parse(["get", "id-selected"])
+            .InvokeAsync(cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, exitCode);
+        Assert.False(scanned);
+        Assert.Contains("owned", error.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task GetRetainsTheLeaseWhenDisconnectDoesNotSettle()
+    {
+        using var lease = new MemoryStream();
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        var command = new DeviceGetCommand(
+            (_, _) => throw new UnsettledDeviceCleanupException(
+                "Stock BLE disconnection did not settle.", new TimeoutException()),
+            () => lease, output, error);
+
+        var exitCode = await command.Parse(["get", "id-selected"])
+            .InvokeAsync(cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, exitCode);
+        Assert.True(lease.CanRead);
+        Assert.Equal(string.Empty, output.ToString());
+        Assert.Contains("did not settle", error.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -154,6 +388,33 @@ public sealed class DeviceCommandTests
     }
 
     [Fact]
+    public async Task DiscoveryAndIdentityReplaceUnicodeFormattingInDisplayedDeviceText()
+    {
+        using var lease = new MemoryStream();
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        const string id = "id\u202E-selected";
+        const string name = "Pa\u202Eir\u2028ing";
+        var candidates = new (string Name, string Id)[] { (name, id) };
+        var list = new DeviceListCommand(
+            () => lease,
+            _ => Task.FromResult<IReadOnlyList<(string Name, string Id)>>(candidates),
+            output, error);
+        var reader = new StockIdentityReader(
+            _ => Task.FromResult<IReadOnlyList<(string Name, string Id)>>(candidates),
+            (_, _) => Task.FromResult("Firmware: 1.0.34"));
+
+        var exitCode = await list.RunAsync(TestContext.Current.CancellationToken);
+        var details = await reader.ReadAsync(id, TestContext.Current.CancellationToken);
+
+        Assert.Equal(0, exitCode);
+        Assert.Equal($"1. Pa ir ing (id -selected){Environment.NewLine}", output.ToString());
+        Assert.Equal($"Peripheral ID: id -selected{Environment.NewLine}"
+            + $"Name: Pa ir ing{Environment.NewLine}Firmware: 1.0.34", details);
+        Assert.Equal(string.Empty, error.ToString());
+    }
+
+    [Fact]
     public async Task ScanRefusesAnotherOwnerBeforeStartingBluetooth()
     {
         using var output = new StringWriter();
@@ -177,28 +438,76 @@ public sealed class DeviceCommandTests
     }
 
     [Fact]
-    public async Task ReplRequiresExplicitPeripheralAndEnrolledWifiMac()
+    public async Task UnsupportedBuildReportsUnavailableDiscovery()
     {
-        string? selectedId = null;
-        string? selectedMac = null;
-        var command = new PromptCommand((peripheralId, wifiMac, _, _) =>
+        using var lease = new MemoryStream();
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        var command = new DeviceListCommand(
+            () => lease,
+            _ => throw new PlatformNotSupportedException("A native BLE build is required."),
+            output, error);
+
+        var exitCode = await command.Parse(["list"])
+            .InvokeAsync(cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains("native BLE build", error.ToString(), StringComparison.Ordinal);
+        Assert.Equal(string.Empty, output.ToString());
+        Assert.False(lease.CanRead);
+    }
+
+    [Fact]
+    public async Task PromptRequiresBluetoothOrSimulatorWithoutEnrolledWifiMac()
+    {
+        PromptSelection? selected = null;
+        var command = new PromptCommand((selection, _) =>
         {
-            selectedId = peripheralId;
-            selectedMac = wifiMac;
+            selected = selection;
             return Task.FromResult(0);
         });
 
         Assert.NotEmpty(command.Parse(["prompt"]).Errors);
+        Assert.NotEmpty(command.Parse(["prompt", "--bluetooth", " "]).Errors);
         Assert.NotEmpty(command.Parse(["prompt", "--peripheral-id", "device-1"]).Errors);
-        Assert.NotEmpty(command.Parse(["prompt", "--peripheral-id", "device-1", "--wifi-mac", "invalid"]).Errors);
+        Assert.NotEmpty(command.Parse(["prompt", "--wifi-mac", "AA:BB:CC:DD:EE:FF"]).Errors);
+        Assert.NotEmpty(command.Parse([
+            "prompt", "--bluetooth", "device-1", "--simulator", "tcp://127.0.0.1:6123",
+        ]).Errors);
 
-        var exitCode = await command.Parse([
-            "prompt", "--peripheral-id", "device-1", "--wifi-mac", "AA:BB:CC:DD:EE:FF",
-        ]).InvokeAsync(cancellationToken: TestContext.Current.CancellationToken);
+        var exitCode = await command.Parse(["prompt", "--bluetooth", "device-1"])
+            .InvokeAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(0, exitCode);
-        Assert.Equal("device-1", selectedId);
-        Assert.Equal("AA:BB:CC:DD:EE:FF", selectedMac);
+        Assert.Equal(PromptMode.Bluetooth, selected?.Mode);
+        Assert.Equal("device-1", selected?.Value);
+    }
+
+    [Theory]
+    [InlineData("--endpoint")]
+    [InlineData("--path")]
+    [InlineData("--simulator-path")]
+    [InlineData("--peripheral-id")]
+    [InlineData("--wifi-mac")]
+    public void PromptRejectsObsoleteStartupOptions(string option)
+    {
+        var command = new PromptCommand((_, _) =>
+            throw new InvalidOperationException("Invalid input must not invoke the session."));
+
+        var parse = command.Parse(["prompt", option, "value"]);
+
+        Assert.NotEmpty(parse.Errors);
+    }
+
+    [Fact]
+    public void PromptRejectsAnUnexpectedPositionalArgument()
+    {
+        var command = new PromptCommand((_, _) =>
+            throw new InvalidOperationException("Unexpected input must not invoke the session."));
+
+        var parse = command.Parse(["prompt", "--bluetooth", "id-1", "extra"]);
+
+        Assert.NotEmpty(parse.Errors);
     }
 
     [Fact]
@@ -208,8 +517,9 @@ public sealed class DeviceCommandTests
         using var output = new StringWriter();
         using var error = new StringWriter();
 
-        var handler = new PromptHandler(input, output, error, () => null);
-        var exitCode = await handler.RunAsync(TestContext.Current.CancellationToken);
+        var handler = new PromptHandler(input, output, error);
+        var exitCode = await handler.RunAsync(
+            null, () => null, () => null, TestContext.Current.CancellationToken);
 
         Assert.Equal(0, exitCode);
         Assert.Contains("set", output.ToString(), StringComparison.Ordinal);
@@ -225,8 +535,9 @@ public sealed class DeviceCommandTests
         using var output = new StringWriter();
         using var error = new StringWriter();
 
-        var handler = new PromptHandler(input, output, error, () => null);
-        var exitCode = await handler.RunAsync(TestContext.Current.CancellationToken);
+        var handler = new PromptHandler(input, output, error);
+        var exitCode = await handler.RunAsync(
+            null, () => null, () => null, TestContext.Current.CancellationToken);
 
         Assert.Equal(0, exitCode);
         Assert.Contains("101", error.ToString(), StringComparison.Ordinal);
@@ -239,8 +550,11 @@ public sealed class DeviceCommandTests
         using var output = new StringWriter();
         using var error = new StringWriter();
 
-        var handler = new PromptHandler(input, output, error, () => null);
-        var exitCode = await handler.RunWithOwnershipAsync(TestContext.Current.CancellationToken);
+        var handler = new PromptHandler(input, output, error);
+        var session = CreateReadOnlySession(handler, () => null, _ =>
+            throw new InvalidOperationException("Another owner must prevent device creation."), error);
+        var exitCode = await session.RunAsync(
+            PromptSelection.Parse("enrolled-device", null), TestContext.Current.CancellationToken);
 
         Assert.Equal(1, exitCode);
         Assert.Equal(string.Empty, output.ToString());
@@ -254,9 +568,12 @@ public sealed class DeviceCommandTests
         using var output = new StringWriter();
         using var error = new StringWriter();
 
-        var handler = new PromptHandler(input, output, error,
-            () => throw new DirectoryNotFoundException("Provision the machine-wide device runtime directory."));
-        var exitCode = await handler.RunWithOwnershipAsync(TestContext.Current.CancellationToken);
+        var handler = new PromptHandler(input, output, error);
+        var session = CreateReadOnlySession(handler,
+            () => throw new DirectoryNotFoundException("Provision the machine-wide device runtime directory."),
+            _ => throw new InvalidOperationException("A failed lease must prevent device creation."), error);
+        var exitCode = await session.RunAsync(
+            PromptSelection.Parse("enrolled-device", null), TestContext.Current.CancellationToken);
 
         Assert.Equal(1, exitCode);
         Assert.Equal(string.Empty, output.ToString());
@@ -272,8 +589,10 @@ public sealed class DeviceCommandTests
         using var lease = new MemoryStream();
         using var device = new ReadOnlyTestDevice();
 
-        var handler = new PromptHandler(input, output, error, () => lease);
-        var exitCode = await handler.RunWithOwnershipAsync(() => device, TestContext.Current.CancellationToken);
+        var handler = new PromptHandler(input, output, error);
+        var session = CreateReadOnlySession(handler, () => lease, _ => device, error);
+        var exitCode = await session.RunAsync(
+            PromptSelection.Parse("enrolled-device", null), TestContext.Current.CancellationToken);
 
         Assert.Equal(0, exitCode);
         Assert.False(lease.CanRead);
@@ -289,8 +608,10 @@ public sealed class DeviceCommandTests
         using var error = new StringWriter();
         using var lease = new MemoryStream();
 
-        var handler = new PromptHandler(input, output, error, () => lease);
-        var exitCode = await handler.RunWithOwnershipAsync(TestContext.Current.CancellationToken);
+        var handler = new PromptHandler(input, output, error);
+        var session = CreateReadOnlySession(handler, () => lease, null, error);
+        var exitCode = await session.RunAsync(
+            PromptSelection.Parse("enrolled-device", null), TestContext.Current.CancellationToken);
 
         Assert.Equal(1, exitCode);
         Assert.False(lease.CanRead);
@@ -306,12 +627,11 @@ public sealed class DeviceCommandTests
         using var lease = new MemoryStream();
         using var device = new ReadOnlyTestDevice();
 
-        var handler = new PromptHandler(input, output, error, () => lease);
-        var command = new PromptCommand((_, _, _, cancellationToken) =>
-            handler.RunWithOwnershipAsync(() => device, cancellationToken));
-        var exitCode = await command.Parse([
-            "prompt", "--peripheral-id", "enrolled-device", "--wifi-mac", "AA:BB:CC:DD:EE:FF",
-        ]).InvokeAsync(cancellationToken: TestContext.Current.CancellationToken);
+        var handler = new PromptHandler(input, output, error);
+        var session = CreateReadOnlySession(handler, () => lease, _ => device, error);
+        var command = new PromptCommand(session);
+        var exitCode = await command.Parse(["prompt", "--bluetooth", "enrolled-device"])
+            .InvokeAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(0, exitCode);
         Assert.Contains("enrolled-device", output.ToString(), StringComparison.Ordinal);
@@ -326,6 +646,28 @@ public sealed class DeviceCommandTests
     }
 
     [Fact]
+    public async Task ForegroundPromptReplacesUnicodeFormattingInDeviceStatus()
+    {
+        using var input = new StringReader("status\nquit\n");
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        using var lease = new MemoryStream();
+        using var device = new ReadOnlyTestDevice(information: new DeviceInformation(
+            "id\u202E-one", "sto\u2028ck", "1.0\u202E34", [MotionPattern.SimpleStroke]));
+
+        var session = CreateReadOnlySession(
+            new PromptHandler(input, output, error), () => lease, _ => device, error);
+
+        var exitCode = await session.RunAsync(
+            PromptSelection.Parse("enrolled-device", null), TestContext.Current.CancellationToken);
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains("Device: id -one; Profile: sto ck; Firmware: 1.0 34", output.ToString(), StringComparison.Ordinal);
+        Assert.Equal(string.Empty, error.ToString());
+        Assert.False(lease.CanRead);
+    }
+
+    [Fact]
     public async Task ForegroundPromptRejectsFailedConnectionAndCleansUpBeforeReleasingOwnership()
     {
         using var input = new StringReader("status\nquit\n");
@@ -335,8 +677,10 @@ public sealed class DeviceCommandTests
         using var device = new ReadOnlyTestDevice(connects: false);
         device.OnDispose = () => Assert.True(lease.CanRead);
 
-        var handler = new PromptHandler(input, output, error, () => lease);
-        var exitCode = await handler.RunWithOwnershipAsync(() => device, TestContext.Current.CancellationToken);
+        var handler = new PromptHandler(input, output, error);
+        var session = CreateReadOnlySession(handler, () => lease, _ => device, error);
+        var exitCode = await session.RunAsync(
+            PromptSelection.Parse("enrolled-device", null), TestContext.Current.CancellationToken);
 
         Assert.Equal(1, exitCode);
         Assert.Equal(string.Empty, output.ToString());
@@ -352,10 +696,11 @@ public sealed class DeviceCommandTests
         using var output = new StringWriter();
         using var error = new StringWriter();
 
-        var handler = new PromptHandler(input, output, error, () => null);
-        var exitCode = await handler.RunWithOwnershipAsync(
-            () => throw new InvalidOperationException("Device was constructed without a lease."),
-            TestContext.Current.CancellationToken);
+        var handler = new PromptHandler(input, output, error);
+        var session = CreateReadOnlySession(handler, () => null,
+            _ => throw new InvalidOperationException("Device was constructed without a lease."), error);
+        var exitCode = await session.RunAsync(
+            PromptSelection.Parse("enrolled-device", null), TestContext.Current.CancellationToken);
 
         Assert.Equal(1, exitCode);
         Assert.Equal(string.Empty, output.ToString());
@@ -371,9 +716,10 @@ public sealed class DeviceCommandTests
         using var lease = new MemoryStream();
         using var device = new ReadOnlyTestDevice { FailDispose = true };
 
-        var handler = new PromptHandler(input, output, error, () => lease);
-        var failure = await Assert.ThrowsAsync<IOException>(() => handler.RunWithOwnershipAsync(
-            () => device, TestContext.Current.CancellationToken));
+        var handler = new PromptHandler(input, output, error);
+        var session = CreateReadOnlySession(handler, () => lease, _ => device, error);
+        var failure = await Assert.ThrowsAsync<IOException>(() => session.RunAsync(
+            PromptSelection.Parse("enrolled-device", null), TestContext.Current.CancellationToken));
 
         Assert.Contains("did not settle", failure.Message, StringComparison.Ordinal);
         Assert.True(lease.CanRead);
@@ -397,8 +743,10 @@ public sealed class DeviceCommandTests
             },
         };
 
-        var handler = new PromptHandler(input, output, error, () => lease);
-        var exitCode = await handler.RunWithOwnershipAsync(() => device, TestContext.Current.CancellationToken);
+        var handler = new PromptHandler(input, output, error);
+        var session = CreateReadOnlySession(handler, () => lease, _ => device, error);
+        var exitCode = await session.RunAsync(
+            PromptSelection.Parse("enrolled-device", null), TestContext.Current.CancellationToken);
 
         Assert.Equal(0, exitCode);
         Assert.Contains("2026-09-26T12:00:00", output.ToString(), StringComparison.Ordinal);
@@ -416,9 +764,10 @@ public sealed class DeviceCommandTests
         using var eofInput = new StringReader(string.Empty);
         using var eofDevice = new ReadOnlyTestDevice();
 
-        var eofHandler = new PromptHandler(eofInput, output, error, () => eofLease);
-        Assert.Equal(0, await eofHandler.RunWithOwnershipAsync(
-            () => eofDevice, TestContext.Current.CancellationToken));
+        var eofHandler = new PromptHandler(eofInput, output, error);
+        var eofSession = CreateReadOnlySession(eofHandler, () => eofLease, _ => eofDevice, error);
+        Assert.Equal(0, await eofSession.RunAsync(
+            PromptSelection.Parse("enrolled-device", null), TestContext.Current.CancellationToken));
         Assert.False(eofLease.CanRead);
         Assert.True(eofDevice.Disposed);
 
@@ -428,11 +777,64 @@ public sealed class DeviceCommandTests
         using var canceledInput = new StringReader("status\n");
         using var canceledDevice = new ReadOnlyTestDevice();
 
-        var canceledHandler = new PromptHandler(canceledInput, output, error, () => canceledLease);
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => canceledHandler.RunWithOwnershipAsync(
-            () => canceledDevice, cancellation.Token));
+        var canceledHandler = new PromptHandler(canceledInput, output, error);
+        var canceledSession = CreateReadOnlySession(canceledHandler, () => canceledLease, _ => canceledDevice, error);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => canceledSession.RunAsync(
+            PromptSelection.Parse("enrolled-device", null), cancellation.Token));
         Assert.False(canceledLease.CanRead);
         Assert.True(canceledDevice.Disposed);
+    }
+
+    [Fact]
+    public async Task ForegroundPromptDetectsConnectionExitWithoutAnotherInputLine()
+    {
+        using var input = new PendingLineReader();
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        using var lease = new MemoryStream();
+        using var device = new ReadOnlyTestDevice
+        {
+            ExitGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously),
+        };
+
+        var session = CreateReadOnlySession(
+            new PromptHandler(input, output, error), () => lease, _ => device, error);
+        var run = session.RunAsync(
+            PromptSelection.Parse("enrolled-device", null), TestContext.Current.CancellationToken);
+
+        await input.Reading.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+        device.ExitGate.TrySetResult();
+        var exitCode = await run.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains("disconnected", error.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.True(device.Disposed);
+        Assert.False(lease.CanRead);
+    }
+
+    [Fact]
+    public async Task ForegroundPromptCancelsPendingInputBeforeReleasingOwnership()
+    {
+        using var input = new PendingLineReader();
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        using var lease = new MemoryStream();
+        using var cancellation = new CancellationTokenSource();
+        using var device = new ReadOnlyTestDevice();
+        var session = CreateReadOnlySession(
+            new PromptHandler(input, output, error), () => lease, _ => device, error);
+        var invocation = Program.InvokeAsync(
+            CreateRoot(new PromptCommand(session)),
+            ["prompt", "--bluetooth", "enrolled-device"],
+            cancellation.Token);
+
+        await input.Reading.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+        await cancellation.CancelAsync();
+        var exitCode = await invocation.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+
+        Assert.Equal(130, exitCode);
+        Assert.True(device.Disposed);
+        Assert.False(lease.CanRead);
     }
 
     [Fact]
@@ -442,30 +844,97 @@ public sealed class DeviceCommandTests
         await cancellation.CancelAsync();
 
         var exitCode = await Program.InvokeAsync(
-            CreateRoot(new PromptCommand((_, _, _, token) => Task.FromCanceled<int>(token))),
-            ["prompt", "--peripheral-id", "device-1", "--wifi-mac", "AA:BB:CC:DD:EE:FF"],
+            CreateRoot(new PromptCommand((_, token) => Task.FromCanceled<int>(token))),
+            ["prompt", "--bluetooth", "device-1"],
             cancellation.Token);
 
         Assert.Equal(130, exitCode);
     }
 
     [Fact]
-    public async Task IdentifyPromptsForANumberAndSelectsOnlyThatLocator()
+    public async Task CanceledDeviceListReturnsCancellationExitCodeAfterReleasingOwnership()
     {
-        using var input = new StringReader("2\n");
-        using var prompt = new StringWriter();
+        using var cancellation = new CancellationTokenSource();
+        using var lease = new MemoryStream();
+        var root = new CliRootCommand(
+            new DeviceCommand(
+                new DeviceGetCommand((_, _) => Task.FromResult(0)),
+                new DeviceListCommand(
+                    () => lease,
+                    async _ =>
+                    {
+                        await cancellation.CancelAsync();
+                        return await Task.FromCanceled<IReadOnlyList<(string Name, string Id)>>(cancellation.Token);
+                    },
+                    TextWriter.Null,
+                    TextWriter.Null)),
+            new PromptCommand((_, _) => Task.FromResult(0)));
 
-        var selected = await DeviceSelection.SelectAsync(
-            [("Device One", "id-one"), ("Device Two", "id-two")],
-            input,
-            prompt,
-            true,
-            TestContext.Current.CancellationToken);
+        var exitCode = await Program.InvokeAsync(root, ["devices", "list"], cancellation.Token);
 
-        Assert.Equal("id-two", selected);
-        Assert.Contains("1. Device One (id-one)", prompt.ToString(), StringComparison.Ordinal);
-        Assert.Contains("2. Device Two (id-two)", prompt.ToString(), StringComparison.Ordinal);
-        Assert.Contains("Select a device by number and press Enter:", prompt.ToString(), StringComparison.Ordinal);
+        Assert.Equal(130, exitCode);
+        Assert.False(lease.CanRead);
+    }
+
+    [Fact]
+    public async Task CanceledDeviceGetReturnsCancellationExitCodeAfterReleasingOwnership()
+    {
+        using var cancellation = new CancellationTokenSource();
+        using var lease = new MemoryStream();
+        var root = new CliRootCommand(
+            new DeviceCommand(
+                new DeviceGetCommand(
+                    async (_, _) =>
+                    {
+                        await cancellation.CancelAsync();
+                        return await Task.FromCanceled<string>(cancellation.Token);
+                    },
+                    () => lease,
+                    TextWriter.Null,
+                    TextWriter.Null),
+                new DeviceListCommand(
+                    () => throw new InvalidOperationException("Get must not list devices."),
+                    _ => Task.FromResult<IReadOnlyList<(string Name, string Id)>>([]),
+                    TextWriter.Null,
+                    TextWriter.Null)),
+            new PromptCommand((_, _) => Task.FromResult(0)));
+
+        var exitCode = await Program.InvokeAsync(root, ["devices", "get", "selected-id"], cancellation.Token);
+
+        Assert.Equal(130, exitCode);
+        Assert.False(lease.CanRead);
+    }
+
+    [Fact]
+    public async Task OrdinarySessionFailureIsNotOverwrittenByCancellation()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var command = CreateRoot(new PromptCommand(async (_, _) =>
+        {
+            await cancellation.CancelAsync();
+            return 1;
+        }));
+
+        var exitCode = await Program.InvokeAsync(
+            command, ["prompt", "--bluetooth", "selected-device"], cancellation.Token);
+
+        Assert.Equal(1, exitCode);
+    }
+
+    [Fact]
+    public async Task SuccessfulPromptCanceledDuringInputReturnsCancellationExitCode()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var command = new PromptCommand(async (_, _) =>
+        {
+            await cancellation.CancelAsync();
+            return 0;
+        });
+
+        var exitCode = await command.Parse(["prompt", "--bluetooth", "selected-device"])
+            .InvokeAsync(cancellationToken: cancellation.Token);
+
+        Assert.Equal(130, exitCode);
     }
 
     [Fact]
@@ -485,66 +954,6 @@ public sealed class DeviceCommandTests
         Assert.DoesNotContain("Select a device", output.ToString(), StringComparison.Ordinal);
     }
 
-    [Theory]
-    [InlineData("0\n")]
-    [InlineData("3\n")]
-    [InlineData("no\n")]
-    [InlineData("")]
-    public async Task IdentifyRejectsAnInvalidSelection(string response)
-    {
-        using var input = new StringReader(response);
-        using var prompt = new StringWriter();
-
-        await Assert.ThrowsAsync<ArgumentException>(() => DeviceSelection.SelectAsync(
-            [("Device One", "id-one"), ("Device Two", "id-two")],
-            input,
-            prompt,
-            true,
-            TestContext.Current.CancellationToken));
-    }
-
-    [Fact]
-    public async Task IdentifyRefusesToPromptWithoutAnInteractiveTerminal()
-    {
-        using var input = new StringReader("1\n");
-        using var prompt = new StringWriter();
-
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => DeviceSelection.SelectAsync(
-            [("Device One", "id-one")],
-            input,
-            prompt,
-            false,
-            TestContext.Current.CancellationToken));
-
-        Assert.Contains("--peripheral-id", exception.Message, StringComparison.Ordinal);
-        Assert.Equal(string.Empty, prompt.ToString());
-    }
-
-    [Fact]
-    public async Task IdentifyReportsAnEmptyScanWithoutPrompting()
-    {
-        using var input = new StringReader("1\n");
-        using var prompt = new StringWriter();
-
-        await Assert.ThrowsAsync<InvalidOperationException>(() => DeviceSelection.SelectAsync(
-            [], input, prompt, true, TestContext.Current.CancellationToken));
-
-        Assert.Equal(string.Empty, prompt.ToString());
-    }
-
-    [Fact]
-    public async Task IdentifyDoesNotAllowAdvertisedNamesToAddTerminalLines()
-    {
-        using var input = new StringReader("1\n");
-        using var prompt = new StringWriter();
-
-        await DeviceSelection.SelectAsync(
-            [("Other\nDevice", "id-one")], input, prompt, true, TestContext.Current.CancellationToken);
-
-        Assert.Contains("1. Other Device (id-one)", prompt.ToString(), StringComparison.Ordinal);
-        Assert.DoesNotContain("\nDevice", prompt.ToString(), StringComparison.Ordinal);
-    }
-
     [Fact]
     public async Task IdentifyDoesNotUseTheSimulatorHost()
     {
@@ -552,7 +961,7 @@ public sealed class DeviceCommandTests
         using var error = new StringWriter();
         var command = new DeviceGetCommand(output, error);
 
-        var exitCode = await command.Parse(["get", "--peripheral-id", "selected-device"])
+        var exitCode = await command.Parse(["get", "selected-device"])
             .InvokeAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(1, exitCode);
@@ -574,10 +983,10 @@ public sealed class DeviceCommandTests
                 new DeviceListCommand(() => null,
                     _ => throw new InvalidOperationException("Get must not scan."),
                     TextWriter.Null, TextWriter.Null)),
-            new PromptCommand((_, _, _, _) =>
+            new PromptCommand((_, _) =>
                 throw new InvalidOperationException("Get must not open the prompt.")));
 
-        var exitCode = await command.Parse(["device", "get", "--peripheral-id", "selected-device"])
+        var exitCode = await command.Parse(["devices", "get", "selected-device"])
             .InvokeAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(0, exitCode);
@@ -591,8 +1000,9 @@ public sealed class DeviceCommandTests
         using var output = new StringWriter();
         using var error = new StringWriter();
 
-        var handler = new PromptHandler(input, output, error, () => null);
-        var exitCode = await handler.RunAsync(TestContext.Current.CancellationToken);
+        var handler = new PromptHandler(input, output, error);
+        var exitCode = await handler.RunAsync(
+            null, () => null, () => null, TestContext.Current.CancellationToken);
 
         Assert.Equal(0, exitCode);
         Assert.Equal(string.Empty, output.ToString());
@@ -614,8 +1024,9 @@ public sealed class DeviceCommandTests
         using var output = new StringWriter();
         using var error = new StringWriter();
 
-        var handler = new PromptHandler(input, output, error, () => null);
-        await handler.RunAsync(TestContext.Current.CancellationToken);
+        var handler = new PromptHandler(input, output, error);
+        await handler.RunAsync(
+            null, () => null, () => null, TestContext.Current.CancellationToken);
 
         Assert.NotEmpty(error.ToString());
         Assert.DoesNotContain("Motion unavailable", error.ToString(), StringComparison.Ordinal);
@@ -631,9 +1042,47 @@ public sealed class DeviceCommandTests
                 TextWriter.Null)),
         prompt);
 
-    private static string CreateTemporaryFile()
+    private static PromptSession CreateReadOnlySession(
+        PromptHandler prompt,
+        Func<IDisposable?> acquireOwnership,
+        Func<string, IOssmDevice>? createStockDevice,
+        TextWriter error) => new(
+            prompt,
+            acquireOwnership,
+            _ => throw new InvalidOperationException("A stock session must not launch the simulator."),
+            _ => throw new InvalidOperationException("A stock session must not attach to the simulator."),
+            createStockDevice,
+            createStockDevice is null
+                ? null
+                : _ => Task.FromResult<IReadOnlyList<(string Name, string Id)>>(
+                    [("enrolled-device", "enrolled-device")]),
+            error);
+
+    private static string CreateTemporaryExecutableFile()
     {
-        var path = Path.GetTempFileName();
-        return Path.GetFullPath(path);
+        var path = Path.Combine(
+            Path.GetTempPath(),
+            $"{Guid.NewGuid():N} executable{(OperatingSystem.IsWindows() ? ".exe" : string.Empty)}");
+        File.WriteAllText(path, string.Empty);
+        if (!OperatingSystem.IsWindows())
+        {
+            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+
+        return path;
+    }
+
+    private sealed class PendingLineReader : TextReader
+    {
+        private readonly TaskCompletionSource<string?> _line = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _reading = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task Reading => _reading.Task;
+
+        public override ValueTask<string?> ReadLineAsync(CancellationToken cancellationToken)
+        {
+            _reading.TrySetResult();
+            return new ValueTask<string?>(_line.Task.WaitAsync(cancellationToken));
+        }
     }
 }

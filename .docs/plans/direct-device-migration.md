@@ -26,7 +26,9 @@ external changes latch an interruption requiring explicit local acknowledgement
 into paused state. Neither acknowledgement nor reconnect resumes motion.
 
 The CLI starts its simulator child only for an explicit `prompt --simulator <path>`
-session; Web.Api uses an independently started simulator. Both use bounded JSONL
+session, or attaches without owning a child for
+`prompt --simulator tcp://127.0.0.1:<port>`; Web.Api uses an independently
+started simulator. Both use bounded JSONL
 over loopback TCP, and neither adapter owns a process. Stock and Simulator are alternative
 build/publish profiles, selected before restore, and DI configures the one
 available provider. Defaults is host-neutral; Web.ServiceDefaults adds web
@@ -375,9 +377,12 @@ and required service/characteristic verification, supported control-command
 writes, state feedback and disconnect. Resolve the current host's native
 permissions, callbacks and lifecycle for the actual CLI, not a substitute host.
 Resolve Stop versus zero-speed configuration at the shared contract before
-implementing ambiguous writes. Preserve the stock profile, enrollment, strict
+implementing ambiguous writes. Preserve the stock profile, strict
 codecs, observed-vs-requested values, knob scaling and between-write
-revocation/settlement requirements. Add no BLE helper process, guessed physical
+revocation/settlement requirements. The 26 September CLI command decision
+removes separately enrolled Wi-Fi MAC verification; keep the selected peripheral,
+firmware, GATT and bounded payload checks, and report the MAC as device
+information. Add no BLE helper process, guessed physical
 mapping or replacement firmware.
 
 Verification: deterministic tests at the existing BLE boundary must cover

@@ -4,8 +4,8 @@ Control the OSSM-RS simulator from a browser. **Local only: no physical device
 or remote access.** Use admin and guest tabs on the same computer.
 
 This M3-to-M4 transition is not a deployable release. Web.Api connects to a
-separately started TCP simulator; the CLI starts its own simulator process only
-for an explicit `prompt --simulator` session. Neither path is physically qualified.
+separately started TCP simulator; the CLI can start its own simulator process
+or attach to an existing loopback listener. Neither path is physically qualified.
 
 ## Quick start
 
@@ -47,7 +47,8 @@ not Web.Api.
 
 `OssmSharp.Device.Simulator` connects to an
 [`ossm-sim-bridge`](tools/ossm-sim-bridge/README.md) on IPv4 loopback. The
-CLI prompt starts and owns one bridge process; Web.Api uses an independent one. The
+CLI prompt starts and owns a bridge only when given an executable path; Web.Api
+and the CLI's endpoint-attachment mode use an independently started listener. The
 library boundary is not a published package, a remotely exposed service, or
 physical-device qualification. See the
 [device-control specification](.docs/specs/device-control/spec.md) for the
@@ -88,41 +89,74 @@ Inside the prompt, use `status`, `set --speed 12 --stroke 20 --depth 50
 --pattern SimpleStroke`, `stop`, and `quit`. The CLI attempts a serialized zero
 before closing the device, then stops only the simulator process it started.
 Write settlement is not independent proof of motion or physical stopping.
-The native and CLI projects have built, but the new session has not been run
-or qualified on a live device in this checkpoint.
+The native bridge and simulator adapter passed local integration checks, but
+real CLI launch and attach could not be verified on this Mac because its
+machine-wide ownership directory is not provisioned. No physical device was
+used.
 
-### Real-device CLI (read-only preview)
+Alternatively, leave an independently started bridge running and attach without
+giving the CLI ownership of that process:
 
-The opt-in macOS CLI can scan for stock devices and ask for a numbered selection,
-or scan for an **explicitly supplied platform peripheral ID**. It connects
-without auto-reconnect and reads the stock pairing characteristic.
-It prints the reported Wi-Fi MAC, chip and firmware details. It sends no GATT
-writes, does not start the simulator and cannot issue physical motion. The
-stock-device motion adapter remains unimplemented; physical operation requires
-[device qualification](.docs/specs/device-control/spec.md#physical-qualification).
-
-With .NET 10, the `macos` workload and a full Xcode installation selected
-(Command Line Tools alone are insufficient), the intended command is:
-
-```sh
-dotnet run --project src/OssmSharp.Cli/OssmSharp.Cli.csproj --property:EnableStockBle=true -- device get
+```powershell
+& $path --listen 127.0.0.1:18083
+# In another terminal:
+dotnet run --project src/OssmSharp.Cli/OssmSharp.Cli.csproj -- prompt --simulator tcp://127.0.0.1:18083
 ```
 
-The command lists `Device name (platform ID)` with numbers, then asks for a
-number and Enter. It requires an interactive terminal; supply
-`--peripheral-id YOUR_SELECTED_MACOS_PERIPHERAL_ID` for noninteractive use.
-The preview does not enroll an identity. Never select a device automatically by
-name, signal strength or discovery order. Confirm the live Wi-Fi MAC and
-firmware version before saving the locator and expected MAC in local
-configuration. On every later connection, verify both again. Discovery and
-connection must not arm or restore motion; only qualified physical control may
-issue bounded commands and verify Stop.
+The CLI disconnects and attempts Stop on exit but does not terminate an
+externally started bridge. Only `tcp://127.0.0.1:<port>` (ports 1-65535) is
+supported; a remote address is rejected rather than silently interpreted as
+an executable path.
 
-The macOS BLE source has passed a compile-only check, but this machine lacks
-full Xcode, so the native app build and device behavior have **not** been
-validated. No hardware was accessed. See the
+### Stock discovery and read-only CLI
+
+Opt-in native CLI builds for Windows 11 and macOS 26+ expose `devices list`,
+`devices get <id>` and `prompt --bluetooth <id-or-name>`. List shows discovered
+platform IDs and names without connecting. Get requires a platform ID and reads
+that device's live pairing identity without a numbered selector or motion writes.
+The Bluetooth prompt resolves the ID first, otherwise requires one exact and
+unambiguous discovered name. Connection cannot arm motion; Stock motion remains
+unsupported pending separate Runtime/Stock work and physical
+[qualification](.docs/specs/device-control/spec.md#physical-qualification).
+
+With .NET 10, the platform workload and native tooling installed, run:
+
+```sh
+dotnet run --project src/OssmSharp.Cli/OssmSharp.Cli.csproj --property:EnableStockBle=true -- devices list
+dotnet run --project src/OssmSharp.Cli/OssmSharp.Cli.csproj --property:EnableStockBle=true -- devices get YOUR_PLATFORM_ID
+dotnet run --project src/OssmSharp.Cli/OssmSharp.Cli.csproj --property:EnableStockBle=true -- prompt --bluetooth YOUR_PLATFORM_ID
+```
+
+The reported Wi-Fi MAC is device information, not a separately enrolled
+connection prerequisite. A missing or ambiguous name fails; retry with an
+explicit platform ID. Get prints the reported Wi-Fi MAC, chip, Wi-Fi connection
+status, sketch MD5 and firmware version alongside the selected ID and name.
+Neither discovery nor connection implies that physical operation is qualified.
+
+The macOS Stock build targets `net10.0-macos` and imports the .NET macOS
+workload. Its full build checks for an Xcode app bundle; Apple's Command Line
+Tools alone do not satisfy that check. Xcode is not needed for the portable
+`net10.0` CLI and simulator checks:
+
+```sh
+dotnet run --project src/OssmSharp.Cli/OssmSharp.Cli.csproj -- --help
+dotnet test --project tests/OssmSharp.Cli.Tests/OssmSharp.Cli.Tests.csproj
+dotnet test --project tests/OssmSharp.Device.Stock.Tests/OssmSharp.Device.Stock.Tests.csproj
+dotnet test --project tests/OssmSharp.Cli.IntegrationTests/OssmSharp.Cli.IntegrationTests.csproj --filter-class '*SimulatorPromptIntegrationTests'
+```
+
+These checks passed locally: 93 CLI unit tests, 177 deterministic Stock tests,
+and six simulator process integration tests. The macOS 26.5 native CLI and
+Stock C# sources also passed a compile-only check. This does not build or run
+the macOS BLE executable; a local full build requires Xcode, and native BLE
+runtime validation remains outstanding. Windows-native behavior needs a Windows
+environment. Full CLI simulator process tests additionally need the provisioned
+machine-wide ownership directory described above; they must not substitute a
+per-user lock. No hardware has been accessed in this work. See the
+[no-Xcode investigation](.docs/plans/cli-no-xcode-investigation.md) for
+the evidence and alternatives, and the
 [device adapter design](.docs/specs/device-control/adapters.md#physical-device-selection-and-connection)
-for the remaining enrollment and integration requirements.
+for remaining integration and qualification requirements.
 
 ## Use it
 

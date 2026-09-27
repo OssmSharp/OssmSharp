@@ -73,7 +73,7 @@ not full physical qualification or evidence that all release gates have passed.
 | Scenario | Action and observable result |
 | --- | --- |
 | Start locally | Start the three web executables directly or use the optional simulated AppHost arrangement. AdminWeb displays the validated invitation automatically. Device control starts disarmed at zero; page load and invitation retrieval do not arm it. |
-| Use the software remote | Start Cli with Stock connection options for the real device, or select `prompt --simulator <path>` to start a CLI-owned simulator child. One prompt retains the device connection and ownership lock across help, status, motion, Stop and quit. No web process or guest session exists. |
+| Use the software remote | Start `prompt --bluetooth <id-or-name>` for a Stock device, `prompt --simulator <path>` for a CLI-owned simulator child, or `prompt --simulator tcp://127.0.0.1:<port>` to attach to an external simulator. One prompt retains the device connection and ownership lock across help, status, motion, Stop and quit. No web process or guest session exists. |
 | Compete for ownership | CLI or Web.Api fails before device access when the other holds the machine-wide lock. It never steals ownership or silently starts another simulator. |
 | Exit the CLI | Quit, EOF, Ctrl+C and handled shutdown inhibit new motion, prioritize a bounded awaited Stop, disconnect and release the lock last. Report unconfirmed Stop rather than successful stopping. |
 | Admit and approve | A guest opens the invitation. Exactly one connection becomes pending. AdminWeb shows the waiting notice. **Allow control** approves that exact guest and arms only when stopped feedback and valid limits permit it. Motion still requires a new guest Send. |
@@ -226,8 +226,17 @@ remain outside device libraries and web application business logic.
 ### CLI command and lifetime contract
 
 The CLI is a persistent software remote, not a one-shot sender or background
-daemon. Startup options select an available provider and validated connection
-settings. After exclusive ownership and connection/readiness checks, the prompt
+daemon. `devices list` reports bounded Stock discovery and `devices get <id>`
+reads one specified platform ID on Windows and macOS without a selector or
+motion writes. `prompt --bluetooth <id-or-name>` selects an exact ID first, or
+one exactly matching, unambiguous discovered name; no enrolled Wi-Fi MAC is
+required. The reported Wi-Fi MAC remains information rather than authorization.
+Exactly one of `--bluetooth` or `--simulator` is required for a prompt.
+`--simulator` accepts either an executable path that the CLI starts and owns,
+or a strict `tcp://127.0.0.1:<port>` endpoint that it only attaches to. Missing,
+ambiguous, combined or obsolete inputs fail before device access; startup
+failures never change modes implicitly. After exclusive ownership and
+connection/readiness checks, the prompt
 accepts `help [command]`, `status`, `set <speed> <stroke> <depth> <pattern>`,
 `stop`, `acknowledge` and `quit`. Reuse System.CommandLine for command parsing;
 do not evaluate shell code. Invalid commands report an error and return to the
@@ -343,7 +352,8 @@ supplies its loopback endpoint. Actual selects the Stock build/profile and
 requires neither simulator assets nor Rust. AppHost never owns BLE or calls
 device operations. For Stock CLI development, start the Stock-targeted CLI
 directly; no simulator or AppHost is required. For a CLI Simulator session,
-`prompt --simulator <path>` starts its own child. Do not launch Web.Api
+`prompt --simulator <path>` starts its own child; a local endpoint attaches to
+an already running listener. Do not launch Web.Api
 as another device owner. A runtime launch profile does not replace provider
 selection before restore/publish.
 
@@ -364,7 +374,8 @@ change the plan's Stock CLI, then simulator, then web implementation order.
 Outside Aspire, start executables using standard .NET hosting and explicit
 configuration. No custom orchestrator is required. Device.Simulator only
 connects. The CLI owns a child started by `prompt --simulator <path>` and stops
-it after its device session; for Web.Api the operator or AppHost owns the
+it after its device session; it does not stop an endpoint it attached to. For
+Web.Api the operator or AppHost owns the
 independently started process, which survives an API client disconnect at zero.
 
 AdminWeb and GuestWeb must have distinct 256-bit service keys. AppHost may

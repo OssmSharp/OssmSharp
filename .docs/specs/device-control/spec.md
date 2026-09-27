@@ -263,9 +263,11 @@ The stock adapter must target the pinned firmware:
    It may probe responsiveness with a bounded pairing/configuration read. It
    must read firmware identity from pairing and names/indices from patterns,
    without requiring manual firmware/profile selection when identification
-   works. Physical peripheral enrollment and later locator resolution are
-   distinct from profile identification; the
-   [adapter design](adapters.md#physical-device-selection-and-connection)
+   works. The caller selects an exact platform peripheral locator; there is no
+   separately enrolled Wi-Fi MAC or expected-MAC comparison. A live, valid
+   reported Wi-Fi MAC remains device information, not authorization or
+   attestation. Selection and later locator resolution are distinct from profile
+   identification; the [adapter design](adapters.md#physical-device-selection-and-connection)
    describes that selection. These reads must not grant physical qualification
    or advance the controller's feedback deadline.
 
@@ -329,8 +331,9 @@ layer per method.
 The controller must distinguish disconnected, initializing, ready, paused,
 locked, faulted and disposed states. Only ready may accept nonzero motion.
 Lockout must remain latched alongside faults/disconnects; normal initialization
-or fault recovery must not clear it. Device selection and pairing must require
-trusted owner setup, not untrusted consumer input.
+or fault recovery must not clear it. Platform peripheral selection and any
+separately authorized device provisioning must require trusted owner intent,
+not untrusted consumer input; neither entails Wi-Fi MAC enrollment.
 
 Initialization must submit zero, obtain stock knob-limit enable/readback or
 direct simulator state, validate reported readiness, await required navigation

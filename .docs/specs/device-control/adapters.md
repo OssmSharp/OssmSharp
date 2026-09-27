@@ -86,12 +86,12 @@ physical I/O.
 | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Start local simulation | The operator/AppHost starts the simulator. One selected adapter connects to its configured loopback endpoint; Bluetooth is not accessed. |
 | Close a client | Its Stop/cleanup path releases only the connection and lock; the simulator remains alive at zero for a later explicit connection. |
-| Start with an enrolled physical device          | One `OssmDevice` resolves the configured peripheral, verifies live identity and discovers the required GATT surface. Connection alone does not arm motion. |
-| Another nearby device has the same name         | It is not selected. Name, signal strength and discovery order do not override enrollment.                                                                  |
-| Configured device is absent or identity differs | Startup connection fails without motion writes, substitution or fallback to simulation.                                                                    |
+| Start with a selected physical device | One `StockOssmDevice` resolves the selected platform peripheral ID, validates live identity and discovers the required GATT surface. Connection alone does not arm motion. |
+| Another nearby device has the same name | It is not selected by signal strength or discovery order; exact name selection must be unambiguous and resolve to one frozen platform ID. |
+| Selected device is absent or differs | Connection fails without motion writes, substitution or fallback to simulation. A different reported Wi-Fi MAC alone does not fail connection. |
 | Stop occurs during an outstanding write         | DC-05 governs settlement and the subsequent zero write. No concurrent replacement writer is created.                                                       |
 | Simulator feedback freezes or the server exits | Shared freshness/failure handling applies. Responsive status replies do not turn frozen samples into new feedback. |
-| Change implementation or enrolled identity      | Stop and dispose the existing owner, then restart with validated configuration. Old intent is not replayed.                                                |
+| Change implementation or selected peripheral | Stop and dispose the existing owner, then restart with the newly selected platform ID. Old intent is not replayed. |
 
 ## Composition and ownership
 
@@ -112,6 +112,15 @@ Device.Simulator references the provider-neutral base in Device.Runtime, never
 Stock or Shiny. The public Primitives contain no Shiny, Rust, process or
 application-host types. Other library consumers may choose a registration
 directly; they need not adopt the application's configuration hierarchy.
+Native hosts call `AddStockBluetooth()` on Windows or
+`AddStockBluetooth(dispatchQueue)` on macOS. On macOS the host creates and owns
+the `CoreFoundation.DispatchQueue`, keeping it alive through service-provider
+disposal and settled BLE cleanup; neither the adapter nor discovery creates a
+second container or assumes a GUI event loop. Use the same registered
+`IBleManager` for `StockBleDiscovery.ScanAsync` and the selected
+`StockOssmDevice` constructor. Registering the manager does not scan, connect
+or grant device access. The portable build contains neither native registration
+nor a Shiny dependency.
 
 In web use, Web.Api owns Web.Application's controller and selected device. Cli
 is the mutually exclusive direct-device owner and uses no web controller. The
@@ -148,8 +157,7 @@ members. Bind typed options with DataAnnotations, cross-field validation and
 | Key                               | Meaning and validation                                                                                                                                                                       |
 | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `OSSM:Device:Mode`                | Closed choice: `simulator` or `stock-ble`. Default to `simulator`; reject unknown values. Select once at composition time.                                                                   |
-| `OSSM:Device:Ble:PeripheralId`    | Required in stock mode. Opaque Shiny/platform locator captured during enrollment; not a portable Bluetooth address.                                                                          |
-| `OSSM:Device:Ble:ExpectedWifiMac` | Required in stock mode. Six-octet Wi-Fi MAC from the live identity characteristic, normalized for comparison. Verify before configuration or motion writes.                                  |
+| `OSSM:Device:Ble:PeripheralId`    | Required in stock mode. Opaque selected Shiny/platform locator; not a portable Bluetooth address. The CLI accepts a selected ID or resolves one exact unambiguous discovered name to its ID. |
 | `OSSM:Control:SimulatorEndpoint` | Required for Web.Api's simulator: `tcp://127.0.0.1:<port>`, port 1-65535, no credentials/path/query/fragment. This identifies an already-started server, not an executable to launch. |
 | `OSSM:Device:ShutdownTimeout` | Overall device cleanup budget, default five seconds, positive and finite. Web host shutdown allowance must exceed it. |
 
@@ -174,7 +182,7 @@ the selected provider's options to Web.Api. Runtime mismatch fails startup.
 
 Simulated prepares/starts the native server as an independent resource, waits
 for its listener and supplies its endpoint. Actual omits simulator/Cargo work
-and supplies enrolled BLE options; AppHost itself never opens BLE. Direct CLI
+and supplies a selected BLE peripheral ID; AppHost itself never opens BLE. Direct CLI
 or API startup needs no AppHost; the operator starts the simulator separately.
 No client starts a private daemon or owns simulator shutdown. Production
 logging and configured telemetry use Defaults, not the development dashboard.
@@ -215,49 +223,39 @@ than maintaining two lifecycle contracts.
 
 ## Physical device selection and connection
 
-### Enrollment
+### Discovery and selection
 
-Enrollment is an explicit host-local setup phase before normal stock startup and
-its required-identity validation. It has exclusive device ownership: no active
-motion controller, adapter connection or unsettled device I/O. It is not a guest
-endpoint, browser Web Bluetooth operation or additional helper process. The
-presentation of this local setup operation is outside this adapter design.
-
-The owning host selects setup-only composition before starting normal services:
-register Shiny discovery/identity support, but neither the device hosted service
-nor the motion controller. Do not bind the run-only options requiring an
-enrolled identity in that composition. This is a distinct local setup operation,
-not a third runtime device mode or a way to bypass normal startup validation.
-End setup and release its resources before starting the normal service
-composition.
-
-1. Scan for service `522b443a-4f53-534d-0001-420badbabe69` within a bounded
-   operator-controlled scan. Post-filter results as well as requesting a native
-   service filter; the inspected Linux implementation does not apply its filter
-   consistently to newly discovered devices.
-2. Show candidates with their platform locator and advertised name; signal
-   strength is informational. Require explicit selection even when names match.
-3. Connect only to the selected candidate and read the live pairing/identity
-   characteristic. Display identity/version for confirmation; issue no motion,
-   navigation, rename, Wi-Fi provisioning or knob-configuration writes.
-4. Save the confirmed locator and Wi-Fi MAC in local startup configuration, then
-   release the setup connection before normal device startup.
+The owning CLI shares one bounded `StockBleDiscovery.ScanAsync` service-advertising
+scan for `devices list`, `devices get` when native resolution needs it, and
+`prompt --bluetooth` name resolution. Scan for service
+`522b443a-4f53-534d-0001-420badbabe69`, post-filter advertisements,
+deduplicate by platform ID and return at most 64 candidates in five seconds.
+The scan does not connect, issue writes or authorize motion. `devices get <id>`
+requires an explicit ID, not a selector or name. Prompt resolves an exact ID
+first or one exact unambiguous name; no match or duplicate names fail without
+connecting, and the resulting ID is fixed for the session. A platform ID is
+opaque and OS-specific; names, signal strength and scan order do not substitute
+another device. Discovery returns an empty name when neither advertisement nor
+peripheral supplies one; only list presentation may display `Unnamed device`
+as a fallback. Get omits an unavailable name rather than inventing one.
+Read-only details disclose the device-reported Wi-Fi MAC without enrolling or
+verifying it against separate configuration.
 
 The [pinned firmware evidence](spec.md#device-profile-identity-and-feedback)
 defines the pairing read as `MAC;chip;wifiConnected;md5;version`. Its MAC is the
-Wi-Fi MAC, not a Bluetooth MAC. The advertised name is mutable and the
-firmware's Device Information System ID is not unique. Neither replaces the
-enrolled pair. Changing host/adapter identity or losing the platform locator
-requires explicit re-enrollment, not a search-and-replace fallback.
+Wi-Fi MAC, not a Bluetooth MAC, and is informational rather than authorization
+or attestation. An advertised name is mutable and the firmware's Device
+Information System ID is not unique.
 
 ### Normal startup
 
-Resolve the configured locator through Shiny's known-peripheral lookup where
+Resolve the selected locator through Shiny's known-peripheral lookup where
 available. A cache miss is not permission to choose another device: perform the
-bounded service scan and match the exact configured locator. Discover the
-required service/characteristics and verify the live Wi-Fi MAC against
-configuration on every new connection. Discover firmware version and patterns;
-do not mistake successful identification for physical qualification.
+same bounded service scan and match the exact selected locator. Verify that the
+connected peripheral and profile still carry that ID. Discover the required
+service/characteristics and validate bounded identity/pattern payloads, supported
+firmware and Simple Stroke capability; no expected Wi-Fi MAC is required.
+Do not mistake successful identification for physical qualification.
 
 Subscribe to lifecycle/failure events before connecting. Own one attempt and
 disable automatic reconnect. Publish connection and validated state through the
@@ -266,6 +264,10 @@ zero/knob-limit setup under DC-01; discovery alone must not perform navigation,
 calibration or motion. On failure, release only settled resources, expose the
 failure through the specified lifecycle/exception paths, and do not retry or
 restore prior intent automatically.
+Read-only identification and normal connections must await bounded native
+disconnect cleanup before releasing device ownership. A disconnect timeout or
+failure is unresolved I/O, not a successful cleanup or permission to release the
+machine lease to another writer.
 
 ### Shiny and the stock GATT profile
 
@@ -356,8 +358,9 @@ another BLE process.
 
 ## Security and operational behavior
 
-Enrollment prevents accidental selection, not impersonation. The reported Wi-Fi
-MAC and version are not authentication or attestation; stock firmware does not
+An exact, frozen platform locator prevents accidental substitution, not
+impersonation. The reported Wi-Fi MAC and version are not authentication or
+attestation; stock firmware does not
 supply an authenticated exclusive controller lease. Keep the existing
 supervised-use and independent-stopping qualification boundaries.
 
@@ -385,7 +388,7 @@ the authoritative task list. Its relevant integration sequence is:
    configuration, delayed completion, external changes, frozen feedback and
   server failure. Keep fault injection isolated from the guest contract.
 3. Verify the intended Shiny host targets and provider corrections before wiring
-   physical motion. Add enrollment, configuration validation and read-only
+   physical motion. Add selected-locator validation and read-only
    identity/discovery under exclusive ownership first.
 4. Add serialized stock writes and ordered state handling with integrated
    revocation/settlement checks. Only separately authorized qualification can
@@ -405,8 +408,10 @@ Acceptance evidence extends the existing
 - Common contract/controller tests use the same typed states and operations for
   both implementations. Deterministic fakes prove policy and timing; native
   simulator integration proves the Rust boundary, not BLE semantics.
-- Selection tests cover duplicate names, absent locators, identity mismatch,
-  cache misses, invalid configuration and no fallback or automatic reconnect.
+- Selection tests cover duplicate names, absent/wrong locators, unsupported
+  firmware, malformed/oversized payloads, missing GATT surface, cache misses,
+  invalid selected ID and no fallback or automatic reconnect. A different valid
+  reported Wi-Fi MAC must not block an otherwise valid selected connection.
 - Controller-to-adapter tests revoke authority or latch Stop between individual
   writes, then deliver late completion. Only the permitted zero operation may
   follow; no replacement connection or writer is admitted prematurely.

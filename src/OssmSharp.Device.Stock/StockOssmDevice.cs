@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Runtime.ExceptionServices;
 using System.Text;
 using Microsoft.Extensions.Options;
 using OssmSharp.Device.Runtime;
@@ -15,7 +16,7 @@ public sealed class StockOssmDevice : DeviceBase
     private readonly TimeProvider _timeProvider;
     private readonly IStockBleTransport? _transport;
     private readonly string? _peripheralId;
-    private readonly string? _expectedWifiMac;
+    private Exception? _connectionCleanupFailure;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="StockOssmDevice"/> class.
@@ -35,8 +36,8 @@ public sealed class StockOssmDevice : DeviceBase
         _timeProvider = timeProvider;
     }
 
-#if WINDOWS
-    /// <summary>Creates a Stock adapter for a specifically enrolled Windows peripheral.</summary>
+#if WINDOWS || MACOS
+    /// <summary>Creates a Stock adapter for a specifically selected native peripheral.</summary>
     public StockOssmDevice(
         IOptions<DeviceRuntimeOptions> options,
         IOptions<StockBleOptions> stockOptions,
@@ -48,8 +49,7 @@ public sealed class StockOssmDevice : DeviceBase
             timeProvider,
             logger,
             stockOptions?.Value.PeripheralId ?? throw new ArgumentNullException(nameof(stockOptions)),
-            stockOptions.Value.ExpectedWifiMac,
-            new WindowsStockBleTransport(manager ?? throw new ArgumentNullException(nameof(manager))))
+            new NativeStockBleTransport(manager ?? throw new ArgumentNullException(nameof(manager))))
     {
         Validator.ValidateObject(stockOptions.Value, new ValidationContext(stockOptions.Value), true);
     }
@@ -60,14 +60,11 @@ public sealed class StockOssmDevice : DeviceBase
         TimeProvider timeProvider,
         ILogger<StockOssmDevice> logger,
         string peripheralId,
-        string expectedWifiMac,
         IStockBleTransport transport)
         : this(options, timeProvider, logger)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(peripheralId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(expectedWifiMac);
         _peripheralId = peripheralId;
-        _expectedWifiMac = expectedWifiMac;
         _transport = transport ?? throw new ArgumentNullException(nameof(transport));
     }
 
@@ -128,35 +125,50 @@ public sealed class StockOssmDevice : DeviceBase
         timeout.CancelAfter(TimeSpan.FromSeconds(15));
         try
         {
-            await using var connection = await _transport.ConnectAsync(
+            var connection = await _transport.ConnectAsync(
                 _peripheralId!, StockFirmwareProfile.Service, timeout.Token).ConfigureAwait(false);
-            var profile = await connection.ReadProfileAsync(timeout.Token).ConfigureAwait(false);
-            if (!string.Equals(profile.PeripheralId, _peripheralId, StringComparison.OrdinalIgnoreCase))
+            try
             {
-                throw new InvalidDataException("The selected peripheral differs from the enrolled locator.");
-            }
-
-            var device = StockFirmwareProfile.Verify(
-                profile.PeripheralId, _expectedWifiMac!, profile.Service, profile.Characteristics,
-                profile.Identity, profile.Patterns);
-            if (profile.Notifications.Completion.IsCompleted)
-            {
-                throw new IOException("The stock BLE connection ended during identification.");
-            }
-
-            PublishConnected(device);
-            timeout.CancelAfter(Timeout.InfiniteTimeSpan);
-
-            await foreach (var payload in profile.Notifications.ReadAllAsync(cancellationToken).ConfigureAwait(false))
-            {
-                if (payload.Length is 0 or > 4096)
+                var profile = await connection.ReadProfileAsync(timeout.Token).ConfigureAwait(false);
+                if (!string.Equals(profile.PeripheralId, _peripheralId, StringComparison.OrdinalIgnoreCase))
                 {
-                    throw new InvalidDataException("The stock state notification exceeds its bounds.");
+                    throw new InvalidDataException("The connected peripheral differs from the selected locator.");
                 }
 
-                var state = StateResponse.Parse(
-                    StrictUtf8.GetString(payload), _timeProvider.GetUtcNow().UtcDateTime);
-                PublishState(state.ToDeviceState(), null);
+                var device = StockFirmwareProfile.Verify(
+                    profile.PeripheralId, profile.Service, profile.Characteristics,
+                    profile.Identity, profile.Patterns);
+                if (profile.Notifications.Completion.IsCompleted)
+                {
+                    throw new IOException("The stock BLE connection ended during identification.");
+                }
+
+                PublishConnected(device);
+                timeout.CancelAfter(Timeout.InfiniteTimeSpan);
+
+                await foreach (var payload in profile.Notifications.ReadAllAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    if (payload.Length is 0 or > 4096)
+                    {
+                        throw new InvalidDataException("The stock state notification exceeds its bounds.");
+                    }
+
+                    var state = StateResponse.Parse(
+                        StrictUtf8.GetString(payload), _timeProvider.GetUtcNow().UtcDateTime);
+                    PublishState(state.ToDeviceState(), null);
+                }
+            }
+            finally
+            {
+                try
+                {
+                    await connection.DisposeAsync().ConfigureAwait(false);
+                }
+                catch (Exception exception)
+                {
+                    _connectionCleanupFailure = exception;
+                    throw;
+                }
             }
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
@@ -175,6 +187,14 @@ public sealed class StockOssmDevice : DeviceBase
         MotionSettings motionSettings,
         CancellationToken cancellationToken) => Task.FromException(
             new NotSupportedException("Stock-firmware BLE transport is not implemented."));
+
+    /// <inheritdoc />
+    protected override async ValueTask DisposeCoreAsync()
+    {
+        await base.DisposeCoreAsync().ConfigureAwait(false);
+        if (_connectionCleanupFailure is { } failure)
+            ExceptionDispatchInfo.Capture(failure).Throw();
+    }
 
     protected override bool IsExpectedState(
         int? previousRequestedSpeed,

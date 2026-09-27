@@ -3,11 +3,15 @@
     <AssemblyName>OssmSharp.Device.Stock</AssemblyName>
     <RootNamespace>OssmSharp.Device.Stock</RootNamespace>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(StockMacOSApiVersion)' == ''">
+    <StockMacOSApiVersion>26.0</StockMacOSApiVersion>
+  </PropertyGroup>
   <PropertyGroup Condition="'$(EnableStockBle)' == 'true' and $([MSBuild]::IsOSPlatform('Windows'))">
     <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
   </PropertyGroup>
   <PropertyGroup Condition="'$(EnableStockBle)' == 'true' and $([MSBuild]::IsOSPlatform('OSX'))">
-    <TargetFramework>net10.0-macos26.0</TargetFramework>
+    <TargetFramework>net10.0-macos$(StockMacOSApiVersion)</TargetFramework>
+    <SupportedOSPlatformVersion>26.0</SupportedOSPlatformVersion>
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="OssmSharp.Device.Stock.Tests" />

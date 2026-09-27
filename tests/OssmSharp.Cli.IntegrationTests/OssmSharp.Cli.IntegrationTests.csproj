@@ -3,6 +3,12 @@
         <OutputType>Exe</OutputType>
         <IsTestProject>true</IsTestProject>
         <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+        <StockMacOSApiVersion Condition="'$(StockMacOSApiVersion)' == ''">26.0</StockMacOSApiVersion>
+        <TargetFramework Condition="'$(EnableStockBle)' == 'true' and $([MSBuild]::IsOSPlatform('OSX'))">net10.0-macos$(StockMacOSApiVersion)</TargetFramework>
+        <SupportedOSPlatformVersion Condition="'$(EnableStockBle)' == 'true' and $([MSBuild]::IsOSPlatform('OSX'))">26.0</SupportedOSPlatformVersion>
+        <ApplicationId Condition="'$(EnableStockBle)' == 'true' and $([MSBuild]::IsOSPlatform('OSX'))">org.ossm.tests.cli.integration</ApplicationId>
+        <RunWithOpen>false</RunWithOpen>
+        <TargetFramework Condition="'$(EnableStockBle)' == 'true' and $([MSBuild]::IsOSPlatform('Windows'))">net10.0-windows10.0.19041.0</TargetFramework>
     </PropertyGroup>
     <ItemGroup>
         <AssemblyMetadata Include="RepositoryRoot" Value="$(MSBuildProjectDirectory)/../.." />

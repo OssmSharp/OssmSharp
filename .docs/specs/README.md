@@ -51,7 +51,9 @@ This design contract does not establish runtime migration acceptance.
 - `Device.Stock` and `Device.Simulator` implement the same device contract.
 	Provider-specific packages are isolated by build/publish profiles. With
 	`prompt --simulator <path>`, the CLI owns the simulator child for that prompt;
-	Web.Api uses an independently started simulator. Neither adapter owns a process.
+	with `prompt --simulator tcp://127.0.0.1:<port>`, it connects to an externally
+	owned simulator. Web.Api uses an independently started simulator. Neither
+	adapter owns a process.
 - `Defaults` configures shared host-neutral logging and telemetry;
 	`Web.ServiceDefaults` adds web-only defaults. Neither requires Aspire, its
 	dashboard or a running collector. Device primitives depend on neither.
@@ -92,7 +94,7 @@ development and approvals; requirements do not authorize branches, commits,
 dependencies, deployment or physical operation.
 
 The [device adapter design](device-control/adapters.md) records Shiny BLE,
-native simulation, DI selection, selected enrollment/configuration and
+native simulation, DI selection, device selection and
 integration gates. It supports the device specification without adding another
 owner for DC-01 through DC-09.
 
