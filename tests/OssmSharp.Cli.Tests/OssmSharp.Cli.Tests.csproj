@@ -8,7 +8,14 @@
   <ItemGroup>
     <PackageReference Include="xunit.v3.mtp-v2" />
     <PackageReference Include="AwesomeAssertions" />
+    <PackageReference Include="FastMoq.Core" />
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
     <ProjectReference Include="../../src/OssmSharp.Cli/OssmSharp.Cli.csproj" />
     <Compile Include="../OssmSharp.Runtime.Oem.Tests/TestDevice.cs" Link="TestDevice.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <AssemblyAttribute Include="FastMoq.Providers.FastMoqDefaultProviderAttribute">
+      <_Parameter1>moq</_Parameter1>
+    </AssemblyAttribute>
   </ItemGroup>
 </Project>

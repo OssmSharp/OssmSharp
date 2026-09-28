@@ -193,39 +193,6 @@ public sealed class OssmDevice : DeviceBase
     /// <inheritdoc />
     protected override Task DisconnectAsync() => disconnect ??= DisconnectCoreAsync();
 
-    private static DeviceState DecodeState(byte[]? data)
-    {
-        if (data is null || data.Length is 0 or > 512)
-        {
-            throw new InvalidDataException("The OEM state payload must contain between one and 512 bytes.");
-        }
-
-        try
-        {
-            using var document = JsonDocument.Parse(data, new JsonDocumentOptions { MaxDepth = 8 });
-            var root = document.RootElement;
-            var names = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var property in root.EnumerateObject())
-            {
-                if (!names.Add(property.Name))
-                {
-                    throw new InvalidDataException("The OEM state payload contains duplicate fields.");
-                }
-            }
-
-            return new(new MotionSettings(
-                root.GetProperty("pattern").GetInt32(),
-                root.GetProperty("speed").GetInt32(),
-                root.GetProperty("stroke").GetInt32(),
-                root.GetProperty("depth").GetInt32(),
-                root.GetProperty("sensation").GetInt32()));
-        }
-        catch (Exception exception) when (exception is JsonException or KeyNotFoundException or InvalidOperationException or FormatException or ArgumentOutOfRangeException)
-        {
-            throw new InvalidDataException("The OEM state payload must be a JSON object containing integer pattern, speed, stroke, depth, and sensation arguments in their basic ranges.", exception);
-        }
-    }
-
     private async Task EnableNotificationsAsync(CancellationToken cancellationToken)
     {
         var ready = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -240,7 +207,7 @@ public sealed class OssmDevice : DeviceBase
             {
                 try
                 {
-                    UpdateState(DecodeState(result.Data));
+                    UpdateState(DeviceState.FromBytes(result.Data));
                 }
                 catch (InvalidDataException exception)
                 {
@@ -270,7 +237,7 @@ public sealed class OssmDevice : DeviceBase
             .ReadCharacteristic(BleProtocol.Service, BleProtocol.State)
             .ToTask()
             .ConfigureAwait(false);
-        return DecodeState(result.Data);
+        return DeviceState.FromBytes(result.Data);
     }
 
     private async Task DisconnectCoreAsync()

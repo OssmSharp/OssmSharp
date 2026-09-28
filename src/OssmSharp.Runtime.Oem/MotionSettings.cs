@@ -16,7 +16,11 @@ public sealed record MotionSettings
     /// <exception cref="ArgumentOutOfRangeException">An argument is outside its basic range or is not finite.</exception>
     public MotionSettings(int pattern, double speed, double stroke, double depth, double sensation)
     {
-        ArgumentOutOfRangeException.ThrowIfNegative(pattern);
+        if (!IsValidPattern(pattern))
+        {
+            throw new ArgumentOutOfRangeException(nameof(pattern), pattern, "Pattern must be nonnegative.");
+        }
+
         ValidatePercentage(speed, nameof(speed));
         ValidatePercentage(stroke, nameof(stroke));
         ValidatePercentage(depth, nameof(depth));
@@ -62,9 +66,13 @@ public sealed record MotionSettings
         new(DeviceControl.Speed, Speed),
     ];
 
+    internal static bool IsValidPattern(int value) => value >= 0;
+
+    internal static bool IsValidPercentage(double value) => double.IsFinite(value) && value >= 0 && value <= 100;
+
     private static void ValidatePercentage(double value, string parameterName)
     {
-        if (!double.IsFinite(value) || value < 0 || value > 100)
+        if (!IsValidPercentage(value))
         {
             throw new ArgumentOutOfRangeException(parameterName, value, "Percentage must be finite and between zero and 100.");
         }
