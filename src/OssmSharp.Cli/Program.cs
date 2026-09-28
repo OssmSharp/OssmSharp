@@ -82,7 +82,10 @@ internal static class Program
             }
 
             if (devices.Count == 0)
+            {
                 await error.WriteLineAsync("No devices found.").ConfigureAwait(false);
+                return 1;
+            }
 
             return 0;
         }
