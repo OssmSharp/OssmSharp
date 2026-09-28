@@ -7,7 +7,9 @@ namespace OssmSharp.Cli;
 
 internal static class Program
 {
-    internal static Task<int> Main(string[] args) => InvokeAsync(args, Console.Out, Console.Error);
+    // Run on a background thread so async code does not wait for the macOS UI loop,
+    // which this console app never runs. Without this, the app will hang after it exits.
+    internal static Task<int> Main(string[] args) => Task.Run(() => InvokeAsync(args, Console.Out, Console.Error));
 
     internal static async Task<int> InvokeAsync(string[] args, TextWriter output, TextWriter error)
     {
@@ -132,7 +134,7 @@ internal static class Program
             {
                 if (devices.Count == 0)
                 {
-                    await error.WriteLineAsync("No OSSM devices found.").ConfigureAwait(false);
+                    await error.WriteLineAsync("No devices found.").ConfigureAwait(false);
                     return 1;
                 }
 
@@ -238,6 +240,7 @@ internal static class Program
             {
                 try
                 {
+                    // Finish host cleanup even when the command has been cancelled.
                     await host.StopAsync(CancellationToken.None).ConfigureAwait(false);
                 }
                 catch (Exception exception)

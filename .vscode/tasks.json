@@ -7,24 +7,26 @@
       "command": "dotnet",
       "args": [
         "build",
-        "${workspaceFolder:ossm-web-controls}/src/OssmSharp.Cli/OssmSharp.Cli.csproj",
+        "${workspaceFolder:OssmSharp}/src/OssmSharp.Cli/OssmSharp.Cli.csproj",
+        "--framework",
+        "net10.0",
         "--configuration",
         "Debug",
         "--output",
-        "${workspaceFolder:ossm-web-controls}/.artifacts/cli-debug"
+        "${workspaceFolder:OssmSharp}/.artifacts/cli-debug"
       ],
       "options": {
-        "cwd": "${workspaceFolder:ossm-web-controls}"
+        "cwd": "${workspaceFolder:OssmSharp}"
       },
       "problemMatcher": "$msCompile"
     },
     {
       "label": "publish CLI",
-      "type": "shell",
-      "command": "make",
-      "args": ["CONFIGURATION=Debug"],
+      "type": "process",
+      "command": "pwsh",
+      "args": ["-NoProfile", "-File", "${workspaceFolder:OssmSharp}/make.ps1", "-Debug"],
       "options": {
-        "cwd": "${workspaceFolder}"
+        "cwd": "${workspaceFolder:OssmSharp}"
       },
       "problemMatcher": []
     }
