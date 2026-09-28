@@ -1,8 +1,8 @@
 ## External dependencies
 
 - **Platform:** .NET 10 — runtime and standard libraries.
-- **Stock Bluetooth:** Shiny.BluetoothLE 5.7.2 — access Windows/macOS Bluetooth APIs.
-- **Stock hardware:** Stock device and firmware — execute commands and own motor behavior and safety.
+- **Bluetooth:** Shiny.BluetoothLE 5.7.2 — access Windows/macOS Bluetooth APIs.
+- **Hardware:** OEM device and firmware — execute commands and own motor behavior and safety.
 - **Simulator:** `ossm-rs` / `ossm-motion` and the simulator process — communicate with and test against the real simulator.
 - **CLI parsing:** System.CommandLine 2.0.12 — parse commands and options, and generate help.
 - **Hosting:** Microsoft.Extensions.Hosting 10.0.12 — manage executable composition and lifecycle.
@@ -17,7 +17,7 @@
 - **`OssmSharp.Device.Primitives`**
 - **`OssmSharp.Device.Runtime`**
   - `OssmSharp.Device.Primitives`
-- **`OssmSharp.Device.Stock`**
+- **`OssmSharp.Device.Oem`**
   - `OssmSharp.Device.Primitives`
   - `OssmSharp.Device.Runtime`
 - **`OssmSharp.Device.Simulator`**
@@ -69,20 +69,20 @@ visibility, and specified behavior is required, not an implementation suggestion
     - **UpdateState (protected):** Store incoming state, detect external changes, and notify subscribers.
     - **DetectExternalChange (private):** Compare incoming controls with the current expectation; set IsArmed false and cancel pending work when external changes are unexplained.
 
-- **`OssmSharp.Device.Stock`**
-  - **`StockDeviceDiscovery.cs`**
+- **`OssmSharp.Device.Oem`**
+  - **`DeviceDiscovery.cs`**
     - **ScanAsync:** Discover distinct devices advertising the fixed OSSM service within a bounded scan, returning identifiers and names and surfacing cancellation or Bluetooth errors.
   - **`DiscoveredDevice.cs`**
     - Carry the platform device identifier and advertised name for listing and connection selection.
-  - **`StockOssmDevice.cs`** — extends `DeviceBase`; supplies Bluetooth operations while inheriting all settings execution from Runtime.
+  - **`OssmDevice.cs`** — extends `DeviceBase`; supplies Bluetooth operations while inheriting all settings execution from Runtime.
     - **WriteCommandAsync(command) (protected override):** Encode and write one DeviceCommand through Shiny Bluetooth without accepting or decomposing MotionSettings.
     - **ReadStateAsync (protected override):** Read firmware state over Bluetooth and decode it into DeviceState.
     - **DecodeState (private):** Decode firmware control values into DeviceState, surfacing malformed responses as errors.
     - **DisconnectAsync (protected override):** Close the owned Bluetooth connection and release subscriptions.
   - **`Request.cs`**
     - **Encode(command):** Encode one DeviceCommand into the firmware's wire format without interpreting pattern behavior.
-  - **`StockBleServiceCollectionExtensions.cs`**
-    - **Register:** Register Stock discovery and a factory accepting a discovered device identifier and returning DeviceBase.
+  - **`BleServiceCollectionExtensions.cs`**
+    - **Register:** Register discovery and a factory accepting a discovered device identifier and returning DeviceBase.
 
 - **`OssmSharp.Device.Simulator`**
   - **`SimulatedDevice.cs`** — extends `DeviceBase`; supplies simulator protocol operations while inheriting all settings execution from Runtime.
@@ -97,7 +97,7 @@ visibility, and specified behavior is required, not an implementation suggestion
 - **`OssmSharp.Cli`**
   - **`Program.cs`**
     - **Main:** Parse list or prompt arguments, configure dependencies, invoke the selected operation, and return its exit code.
-    - **ListAsync:** Discover Stock devices and print their identifiers and names without connecting.
+    - **ListAsync:** Discover devices and print their identifiers and names without connecting.
     - **PromptAsync:** Select the explicit identifier or sole discovered device, connect, run the prompt, and dispose the device on exit or failure.
   - **`PromptHandler.cs`**
     - **RunAsync:** Read commands while remaining responsive to newer settings and Stop.
@@ -112,31 +112,31 @@ visibility, and specified behavior is required, not an implementation suggestion
 
 - **Connect and start the prompt:**
   - **Input:** `OssmSharp.Cli prompt`, optionally with `--device <id>`.
-  - **Discovery:** `Program.Main` -> `StockBleServiceCollectionExtensions.Register` -> `Program.PromptAsync` -> `StockDeviceDiscovery.ScanAsync` -> Shiny Bluetooth scan.
-  - **Connection:** `Program.PromptAsync` selects the explicit identifier or sole discovered device -> registered factory returns `DeviceBase` -> `IOssmDevice.ConnectAsync` (Stock implementation) -> Shiny Bluetooth connection.
+  - **Discovery:** `Program.Main` -> `BleServiceCollectionExtensions.Register` -> `Program.PromptAsync` -> `DeviceDiscovery.ScanAsync` -> Shiny Bluetooth scan.
+  - **Connection:** `Program.PromptAsync` selects the explicit identifier or sole discovered device -> registered factory returns `DeviceBase` -> `IOssmDevice.ConnectAsync` (OEM implementation) -> Shiny Bluetooth connection.
   - **Outcome:** After connection succeeds, `Program.PromptAsync` passes the device as `IOssmDevice` to `PromptHandler.RunAsync`; ambiguous discovery exits without connecting.
-  - **Cleanup:** On prompt exit or connection failure, `Program.PromptAsync` -> `IOssmDevice.DisposeAsync` -> `StockOssmDevice.DisconnectAsync`.
+  - **Cleanup:** On prompt exit or connection failure, `Program.PromptAsync` -> `IOssmDevice.DisposeAsync` -> `OssmDevice.DisconnectAsync`.
   - **Simulator path:** Use `ServiceCollectionExtensions.Register` and the same interface calls on `SimulatedDevice`; cleanup uses `SimulatedDevice.DisconnectAsync`.
 
 - **Submit settings:**
   - **Input:** A connected device with `IOssmDevice.IsArmed` true and one complete `MotionSettings` value.
-  - **Chain:** `PromptHandler.Set` -> `IOssmDevice.SetAsync` -> `DeviceBase.Supersede` -> `MotionSettings.ToCommands` -> `DeviceBase.ExecuteAsync` -> `DeviceBase.WriteCommandAsync(command)` (dispatches to `StockOssmDevice.WriteCommandAsync(command)`) -> `Request.Encode(command)` -> Shiny Bluetooth write -> device firmware.
+  - **Chain:** `PromptHandler.Set` -> `IOssmDevice.SetAsync` -> `DeviceBase.Supersede` -> `MotionSettings.ToCommands` -> `DeviceBase.ExecuteAsync` -> `DeviceBase.WriteCommandAsync(command)` (dispatches to `OssmDevice.WriteCommandAsync(command)`) -> `Request.Encode(command)` -> Shiny Bluetooth write -> device firmware.
   - **Example primitive:** The speed value in the submitted settings becomes one `DeviceCommand` assigning `DeviceControl.Speed`; other controls become separate commands.
   - **Execution:** `DeviceBase.ExecuteAsync` walks the primitive commands in order, checks for cancellation or supersession before each write, and calls the protected `WriteCommandAsync(command)` hook. That call invokes the selected provider's override; `ExecuteAsync` awaits its completion before advancing to the next command.
   - **Outcome:** Firmware receives the settings and determines motor behavior and safety; completing a write does not confirm physical motion.
-  - **Asynchronous feedback:** Firmware notification -> `StockOssmDevice.DecodeState` -> `DeviceBase.UpdateState` -> `DeviceBase.DetectExternalChange` -> `IOssmDevice.StateChanged`.
+  - **Asynchronous feedback:** Firmware notification -> `OssmDevice.DecodeState` -> `DeviceBase.UpdateState` -> `DeviceBase.DetectExternalChange` -> `IOssmDevice.StateChanged`.
   - **Simulator path:** The same Runtime chain calls `SimulatedDevice.WriteCommandAsync(command)` -> `SimulatedDevice.EncodeCommand(command)` -> simulator protocol connection.
 
 - **Read cached or live state:**
   - **Input:** The consumer requests status with or without cache bypass.
   - **Cached chain:** `PromptHandler.StatusAsync(false)` -> `IOssmDevice.GetStateAsync(false)` -> last known state.
-  - **Live chain:** `PromptHandler.StatusAsync(true)` -> `IOssmDevice.GetStateAsync(true)` -> `DeviceBase.ExecuteAsync` -> `StockOssmDevice.ReadStateAsync` -> Shiny Bluetooth read -> `StockOssmDevice.DecodeState` -> `DeviceBase.UpdateState`.
+  - **Live chain:** `PromptHandler.StatusAsync(true)` -> `IOssmDevice.GetStateAsync(true)` -> `DeviceBase.ExecuteAsync` -> `OssmDevice.ReadStateAsync` -> Shiny Bluetooth read -> `OssmDevice.DecodeState` -> `DeviceBase.UpdateState`.
   - **Outcome:** Return the requested state and display it alongside `IOssmDevice.IsArmed`; cached reads require no I/O, and live read failures surface as errors.
   - **Simulator path:** Replace the Bluetooth read with `SimulatedDevice.ReadStateAsync` -> simulator protocol request -> `SimulatedDevice.DecodeState` -> `DeviceBase.UpdateState`.
 
 - **Stop and disable sending:**
   - **Input:** The consumer requests Stop.
-  - **Chain:** `PromptHandler.Stop` -> `IOssmDevice.EmergencyStopAsync` -> `DeviceBase.CancelPending` -> `DeviceBase.ExecuteAsync` (wait for issued I/O) -> `StockOssmDevice.WriteCommandAsync(command)` -> `Request.Encode(command)` -> Shiny Bluetooth write.
+  - **Chain:** `PromptHandler.Stop` -> `IOssmDevice.EmergencyStopAsync` -> `DeviceBase.CancelPending` -> `DeviceBase.ExecuteAsync` (wait for issued I/O) -> `OssmDevice.WriteCommandAsync(command)` -> `Request.Encode(command)` -> Shiny Bluetooth write.
   - **Primitive:** Runtime sends a speed-zero DeviceCommand through the same single-command path, independently of other settings.
   - **Outcome:** Pending commands are cancelled and `IOssmDevice.IsArmed` is false until explicit caller reset; cancellation does not recall issued I/O.
   - **Simulator path:** Send the speed-zero primitive through `SimulatedDevice.WriteCommandAsync(command)` and the simulator protocol connection.

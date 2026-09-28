@@ -1,6 +1,8 @@
 Use these terms instead:
 - qualification -> readiness
 - report -> last known state
+- disabled -> disarmed, when referring to when the device detects unexpected motion or is stopped by the caller.
+- stock -> oem, when referring to the real device.
 
 
 **Pattern-specific policy does not belong in the device library.**
