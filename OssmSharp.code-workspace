@@ -14,6 +14,6 @@
     "powershell.cwd": "ossm-web-controls",
   },
   "extensions": {
-    "recommendations": ["1yib.rust-bundle", "rust-lang.rust-analyzer"],
+    "recommendations": ["rust-lang.rust-analyzer"],
   },
 }

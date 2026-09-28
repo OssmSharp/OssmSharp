@@ -1,8 +1,0 @@
-<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <RootNamespace>OssmSharp.Web.Contracts</RootNamespace>
-  </PropertyGroup>
-  <ItemGroup>
-    <ProjectReference Include="../OssmSharp.Device.Primitives/OssmSharp.Device.Primitives.csproj" />
-  </ItemGroup>
-</Project>

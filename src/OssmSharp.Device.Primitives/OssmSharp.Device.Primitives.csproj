@@ -1,8 +1,0 @@
-<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <RootNamespace>OssmSharp.Device.Primitives</RootNamespace>
-  </PropertyGroup>
-  <ItemGroup>
-    <PackageReference Include="OneOf" />
-  </ItemGroup>
-</Project>

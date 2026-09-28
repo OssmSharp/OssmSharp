@@ -1,9 +1,0 @@
-<Project Sdk="Microsoft.NET.Sdk.Razor">
-    <PropertyGroup>
-        <RootNamespace>OssmSharp.Web.Common</RootNamespace>
-    </PropertyGroup>
-    <ItemGroup>
-        <FrameworkReference Include="Microsoft.AspNetCore.App" />
-        <PackageReference Include="RetroWebUi.Blazor" />
-    </ItemGroup>
-</Project>
