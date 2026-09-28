@@ -43,7 +43,6 @@ public sealed class SimulatedDevice : DeviceBase
     private readonly ILogger<SimulatedDevice> _logger;
     private readonly TimeProvider _timeProvider;
     private NetworkStream? _stream;
-    private SimulatorDesired? _reportedDesired;
     private long _requestId;
     private long _connectionGeneration;
     private long _lastSampleSequence;
@@ -71,7 +70,7 @@ public sealed class SimulatedDevice : DeviceBase
         SimulatedDeviceOptions options,
         TimeProvider timeProvider,
         ILogger<SimulatedDevice> logger)
-        : base(options, timeProvider, logger)
+        : base(timeProvider, logger)
     {
         _options = options;
         _logger = logger;
@@ -140,40 +139,49 @@ public sealed class SimulatedDevice : DeviceBase
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// The simulator request is correlated with its reply, so the whole request uses the settlement token; revocation
+    /// is checked by the device before dispatch.
+    /// </remarks>
     protected override Task DispatchMotionAsync(
         MotionSettings motionSettings,
-        CancellationToken cancellationToken)
+        CancellationToken requestCancellationToken,
+        CancellationToken shutdownToken)
     {
-        if (motionSettings.Pattern != MotionPattern.SimpleStroke)
-        {
-            throw new NotSupportedException("The simulator currently supports only Simple Stroke.");
-        }
-
-        if (motionSettings.Sensation != 50)
-        {
-            throw new NotSupportedException("The simulator requires sensation 50 for ordinary writes.");
-        }
-
-        if (motionSettings.Buffer != 0)
-        {
-            throw new NotSupportedException("The simulator supports buffer 0 only.");
-        }
-
+        ThrowIfUnsupported(motionSettings);
         var desired = new SimulatorDesired(
             (int)motionSettings.Pattern,
             motionSettings.Speed,
             motionSettings.Stroke,
             motionSettings.Depth,
             motionSettings.Sensation);
-        var reported = Volatile.Read(ref _reportedDesired);
-        if (desired.Speed == 0
-            && (reported is null
-                || (reported with { Speed = 0 }) == desired))
-        {
-            return SendAsync("stop", null, cancellationToken);
-        }
+        return SendAsync("write", desired, shutdownToken);
+    }
 
-        return SendAsync("write", desired, cancellationToken);
+    /// <inheritdoc />
+    protected override void ValidateMotion(MotionSettings settings)
+    {
+        try
+        {
+            ThrowIfUnsupported(settings);
+        }
+        catch (NotSupportedException exception)
+        {
+            throw new InvalidOperationException(exception.Message, exception);
+        }
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Sends the simulator's speed-only <c>stop</c> command, so a Stop never depends on the other reported settings
+    /// being writable.
+    /// </remarks>
+    protected override Task DispatchSafetyStopAsync(
+        CancellationToken requestCancellationToken,
+        CancellationToken shutdownToken)
+    {
+        requestCancellationToken.ThrowIfCancellationRequested();
+        return SendAsync("stop", null, shutdownToken);
     }
 
     /// <summary>
@@ -265,6 +273,16 @@ public sealed class SimulatedDevice : DeviceBase
         await base.DisposeCoreAsync().ConfigureAwait(false);
     }
 
+    private static void ThrowIfUnsupported(MotionSettings motionSettings)
+    {
+        if (motionSettings.Pattern != MotionPattern.SimpleStroke)
+            throw new NotSupportedException("The simulator currently supports only Simple Stroke.");
+        if (motionSettings.Sensation != 50)
+            throw new NotSupportedException("The simulator requires sensation 50 for ordinary writes.");
+        if (motionSettings.Buffer != 0)
+            throw new NotSupportedException("The simulator supports buffer 0 only.");
+    }
+
     private static SimulatorReply DeserializeReply(ReadOnlySpan<byte> line)
     {
         if (IsEvent(line))
@@ -329,7 +347,7 @@ public sealed class SimulatedDevice : DeviceBase
                 throw new IOException("The simulator is unavailable.");
             }
 
-            if ((_disconnecting || _reportedConnected is false) && operation == "write")
+            if ((_disconnecting || _reportedConnected is false) && operation is ("write" or "stop"))
             {
                 throw new IOException("The simulator is disconnected.");
             }
@@ -494,7 +512,6 @@ public sealed class SimulatedDevice : DeviceBase
             state.SampleSequence > _lastSampleSequence)
         {
             _lastSampleSequence = state.SampleSequence;
-            Volatile.Write(ref _reportedDesired, state.Desired);
             lock (_admissionGate)
             {
                 if (_reportedConnected != state.Connected)
@@ -566,7 +583,9 @@ public sealed class SimulatedDevice : DeviceBase
 
     private static SimulatedDeviceOptions ValidateOptions(IOptions<SimulatedDeviceOptions>? options)
     {
-        return options?.Value ?? throw new ArgumentNullException(nameof(options));
+        var value = options?.Value ?? throw new ArgumentNullException(nameof(options));
+        Validator.ValidateObject(value, new ValidationContext(value), validateAllProperties: true);
+        return value;
     }
 
     private static Exception MapRejection(string? error) => error switch

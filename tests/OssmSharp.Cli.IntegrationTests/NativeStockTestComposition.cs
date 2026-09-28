@@ -79,9 +79,8 @@ internal sealed class NativeStockTestComposition : IDisposable
                 SimulatorFactoryCalls++;
                 throw new InvalidOperationException("Bluetooth prompt must not create a simulator device.");
             },
-            _services.GetRequiredService<Func<DeviceIdentifier, IOssmDevice>>(),
+            identifier => _services.GetRequiredService<Func<DeviceIdentifier, DeviceBase>>()(identifier),
             _services.GetRequiredService<IDeviceProvider>(),
-            _services.GetRequiredService<TimeProvider>(),
             error);
 
 }

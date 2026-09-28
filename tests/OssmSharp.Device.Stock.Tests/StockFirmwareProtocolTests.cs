@@ -340,8 +340,8 @@ public sealed class StockFirmwareProtocolTests
             [
                 "set:speed:0",
                 "set:stroke:25",
-                "set:sensation:50",
                 "set:depth:50",
+                "set:sensation:50",
                 "set:buffer:0",
                 "set:pattern:0",
             ],
@@ -369,13 +369,37 @@ public sealed class StockFirmwareProtocolTests
         Assert.Equal(
             [
                 "set:stroke:25",
-                "set:sensation:50",
                 "set:depth:50",
+                "set:sensation:50",
                 "set:buffer:0",
                 "set:pattern:0",
                 "set:speed:25",
             ],
             payloads);
+    }
+
+    [Theory]
+    [InlineData(null, "set:stroke:25")]
+    [InlineData(50, "set:stroke:25")]
+    [InlineData(20, "set:depth:50")]
+    public void MapWritesDepthFirstOnlyWhenTheNewStrokeExceedsTheCurrentDepth(int? currentDepth, string first)
+    {
+        var settings = new MotionSettings(
+            MotionDeviceState.StrokeEngineIdle,
+            25,
+            25,
+            50,
+            50,
+            0,
+            MotionPattern.SimpleStroke,
+            0);
+
+        var payloads = Request.FromValidatedMotion(Mapping.ValidateAndMap(settings), currentDepth)
+            .Select(request => request.ToPayload())
+            .ToArray();
+
+        Assert.Equal(first, payloads[0]);
+        Assert.Equal(6, payloads.Length);
     }
 
     [Theory]

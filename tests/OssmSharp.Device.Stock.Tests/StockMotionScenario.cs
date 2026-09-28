@@ -33,18 +33,14 @@ internal sealed class StockMotionScenario : IAsyncDisposable
             Options.Create(new DeviceRuntimeOptions()), clock,
             NullLogger<StockOssmDevice>.Instance, new SelectedStockTestIdentifier("enrolled"),
             _mocks.GetRequiredObject<IDeviceTransport>(), qualification);
-        Execution = new DeviceExecutionSession(Device, clock);
     }
 
     public RecordingStockConnection Connection { get; }
 
     public StockOssmDevice Device { get; }
 
-    public DeviceExecutionSession Execution { get; }
-
     public async ValueTask DisposeAsync()
     {
-        await Execution.DisposeAsync();
         await Device.DisposeAsync();
         _mocks.Dispose();
     }

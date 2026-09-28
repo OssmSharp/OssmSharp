@@ -1,12 +1,11 @@
 using System.ComponentModel.DataAnnotations;
-using OssmSharp.Device.Runtime;
 
 namespace OssmSharp.Device.Simulator.Models;
 
 /// <summary>
 /// Configures the native OSSM-RS simulator device implementation.
 /// </summary>
-public sealed record SimulatedDeviceOptions : DeviceRuntimeOptions
+public sealed record SimulatedDeviceOptions : IValidatableObject
 {
     /// <summary>
     /// Gets or sets the endpoint of an already-running loopback simulator.
@@ -14,19 +13,9 @@ public sealed record SimulatedDeviceOptions : DeviceRuntimeOptions
     [Required]
     public string Endpoint { get; set; } = string.Empty;
 
-    /// <summary>
-    /// Temporary M3 compilation compatibility for the old CLI. Remove in the immediate M4 cutover.
-    /// </summary>
-    public string ExecutablePath { get; set; } = string.Empty;
-
     /// <inheritdoc />
-    public override IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+    public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
-        foreach (var result in base.Validate(validationContext))
-        {
-            yield return result;
-        }
-
         if (!Uri.TryCreate(Endpoint, UriKind.Absolute, out var endpoint)
             || endpoint.Port is < 1 or > 65535
             || !string.Equals(Endpoint, $"tcp://127.0.0.1:{endpoint.Port}", StringComparison.Ordinal))

@@ -3,7 +3,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace OssmSharp.Device.Stock.Tests;
 
 /// <summary>
-/// Simulates stock speed matching while allowing a transport write to remain unsettled.
+/// Simulates stock speed matching without a transport.
 /// </summary>
 /// <param name="timeProvider">The clock used for reported device state.</param>
 internal sealed class StockSpeedTestDevice(FakeTimeProvider timeProvider)
@@ -16,11 +16,9 @@ internal sealed class StockSpeedTestDevice(FakeTimeProvider timeProvider)
         NullLogger.Instance)
 {
     private readonly TaskCompletionSource _dispatchCompleted = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    private readonly TaskCompletionSource _dispatchStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-    public bool BlockDispatch { get; init; }
+    public bool BlockDispatch { get; set; }
 
-    public Task DispatchStarted => _dispatchStarted.Task;
 
     public void CompleteDispatch() => _dispatchCompleted.TrySetResult();
 
@@ -46,14 +44,19 @@ internal sealed class StockSpeedTestDevice(FakeTimeProvider timeProvider)
 
     protected override async Task DispatchMotionAsync(
         MotionSettings motionSettings,
-        CancellationToken cancellationToken)
+        CancellationToken requestCancellationToken,
+        CancellationToken shutdownToken)
     {
-        _dispatchStarted.TrySetResult();
         if (BlockDispatch)
         {
             await _dispatchCompleted.Task;
         }
     }
+
+    protected override Task DispatchSafetyStopAsync(
+        CancellationToken requestCancellationToken,
+        CancellationToken shutdownToken) =>
+        Task.CompletedTask;
 
     protected override bool IsExpectedState(
         int? previousRequestedSpeed,

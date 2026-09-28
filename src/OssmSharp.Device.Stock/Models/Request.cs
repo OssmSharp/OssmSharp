@@ -24,13 +24,17 @@ internal sealed record Request
     public int Value { get; }
 
     /// <summary>
-    /// Converts motion settings into the ordered stock-firmware setting commands.
+    /// Converts motion settings into the complete, ordered stock-firmware setting commands.
     /// </summary>
-    /// <remarks>Changing the motion envelope requires a confirmed stop and a validated intermediate sequence before these commands are dispatched.</remarks>
+    /// <remarks>
+    /// Every setting is always included. Depth is written before stroke only when the new stroke would otherwise
+    /// exceed the current depth; the last known depth affects only this order, never which commands are sent.
+    /// </remarks>
     /// <param name="mapped">The connection-qualified exact motion settings to encode.</param>
-    /// <returns>Commands for stroke, sensation, depth, buffer and pattern, with speed first when zero and last otherwise.</returns>
+    /// <param name="currentDepth">The last known depth, or <see langword="null"/> when unknown.</param>
+    /// <returns>Commands for stroke, depth, sensation, buffer and pattern, with speed first when zero and last otherwise.</returns>
     /// <exception cref="ArgumentNullException">No validated tuple was supplied.</exception>
-    public static IReadOnlyList<Request> FromValidatedMotion(StockValidatedMotionTuple mapped)
+    public static IReadOnlyList<Request> FromValidatedMotion(StockValidatedMotionTuple mapped, int? currentDepth = null)
     {
         ArgumentNullException.ThrowIfNull(mapped);
         var settings = mapped.Settings;
@@ -41,9 +45,20 @@ internal sealed record Request
             requests.Add(new("speed", 0));
         }
 
-        requests.Add(new("stroke", settings.Stroke));
+        Request stroke = new("stroke", settings.Stroke);
+        Request depth = new("depth", settings.Depth);
+        if (settings.Stroke > currentDepth)
+        {
+            requests.Add(depth);
+            requests.Add(stroke);
+        }
+        else
+        {
+            requests.Add(stroke);
+            requests.Add(depth);
+        }
+
         requests.Add(new("sensation", settings.Sensation));
-        requests.Add(new("depth", settings.Depth));
         requests.Add(new("buffer", settings.Buffer));
         requests.Add(new("pattern", (int)settings.Pattern));
 
@@ -63,23 +78,4 @@ internal sealed record Request
         $"set:{Setting}:{Value.ToString(CultureInfo.InvariantCulture)}";
 
     internal static Request ZeroSpeed() => new("speed", 0);
-
-    internal static Request Speed(StockValidatedMotionTuple mapped) =>
-        new("speed", (mapped ?? throw new ArgumentNullException(nameof(mapped))).Settings.Speed);
-
-    internal static IReadOnlyList<Request> ChangedSettings(
-        MotionSettings previous,
-        MotionSettings next)
-    {
-        var changed = new List<Request>(5);
-        if (previous.Stroke != next.Stroke) changed.Add(new("stroke", next.Stroke));
-        if (previous.Sensation != next.Sensation) changed.Add(new("sensation", next.Sensation));
-        if (previous.Depth != next.Depth) changed.Add(new("depth", next.Depth));
-        if (previous.Buffer != next.Buffer) changed.Add(new("buffer", next.Buffer));
-        if (previous.Pattern != next.Pattern) changed.Add(new("pattern", (int)next.Pattern));
-        return changed;
-    }
-
-    internal static Request? ChangedSetting(MotionSettings previous, StockValidatedMotionTuple mapped) =>
-        ChangedSettings(previous, mapped.Settings).SingleOrDefault();
 }

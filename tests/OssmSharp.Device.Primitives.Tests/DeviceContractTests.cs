@@ -105,16 +105,21 @@ public sealed class DeviceContractTests
     }
 
     [Fact]
-    public void InterfaceExposesWriteAndStateNotification()
+    public void InterfaceExposesMotionOperationsAndStateNotification()
     {
-        var write = Assert.Single(typeof(IOssmDevice).GetMethods(), method => !method.IsSpecialName);
+        var operations = typeof(IOssmDevice).GetMethods()
+            .Where(method => !method.IsSpecialName)
+            .OrderBy(method => method.Name, StringComparer.Ordinal)
+            .ToArray();
         var changed = typeof(IOssmDevice).GetEvent(nameof(IOssmDevice.DeviceStateChanged));
 
-        Assert.Equal(nameof(IOssmDevice.SetMotionAsync), write.Name);
-        Assert.Equal(typeof(Task), write.ReturnType);
+        Assert.Equal(
+            [nameof(IOssmDevice.EmergencyStopAsync), nameof(IOssmDevice.InitializeAsync), nameof(IOssmDevice.SetAsync)],
+            operations.Select(method => method.Name));
+        Assert.All(operations, method => Assert.Equal(typeof(Task), method.ReturnType));
         Assert.Equal(
             [typeof(MotionSettings), typeof(CancellationToken)],
-            write.GetParameters().Select(parameter => parameter.ParameterType));
+            operations[2].GetParameters().Select(parameter => parameter.ParameterType));
         Assert.NotNull(changed);
         Assert.Equal(typeof(Action<OneOf<DeviceState, Exception>>), changed.EventHandlerType);
         Assert.True(typeof(IAsyncDisposable).IsAssignableFrom(typeof(IOssmDevice)));

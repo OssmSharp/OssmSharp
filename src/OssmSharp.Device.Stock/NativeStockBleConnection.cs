@@ -86,26 +86,26 @@ internal sealed class NativeStockBleConnection : IDeviceConnection
     }
 
     public async Task EnableKnobLimitingAsync(
-        CancellationToken revocationToken,
-        CancellationToken settlementToken)
+        CancellationToken requestCancellationToken,
+        CancellationToken shutdownToken)
     {
-        revocationToken.ThrowIfCancellationRequested();
+        requestCancellationToken.ThrowIfCancellationRequested();
         var serviceId = _service.ToString();
         var configurationId = StockFirmwareProfile.KnobConfiguration.ToString();
         await _peripheral.WriteCharacteristicAsync(
                 serviceId, configurationId, "true"u8.ToArray(),
-                withResponse: true, settlementToken)
+                withResponse: true, shutdownToken)
             .ConfigureAwait(false);
-        revocationToken.ThrowIfCancellationRequested();
+        requestCancellationToken.ThrowIfCancellationRequested();
         var readback = await _peripheral.ReadCharacteristicAsync(
-                serviceId, configurationId, settlementToken)
+                serviceId, configurationId, shutdownToken)
             .ConfigureAwait(false);
         if (readback.Event != BleCharacteristicEvent.Read
             || readback.Data is null
             || !readback.Data.AsSpan().SequenceEqual("true"u8))
             throw new InvalidDataException(
                 "The stock device did not confirm knob limiting through a live configuration read.");
-        revocationToken.ThrowIfCancellationRequested();
+        requestCancellationToken.ThrowIfCancellationRequested();
     }
 
     public async ValueTask DisposeAsync()

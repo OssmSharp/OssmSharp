@@ -31,7 +31,7 @@ public static class ServiceCollectionExtensions
 
         services.AddOptions<SimulatedDeviceOptions>()
             .Configure(configure)
-            .Validate(IsValid, "Simulator options are invalid. Check Endpoint (tcp://127.0.0.1:<port>) and ExpectationLifetime (> 0).")
+            .Validate(IsValid, "Simulator options are invalid. Endpoint must be tcp://127.0.0.1:<port>.")
             .ValidateOnStart();
         services.AddLogging();
         services.TryAddSingleton(TimeProvider.System);

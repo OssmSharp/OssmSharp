@@ -6,5 +6,5 @@ internal interface IDeviceConnection : IAsyncDisposable
 
     Task WriteCommandAsync(Models.Request command, CancellationToken cancellationToken);
 
-    Task EnableKnobLimitingAsync(CancellationToken revocationToken, CancellationToken settlementToken);
+    Task EnableKnobLimitingAsync(CancellationToken requestCancellationToken, CancellationToken shutdownToken);
 }

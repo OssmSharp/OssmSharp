@@ -54,10 +54,11 @@ public sealed class SimulatorPromptIntegrationTests
                 Buffer = 0,
                 Pattern = MotionPattern.SimpleStroke,
             };
-            await device.SetMotionAsync(settings, timeout.Token);
+            await device.InitializeAsync(timeout.Token);
+            await device.SetAsync(settings, timeout.Token);
             Assert.Equal(12, (await moving.Task.WaitAsync(timeout.Token)).MotionSettings.Speed);
 
-            await device.SetMotionAsync(settings with { Speed = 0 }, timeout.Token);
+            await device.EmergencyStopAsync(timeout.Token);
             Assert.Equal(0, (await stopped.Task.WaitAsync(timeout.Token)).MotionSettings.Speed);
             await device.DisposeAsync();
             Assert.False(bridge.ExecuteTask?.IsCompleted);

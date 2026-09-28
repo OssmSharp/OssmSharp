@@ -6,6 +6,7 @@ using Microsoft.Extensions.Options;
 using OssmSharp.Cli.Interop;
 using OssmSharp.Cli.Simulator;
 using OssmSharp.Device.Primitives;
+using OssmSharp.Device.Runtime;
 using OssmSharp.Device.Simulator;
 using OssmSharp.Device.Simulator.Models;
 
@@ -113,9 +114,10 @@ public sealed class Program
                 provider.GetRequiredService<PromptHandler>(),
                 provider.GetRequiredService<Func<string, SimulatorBackgroundService>>(),
                 provider.GetRequiredService<Func<string, SimulatedDevice>>(),
-                provider.GetService<Func<DeviceIdentifier, IOssmDevice>>(),
+                provider.GetService<Func<DeviceIdentifier, DeviceBase>>() is { } createStock
+                    ? identifier => createStock(identifier)
+                    : null,
                 provider.GetRequiredService<IDeviceProvider>(),
-                provider.GetRequiredService<TimeProvider>(),
                 Console.Error));
         services.AddSingleton<PromptCommand>(provider =>
             new PromptCommand(provider.GetRequiredService<PromptSession>()));

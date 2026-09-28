@@ -34,7 +34,6 @@ public sealed class SimulatedDeviceTests : MockerTestBase<SimulatedDevice>, IAsy
         var options = new SimulatedDeviceOptions { Endpoint = "tcp://localhost:1234" };
         Mocks.SetupOptions(options, replace: true);
 
-        Assert.IsAssignableFrom<DeviceRuntimeOptions>(options);
         Assert.IsAssignableFrom<IValidatableObject>(options);
         var exception = Assert.Throws<TargetInvocationException>(() => Mocks.CreateInstance<SimulatedDevice>());
         Assert.IsType<ValidationException>(exception.InnerException);
@@ -86,13 +85,14 @@ public sealed class SimulatedDeviceTests : MockerTestBase<SimulatedDevice>, IAsy
             _ => Component.ConnectionState == DeviceConnectionState.Connected,
             timeout.Token);
         var moving = Settings(12);
+        await Component.InitializeAsync(timeout.Token);
 
-        await Component.SetMotionAsync(moving, timeout.Token);
+        await Component.SetAsync(moving, timeout.Token);
         var applied = await ReadStateAsync(
             changes.Reader,
             state => state.MotionSettings.Speed == moving.Speed,
             timeout.Token);
-        await Component.SetMotionAsync(moving with { Speed = 0 }, timeout.Token);
+        await Component.SetAsync(moving with { Speed = 0 }, timeout.Token);
         var stopped = await ReadStateAsync(
             changes.Reader,
             state => state.MotionSettings.Speed == 0,
@@ -134,7 +134,8 @@ public sealed class SimulatedDeviceTests : MockerTestBase<SimulatedDevice>, IAsy
             timeout.Token);
 
         var stoppedConfiguration = Settings(0) with { Stroke = 30, Depth = 55 };
-        await Component.SetMotionAsync(stoppedConfiguration, timeout.Token);
+        await Component.InitializeAsync(timeout.Token);
+        await Component.SetAsync(stoppedConfiguration, timeout.Token);
         var state = await ReadStateAsync(changes.Reader,
             reported => reported.MotionSettings.Stroke == stoppedConfiguration.Stroke,
             timeout.Token);
@@ -155,19 +156,22 @@ public sealed class SimulatedDeviceTests : MockerTestBase<SimulatedDevice>, IAsy
             timeout.Token);
 
         var moving = Settings(12);
-        await Component.SetMotionAsync(moving, timeout.Token);
+        await Component.InitializeAsync(timeout.Token);
+        await Component.SetAsync(moving, timeout.Token);
         await ReadStateAsync(changes.Reader, state => state.MotionSettings.Speed == moving.Speed, timeout.Token);
         var stoppedConfiguration = moving with { Speed = 0, Stroke = 30, Depth = 55 };
 
-        await Component.SetMotionAsync(stoppedConfiguration, timeout.Token);
-        var stopped = await ReadStateAsync(changes.Reader, state => state.MotionSettings.Speed == 0, timeout.Token);
+        await Component.SetAsync(stoppedConfiguration, timeout.Token);
 
-        Assert.Equal(stoppedConfiguration.Stroke, stopped.MotionSettings.Stroke);
-        Assert.Equal(stoppedConfiguration.Depth, stopped.MotionSettings.Depth);
+        // The simulator reports a write before replying to it, so the last known state already shows it.
+        var stopped = Assert.IsType<DeviceState>(Component.LatestState).MotionSettings;
+        Assert.Equal(0, stopped.Speed);
+        Assert.Equal(stoppedConfiguration.Stroke, stopped.Stroke);
+        Assert.Equal(stoppedConfiguration.Depth, stopped.Depth);
     }
 
     [Fact]
-    public async Task NonzeroBufferIsRejected()
+    public async Task NonzeroBufferIsRejectedBeforeAnyWrite()
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(10));
@@ -179,10 +183,13 @@ public sealed class SimulatedDeviceTests : MockerTestBase<SimulatedDevice>, IAsy
             _ => Component.ConnectionState == DeviceConnectionState.Connected,
             timeout.Token);
 
-        var exception = await Assert.ThrowsAsync<NotSupportedException>(() =>
-            Component.SetMotionAsync(Settings(12) with { Buffer = 1 }, timeout.Token));
+        await Component.InitializeAsync(timeout.Token);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            Component.SetAsync(Settings(12) with { Buffer = 1 }, timeout.Token));
 
         Assert.Equal("The simulator supports buffer 0 only.", exception.Message);
+        Assert.True(Component.IsReady);
     }
 
     [Fact]
@@ -195,7 +202,8 @@ public sealed class SimulatedDeviceTests : MockerTestBase<SimulatedDevice>, IAsy
         await Component.StartAsync(timeout.Token);
         await ReadStateAsync(changes.Reader, _ => Component.ConnectionState == DeviceConnectionState.Connected,
             timeout.Token);
-        await Component.SetMotionAsync(Settings(12), timeout.Token);
+        await Component.InitializeAsync(timeout.Token);
+        await Component.SetAsync(Settings(12), timeout.Token);
 
         await Component.DisposeAsync();
 
@@ -247,7 +255,7 @@ public sealed class SimulatedDeviceTests : MockerTestBase<SimulatedDevice>, IAsy
 
         Assert.Equal(DeviceConnectionState.Disconnected, Component.ConnectionState);
         Assert.False(changes.Reader.TryRead(out _));
-        await Assert.ThrowsAsync<ObjectDisposedException>(() => Component.SetMotionAsync(
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => Component.SetAsync(
             Settings(0),
             TestContext.Current.CancellationToken));
     }
@@ -276,6 +284,36 @@ public sealed class SimulatedDeviceTests : MockerTestBase<SimulatedDevice>, IAsy
         Assert.Equal(reported.MotionSettings, error.CurrentSettings);
         Assert.Null(error.PendingRequestedSettings);
         Assert.Equal(reported.Timestamp, error.StateTimestamp);
+    }
+
+    [Fact]
+    public async Task ExternalChangeToUnwritableSettingsIsStoppedBySpeedOnly()
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(10));
+        var changes = Channel.CreateUnbounded<OneOf<DeviceState, Exception>>();
+        Component.DeviceStateChanged += change => changes.Writer.TryWrite(change);
+        await Component.StartAsync(timeout.Token);
+        await ReadStateAsync(changes.Reader, _ => Component.ConnectionState == DeviceConnectionState.Connected,
+            timeout.Token);
+        await Component.InitializeAsync(timeout.Token);
+        Assert.True(Component.IsReady);
+
+        // The simulator rejects ordinary writes with sensation 73, so only a speed-only Stop can stop it.
+        var external = Settings(25) with { Sensation = 73 };
+        await Component.InjectExternalAsync(external, timeout.Token);
+        await ReadErrorAsync<UnexpectedMotionChangeException>(changes.Reader, timeout.Token);
+        var stopped = await ReadStateAsync(changes.Reader, state => state.MotionSettings.Speed == 0, timeout.Token);
+
+        Assert.Equal(external.Sensation, stopped.MotionSettings.Sensation);
+        Assert.False(Component.IsReady);
+
+        // The unsupported sensation still allows re-initialization, and unsupported motion is rejected before any write.
+        await Component.InitializeAsync(timeout.Token);
+        Assert.True(Component.IsReady);
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            Component.SetAsync(stopped.MotionSettings with { Speed = 10 }, timeout.Token));
+        Assert.True(Component.IsReady);
     }
 
     [Theory]
@@ -422,11 +460,15 @@ public sealed class SimulatedDeviceTests : MockerTestBase<SimulatedDevice>, IAsy
         var inputGate = GetInputGate(Component);
         await inputGate.WaitAsync(timeout.Token);
         Task pendingWrite;
+        Task pendingStop;
         bool rejectedBeforeSend;
+        bool stopRejectedBeforeSend;
         try
         {
-            pendingWrite = Component.SetMotionAsync(Settings(12), timeout.Token);
+            pendingWrite = Dispatch(Settings(12), timeout.Token);
             rejectedBeforeSend = pendingWrite.IsCompleted && GetPending(Component).IsEmpty;
+            pendingStop = Component.EmergencyStopAsync(timeout.Token);
+            stopRejectedBeforeSend = pendingStop.IsCompleted && GetPending(Component).IsEmpty;
         }
         finally
         {
@@ -434,6 +476,8 @@ public sealed class SimulatedDeviceTests : MockerTestBase<SimulatedDevice>, IAsy
         }
 
         var rejection = await Assert.ThrowsAsync<IOException>(() => pendingWrite);
+        await Assert.ThrowsAsync<IOException>(() => pendingStop);
+        Assert.True(stopRejectedBeforeSend);
 
         Assert.Equal(DeviceConnectionState.Disconnected, Component.ConnectionState);
         Assert.Equal(DeviceConnectionState.Disconnected, await connections.Reader.ReadAsync(timeout.Token));
@@ -465,7 +509,7 @@ public sealed class SimulatedDeviceTests : MockerTestBase<SimulatedDevice>, IAsy
             timeout.Token);
         await Component.SetDelayAsync(500, timeout.Token);
 
-        var issuedWrite = Component.SetMotionAsync(Settings(12), timeout.Token);
+        var issuedWrite = Dispatch(Settings(12), timeout.Token);
         try
         {
             Assert.NotEmpty(GetPending(Component));
@@ -507,7 +551,7 @@ public sealed class SimulatedDeviceTests : MockerTestBase<SimulatedDevice>, IAsy
         int pendingCount;
         try
         {
-            staleWrite = Component.SetMotionAsync(Settings(12), timeout.Token);
+            staleWrite = Dispatch(Settings(12), timeout.Token);
             disconnected = Component.DisconnectAsync(timeout.Token);
             pendingCount = GetPending(Component).Count;
         }
@@ -561,7 +605,7 @@ public sealed class SimulatedDeviceTests : MockerTestBase<SimulatedDevice>, IAsy
         try
         {
             disconnected = Component.DisconnectAsync(timeout.Token);
-            writeDuringDisconnect = Component.SetMotionAsync(Settings(12), timeout.Token);
+            writeDuringDisconnect = Dispatch(Settings(12), timeout.Token);
             rejectedBeforeSend = writeDuringDisconnect.IsCompleted && GetPending(Component).Count == 1;
             pendingCount = GetPending(Component).Count;
         }
@@ -573,7 +617,7 @@ public sealed class SimulatedDeviceTests : MockerTestBase<SimulatedDevice>, IAsy
         await disconnected.WaitAsync(timeout.Token);
         var failure = await Assert.ThrowsAsync<IOException>(() => writeDuringDisconnect);
         await Component.ReconnectAsync(timeout.Token);
-        await Component.SetMotionAsync(Settings(24), timeout.Token);
+        await Dispatch(Settings(24), timeout.Token);
         var moved = await ReadStateAsync(changes.Reader,
             state => state.MotionSettings.Speed == 24,
             timeout.Token);
@@ -594,20 +638,114 @@ public sealed class SimulatedDeviceTests : MockerTestBase<SimulatedDevice>, IAsy
         await Component.StartAsync(timeout.Token);
         await ReadStateAsync(changes.Reader, _ => Component.ConnectionState == DeviceConnectionState.Connected,
             timeout.Token);
+        await Component.InitializeAsync(timeout.Token);
         await Component.SetDelayAsync(250, timeout.Token);
         using var callerCancellation = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token);
 
-        var delayed = Component.SetMotionAsync(Settings(12), callerCancellation.Token);
+        var delayed = Component.SetAsync(Settings(12), callerCancellation.Token);
         await callerCancellation.CancelAsync();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => delayed);
+        try
+        {
+            // Either outcome is valid here: DeviceMotionTests owns the cancellation outcome. This test only checks
+            // that the cancelled request leaves nothing pending and does not block the next write.
+            await delayed;
+        }
+        catch (OperationCanceledException)
+        {
+        }
 
         Assert.Empty(GetPending(Component));
-        await Component.SetMotionAsync(Settings(24), timeout.Token);
+        await Component.SetAsync(Settings(24), timeout.Token);
         var later = await ReadStateAsync(
             changes.Reader,
             state => state.MotionSettings.Speed == 24,
             timeout.Token);
         Assert.Equal(24, later.MotionSettings.Speed);
+    }
+
+    [Fact]
+    public async Task CancelledMotionWaitingForSocketWriteNeverReachesSimulator()
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(10));
+        var changes = Channel.CreateUnbounded<OneOf<DeviceState, Exception>>();
+        Component.DeviceStateChanged += change => changes.Writer.TryWrite(change);
+        await Component.StartAsync(timeout.Token);
+        await ReadStateAsync(changes.Reader, _ => Component.ConnectionState == DeviceConnectionState.Connected,
+            timeout.Token);
+        await Component.InitializeAsync(timeout.Token);
+        Drain(changes.Reader);
+
+        var inputGate = GetInputGate(Component);
+        await inputGate.WaitAsync(timeout.Token);
+        using var callerCancellation = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token);
+        Task motion;
+        try
+        {
+            motion = Component.SetAsync(Settings(12), callerCancellation.Token);
+            await WaitForPendingAsync(Component, timeout.Token);
+            await callerCancellation.CancelAsync();
+        }
+        finally
+        {
+            inputGate.Release();
+        }
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => motion.WaitAsync(timeout.Token));
+        while (!GetPending(Component).IsEmpty)
+        {
+            await Task.Delay(10, timeout.Token);
+        }
+
+        var reportedSpeeds = new List<int>();
+        while (changes.Reader.TryRead(out var change))
+        {
+            if (change.TryPickT0(out var state, out _))
+            {
+                reportedSpeeds.Add(state.MotionSettings.Speed);
+            }
+        }
+
+        Assert.DoesNotContain(12, reportedSpeeds);
+        Assert.Equal(0, Assert.IsType<DeviceState>(Component.LatestState).MotionSettings.Speed);
+        Assert.True(Component.IsReady);
+    }
+
+    [Fact]
+    public async Task ShutdownKeepsIssuedSocketWriteOwnedUntilConnectionCloses()
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(10));
+        var changes = Channel.CreateUnbounded<OneOf<DeviceState, Exception>>();
+        Component.DeviceStateChanged += change => changes.Writer.TryWrite(change);
+        await Component.StartAsync(timeout.Token);
+        await ReadStateAsync(changes.Reader, _ => Component.ConnectionState == DeviceConnectionState.Connected,
+            timeout.Token);
+        await Component.InitializeAsync(timeout.Token);
+        await Component.SetDelayAsync(5000, timeout.Token);
+
+        var motion = Component.SetAsync(Settings(12), timeout.Token);
+        await WaitForPendingAsync(Component, timeout.Token);
+        await Task.Delay(50, timeout.Token);
+        var inputGate = GetInputGate(Component);
+        await inputGate.WaitAsync(timeout.Token);
+        Task shutdown;
+        try
+        {
+            shutdown = Component.StopAsync(timeout.Token);
+            await Task.Delay(50, timeout.Token);
+            Assert.NotEmpty(GetPending(Component));
+        }
+        finally
+        {
+            inputGate.Release();
+        }
+
+        await shutdown.WaitAsync(timeout.Token);
+        Assert.True(motion.IsCompleted);
+        Assert.Empty(GetPending(Component));
+        Assert.True(_bridge.IsRunning);
+        Assert.Equal(0, await _bridge.ReadSpeedAsync(timeout.Token));
     }
 
     [Theory]
@@ -769,6 +907,17 @@ public sealed class SimulatedDeviceTests : MockerTestBase<SimulatedDevice>, IAsy
         var line = Encoding.UTF8.GetBytes($"{json}\n");
 
         Assert.Throws<JsonException>(() => ConsumeLines(Component, line));
+    }
+
+    [Fact]
+    public void ResponseFrameLimitIncludesCompletePayloadButRejectsOversizedLine()
+    {
+        var maximum = Encoding.UTF8.GetBytes($"{ValidEventJson.PadRight(4096)}\n");
+        Assert.Equal(maximum.Length, ConsumeLines(Component, maximum));
+        Assert.Equal(DeviceConnectionState.Connected, Component.ConnectionState);
+
+        var oversized = Encoding.UTF8.GetBytes($"{ValidEventJson.PadRight(4097)}\n");
+        Assert.Throws<InvalidDataException>(() => ConsumeLines(Component, oversized));
     }
 
     [Fact]
@@ -938,6 +1087,14 @@ public sealed class SimulatedDeviceTests : MockerTestBase<SimulatedDevice>, IAsy
         return Assert.IsType<SemaphoreSlim>(field?.GetValue(device));
     }
 
+    private static async Task WaitForPendingAsync(SimulatedDevice device, CancellationToken cancellationToken)
+    {
+        while (GetPending(device).IsEmpty)
+        {
+            await Task.Delay(10, cancellationToken);
+        }
+    }
+
     [UnsafeAccessor(UnsafeAccessorKind.Method, Name = "ConsumeLines")]
     private static extern int ConsumeLines(SimulatedDevice device, ReadOnlySpan<byte> buffer);
 
@@ -983,14 +1140,10 @@ public sealed class SimulatedDeviceTests : MockerTestBase<SimulatedDevice>, IAsy
         }
     }
 
-    private static string SimulatorPath()
-    {
-        var root = Path.GetFullPath(typeof(SimulatedDeviceTests).Assembly
-            .GetCustomAttributes<AssemblyMetadataAttribute>()
-            .Single(attribute => attribute.Key == "RepositoryRoot").Value!);
-        var executable = OperatingSystem.IsWindows() ? "ossm-sim-bridge.exe" : "ossm-sim-bridge";
-        var path = Path.Combine(root, "tools", "ossm-sim-bridge", "target", "release", executable);
-        Assert.True(File.Exists(path), "Build the pinned OSSM-RS simulator adapter before running integration tests.");
-        return path;
-    }
+    // Calls the adapter's own dispatch hook directly, as DeviceBase does, so that protocol races around disconnect
+    // and cancellation can be arranged; the device's command queue would otherwise serialize them away.
+    private Task Dispatch(MotionSettings settings, CancellationToken cancellationToken) =>
+        (Task)typeof(SimulatedDevice)
+            .GetMethod("DispatchMotionAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(Component, [settings, cancellationToken, cancellationToken])!;
 }

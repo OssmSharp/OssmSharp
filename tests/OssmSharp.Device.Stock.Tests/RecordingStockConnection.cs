@@ -19,8 +19,8 @@ internal sealed class RecordingStockConnection(StockGattProfile profile) : IDevi
     }
 
     public Task EnableKnobLimitingAsync(
-        CancellationToken revocationToken,
-        CancellationToken settlementToken) => Task.CompletedTask;
+        CancellationToken requestCancellationToken,
+        CancellationToken shutdownToken) => Task.CompletedTask;
 
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 }

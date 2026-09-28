@@ -102,32 +102,6 @@ public sealed class StockOssmDeviceTests
     }
 
     [Fact]
-    public async Task DispatchCompletionAfterDisconnectDoesNotRestoreStateMatchingContext()
-    {
-        await using var device = new StockSpeedTestDevice(new FakeTimeProvider(DateTimeOffset.UnixEpoch))
-        {
-            BlockDispatch = true,
-        };
-        device.Connect();
-        var write = device.SetMotionAsync(Settings(40), TestContext.Current.CancellationToken);
-        await device.DispatchStarted.WaitAsync(TestContext.Current.CancellationToken);
-
-        device.Disconnect();
-        device.CompleteDispatch();
-        await write;
-        device.Connect();
-        device.ReportState(Settings(0));
-        var changes = new List<OneOf<DeviceState, Exception>>();
-        device.DeviceStateChanged += changes.Add;
-
-        await device.SetMotionAsync(Settings(51), TestContext.Current.CancellationToken);
-        device.ReportState(Settings(25));
-
-        Assert.Single(changes);
-        Assert.Equal(25, changes[0].AsT0.MotionSettings.Speed);
-    }
-
-    [Fact]
     public async Task StockFirmwareDepthChangePublishesMotionError()
     {
         await using var device = new StockSpeedTestDevice(new FakeTimeProvider(DateTimeOffset.UnixEpoch));
@@ -180,12 +154,15 @@ public sealed class StockOssmDeviceTests
     public async Task SettledWriteUsesPriorRequestToMatchDelayedScaledState()
     {
         await using var device = new StockSpeedTestDevice(new FakeTimeProvider(DateTimeOffset.UnixEpoch));
+        device.Connect();
+        device.ReportState(Settings(0));
+        await device.InitializeAsync(TestContext.Current.CancellationToken);
         var changes = new List<OneOf<DeviceState, Exception>>();
         device.DeviceStateChanged += changes.Add;
 
-        await device.SetMotionAsync(Settings(60), TestContext.Current.CancellationToken);
+        await device.SetAsync(Settings(60), TestContext.Current.CancellationToken);
         device.ReportState(Settings(30));
-        await device.SetMotionAsync(Settings(40), TestContext.Current.CancellationToken);
+        await device.SetAsync(Settings(40), TestContext.Current.CancellationToken);
         device.ReportState(Settings(20));
 
         Assert.Collection(
@@ -218,8 +195,8 @@ public sealed class StockOssmDeviceTests
         Assert.Empty(changes);
         Assert.Equal(DeviceConnectionState.Disconnected, device.ConnectionState);
         Assert.Throws<InvalidOperationException>(() => device.Device);
-        await Assert.ThrowsAsync<IOException>(
-            () => device.SetMotionAsync(Settings(0), TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => device.SetAsync(Settings(0), TestContext.Current.CancellationToken));
         Assert.Equal(1, transport.ConnectCalls);
     }
 
@@ -282,7 +259,7 @@ public sealed class StockOssmDeviceTests
     }
 
     [Fact]
-    public async Task ConnectedStockDispatchesOnlyZeroSpeedWithoutVerifiedMotionReadiness()
+    public async Task ConnectedStockAcceptsOnlyAnEmergencyStopBeforeInitialization()
     {
         using var mocks = new Mocker();
         var notifications = Channel.CreateUnbounded<byte[]>();
@@ -306,13 +283,26 @@ public sealed class StockOssmDeviceTests
                 connected.TrySetResult();
         };
 
+        var reported = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        device.DeviceStateChanged += change =>
+        {
+            if (change.IsT0)
+                reported.TrySetResult();
+        };
+
         await device.StartAsync(TestContext.Current.CancellationToken);
         await connected.Task.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+        await notifications.Writer.WriteAsync(
+            """{"timestamp":1,"state":"strokeEngine.idle","speed":0,"stroke":20,"sensation":50,"depth":40,"buffer":0,"pattern":0,"position":0,"sessionId":""}"""u8.ToArray(),
+            TestContext.Current.CancellationToken);
+        await reported.Task.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
         await Assert.ThrowsAsync<InvalidOperationException>(
-            () => device.SetMotionAsync(Settings(12), TestContext.Current.CancellationToken));
+            () => device.SetAsync(Settings(12), TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => device.SetAsync(Settings(0), TestContext.Current.CancellationToken));
         Assert.Empty(connection.Commands);
 
-        await device.SetMotionAsync(Settings(0), TestContext.Current.CancellationToken);
+        await device.EmergencyStopAsync(TestContext.Current.CancellationToken);
         Assert.Equal(["set:speed:0"], connection.Commands);
     }
 
@@ -321,25 +311,20 @@ public sealed class StockOssmDeviceTests
     {
         await using var scenario = await StockMotionScenario.ConnectAsync(
             new UnqualifiedStockMotion(), 20, 40, TestContext.Current.CancellationToken);
-        await scenario.Device.PrepareAsync(
-            TestContext.Current.CancellationToken, TestContext.Current.CancellationToken);
+        await scenario.Device.InitializeAsync(TestContext.Current.CancellationToken);
 
         await Assert.ThrowsAsync<InvalidOperationException>(
-            () => scenario.Device.SetMotionAsync(
+            () => scenario.Device.SetAsync(
                 Settings(0) with { Stroke = 10 }, TestContext.Current.CancellationToken));
 
-        Assert.Empty(scenario.Connection.Commands);
+        Assert.Equal(["set:speed:0"], scenario.Connection.Commands); // Initialization only.
     }
 
     [Theory]
-    [InlineData(false, false)]
-    [InlineData(true, false)]
-    [InlineData(false, true)]
-    public async Task VerifiedStoppedFieldWriteChecksRevocationAndFreshness(
-        bool revokeAfterZero,
-        bool stale)
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task QualifiedCommandIsWrittenInFullEvenWhenTheCallerCancelsPartWay(bool cancelAfterFirstCommand)
     {
-        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
         using var mocks = new Mocker();
         var notifications = Channel.CreateUnbounded<byte[]>();
         await using var connection = new RecordingStockConnection(
@@ -352,7 +337,7 @@ public sealed class StockOssmDeviceTests
             ble => ble.ConnectAsync(FastArg.Any<DeviceIdentifier>(), StockFirmwareProfile.Service, FastArg.Any<CancellationToken>()),
             connection);
         await using var device = new StockOssmDevice(
-            Options.Create(new DeviceRuntimeOptions()), clock,
+            Options.Create(new DeviceRuntimeOptions()), TimeProvider.System,
             NullLogger<StockOssmDevice>.Instance, new SelectedStockTestIdentifier("enrolled"),
             mocks.GetRequiredObject<IDeviceTransport>(), new TestStockQualificationResolver());
         var connected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -373,37 +358,23 @@ public sealed class StockOssmDeviceTests
             """{"timestamp":1,"state":"strokeEngine.idle","speed":0,"stroke":50,"sensation":50,"depth":75,"buffer":0,"pattern":0,"position":0,"sessionId":""}"""u8.ToArray(),
             TestContext.Current.CancellationToken);
         await reported.Task.WaitAsync(TestContext.Current.CancellationToken);
-        await device.PrepareAsync(
-            TestContext.Current.CancellationToken, TestContext.Current.CancellationToken);
-        if (stale)
-            clock.Advance(TimeSpan.FromSeconds(6));
+        await device.InitializeAsync(TestContext.Current.CancellationToken);
+        using var cancellation = new CancellationTokenSource();
+        connection.AfterWrite = command =>
+        {
+            if (cancelAfterFirstCommand && command.Setting == "stroke")
+                cancellation.Cancel();
+        };
 
-        using var revocation = new CancellationTokenSource();
-        if (revokeAfterZero)
-            connection.AfterWrite = command =>
-            {
-                if (command.Setting == "speed")
-                    revocation.Cancel();
-            };
+        // A started command is not left half written; only an emergency stop cuts it short.
+        await device.SetAsync(Settings(0) with { Stroke = 25, Depth = 75 }, cancellation.Token);
 
-        var requested = Settings(0) with { Stroke = 25, Depth = 75 };
-        if (stale)
-        {
-            await Assert.ThrowsAsync<InvalidOperationException>(
-                () => device.SetMotionAsync(requested, revocation.Token));
-            Assert.Empty(connection.Commands);
-        }
-        else if (revokeAfterZero)
-        {
-            await Assert.ThrowsAnyAsync<OperationCanceledException>(
-                () => device.SetMotionAsync(requested, revocation.Token));
-            Assert.Equal(["set:speed:0"], connection.Commands);
-        }
-        else
-        {
-            await device.SetMotionAsync(requested, revocation.Token);
-            Assert.Equal(["set:speed:0", "set:stroke:25"], connection.Commands);
-        }
+        Assert.Equal(
+            ["set:speed:0", "set:speed:0", "set:stroke:25", "set:depth:75", "set:sensation:50", "set:buffer:0",
+                "set:pattern:0"],
+            connection.Commands); // Initialization, then the full command with speed zero first.
+
+        connection.AfterWrite = null;
     }
 
     [Fact]
@@ -709,8 +680,8 @@ public sealed class StockOssmDeviceTests
             throw new InvalidOperationException("Profile failed before motion could be written.");
 
         public Task EnableKnobLimitingAsync(
-            CancellationToken revocationToken,
-            CancellationToken settlementToken) =>
+            CancellationToken requestCancellationToken,
+            CancellationToken shutdownToken) =>
             throw new InvalidOperationException("Profile failed before configuration.");
 
         public ValueTask DisposeAsync()

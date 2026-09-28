@@ -83,10 +83,7 @@ public sealed class DeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisposab
     [Fact]
     public async Task DisconnectClearsStateMatchingContext()
     {
-        var device = Component;
-        device.Connect();
-        await device.SetMotionAsync(Settings(40), TestContext.Current.CancellationToken);
-        device.ReportState(State(Settings(20), DateTime.UnixEpoch));
+        var device = await ReadyAsync(Settings(40));
         var changes = new List<OneOf<DeviceState, Exception>>();
         device.DeviceStateChanged += changes.Add;
 
@@ -95,8 +92,7 @@ public sealed class DeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisposab
         var reported = State(Settings(0), DateTime.UnixEpoch.AddSeconds(1));
         device.ReportState(reported);
 
-        Assert.Single(changes);
-        Assert.Same(reported, changes[0].AsT0);
+        Assert.Same(reported, Assert.Single(changes).AsT0);
     }
 
     [Theory]
@@ -181,16 +177,16 @@ public sealed class DeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisposab
     [Theory]
     [InlineData(0)]
     [InlineData(30)]
-    public async Task FirstSettledWriteDoesNotPublishState(int speed)
+    public async Task SettledWriteDoesNotPublishState(int speed)
     {
-        var device = Component;
+        var device = await ReadyAsync();
         var changes = new List<OneOf<DeviceState, Exception>>();
         device.DeviceStateChanged += changes.Add;
         var requested = Settings(speed);
 
-        await device.SetMotionAsync(requested, TestContext.Current.CancellationToken);
+        await device.SetAsync(requested, Token);
 
-        Assert.Equal(1, device.DispatchCount);
+        Assert.Equal(2, device.DispatchCount); // Initialization and this write.
         Assert.Empty(changes);
 
         var reported = State(requested, DateTime.UnixEpoch, 0);
@@ -220,14 +216,13 @@ public sealed class DeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisposab
     }
 
     [Fact]
-    public async Task SettledWriteAfterReportedStateDoesNotPublishState()
+    public async Task SettledWriteWhileMovingDoesNotPublishState()
     {
-        var device = Component;
-        device.ReportState(State(Settings(10), DateTime.UnixEpoch, 12.5));
+        var device = await ReadyAsync(Settings(10));
         var changes = new List<OneOf<DeviceState, Exception>>();
         device.DeviceStateChanged += changes.Add;
 
-        await device.SetMotionAsync(Settings(30), TestContext.Current.CancellationToken);
+        await device.SetAsync(Settings(30), Token);
 
         Assert.Empty(changes);
     }
@@ -235,11 +230,10 @@ public sealed class DeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisposab
     [Fact]
     public async Task MatchingPendingSpeedDoesNotExcuseUnexpectedDepthChange()
     {
-        var device = Component;
         var initial = Settings(10);
-        device.ReportState(State(initial, DateTime.UnixEpoch));
-        var requested = Settings(30) with { Depth = 50 };
-        await device.SetMotionAsync(requested, TestContext.Current.CancellationToken);
+        var device = await ReadyAsync(initial);
+        var requested = Settings(30);
+        await device.SetAsync(requested, Token);
         var reported = State(requested with { Depth = 51 }, DateTime.UnixEpoch.AddSeconds(1));
         var changes = new List<OneOf<DeviceState, Exception>>();
         device.DeviceStateChanged += changes.Add;
@@ -259,32 +253,12 @@ public sealed class DeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisposab
     }
 
     [Fact]
-    public async Task PartialSettingsReportsDoNotLockOrPrematurelyClearPendingSpeed()
-    {
-        var device = Component;
-        var initial = Settings(0);
-        device.ReportState(State(initial, DateTime.UnixEpoch));
-        var requested = initial with { Speed = 30, Depth = 50 };
-        await device.SetMotionAsync(requested, TestContext.Current.CancellationToken);
-        var changes = new List<OneOf<DeviceState, Exception>>();
-        device.DeviceStateChanged += changes.Add;
-
-        device.ReportState(State(initial, DateTime.UnixEpoch.AddMilliseconds(100)));
-        device.ReportState(State(initial with { Depth = 50 }, DateTime.UnixEpoch.AddMilliseconds(200)));
-        device.ReportState(State(requested, DateTime.UnixEpoch.AddMilliseconds(300)));
-
-        Assert.Equal(3, changes.Count);
-        Assert.All(changes, change => Assert.True(change.IsT0));
-    }
-
-    [Fact]
     public async Task OwnedFeedbackWithWrongTuplePublishesSettingsError()
     {
-        var device = Component;
         var initial = Settings(10);
-        device.ReportState(State(initial, DateTime.UnixEpoch));
-        var requested = Settings(30) with { Depth = 50 };
-        await device.SetMotionAsync(requested, TestContext.Current.CancellationToken);
+        var device = await ReadyAsync(initial);
+        var requested = Settings(30);
+        await device.SetAsync(requested, Token);
         var reported = State(requested with { Depth = 51 }, DateTime.UnixEpoch.AddSeconds(1));
         var changes = new List<OneOf<DeviceState, Exception>>();
         device.DeviceStateChanged += changes.Add;
@@ -304,55 +278,41 @@ public sealed class DeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisposab
     }
 
     [Theory]
-    [InlineData(999, false)]
-    [InlineData(1000, true)]
-    public async Task PendingExpectationExpiresAtLifetimeBoundary(
-        int elapsedMilliseconds,
-        bool expectUnexpectedSpeed)
+    [InlineData(999)]
+    [InlineData(1000)]
+    [InlineData(60000)]
+    public async Task PendingExpectationDoesNotExpire(int elapsedMilliseconds)
     {
-        var device = Component;
         var timeProvider = Mocks.GetRequiredObject<FakeTimeProvider>();
-        device.ReportState(State(Settings(10), DateTime.UnixEpoch));
+        var device = await ReadyAsync(Settings(10));
         var changes = new List<OneOf<DeviceState, Exception>>();
         device.DeviceStateChanged += changes.Add;
-        await device.SetMotionAsync(Settings(30), TestContext.Current.CancellationToken);
+        await device.SetAsync(Settings(30), Token);
         timeProvider.Advance(TimeSpan.FromMilliseconds(elapsedMilliseconds));
         var reported = State(Settings(30), timeProvider.GetUtcNow().UtcDateTime);
 
         device.ReportState(reported);
 
-        Assert.Same(reported, changes[0].AsT0);
-        if (expectUnexpectedSpeed)
-        {
-            var error = Assert.IsType<UnexpectedMotionChangeException>(changes[1].AsT1);
-            Assert.Equal(10, error.PreviousSettings.Speed);
-            Assert.Same(reported.MotionSettings, error.CurrentSettings);
-            Assert.Null(error.PendingRequestedSettings);
-            Assert.Equal(2, changes.Count);
-        }
-        else
-        {
-            Assert.Single(changes);
-        }
+        Assert.Same(reported, Assert.Single(changes).AsT0);
     }
 
     [Fact]
-    public async Task FailedDispatchClearsPendingExpectationWithoutPublishingTransportError()
+    public async Task RejectedDispatchClearsPendingExpectationWithoutPublishingAnError()
     {
-        var device = Component;
-        device.ReportState(State(Settings(10), DateTime.UnixEpoch));
+        var device = await ReadyAsync(Settings(10));
         var changes = new List<OneOf<DeviceState, Exception>>();
         device.DeviceStateChanged += changes.Add;
-        var transportError = new IOException("Dispatch failed.");
-        device.FailDispatchWith(transportError);
+        var rejection = new InvalidOperationException("Dispatch rejected before issuing.");
+        device.FailDispatchWith(rejection);
 
-        var thrown = await Assert.ThrowsAsync<IOException>(() =>
-            device.SetMotionAsync(Settings(30), TestContext.Current.CancellationToken));
+        var thrown = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            device.SetAsync(Settings(30), Token));
 
-        Assert.Same(transportError, thrown);
+        Assert.Same(rejection, thrown);
         Assert.Empty(changes);
-        Assert.Equal(1, device.DispatchCount);
+        Assert.Equal(3, device.DispatchCount); // Initialization, the moving write and the rejected write.
 
+        device.FailDispatchWith(null);
         var reported = State(Settings(30), DateTime.UnixEpoch.AddSeconds(1));
         device.ReportState(reported);
 
@@ -369,35 +329,37 @@ public sealed class DeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisposab
     }
 
     [Fact]
-    public async Task IssuedWriteFailureKeepsExpectationUntilFeedbackOrDeadline()
+    public async Task IssuedWriteFailureStopsTheDevice()
     {
-        var device = Component;
-        device.ReportState(State(Settings(10), DateTime.UnixEpoch));
+        var device = await ReadyAsync(Settings(10));
+        var stopped = new TaskCompletionSource<MotionSettings>(TaskCreationOptions.RunContinuationsAsynchronously);
         device.IssueBeforeFailure = true;
         device.FailDispatchWith(new IOException("Failed after issuing the first write."));
-        var changes = new List<OneOf<DeviceState, Exception>>();
-        device.DeviceStateChanged += changes.Add;
+        device.BeforeDispatch = (settings, safetyStop) =>
+        {
+            if (safetyStop)
+            {
+                device.FailDispatchWith(null);
+                stopped.TrySetResult(settings);
+            }
+        };
 
-        await Assert.ThrowsAsync<IOException>(() =>
-            device.SetMotionAsync(Settings(30), TestContext.Current.CancellationToken));
-        var reported = State(Settings(30), DateTime.UnixEpoch.AddMilliseconds(100));
-        device.ReportState(reported);
+        await Assert.ThrowsAsync<IOException>(() => device.SetAsync(Settings(30), Token));
 
-        Assert.Same(reported, Assert.Single(changes).AsT0);
+        Assert.Equal(0, (await stopped.Task.WaitAsync(Token)).Speed);
+        Assert.False(device.IsReady);
     }
 
     [Fact]
-    public async Task ExplicitForeignStateDoesNotSettlePendingExpectation()
+    public async Task ForeignReportMatchingThePendingWriteIsAnExternalChange()
     {
-        var device = Component;
-        device.ReportState(State(Settings(10), DateTime.UnixEpoch));
+        var device = await ReadyAsync(Settings(10));
         var changes = new List<OneOf<DeviceState, Exception>>();
         device.DeviceStateChanged += changes.Add;
-        await device.SetMotionAsync(Settings(30), TestContext.Current.CancellationToken);
+        await device.SetAsync(Settings(30), Token);
         var reported = State(Settings(30), DateTime.UnixEpoch.AddSeconds(1));
 
         device.ReportState(reported, false);
-        device.ReportState(reported);
 
         Assert.Collection(
             changes,
@@ -407,8 +369,7 @@ public sealed class DeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisposab
                 var error = Assert.IsType<UnexpectedMotionChangeException>(change.AsT1);
                 Assert.Equal(30, error.PendingRequestedSettings?.Speed);
                 Assert.Same(reported.MotionSettings, error.CurrentSettings);
-            },
-            change => Assert.Same(reported, change.AsT0));
+            });
     }
 
     [Theory]
@@ -423,10 +384,9 @@ public sealed class DeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisposab
         bool defaultTimestamp,
         bool hasSettings)
     {
-        var device = Component;
-        device.ReportState(State(Settings(10), DateTime.UnixEpoch, 12.5));
+        var device = await ReadyAsync(Settings(10));
         var requested = Settings(30);
-        await device.SetMotionAsync(requested, TestContext.Current.CancellationToken);
+        await device.SetAsync(requested, Token);
         var changes = new List<OneOf<DeviceState, Exception>>();
         device.DeviceStateChanged += changes.Add;
         var invalid = new DeviceState
@@ -478,17 +438,16 @@ public sealed class DeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisposab
     [Fact]
     public async Task RegistersPendingWriteBeforeDispatchAndPublishesItsSynchronousStateOnce()
     {
-        var device = Component;
+        var device = await ReadyAsync();
         device.ReportStateDuringDispatch = true;
         var changes = new List<OneOf<DeviceState, Exception>>();
         device.DeviceStateChanged += changes.Add;
-        await device.StartAsync(TestContext.Current.CancellationToken);
 
-        await device.SetMotionAsync(Settings(30), TestContext.Current.CancellationToken);
+        await device.SetAsync(Settings(30), Token);
 
         var published = Assert.Single(changes).AsT0;
         Assert.Equal(30, published.MotionSettings.Speed);
-        Assert.Equal(1, device.DispatchCount);
+        Assert.Equal(2, device.DispatchCount); // Initialization and this write.
     }
 
     [Fact]
@@ -516,13 +475,12 @@ public sealed class DeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisposab
     }
 
     [Fact]
-    public async Task UnexpectedSpeedAndDepthPublishOneFullMotionErrorWithOriginalPendingRequest()
+    public async Task UnexpectedSpeedAndDepthPublishOneFullMotionErrorWithThePendingRequest()
     {
-        var device = Component;
         var previous = Settings(10) with { Depth = 45, Position = 1.5 };
-        device.ReportState(State(previous, DateTime.UnixEpoch));
-        var requested = Settings(30) with { Depth = 50, Position = 2.5 };
-        await device.SetMotionAsync(requested, TestContext.Current.CancellationToken);
+        var device = await ReadyAsync(previous);
+        var requested = previous with { Speed = 30, Position = 2.5 };
+        await device.SetAsync(requested, Token);
         var current = Settings(20) with { Depth = 55, Position = 3.5 };
         var reported = State(current, DateTime.UnixEpoch.AddSeconds(1));
         var changes = new List<OneOf<DeviceState, Exception>>();
@@ -553,11 +511,10 @@ public sealed class DeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisposab
         var reported = State(Settings(0), DateTime.UnixEpoch);
         var error = new IOException("transport failed");
 
-        await device.StartAsync(TestContext.Current.CancellationToken);
-        await device.SetMotionAsync(Settings(0), TestContext.Current.CancellationToken);
-        Assert.Empty(changes);
+        device.Connect();
         device.ReportState(reported);
-        await device.SetMotionAsync(Settings(30), TestContext.Current.CancellationToken);
+        await device.InitializeAsync(Token);
+        await device.SetAsync(Settings(30), Token);
         device.Fail(error);
 
         Assert.Collection(
@@ -578,61 +535,61 @@ public sealed class DeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisposab
         await cancellation.CancelAsync();
 
         await Assert.ThrowsAsync<ArgumentException>(() =>
-            device.SetMotionAsync(Settings(10) with { Stroke = 0 }, TestContext.Current.CancellationToken));
+            device.SetAsync(Settings(10) with { Stroke = 0 }, Token));
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            device.SetMotionAsync(Settings(10), cancellation.Token));
+            device.SetAsync(Settings(10), cancellation.Token));
 
         Assert.Equal(0, device.DispatchCount);
         Assert.Equal(0, reportedErrors);
     }
 
     [Fact]
-    public async Task CancellationAfterDispatchWaitsForSettlementWithoutPublishingState()
+    public async Task CancellationAfterDispatchWaitsForSettlementAndReportsTheCompletedWrite()
     {
-        var device = Component;
-        device.BlockDispatch = true;
+        var device = await ReadyAsync();
         var changes = new List<OneOf<DeviceState, Exception>>();
         device.DeviceStateChanged += changes.Add;
-        await device.StartAsync(TestContext.Current.CancellationToken);
         using var cancellation = new CancellationTokenSource();
         var requested = Settings(30);
+        var started = NextDispatchAsync(device);
+        device.BlockDispatch = true;
 
-        var write = device.SetMotionAsync(requested, cancellation.Token);
-        await device.DispatchStarted.WaitAsync(TestContext.Current.CancellationToken);
+        var write = device.SetAsync(requested, cancellation.Token);
+        await started.WaitAsync(Token);
         await cancellation.CancelAsync();
 
         Assert.False(write.IsCompleted);
         device.CompleteDispatch();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => write);
+        await write; // The write was already sent, so it is reported as written rather than cancelled.
         Assert.Empty(changes);
 
         var reported = State(requested, DateTime.UnixEpoch);
         device.ReportState(reported);
 
-        Assert.Equal(1, device.DispatchCount);
+        Assert.Equal(2, device.DispatchCount); // Initialization and this write.
         Assert.Same(reported, Assert.Single(changes).AsT0);
     }
 
     [Fact]
     public async Task CancellationWhileWaitingForDispatchDoesNotReachTransport()
     {
-        var device = Component;
+        var device = await ReadyAsync();
+        var started = NextDispatchAsync(device);
         device.BlockDispatch = true;
-        var firstWrite = device.SetMotionAsync(Settings(20), TestContext.Current.CancellationToken);
-        await device.DispatchStarted.WaitAsync(TestContext.Current.CancellationToken);
+        var firstWrite = device.SetAsync(Settings(20), Token);
+        await started.WaitAsync(Token);
         using var cancellation = new CancellationTokenSource();
-        var canceledWrite = device.SetMotionAsync(Settings(30), cancellation.Token);
+        var canceledWrite = device.SetAsync(Settings(30), cancellation.Token);
 
         await cancellation.CancelAsync();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => canceledWrite);
         Assert.False(firstWrite.IsCompleted);
-        Assert.Equal(1, device.DispatchCount);
 
         device.CompleteDispatch();
         await firstWrite;
 
-        Assert.Equal(1, device.DispatchCount);
+        Assert.Equal(2, device.DispatchCount); // Initialization and the first write only.
     }
 
     [Fact]
@@ -648,7 +605,7 @@ public sealed class DeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisposab
         await device.DisposeAsync();
 
         await Assert.ThrowsAsync<ObjectDisposedException>(() =>
-            device.SetMotionAsync(Settings(0), TestContext.Current.CancellationToken));
+            device.SetAsync(Settings(0), Token));
         device.ReportState(State(Settings(0), DateTime.UnixEpoch));
         device.Fail(new IOException("Late failure."));
 
@@ -677,11 +634,11 @@ public sealed class DeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisposab
     [Fact]
     public async Task DisposalWaitsForIssuedDispatchBeforeReleasingTransportResources()
     {
-        var device = Component;
+        var device = await ReadyAsync();
+        var started = NextDispatchAsync(device);
         device.BlockDispatch = true;
-        await device.StartAsync(TestContext.Current.CancellationToken);
-        var write = device.SetMotionAsync(Settings(30), TestContext.Current.CancellationToken);
-        await device.DispatchStarted.WaitAsync(TestContext.Current.CancellationToken);
+        var write = device.SetAsync(Settings(30), Token);
+        await started.WaitAsync(Token);
 
         var disposal = device.DisposeAsync().AsTask();
         try
@@ -711,12 +668,12 @@ public sealed class DeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisposab
     [Fact]
     public async Task DisposalTimesOutWhileIssuedDispatchRemainsUnsettled()
     {
-        var device = Component;
+        var device = await ReadyAsync();
         var clock = Mocks.GetRequiredObject<FakeTimeProvider>();
+        var started = NextDispatchAsync(device);
         device.BlockDispatch = true;
-        await device.StartAsync(TestContext.Current.CancellationToken);
-        var write = device.SetMotionAsync(Settings(30), TestContext.Current.CancellationToken);
-        await device.DispatchStarted.WaitAsync(TestContext.Current.CancellationToken);
+        var write = device.SetAsync(Settings(30), Token);
+        await started.WaitAsync(Token);
 
         var disposal = device.DisposeAsync().AsTask();
         _expectDisposalTimeout = true;
@@ -733,8 +690,8 @@ public sealed class DeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisposab
             Assert.Same(firstFailure, concurrentFailure);
             Assert.False(device.CoreDisposed.IsCompleted);
             await Assert.ThrowsAsync<ObjectDisposedException>(() =>
-                device.SetMotionAsync(Settings(0), TestContext.Current.CancellationToken));
-            Assert.Equal(1, device.DispatchCount);
+                device.SetAsync(Settings(0), Token));
+            Assert.Equal(2, device.DispatchCount); // Initialization and the unsettled write.
         }
         finally
         {
@@ -780,11 +737,11 @@ public sealed class DeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisposab
     [Fact]
     public async Task ConcurrentDisposalWaitsForSettlementAndCleansUpOnce()
     {
-        var device = Component;
+        var device = await ReadyAsync();
+        var started = NextDispatchAsync(device);
         device.BlockDispatch = true;
-        await device.StartAsync(TestContext.Current.CancellationToken);
-        var write = device.SetMotionAsync(Settings(30), TestContext.Current.CancellationToken);
-        await device.DispatchStarted.WaitAsync(TestContext.Current.CancellationToken);
+        var write = device.SetAsync(Settings(30), Token);
+        await started.WaitAsync(Token);
 
         var first = device.DisposeAsync().AsTask();
         var second = device.DisposeAsync().AsTask();
@@ -880,6 +837,8 @@ public sealed class DeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisposab
         }
     }
 
+    private static CancellationToken Token => TestContext.Current.CancellationToken;
+
     private static MotionSettings Settings(int speed) => new(
         MotionDeviceState.StrokeEngineIdle,
         speed,
@@ -901,4 +860,29 @@ public sealed class DeviceBaseTests : MockerTestBase<TestDevice>, IAsyncDisposab
             VelocityMillimetresPerSecond = velocity,
         };
 
+    // Signals when the next write reaches the transport, before a blocked write settles.
+    private static Task NextDispatchAsync(TestDevice device)
+    {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        device.BeforeDispatch = (_, _) => started.TrySetResult();
+        return started.Task;
+    }
+
+    // Connects, reports the stopped form of the settings and initializes, so that SetAsync can write motion.
+    // Moving settings are then written and reported.
+    private async Task<TestDevice> ReadyAsync(MotionSettings? moving = null)
+    {
+        var device = Component;
+        var stopped = (moving ?? Settings(0)) with { Speed = 0 };
+        device.Connect();
+        device.ReportState(State(stopped, DateTime.UnixEpoch));
+        await device.InitializeAsync(Token);
+        if (moving is { Speed: > 0 })
+        {
+            await device.SetAsync(moving, Token);
+            device.ReportState(State(moving, DateTime.UnixEpoch));
+        }
+
+        return device;
+    }
 }

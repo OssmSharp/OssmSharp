@@ -10,7 +10,7 @@ internal sealed class ClockedTestDevice : DeviceBase
     private DeviceState? _state;
 
     internal ClockedTestDevice(TimeProvider timeProvider)
-        : base(new DeviceRuntimeOptions(), timeProvider, NullLogger<ClockedTestDevice>.Instance)
+        : base(timeProvider, NullLogger<ClockedTestDevice>.Instance)
     {
         _timeProvider = timeProvider;
     }
@@ -40,9 +40,10 @@ internal sealed class ClockedTestDevice : DeviceBase
 
     protected override Task DispatchMotionAsync(
         MotionSettings motionSettings,
-        CancellationToken cancellationToken)
+        CancellationToken requestCancellationToken,
+        CancellationToken shutdownToken)
     {
-        cancellationToken.ThrowIfCancellationRequested();
+        requestCancellationToken.ThrowIfCancellationRequested();
         MotionCount++;
         _state = _state! with
         {
@@ -52,4 +53,12 @@ internal sealed class ClockedTestDevice : DeviceBase
         PublishState(_state, isOwnWrite: true);
         return Task.CompletedTask;
     }
+
+    protected override Task DispatchSafetyStopAsync(
+        CancellationToken requestCancellationToken,
+        CancellationToken shutdownToken) =>
+        DispatchMotionAsync(
+            _state!.MotionSettings with { Speed = 0 },
+            requestCancellationToken,
+            shutdownToken);
 }

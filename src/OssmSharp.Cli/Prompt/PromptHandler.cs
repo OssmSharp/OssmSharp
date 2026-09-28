@@ -1,12 +1,11 @@
 using System.CommandLine.Parsing;
 using System.Globalization;
 using OssmSharp.Device.Primitives;
-using OssmSharp.Device.Runtime;
 
 namespace OssmSharp.Cli;
 
 /// <summary>
-/// Defines the foreground prompt for a selected, externally owned device session.
+/// Defines the foreground prompt for a selected, externally owned device.
 /// </summary>
 internal sealed class PromptHandler
 {
@@ -23,75 +22,58 @@ internal sealed class PromptHandler
 
     internal async Task<int> RunAsync(
         IOssmDevice? device,
-        Func<DeviceState?> getReported,
         Func<Exception?> getFault,
         CancellationToken cancellationToken,
         bool simulatorControl = false,
-        Action<MotionSettings>? recordSubmission = null,
-        DeviceExecutionSession? execution = null)
+        Action<MotionSettings>? recordSubmission = null)
     {
         var input = _input;
         var output = _output;
         var error = _error;
 
         var quit = false;
-        Task? latestSubmission = null;
         MotionSettings? submitted = null;
         var root = new RootCommand("Foreground device controls.");
         var help = new Command("help", "Show available commands.");
         help.SetAction(async (_, _) =>
             await output.WriteLineAsync(
-                "Commands: help, status, initialize, set --speed N --stroke N --depth N --pattern SimpleStroke, stop, acknowledge, quit. Initialize only after physical controls reach a stopped play-ready state; no remote navigation."));
+                "Commands: help, status, initialize, set --speed N --stroke N --depth N --pattern SimpleStroke, stop, quit. Initialize only after physical controls reach a stopped play-ready state; no remote navigation."));
         var status = new Command("status", "Show device readiness.");
         status.SetAction((_, _) =>
-            ShowStatusAsync(device, execution, simulatorControl, getReported, getFault, submitted));
-        var initialize = new Command("initialize", "Verify local stopped play state and device readiness without navigation.");
-        initialize.SetAction((_, _) =>
-        {
-            var expectedAuthorityRevision = execution?.AuthorityRevision;
-            return InitializeAsync(device, execution, expectedAuthorityRevision, cancellationToken);
-        });
+            ShowStatusAsync(device, simulatorControl, getFault, submitted));
+        var initialize = new Command("initialize", "Reset control after Stop or physical intervention; never starts motion.");
+        initialize.SetAction((_, _) => InitializeAsync(device, cancellationToken));
         var speed = Percentage("--speed", 0);
         var stroke = Percentage("--stroke", 0);
         var depth = Percentage("--depth", 0);
         var pattern = new Option<string>("--pattern") { Required = true };
-        var set = new Command("set", "Set motion only when runtime control is available.");
+        var set = new Command("set", "Set motion only when the device is initialized and ready.");
         set.Options.Add(speed);
         set.Options.Add(stroke);
         set.Options.Add(depth);
         set.Options.Add(pattern);
         set.Validators.Add(result => ValidateSet(result, speed, stroke, depth, pattern));
-        set.SetAction((parse, _) =>
+        set.SetAction((parse, invocationToken) =>
         {
-            var expectedAuthorityRevision = execution?.AuthorityRevision;
             var operation = SetMotionAsync(
-                device, parse.GetValue(speed), parse.GetValue(stroke),
-                parse.GetValue(depth), parse.GetValue(pattern)!,
+                device,
+                parse.GetValue(speed),
+                parse.GetValue(stroke),
+                parse.GetValue(depth),
+                parse.GetValue(pattern)!,
                 motion =>
                 {
                     submitted = motion;
                     recordSubmission?.Invoke(motion);
-                }, execution, expectedAuthorityRevision, cancellationToken);
-            if (execution is null)
-                return operation;
-            // Keep the input loop responsive to Stop while the Runtime owner retains
-            // an issued operation on either adapter. Observe failures without abandoning I/O.
-            latestSubmission = ObserveSubmissionAsync(operation);
+                },
+                cancellationToken);
+            // Keep the input loop responsive so Stop can revoke an issued Set.
+            // The device owns serialization and settlement of every issued write.
+            _ = ObserveSubmissionAsync(operation);
             return Task.CompletedTask;
         });
-        var stop = new Command("stop", "Request a serialized zero-speed Stop.");
-        stop.SetAction((_, _) => StopAsync(device, execution));
-        var acknowledge = new Command("acknowledge", "Acknowledge a detected physical interruption while paused.");
-        acknowledge.SetAction((_, _) =>
-        {
-            var expectedInterruptionRevision = execution?.InterruptionRevision;
-            var expectedAuthorityRevision = execution?.AuthorityRevision;
-            return AcknowledgeAsync(
-                execution,
-                expectedInterruptionRevision,
-                expectedAuthorityRevision,
-                cancellationToken);
-        });
+        var stop = new Command("stop", "Emergency Stop; initialize again before setting motion.");
+        stop.SetAction((_, _) => StopAsync(device));
         var exit = new Command("quit", "Exit the foreground prompt.");
         exit.SetAction((_, _) =>
         {
@@ -103,7 +85,6 @@ internal sealed class PromptHandler
         root.Subcommands.Add(initialize);
         root.Subcommands.Add(set);
         root.Subcommands.Add(stop);
-        root.Subcommands.Add(acknowledge);
         root.Subcommands.Add(exit);
         var invocation = new InvocationConfiguration { ProcessTerminationTimeout = null };
 
@@ -140,27 +121,18 @@ internal sealed class PromptHandler
             await parsed.InvokeAsync(invocation, cancellationToken).ConfigureAwait(false);
         }
 
-        if (latestSubmission is { IsCompleted: false } && execution is not null)
-            _ = ObserveSubmissionAsync(execution.StopAsync(CancellationToken.None));
-
         return device is null || device.ConnectionState == DeviceConnectionState.Connected ? 0 : 1;
     }
-
-    private static bool IsTrustedControlAllowed(
-        IOssmDevice device,
-        DeviceExecutionSession execution,
-        MotionSettings settings) =>
-        device.ConnectionState == DeviceConnectionState.Connected
-        && execution.IsMotionReady
-        && settings.Stroke <= settings.Depth
-        && (settings.Speed == 0 || settings.Stroke > 0)
-        && device.Device.SupportedPatterns.Contains(settings.Pattern);
 
     private async Task ObserveSubmissionAsync(Task operation)
     {
         try
         {
             await operation.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // A newer command, Stop, or shutdown can supersede a pending Set.
         }
         catch (Exception exception)
         {
@@ -172,17 +144,15 @@ internal sealed class PromptHandler
             }
             catch (ObjectDisposedException)
             {
-                // The enclosing prompt has already released its output; the owner
-                // still retains the issued I/O and reports failed cleanup.
+                // The enclosing prompt has released its output; the device still
+                // owns the issued I/O until settlement.
             }
         }
     }
 
     private async Task ShowStatusAsync(
         IOssmDevice? device,
-        DeviceExecutionSession? execution,
         bool simulatorControl,
-        Func<DeviceState?> getReported,
         Func<Exception?> getFault,
         MotionSettings? submitted)
     {
@@ -193,64 +163,36 @@ internal sealed class PromptHandler
         }
 
         var information = device.Device;
-        await _output.WriteLineAsync($"Device: {DeviceText.Sanitize(information.Identity)}; Profile: {DeviceText.Sanitize(information.ProfileId ?? "unknown")}; Firmware: {DeviceText.Sanitize(information.Version ?? "unknown")}; Reported patterns: {string.Join(", ", information.SupportedPatterns)}; ConnectionState: {device.ConnectionState}; Readiness: {execution?.State.ToString() ?? (simulatorControl ? "simulator session" : "unavailable")}; interruption revision: {execution?.InterruptionRevision.ToString(CultureInfo.InvariantCulture) ?? "none"}.");
-        var state = execution?.Reported ?? getReported();
+        await _output.WriteLineAsync($"Device: {DeviceText.Sanitize(information.Identity)}; Profile: {DeviceText.Sanitize(information.ProfileId ?? "unknown")}; Firmware: {DeviceText.Sanitize(information.Version ?? "unknown")}; Reported patterns: {string.Join(", ", information.SupportedPatterns)}; ConnectionState: {device.ConnectionState}; Readiness: {(device.IsReady ? "Ready" : "Paused")}{(simulatorControl && device.IsReady ? "; simulator control available" : string.Empty)}.");
+        var state = device.LatestState;
         await _output.WriteLineAsync(state is null
             ? "No reported feedback."
             : $"Reported at {state.Timestamp:O}: state {state.MotionSettings.State}, effective speed {state.MotionSettings.Speed}%, stroke {state.MotionSettings.Stroke}%, depth {state.MotionSettings.Depth}%, pattern {state.MotionSettings.Pattern}, position {state.MotionSettings.Position} mm; velocity {(state.VelocityMillimetresPerSecond is { } velocity ? $"{velocity} mm/s" : "unknown")}.");
         await _output.WriteLineAsync(submitted is null
             ? "No submitted motion settings."
             : $"Submitted: speed {submitted.Speed}%, stroke {submitted.Stroke}%, depth {submitted.Depth}%, pattern {submitted.Pattern}; reported state is independent.");
-        if ((execution?.Fault ?? getFault()) is { } errorState)
+        if (getFault() is { } errorState)
             await _error.WriteLineAsync($"Device feedback error: {DeviceText.Sanitize(errorState.Message)}");
     }
 
-    private async Task StopAsync(IOssmDevice? device, DeviceExecutionSession? execution)
+    private async Task StopAsync(IOssmDevice? device)
     {
-        if (device?.ConnectionState != DeviceConnectionState.Connected || execution is null)
+        if (device?.ConnectionState != DeviceConnectionState.Connected)
         {
-            await _error.WriteLineAsync("Stop unavailable: no connected device session.").ConfigureAwait(false);
+            await _error.WriteLineAsync("Stop unavailable: no connected device.").ConfigureAwait(false);
             return;
         }
 
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        await execution.StopAsync(timeout.Token).ConfigureAwait(false);
-        await _output.WriteLineAsync("Stop write settled; reported state is separate.").ConfigureAwait(false);
-    }
-
-    private async Task AcknowledgeAsync(
-        DeviceExecutionSession? execution,
-        long? expectedInterruptionRevision,
-        long? expectedAuthorityRevision,
-        CancellationToken cancellationToken)
-    {
-        if (execution is null ||
-            !execution.IsInterrupted ||
-            expectedInterruptionRevision is not { } interruptionRevision ||
-            expectedAuthorityRevision is not { } authorityRevision)
-        {
-            await _error.WriteLineAsync("Acknowledgement unavailable: no runtime interruption revision.");
-            return;
-        }
-
-        if (await execution.AcknowledgeAsync(
-                interruptionRevision,
-                authorityRevision,
-                cancellationToken).ConfigureAwait(false))
-            await _output.WriteLineAsync("Interruption acknowledged; control remains paused until new intent.");
-        else
-            await _error.WriteLineAsync("Acknowledgement rejected: interruption revision or stopped feedback changed.");
+        await device.EmergencyStopAsync(timeout.Token).ConfigureAwait(false);
+        await _output.WriteLineAsync("Stop write settled; device control paused until initialize; physical stop is not confirmed.").ConfigureAwait(false);
     }
 
     private async Task InitializeAsync(
         IOssmDevice? device,
-        DeviceExecutionSession? execution,
-        long? expectedAuthorityRevision,
         CancellationToken cancellationToken)
     {
-        if (device?.ConnectionState != DeviceConnectionState.Connected ||
-            execution is null ||
-            expectedAuthorityRevision is not { } authorityRevision)
+        if (device?.ConnectionState != DeviceConnectionState.Connected)
         {
             await _error.WriteLineAsync("Initialization unavailable: connect a device first.");
             return;
@@ -258,7 +200,7 @@ internal sealed class PromptHandler
 
         try
         {
-            await execution.InitializeAsync(authorityRevision, cancellationToken).ConfigureAwait(false);
+            await device.InitializeAsync(cancellationToken).ConfigureAwait(false);
             await _output.WriteLineAsync(
                 "Zero write settled and readiness verified; only a new set command can request motion.");
         }
@@ -334,25 +276,13 @@ internal sealed class PromptHandler
         int depth,
         string pattern,
         Action<MotionSettings>? recordSubmission,
-        DeviceExecutionSession? execution,
-        long? expectedAuthorityRevision,
         CancellationToken cancellationToken)
     {
         var output = _output;
         var error = _error;
-        if (device?.ConnectionState != DeviceConnectionState.Connected ||
-            execution is null ||
-            !execution.IsMotionReady ||
-            expectedAuthorityRevision is not { } authorityRevision)
+        if (device?.ConnectionState != DeviceConnectionState.Connected || !device.IsReady)
         {
-            await error.WriteLineAsync("Motion unavailable: no connected, verified ready device session.").ConfigureAwait(false);
-            return;
-        }
-
-        if (execution.Fault is not null || execution.Reported is not { } report ||
-            report.MotionSettings.State != MotionDeviceState.StrokeEngineIdle)
-        {
-            await error.WriteLineAsync("Motion unavailable: recent stopped-ready feedback is required.").ConfigureAwait(false);
+            await error.WriteLineAsync("Motion unavailable: initialize a connected, stopped play-ready device first.").ConfigureAwait(false);
             return;
         }
 
@@ -363,7 +293,7 @@ internal sealed class PromptHandler
             return;
         }
 
-        var current = report.MotionSettings;
+        var current = device.LatestState!.MotionSettings;
         var desired = current with
         {
             Speed = speed,
@@ -373,20 +303,19 @@ internal sealed class PromptHandler
             Buffer = 0,
             Pattern = selected,
         };
-        if (current.Speed != 0 &&
-            (current.Stroke != desired.Stroke || current.Depth != desired.Depth))
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(5));
+        try
         {
-            await error.WriteLineAsync("Stop and confirm zero before changing stroke or depth.").ConfigureAwait(false);
+            await device.SetAsync(desired, timeout.Token).ConfigureAwait(false);
+        }
+        catch (InvalidOperationException exception)
+        {
+            await error.WriteLineAsync($"Motion unavailable: {DeviceText.Sanitize(exception.Message)}")
+                .ConfigureAwait(false);
             return;
         }
 
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(TimeSpan.FromSeconds(5));
-        await execution.SetAsync(
-            desired,
-            authorityRevision,
-            candidate => IsTrustedControlAllowed(device, execution, candidate),
-            timeout.Token).ConfigureAwait(false);
         recordSubmission?.Invoke(desired);
         await output.WriteLineAsync("Device write settled; check status for reported state.").ConfigureAwait(false);
     }

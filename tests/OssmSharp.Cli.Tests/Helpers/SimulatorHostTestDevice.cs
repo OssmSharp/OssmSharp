@@ -5,7 +5,7 @@ using OssmSharp.Device.Runtime;
 namespace OssmSharp.Cli.Tests.Helpers;
 
 internal sealed class SimulatorHostTestDevice()
-    : DeviceBase(new DeviceRuntimeOptions(), TimeProvider.System, NullLogger<SimulatorHostTestDevice>.Instance)
+    : DeviceBase(TimeProvider.System, NullLogger<SimulatorHostTestDevice>.Instance)
 {
     private DeviceState? _state;
 
@@ -41,8 +41,16 @@ internal sealed class SimulatorHostTestDevice()
         }
     }
 
-    protected override async Task DispatchMotionAsync(MotionSettings motionSettings, CancellationToken cancellationToken)
+    protected override async Task DispatchMotionAsync(
+        MotionSettings motionSettings,
+        CancellationToken requestCancellationToken,
+        CancellationToken shutdownToken)
     {
+        requestCancellationToken.ThrowIfCancellationRequested();
+        using var registration = motionSettings.Speed > 0
+            ? requestCancellationToken.Register(
+                static state => ((TaskCompletionSource)state!).TrySetResult(), MotionRevoked)
+            : default;
         MotionCount++;
         LastMotion = motionSettings;
         _state = _state! with { Timestamp = DateTime.UtcNow, MotionSettings = motionSettings };
@@ -54,21 +62,14 @@ internal sealed class SimulatorHostTestDevice()
         }
     }
 
-    protected override async Task DispatchMotionAsync(
-        MotionSettings motionSettings,
-        CancellationToken revocationToken,
-        CancellationToken settlementToken)
+    protected override Task DispatchSafetyStopAsync(
+        CancellationToken requestCancellationToken,
+        CancellationToken shutdownToken)
     {
-        if (motionSettings.Speed > 0)
-        {
-            using var registration = revocationToken.Register(
-                static state => ((TaskCompletionSource)state!).TrySetResult(), MotionRevoked);
-            await DispatchMotionAsync(motionSettings, settlementToken);
-        }
-        else
-        {
-            await DispatchMotionAsync(motionSettings, settlementToken);
-        }
+        return DispatchMotionAsync(
+            _state!.MotionSettings with { Speed = 0 },
+            requestCancellationToken,
+            shutdownToken);
     }
 
     protected override ValueTask DisposeCoreAsync()

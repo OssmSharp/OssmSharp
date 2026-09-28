@@ -22,4 +22,10 @@ internal static partial class Log
         Level = LogLevel.Warning,
         Message = "Device connection failed.")]
     public static partial void ConnectionFailed(this ILogger logger, Exception exception);
+
+    [LoggerMessage(
+        EventId = 4,
+        Level = LogLevel.Error,
+        Message = "The device emergency stop failed; its physical state is unconfirmed.")]
+    public static partial void EmergencyStopFailed(this ILogger logger, Exception exception);
 }

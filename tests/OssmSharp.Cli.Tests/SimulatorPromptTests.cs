@@ -11,11 +11,19 @@ public sealed class SimulatorPromptTests
     [Fact]
     public async Task SimulatorSetAndStopSettleAtZeroBeforeClosingDevice()
     {
-        using var input = new StringReader(
-            "set --speed 12 --stroke 20 --depth 50 --pattern SimpleStroke\nstop\nquit\n");
         using var output = new StringWriter();
         using var error = new StringWriter();
         await using var device = new SimulatorHostTestDevice();
+        var moving = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        device.DeviceStateChanged += change =>
+        {
+            if (change.IsT0 && change.AsT0.MotionSettings.Speed == 12)
+                moving.TrySetResult();
+        };
+        using var input = new SubmissionGatedPromptReader(
+            ["set --speed 12 --stroke 20 --depth 50 --pattern SimpleStroke", "stop", "quit"],
+            1,
+            moving.Task);
 
         var session = CreateSession(input, output, error, _ => device);
         var exitCode = await session.RunAsync(Attach(), TestContext.Current.CancellationToken);
@@ -29,21 +37,35 @@ public sealed class SimulatorPromptTests
     }
 
     [Fact]
-    public async Task MovingEnvelopeChangeRequiresStopBeforeAnotherWrite()
+    public async Task MovingEnvelopeChangeWritesCompleteSettingsWithoutAnExtraStop()
     {
-        using var input = new StringReader(
-            "set --speed 12 --stroke 20 --depth 50 --pattern SimpleStroke\n"
-            + "set --speed 12 --stroke 30 --depth 60 --pattern SimpleStroke\nquit\n");
         using var output = new StringWriter();
         using var error = new StringWriter();
         await using var device = new SimulatorHostTestDevice();
+        var first = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var second = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        device.DeviceStateChanged += change =>
+        {
+            if (!change.IsT0 || change.AsT0.MotionSettings.Speed != 12)
+                return;
+            if (change.AsT0.MotionSettings.Stroke == 20)
+                first.TrySetResult();
+            if (change.AsT0.MotionSettings.Stroke == 30)
+                second.TrySetResult();
+        };
+        using var input = new TwoGatePromptReader(
+            ["set --speed 12 --stroke 20 --depth 50 --pattern SimpleStroke",
+             "set --speed 12 --stroke 30 --depth 60 --pattern SimpleStroke",
+             "quit"],
+            first.Task,
+            second.Task);
 
         var session = CreateSession(input, output, error, _ => device);
         var exitCode = await session.RunAsync(Attach(), TestContext.Current.CancellationToken);
 
         Assert.Equal(0, exitCode);
-        Assert.Contains("Stop and confirm zero", error.ToString(), StringComparison.Ordinal);
-        Assert.Equal(3, device.MotionCount);
+        Assert.Equal(string.Empty, error.ToString());
+        Assert.Equal(4, device.MotionCount);
         Assert.Equal(0, device.LastMotion?.Speed);
     }
 
@@ -70,17 +92,24 @@ public sealed class SimulatorPromptTests
     [InlineData(100, 100, 100)]
     public async Task BoundaryMotionSettingsAreSentBeforeExitStop(int speed, int stroke, int depth)
     {
-        using var input = new StringReader(
-            $"set --speed {speed} --stroke {stroke} --depth {depth} --pattern SimpleStroke\nquit\n");
         using var output = new StringWriter();
         using var error = new StringWriter();
         await using var device = new SimulatorHostTestDevice();
         var reported = new List<MotionSettings>();
+        var moving = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         device.DeviceStateChanged += change =>
         {
             if (change.IsT0)
+            {
                 reported.Add(change.AsT0.MotionSettings);
+                if (change.AsT0.MotionSettings.Speed == speed)
+                    moving.TrySetResult();
+            }
         };
+        using var input = new SubmissionGatedPromptReader(
+            [$"set --speed {speed} --stroke {stroke} --depth {depth} --pattern SimpleStroke", "quit"],
+            1,
+            moving.Task);
 
         var session = CreateSession(input, output, error, _ => device);
         var exitCode = await session.RunAsync(Attach(), TestContext.Current.CancellationToken);
@@ -160,7 +189,7 @@ public sealed class SimulatorPromptTests
 
         try
         {
-            var failure = await Assert.ThrowsAsync<AggregateException>(() => session.RunAsync(
+            var failure = await Assert.ThrowsAsync<TimeoutException>(() => session.RunAsync(
                 Attach(),
                 TestContext.Current.CancellationToken));
 
@@ -259,9 +288,9 @@ public sealed class SimulatorPromptTests
     }
 
     [Fact]
-    public async Task SimulatorAcknowledgeRemainsExplicitButUnavailableWithoutRuntimeRevision()
+    public async Task SimulatorHelpNoLongerOffersObsoleteAcknowledgement()
     {
-        using var input = new StringReader("help\nacknowledge\nquit\n");
+        using var input = new StringReader("help\nquit\n");
         using var output = new StringWriter();
         using var error = new StringWriter();
         await using var device = new SimulatorHostTestDevice();
@@ -270,8 +299,8 @@ public sealed class SimulatorPromptTests
         var exitCode = await session.RunAsync(Attach(), TestContext.Current.CancellationToken);
 
         Assert.Equal(0, exitCode);
-        Assert.Contains("acknowledge", output.ToString(), StringComparison.Ordinal);
-        Assert.Contains("Acknowledgement unavailable", error.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("acknowledge", output.ToString(), StringComparison.Ordinal);
+        Assert.Equal(string.Empty, error.ToString());
         Assert.Equal(0, device.LastMotion?.Speed);
     }
 
@@ -482,7 +511,6 @@ public sealed class SimulatorPromptTests
             _ => throw new InvalidOperationException("Bluetooth attached to a simulator."),
             null,
             discovery,
-            TimeProvider.System,
             error);
 
         var exitCode = await session.RunAsync(
@@ -584,7 +612,7 @@ public sealed class SimulatorPromptTests
             _ => Task.FromResult<IReadOnlyList<DeviceIdentifier>>(
                 [new TestDeviceIdentifier("device-id", "Device", new object())]));
 
-        var failure = await Assert.ThrowsAsync<AggregateException>(() => session.RunAsync(
+        var failure = await Assert.ThrowsAsync<TimeoutException>(() => session.RunAsync(
             PromptSelection.Parse("device-id", null),
             TestContext.Current.CancellationToken));
 
@@ -701,6 +729,5 @@ public sealed class SimulatorPromptTests
             simulatedDevice,
             stockDevice,
             scan is null ? null : new TestDeviceProvider(scan),
-            TimeProvider.System,
             error);
 }

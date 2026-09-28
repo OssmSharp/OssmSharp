@@ -10,7 +10,7 @@ namespace OssmSharp.Device.Stock;
 /// <summary>
 /// Represents an OSSM device running the supported stock firmware.
 /// </summary>
-public sealed class StockOssmDevice : DeviceBase, IDevicePreparation, IDeviceTransitionValidator, IDeviceSafetyStop
+public sealed class StockOssmDevice : DeviceBase
 {
     private static readonly Encoding StrictUtf8 = new UTF8Encoding(false, true);
     private readonly TimeProvider _timeProvider;
@@ -18,9 +18,7 @@ public sealed class StockOssmDevice : DeviceBase, IDevicePreparation, IDeviceTra
     private readonly DeviceIdentifier _selected;
     private readonly IStockQualificationResolver _qualificationResolver;
     private IDeviceConnection? _activeConnection;
-    private MotionSettings? _latestReportedMotion;
     private StockQualifiedMapping? _qualifiedMapping;
-    private long _lastReportTimestamp;
     private bool _knobLimitingVerified;
     private Exception? _connectionCleanupFailure;
 
@@ -40,48 +38,6 @@ public sealed class StockOssmDevice : DeviceBase, IDevicePreparation, IDeviceTra
         _selected = selected ?? throw new ArgumentNullException(nameof(selected));
         _transport = transport ?? throw new ArgumentNullException(nameof(transport));
         _qualificationResolver = qualificationResolver ?? new UnqualifiedStockMotion();
-    }
-
-    /// <inheritdoc />
-    Task IDeviceSafetyStop.SetSafetyStopAsync(
-        MotionSettings reportedZero, CancellationToken cancellationToken) =>
-        SetSafetyStopCoreAsync(reportedZero, cancellationToken);
-
-    /// <inheritdoc />
-    public void ValidateTransition(MotionSettings reported, IReadOnlyList<MotionSettings> planned)
-    {
-        ArgumentNullException.ThrowIfNull(reported);
-        ArgumentNullException.ThrowIfNull(planned);
-        if (Volatile.Read(ref _activeConnection) is null)
-            throw new InvalidOperationException("The stock BLE connection is not ready for motion.");
-
-        if (planned.Count > 0
-            && (planned[^1].Speed > 0
-                || Request.ChangedSettings(reported, planned[^1]).Count > 0))
-            RequireMapping().ValidateAndMap(reported);
-
-        var previous = reported;
-        foreach (var next in planned)
-        {
-            ValidateStep(previous, next);
-            previous = next;
-        }
-    }
-
-    /// <inheritdoc />
-    public async Task PrepareAsync(
-        CancellationToken revocationToken,
-        CancellationToken settlementToken)
-    {
-        var connection = Volatile.Read(ref _activeConnection)
-            ?? throw new IOException("The stock BLE connection is not ready for configuration.");
-        Volatile.Write(ref _knobLimitingVerified, false);
-        await connection.EnableKnobLimitingAsync(revocationToken, settlementToken)
-            .ConfigureAwait(false);
-        revocationToken.ThrowIfCancellationRequested();
-        if (!ReferenceEquals(connection, Volatile.Read(ref _activeConnection)))
-            throw new IOException("The stock BLE connection ended during knob-limit verification.");
-        Volatile.Write(ref _knobLimitingVerified, true);
     }
 
     /// <summary>
@@ -113,6 +69,35 @@ public sealed class StockOssmDevice : DeviceBase, IDevicePreparation, IDeviceTra
                (long)(stateSpeed + 1) * previousRequestedSpeed.Value &&
                (long)stateSpeed * previousRequestedSpeed.Value <
                (long)(previousStateSpeed.Value + 1) * requestedSpeed;
+    }
+
+    /// <inheritdoc />
+    /// <remarks>Requires a qualified mapping for the connection and a verified speed-knob limit.</remarks>
+    protected override void ValidateMotion(MotionSettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        if (Volatile.Read(ref _activeConnection) is null)
+            throw new InvalidOperationException("The stock BLE connection is not ready for motion.");
+        if (!Volatile.Read(ref _knobLimitingVerified))
+            throw new InvalidOperationException("Stock motion requires a verified speed-knob limit.");
+        RequireMapping().ValidateAndMap(settings);
+    }
+
+    /// <inheritdoc />
+    /// <remarks>Enables the physical speed-knob limit and verifies its readback.</remarks>
+    protected override async Task PrepareAsync(
+        CancellationToken requestCancellationToken,
+        CancellationToken shutdownToken)
+    {
+        var connection = Volatile.Read(ref _activeConnection)
+            ?? throw new IOException("The stock BLE connection is not ready for configuration.");
+        Volatile.Write(ref _knobLimitingVerified, false);
+        await connection.EnableKnobLimitingAsync(requestCancellationToken, shutdownToken)
+            .ConfigureAwait(false);
+        requestCancellationToken.ThrowIfCancellationRequested();
+        if (!ReferenceEquals(connection, Volatile.Read(ref _activeConnection)))
+            throw new IOException("The stock BLE connection ended during knob-limit verification.");
+        Volatile.Write(ref _knobLimitingVerified, true);
     }
 
     /// <inheritdoc />
@@ -157,8 +142,6 @@ public sealed class StockOssmDevice : DeviceBase, IDevicePreparation, IDeviceTra
 
                     var state = StateResponse.Parse(
                         StrictUtf8.GetString(payload), _timeProvider.GetUtcNow().UtcDateTime);
-                    Volatile.Write(ref _lastReportTimestamp, _timeProvider.GetTimestamp());
-                    Volatile.Write(ref _latestReportedMotion, state.MotionSettings);
                     PublishState(state.ToDeviceState(), null);
                 }
             }
@@ -166,7 +149,6 @@ public sealed class StockOssmDevice : DeviceBase, IDevicePreparation, IDeviceTra
             {
                 Volatile.Write(ref _knobLimitingVerified, false);
                 Volatile.Write(ref _qualifiedMapping, null);
-                Volatile.Write(ref _latestReportedMotion, null);
                 Volatile.Write(ref _activeConnection, null);
                 try
                 {
@@ -191,74 +173,40 @@ public sealed class StockOssmDevice : DeviceBase, IDevicePreparation, IDeviceTra
     }
 
     /// <inheritdoc />
-    protected override Task DispatchMotionAsync(
-        MotionSettings motionSettings,
-        CancellationToken cancellationToken) =>
-        DispatchMotionAsync(motionSettings, cancellationToken, cancellationToken);
-
     protected override async Task DispatchMotionAsync(
         MotionSettings motionSettings,
-        CancellationToken revocationToken,
-        CancellationToken settlementToken)
+        CancellationToken requestCancellationToken,
+        CancellationToken shutdownToken)
     {
         var connection = Volatile.Read(ref _activeConnection)
             ?? throw new IOException("The stock BLE connection is not ready for settings writes.");
-        var reported = Volatile.Read(ref _latestReportedMotion);
-        if (reported is null)
+        var commands = Request.FromValidatedMotion(
+            RequireMapping().ValidateAndMap(motionSettings),
+            LatestState?.MotionSettings.Depth);
+
+        // An emergency stop cancels the request token, so the rest of a sequence is not sent after it.
+        foreach (var command in commands)
         {
-            if (motionSettings.Speed != 0)
-                throw new InvalidOperationException("Stock motion requires received stopped feedback.");
-        }
-        else
-        {
-            ValidateStep(reported, motionSettings);
-        }
-        revocationToken.ThrowIfCancellationRequested();
-        if (!ReferenceEquals(connection, Volatile.Read(ref _activeConnection)))
-            throw new IOException("The stock BLE connection ended during settings dispatch.");
-        var mapped = reported is not null
-            && (motionSettings.Speed > 0 || Request.ChangedSettings(reported, motionSettings).Count > 0)
-                ? RequireMapping().ValidateAndMap(motionSettings)
-                : null;
-        var changed = mapped is null ? null : Request.ChangedSetting(reported!, mapped);
-        if (motionSettings.Speed == 0)
-        {
-            revocationToken.ThrowIfCancellationRequested();
-            MarkWriteIssued();
-            await connection.WriteCommandAsync(Request.ZeroSpeed(), settlementToken).ConfigureAwait(false);
-        }
-        if (changed is not null)
-        {
-            revocationToken.ThrowIfCancellationRequested();
+            requestCancellationToken.ThrowIfCancellationRequested();
             if (!ReferenceEquals(connection, Volatile.Read(ref _activeConnection)))
-                throw new IOException("The stock BLE connection ended during a stopped transition.");
+                throw new IOException("The stock BLE connection ended during settings dispatch.");
             MarkWriteIssued();
-            await connection.WriteCommandAsync(changed, settlementToken).ConfigureAwait(false);
-        }
-        if (motionSettings.Speed > 0)
-        {
-            revocationToken.ThrowIfCancellationRequested();
-            if (!ReferenceEquals(connection, Volatile.Read(ref _activeConnection)))
-                throw new IOException("The stock BLE connection ended during motion dispatch.");
-            MarkWriteIssued();
-            await connection.WriteCommandAsync(Request.Speed(mapped!), settlementToken)
-                .ConfigureAwait(false);
+            await connection.WriteCommandAsync(command, shutdownToken).ConfigureAwait(false);
         }
     }
 
     /// <inheritdoc />
     protected override async Task DispatchSafetyStopAsync(
-        MotionSettings reportedZero,
-        CancellationToken revocationToken,
-        CancellationToken settlementToken)
+        CancellationToken requestCancellationToken,
+        CancellationToken shutdownToken)
     {
         var connection = Volatile.Read(ref _activeConnection)
             ?? throw new IOException("The stock BLE connection is not ready for a safety Stop.");
-        revocationToken.ThrowIfCancellationRequested();
+        requestCancellationToken.ThrowIfCancellationRequested();
         if (!ReferenceEquals(connection, Volatile.Read(ref _activeConnection)))
             throw new IOException("The stock BLE connection ended before safety Stop issuance.");
         MarkWriteIssued();
-        await connection.WriteCommandAsync(Request.ZeroSpeed(), settlementToken).ConfigureAwait(false);
+        await connection.WriteCommandAsync(Request.ZeroSpeed(), shutdownToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -283,20 +231,4 @@ public sealed class StockOssmDevice : DeviceBase, IDevicePreparation, IDeviceTra
     private StockQualifiedMapping RequireMapping() =>
         Volatile.Read(ref _qualifiedMapping)
         ?? throw new InvalidOperationException("Stock motion lacks a qualified mapping for this connection.");
-
-    private void ValidateStep(MotionSettings previous, MotionSettings next)
-    {
-        var differences = Request.ChangedSettings(previous, next);
-        if (differences.Count == 0 && next.Speed == 0 && previous.State == next.State)
-            return;
-        if (previous.State != MotionDeviceState.StrokeEngineIdle
-            || next.State != MotionDeviceState.StrokeEngineIdle)
-            throw new InvalidOperationException("Stock motion requires verified play-ready feedback.");
-        if (differences.Count > 1 || (differences.Count != 0 && (previous.Speed != 0 || next.Speed != 0)))
-            throw new InvalidOperationException("Stock settings require one stopped intermediate at a time.");
-        if (!Volatile.Read(ref _knobLimitingVerified)
-            || _timeProvider.GetElapsedTime(Volatile.Read(ref _lastReportTimestamp)) > TimeSpan.FromSeconds(5))
-            throw new InvalidOperationException("Stock motion requires fresh feedback and verified knob limiting.");
-        RequireMapping().ValidateAndMap(next);
-    }
 }

@@ -5,7 +5,6 @@ using OssmSharp.Cli.Models;
 using OssmSharp.Cli.Simulator;
 using OssmSharp.Device.Primitives;
 using OssmSharp.Device.Primitives.Models;
-using OssmSharp.Device.Runtime;
 
 namespace OssmSharp.Cli;
 
@@ -19,7 +18,6 @@ internal sealed class PromptSession
     private readonly Func<string, IOssmDevice> _createSimulatedDevice;
     private readonly Func<DeviceIdentifier, IOssmDevice>? _createStockDevice;
     private readonly IDeviceProvider? _provider;
-    private readonly TimeProvider _timeProvider;
     private readonly TextWriter _error;
 
     internal PromptSession(
@@ -28,7 +26,6 @@ internal sealed class PromptSession
         Func<string, IOssmDevice> createSimulatedDevice,
         Func<DeviceIdentifier, IOssmDevice>? createStockDevice,
         IDeviceProvider? provider,
-        TimeProvider timeProvider,
         TextWriter error)
     {
         _prompt = prompt ?? throw new ArgumentNullException(nameof(prompt));
@@ -36,7 +33,6 @@ internal sealed class PromptSession
         _createSimulatedDevice = createSimulatedDevice ?? throw new ArgumentNullException(nameof(createSimulatedDevice));
         _createStockDevice = createStockDevice;
         _provider = provider;
-        _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
         _error = error ?? throw new ArgumentNullException(nameof(error));
     }
 
@@ -147,10 +143,10 @@ internal sealed class PromptSession
 
         IOssmDevice? device = null;
         SimulatorBackgroundService? child = null;
-        DeviceExecutionSession? execution = null;
         Action<DeviceConnectionState>? onConnectionChanged = null;
         Action<OneOf<DeviceState, Exception>>? onStateChanged = null;
         Task<int>? activePrompt = null;
+        Exception? fault = null;
 
         try
         {
@@ -192,9 +188,6 @@ internal sealed class PromptSession
 
             var selectedDevice = device
                 ?? throw new InvalidOperationException("The selected session has no device.");
-            var deviceExecution = CreateDeviceExecutionSession(selectedDevice);
-            execution = deviceExecution;
-
             if (selectedDevice is not BackgroundService service)
                 throw new InvalidOperationException("The selected device cannot start a foreground connection.");
 
@@ -208,7 +201,11 @@ internal sealed class PromptSession
                     connected.TrySetResult(false);
             };
             onStateChanged = change =>
+            {
+                if (change.IsT1)
+                    fault = change.AsT1;
                 firstReport.TrySetResult(change.IsT0);
+            };
             selectedDevice.ConnectionStateChanged += onConnectionChanged;
             selectedDevice.DeviceStateChanged += onStateChanged;
 
@@ -217,14 +214,15 @@ internal sealed class PromptSession
                     service,
                     connected.Task,
                     firstReport.Task,
-                    () => deviceExecution.Fault,
+                    () => fault,
                     cancellationToken)
                 .ConfigureAwait(false);
 
             if (selection.Mode != PromptMode.Bluetooth)
             {
-                var authorityRevision = deviceExecution.AuthorityRevision;
-                await deviceExecution.InitializeAsync(authorityRevision, cancellationToken).ConfigureAwait(false);
+                // A simulator still starts with zero-speed initialization; neither
+                // startup nor reset submits moving settings.
+                await selectedDevice.InitializeAsync(cancellationToken).ConfigureAwait(false);
             }
 
             return await RunPromptAsync(
@@ -232,7 +230,7 @@ internal sealed class PromptSession
                     service,
                     child,
                     selection.Mode != PromptMode.Bluetooth,
-                    deviceExecution,
+                    () => fault,
                     task => activePrompt = task,
                     cancellationToken)
                 .ConfigureAwait(false);
@@ -252,7 +250,6 @@ internal sealed class PromptSession
             await CleanupOwnedResourcesAsync(
                     device,
                     child,
-                    execution,
                     onConnectionChanged,
                     onStateChanged,
                     activePrompt)
@@ -285,18 +282,16 @@ internal sealed class PromptSession
         BackgroundService service,
         SimulatorBackgroundService? child,
         bool simulatorControl,
-        DeviceExecutionSession execution,
+        Func<Exception?> getFault,
         Action<Task<int>> recordPrompt,
         CancellationToken cancellationToken)
     {
         using var promptCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var prompt = _prompt.RunAsync(
             device,
-            () => execution.Reported,
-            () => execution.Fault,
+            getFault,
             promptCancellation.Token,
-            simulatorControl,
-            execution: execution);
+            simulatorControl);
         recordPrompt(prompt);
 
         var deviceTask = service.ExecuteTask ?? new TaskCompletionSource().Task;
@@ -341,7 +336,6 @@ internal sealed class PromptSession
     private async ValueTask CleanupOwnedResourcesAsync(
         IOssmDevice? device,
         SimulatorBackgroundService? child,
-        DeviceExecutionSession? execution,
         Action<DeviceConnectionState>? onConnectionChanged,
         Action<OneOf<DeviceState, Exception>>? onStateChanged,
         Task<int>? activePrompt)
@@ -349,26 +343,18 @@ internal sealed class PromptSession
         var failures = new List<Exception>();
         using var cleanupBudget = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         var cleanupToken = cleanupBudget.Token;
-        var executionDisposalFailed = false;
+        var stopUnsettled = false;
 
         if (device is not null)
         {
             try
             {
-                if (execution is not null && device.ConnectionState == DeviceConnectionState.Connected)
-                    await execution.StopAsync(cleanupToken).ConfigureAwait(false);
-            }
-            catch (Exception exception)
-            {
-                failures.Add(exception);
-            }
-
-            try
-            {
-                if (execution is not null)
+                if (device.ConnectionState == DeviceConnectionState.Connected)
                 {
+                    // Cancellation of a wait does not prove a write settled. The
+                    // device owns the Stop until it finishes, even if this budget expires.
                     await AwaitCleanupWithinBudgetAsync(
-                            execution.DisposeAsync().AsTask(),
+                            device.EmergencyStopAsync(CancellationToken.None),
                             cleanupToken)
                         .ConfigureAwait(false);
                 }
@@ -376,10 +362,10 @@ internal sealed class PromptSession
             catch (Exception exception)
             {
                 failures.Add(exception);
-                executionDisposalFailed = true;
+                stopUnsettled = exception is TimeoutException;
             }
 
-            if (!executionDisposalFailed)
+            if (!stopUnsettled)
             {
                 try
                 {
@@ -426,8 +412,5 @@ internal sealed class PromptSession
         if (failures.Count == 1)
             ExceptionDispatchInfo.Capture(failures[0]).Throw();
     }
-
-    private DeviceExecutionSession CreateDeviceExecutionSession(IOssmDevice device) =>
-        new(device, _timeProvider);
 
 }

@@ -64,7 +64,17 @@ public sealed class DeviceCliProcessTests
             await cli.StandardInput.WriteLineAsync(
                 "set --speed 12 --stroke 10 --depth 20 --pattern SimpleStroke".AsMemory(),
                 timeout.Token);
+            var write = await ReadUntilAsync(
+                cli.StandardOutput,
+                cli.StandardError,
+                "Device write settled",
+                timeout.Token);
             await cli.StandardInput.WriteLineAsync("stop".AsMemory(), timeout.Token);
+            var stopped = await ReadUntilAsync(
+                cli.StandardOutput,
+                cli.StandardError,
+                "Stop write settled",
+                timeout.Token);
             cli.StandardInput.Close(); // The prompt must clean up the device and its child on EOF.
 
             var output = cli.StandardOutput.ReadToEndAsync(timeout.Token);
@@ -72,13 +82,13 @@ public sealed class DeviceCliProcessTests
             await cli.WaitForExitAsync(timeout.Token);
 
             Assert.Equal(0, cli.ExitCode);
-            var results = status + Environment.NewLine + await output;
+            var results = status + Environment.NewLine + write + Environment.NewLine + stopped + Environment.NewLine + await output;
             var diagnostics = await error;
             Assert.Contains("Device:", status, StringComparison.Ordinal);
-            Assert.Contains("Simulator write settled", results, StringComparison.Ordinal);
+            Assert.Contains("Device write settled", results, StringComparison.Ordinal);
             Assert.Contains("Stop write settled", results, StringComparison.Ordinal);
             Assert.DoesNotContain("Device connection failed", diagnostics, StringComparison.Ordinal);
-            Assert.DoesNotContain("Simulator write settled", diagnostics, StringComparison.Ordinal);
+            Assert.DoesNotContain("Device write settled", diagnostics, StringComparison.Ordinal);
             Assert.DoesNotContain("Simulator connection opened.", results, StringComparison.Ordinal);
             Assert.DoesNotContain("Simulator connection closed.", results, StringComparison.Ordinal);
             Assert.Contains("Simulator connection opened.", diagnostics, StringComparison.Ordinal);
