@@ -2,6 +2,23 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "build CLI (debug)",
+      "type": "process",
+      "command": "dotnet",
+      "args": [
+        "build",
+        "${workspaceFolder:ossm-web-controls}/src/OssmSharp.Cli/OssmSharp.Cli.csproj",
+        "--configuration",
+        "Debug",
+        "--output",
+        "${workspaceFolder:ossm-web-controls}/.artifacts/cli-debug"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder:ossm-web-controls}"
+      },
+      "problemMatcher": "$msCompile"
+    },
+    {
       "label": "publish CLI",
       "type": "shell",
       "command": "make",

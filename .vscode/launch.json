@@ -2,14 +2,18 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "CLI prompt (Bluetooth)",
+      "name": "CLI prompt (debug)",
       "type": "coreclr",
       "request": "launch",
-      "program": "${workspaceFolder}/src/OssmSharp.Cli/bin/Debug/net10.0-macos27.0/osx-arm64/OssmSharp.Cli.app/Contents/MacOS/OssmSharp.Cli",
-      "args": ["prompt", "--bluetooth", "90C1E3C9-2D94-0A55-264E-C221EEF22006"],
-      "cwd": "${workspaceFolder}",
+      "program": "${workspaceFolder:ossm-web-controls}/.artifacts/cli-debug/OssmSharp.Cli.dll",
+      "args": ["prompt"],
+      "cwd": "${workspaceFolder:ossm-web-controls}",
       "console": "integratedTerminal",
-      "preLaunchTask": "publish CLI",
+      "preLaunchTask": "build CLI (debug)",
+      "osx": {
+        "program": "${workspaceFolder:ossm-web-controls}/src/OssmSharp.Cli/bin/Debug/net10.0-macos27.0/osx-arm64/OssmSharp.Cli.app/Contents/MacOS/OssmSharp.Cli",
+        "preLaunchTask": "publish CLI"
+      },
       "stopAtEntry": true
     },
     {
