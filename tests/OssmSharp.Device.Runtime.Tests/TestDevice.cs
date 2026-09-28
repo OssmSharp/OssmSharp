@@ -13,6 +13,8 @@ internal sealed class TestDevice() : DeviceBase(NullLogger<DeviceBase>.Instance)
 
     public Func<CancellationToken, Task<DeviceState>>? Read { get; set; }
 
+    public Func<Task>? ReadCompleted { get; set; }
+
     public Func<CancellationToken, Task>? Connect { get; set; }
 
     public Func<Task>? Disconnect { get; set; }
@@ -22,6 +24,8 @@ internal sealed class TestDevice() : DeviceBase(NullLogger<DeviceBase>.Instance)
     public int Disconnects { get; private set; }
 
     public void Observe(MotionSettings settings) => UpdateState(new(settings));
+
+    public void Fail(Exception exception) => FailConnection(exception);
 
     protected override Task ConnectCoreAsync(CancellationToken cancellationToken) => Connect?.Invoke(cancellationToken) ?? Task.CompletedTask;
 
@@ -42,4 +46,6 @@ internal sealed class TestDevice() : DeviceBase(NullLogger<DeviceBase>.Instance)
         Disconnects++;
         return Disconnect?.Invoke() ?? Task.CompletedTask;
     }
+
+    protected override Task CompleteStateReadAsync() => ReadCompleted?.Invoke() ?? Task.CompletedTask;
 }

@@ -9,7 +9,7 @@
     <Project Path="src/OssmSharp.Device.Simulator/OssmSharp.Device.Simulator.csproj" />
     <Project Path="src/OssmSharp.Defaults/OssmSharp.Defaults.csproj" />
     <Project Path="src/OssmSharp.Device.Primitives/OssmSharp.Device.Primitives.csproj" />
-    <Project Path="src/OssmSharp.Device.Stock/OssmSharp.Device.Stock.csproj" />
+    <Project Path="src/OssmSharp.Device.Oem/OssmSharp.Device.Oem.csproj" />
     <Project Path="src/OssmSharp.Web.GuestWeb/OssmSharp.Web.GuestWeb.csproj" />
     <Project Path="src/OssmSharp.Web.ServiceDefaults/OssmSharp.Web.ServiceDefaults.csproj" />
     <Project Path="src/OssmSharp.Web.Common/OssmSharp.Web.Common.csproj" />
@@ -35,6 +35,6 @@
     <Project Path="tests/OssmSharp.Web.Common.Tests/OssmSharp.Web.Common.Tests.csproj" />
     <Project Path="tests/OssmSharp.Device.Primitives.Tests/OssmSharp.Device.Primitives.Tests.csproj" />
     <Project Path="tests/OssmSharp.Device.Runtime.Tests/OssmSharp.Device.Runtime.Tests.csproj" />
-    <Project Path="tests/OssmSharp.Device.Stock.Tests/OssmSharp.Device.Stock.Tests.csproj" />
+    <Project Path="tests/OssmSharp.Device.Oem.Tests/OssmSharp.Device.Oem.Tests.csproj" />
   </Folder>
 </Solution>

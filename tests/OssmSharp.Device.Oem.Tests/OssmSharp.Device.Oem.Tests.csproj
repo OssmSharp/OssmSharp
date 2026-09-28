@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <IsTestProject>true</IsTestProject>
+        <IsPackable>false</IsPackable>
+        <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+    </PropertyGroup>
+    <ItemGroup>
+        <PackageReference Include="xunit.v3.mtp-v2" />
+        <PackageReference Include="AwesomeAssertions" />
+        <PackageReference Include="FastMoq.Core" />
+        <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+        <ProjectReference Include="../../src/OssmSharp.Device.Oem/OssmSharp.Device.Oem.csproj" />
+    </ItemGroup>
+    <ItemGroup>
+        <AssemblyAttribute Include="FastMoq.Providers.FastMoqDefaultProviderAttribute">
+            <_Parameter1>moq</_Parameter1>
+        </AssemblyAttribute>
+    </ItemGroup>
+</Project>

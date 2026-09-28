@@ -10,7 +10,7 @@ public readonly record struct DeviceCommand
     /// </summary>
     /// <param name="control">The firmware control to assign.</param>
     /// <param name="value">An integer pattern identifier or a percentage from zero through 100.</param>
-    /// <exception cref="ArgumentOutOfRangeException">The control or value is outside its basic range.</exception>
+/// <exception cref="ArgumentOutOfRangeException">The control or value is outside its basic range.</exception>
     public DeviceCommand(DeviceControl control, double value)
     {
         if (!Enum.IsDefined(control))

@@ -1,3 +1,4 @@
+using System.Runtime.ExceptionServices;
 using Microsoft.Extensions.Logging;
 using OssmSharp.Device.Primitives;
 
@@ -22,6 +23,7 @@ public abstract class DeviceBase : IOssmDevice
     private TaskCompletionSource drained = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private SettingsSubmission? submission;
     private DeviceState? state;
+    private ExceptionDispatchInfo? providerFailure;
     private Task? disposal;
     private int operationCount;
     private int pendingStops;
@@ -79,8 +81,10 @@ public abstract class DeviceBase : IOssmDevice
         {
             await ConnectCoreAsync(cancellationToken).ConfigureAwait(false);
             UpdateState(await ReadStateAsync(cancellationToken).ConfigureAwait(false));
+            await CompleteStateReadAsync().ConfigureAwait(false);
             lock (sync)
             {
+                providerFailure?.Throw();
                 // Prevents the instance from being marked as connected
                 // if Dispose is called while the connectiong is being established.
                 // If it's disposing, connected is forced to be false.
@@ -213,6 +217,7 @@ public abstract class DeviceBase : IOssmDevice
             {
                 var observation = await ReadStateAsync(cancellationToken).ConfigureAwait(false);
                 UpdateState(observation);
+                await CompleteStateReadAsync().ConfigureAwait(false);
                 return observation;
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -353,10 +358,47 @@ public abstract class DeviceBase : IOssmDevice
     protected abstract Task<DeviceState> ReadStateAsync(CancellationToken cancellationToken);
 
     /// <summary>
+    /// Completes provider read cleanup after Runtime records a successful observation.
+    /// </summary>
+    /// <returns>A task completing when any temporarily suspended observations have resumed.</returns>
+    /// <remarks>
+    /// Called under the I/O gate after a successful read. Failure is surfaced as part of that read.
+    /// Providers whose read fails must settle their cleanup before throwing from <see cref="ReadStateAsync"/>.
+    /// </remarks>
+    protected virtual Task CompleteStateReadAsync() => Task.CompletedTask;
+
+    /// <summary>
     /// Releases the provider connection and subscriptions after all issued operations settle.
     /// </summary>
     /// <returns>Completion of cleanup, including after a partial connection failure.</returns>
     protected abstract Task DisconnectAsync();
+
+    /// <summary>
+    /// Records a terminal asynchronous provider failure, disarms, and cancels unissued settings without issuing any I/O.
+    /// </summary>
+    /// <param name="exception">The connection or notification failure to propagate to subsequent operations.</param>
+    /// <remarks>
+    /// Last known state remains available from cached reads. Reset cannot clear a failed connection;
+    /// dispose this instance and create a new one. Issued I/O is still awaited before cleanup.
+    /// </remarks>
+    protected void FailConnection(Exception exception)
+    {
+        ArgumentNullException.ThrowIfNull(exception);
+        lock (sync)
+        {
+            if (disposing || providerFailure is not null)
+            {
+                return;
+            }
+
+            providerFailure = ExceptionDispatchInfo.Capture(exception);
+            connected = false;
+            DisarmLocked();
+        }
+
+        logger.OperationFailed("provider connection", exception);
+        NotifyStateChanged();
+    }
 
     /// <summary>
     /// Records an incoming observation and disarms if changed controls are unexplained by issued assignments.
@@ -375,7 +417,7 @@ public abstract class DeviceBase : IOssmDevice
         bool external;
         lock (sync)
         {
-            if (disposing)
+            if (disposing || providerFailure is not null)
             {
                 return;
             }
@@ -420,6 +462,11 @@ public abstract class DeviceBase : IOssmDevice
             try
             {
                 waiting.Token.ThrowIfCancellationRequested();
+                lock (sync)
+                {
+                    providerFailure?.Throw();
+                }
+
                 return await operation().ConfigureAwait(false);
             }
             finally
@@ -547,6 +594,7 @@ public abstract class DeviceBase : IOssmDevice
     private void EnsureConnected()
     {
         ObjectDisposedException.ThrowIf(disposing, this);
+        providerFailure?.Throw();
         if (!connected)
         {
             throw new InvalidOperationException("Connect before using the device.");

@@ -1,6 +1,3 @@
 {
-  "recommendations": [
-    "rust-lang.rust-analyzer",
-    "microsoft-aspire.aspire-vscode"
-  ]
+  "recommendations": ["rust-lang.rust-analyzer", "microsoft-aspire.aspire-vscode", "ms-dotnettools.csdevkit"]
 }

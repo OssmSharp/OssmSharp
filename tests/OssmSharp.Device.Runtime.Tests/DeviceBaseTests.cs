@@ -7,6 +7,60 @@ namespace OssmSharp.Device.Runtime.Tests;
 public sealed class DeviceBaseTests
 {
     [Fact]
+    public async Task ReadIsPublishedBeforeObservationsResume()
+    {
+        await using var device = new TestDevice();
+        var token = TestContext.Current.CancellationToken;
+        await device.ConnectAsync(token);
+        await device.ResetAsync(token);
+        var settings = new MotionSettings(1, 20, 30, 40, 50);
+        await device.SetAsync(settings, token);
+        device.ReadCompleted = () =>
+        {
+            device.Observe(settings);
+            return Task.CompletedTask;
+        };
+
+        await device.GetStateAsync(true, token);
+
+        (await device.GetStateAsync(cancellationToken: token)).Should().Be(new DeviceState(settings));
+        device.IsArmed.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ProviderFailureDisarmsWithoutAbandoningIoAndCannotBeReset()
+    {
+        await using var device = new TestDevice();
+        var token = TestContext.Current.CancellationToken;
+        await device.ConnectAsync(token);
+        await device.ResetAsync(token);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        device.Write = (_, _) => release.Task;
+        var set = device.SetAsync(new(1, 20, 30, 40, 50), token);
+        var failure = new IOException("Provider disconnected.");
+
+        try
+        {
+            device.Fail(failure);
+            device.IsArmed.Should().BeFalse();
+            set.IsCompleted.Should().BeFalse();
+            var reset = () => device.ResetAsync(token);
+            (await reset.Should().ThrowAsync<IOException>()).Which.Should().BeSameAs(failure);
+            var live = () => device.GetStateAsync(true, token);
+            (await live.Should().ThrowAsync<IOException>()).Which.Should().BeSameAs(failure);
+            device.Observe(new(4, 50, 50, 50, 50));
+            (await device.GetStateAsync(cancellationToken: token)).Should().Be(device.LiveState);
+        }
+        finally
+        {
+            release.TrySetResult();
+        }
+
+        (await set).Should().Be(new SettingsResult(SettingsOutcome.Cancelled, 1));
+        device.Writes.Should().HaveCount(1);
+    }
+
+    [Fact]
     public async Task LiveReadIsSerializedAndCachedReadDoesNotIssueIo()
     {
         await using var device = new TestDevice();
