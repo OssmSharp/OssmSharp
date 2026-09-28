@@ -1,6 +1,6 @@
 using AwesomeAssertions;
-using OssmSharp.Device.Oem;
-using OssmSharp.Device.Runtime.Tests;
+using OssmSharp.Runtime.Oem;
+using OssmSharp.Runtime.Oem.Tests;
 using Xunit;
 
 namespace OssmSharp.Cli.Tests;

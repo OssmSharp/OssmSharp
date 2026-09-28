@@ -6,8 +6,7 @@
     <SupportedOSPlatformVersion Condition="$([MSBuild]::IsOSPlatform('OSX'))">26.0</SupportedOSPlatformVersion>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="../OssmSharp.Device.Runtime/OssmSharp.Device.Runtime.csproj" />
-    <ProjectReference Include="../OssmSharp.Device.Oem/OssmSharp.Device.Oem.csproj" />
+    <ProjectReference Include="../OssmSharp.Runtime.Oem/OssmSharp.Runtime.Oem.csproj" />
     <PackageReference Include="System.CommandLine" />
     <PackageReference Include="Microsoft.Extensions.Hosting" />
     <InternalsVisibleTo Include="OssmSharp.Cli.Tests" />

@@ -1,8 +1,7 @@
 using System.CommandLine;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using OssmSharp.Device.Oem;
-using OssmSharp.Device.Runtime;
+using OssmSharp.Runtime.Oem;
 
 namespace OssmSharp.Cli;
 

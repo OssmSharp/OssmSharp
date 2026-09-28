@@ -12,6 +12,6 @@
         <PackageReference Include="xunit.v3.mtp-v2" />
         <PackageReference Include="AwesomeAssertions" />
         <ProjectReference Include="../../src/OssmSharp.Cli/OssmSharp.Cli.csproj" />
-        <Compile Include="../OssmSharp.Device.Runtime.Tests/TestDevice.cs" Link="TestDevice.cs" />
+        <Compile Include="../OssmSharp.Runtime.Oem.Tests/TestDevice.cs" Link="TestDevice.cs" />
     </ItemGroup>
 </Project>

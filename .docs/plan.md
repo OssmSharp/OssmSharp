@@ -14,19 +14,12 @@
 
 ## Project dependency order
 
-- **`OssmSharp.Device.Primitives`**
-- **`OssmSharp.Device.Runtime`**
-  - `OssmSharp.Device.Primitives`
-- **`OssmSharp.Device.Oem`**
-  - `OssmSharp.Device.Primitives`
-  - `OssmSharp.Device.Runtime`
-- **`OssmSharp.Device.Simulator`**
-  - `OssmSharp.Device.Primitives`
-  - `OssmSharp.Device.Runtime`
+- **`OssmSharp.Runtime.Oem`**
+- **`OssmSharp.Runtime.Simulator`**
+  - `OssmSharp.Runtime.Oem`
 - **`OssmSharp.Cli`**
-  - `OssmSharp.Device.Runtime`
-  - `OssmSharp.Device.Stock`
-  - `OssmSharp.Device.Simulator`
+  - `OssmSharp.Runtime.Oem`
+  - `OssmSharp.Runtime.Simulator`
 
 ## Projects, files, and functions
 
@@ -34,16 +27,14 @@ This is the concrete implementation contract. Every listed member, its ownership
 visibility, and specified behavior is required, not an implementation suggestion.
 
 - **Consumer layer:** Runtime accepts complete motion settings and owns their translation, sequencing, supersession, state, and arming.
-- **Command layer:** Primitives defines individual control assignments; Stock and Simulator encode and send one assignment per call.
-- **Transport layer:** Stock uses Shiny Bluetooth; Simulator uses its protocol connection.
+- **Command layer:** Runtime defines individual control assignments; OEM and Simulator encode and send one assignment per call.
+- **Transport layer:** OEM uses Shiny Bluetooth; Simulator uses its protocol connection.
 
-- **`OssmSharp.Device.Primitives`**
+- **`OssmSharp.Runtime.Oem`**
   - **`DeviceControl.cs`**
     - Identify individual firmware controls, such as pattern, speed, stroke, depth, and sensation.
   - **`DeviceCommand.cs`**
     - Represent one assignment to one DeviceControl, such as setting speed to 20 percent.
-
-- **`OssmSharp.Device.Runtime`**
   - **`IOssmDevice.cs`**
     - **ConnectAsync:** Connect to the selected device and subscribe to its state updates.
     - **SetAsync:** Submit a pattern identifier and control arguments through the device implementation.
@@ -69,7 +60,6 @@ visibility, and specified behavior is required, not an implementation suggestion
     - **UpdateState (protected):** Store incoming state, detect external changes, and notify subscribers.
     - **DetectExternalChange (private):** Compare incoming controls with the current expectation; set IsArmed false and cancel pending work when external changes are unexplained.
 
-- **`OssmSharp.Device.Oem`**
   - **`DeviceDiscovery.cs`**
     - **ScanAsync:** Discover distinct devices advertising the fixed OSSM service within a bounded scan, returning identifiers and names and surfacing cancellation or Bluetooth errors.
   - **`DiscoveredDevice.cs`**
@@ -81,10 +71,10 @@ visibility, and specified behavior is required, not an implementation suggestion
     - **DisconnectAsync (protected override):** Close the owned Bluetooth connection and release subscriptions.
   - **`Request.cs`**
     - **Encode(command):** Encode one DeviceCommand into the firmware's wire format without interpreting pattern behavior.
-  - **`BleServiceCollectionExtensions.cs`**
+  - **`ServiceCollectionExtensions.cs`**
     - **Register:** Register discovery and a factory accepting a discovered device identifier and returning DeviceBase.
 
-- **`OssmSharp.Device.Simulator`**
+- **`OssmSharp.Runtime.Simulator`**
   - **`SimulatedDevice.cs`** — extends `DeviceBase`; supplies simulator protocol operations while inheriting all settings execution from Runtime.
     - **WriteCommandAsync(command) (protected override):** Encode and send one DeviceCommand through the simulator protocol without accepting or decomposing MotionSettings.
     - **EncodeCommand(command) (private):** Encode one DeviceCommand into a simulator protocol request.

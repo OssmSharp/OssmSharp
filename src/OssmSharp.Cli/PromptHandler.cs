@@ -1,6 +1,6 @@
 using System.CommandLine;
 using System.Globalization;
-using OssmSharp.Device.Runtime;
+using OssmSharp.Runtime.Oem;
 
 namespace OssmSharp.Cli;
 

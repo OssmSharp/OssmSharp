@@ -3,7 +3,7 @@
 `ossm-sim-bridge` is a bounded, native JSON-lines adapter for the **existing
 OSSM-RS motion engine**. It is built separately for local simulator use, not
 hardware operation or stock-firmware qualification. The intended .NET consumer
-is `OssmSharp.Device.Simulator`; its current adapter still uses stdio and needs
+is `OssmSharp.Runtime.Simulator`; its current adapter still uses stdio and needs
 a separate TCP cutover before it can use this native executable.
 
 It has an explicit loopback TCP listener, but no GUI, BLE, serial port, device

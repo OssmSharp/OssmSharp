@@ -1,14 +1,10 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/OssmSharp.Cli/OssmSharp.Cli.csproj" />
-    <Project Path="src/OssmSharp.Device.Primitives/OssmSharp.Device.Primitives.csproj" />
-    <Project Path="src/OssmSharp.Device.Oem/OssmSharp.Device.Oem.csproj" />
-    <Project Path="src/OssmSharp.Device.Runtime/OssmSharp.Device.Runtime.csproj" />
+    <Project Path="src/OssmSharp.Runtime.Oem/OssmSharp.Runtime.Oem.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/OssmSharp.Cli.Tests/OssmSharp.Cli.Tests.csproj" />
-    <Project Path="tests/OssmSharp.Device.Primitives.Tests/OssmSharp.Device.Primitives.Tests.csproj" />
-    <Project Path="tests/OssmSharp.Device.Runtime.Tests/OssmSharp.Device.Runtime.Tests.csproj" />
-    <Project Path="tests/OssmSharp.Device.Oem.Tests/OssmSharp.Device.Oem.Tests.csproj" />
+    <Project Path="tests/OssmSharp.Runtime.Oem.Tests/OssmSharp.Runtime.Oem.Tests.csproj" />
   </Folder>
 </Solution>
