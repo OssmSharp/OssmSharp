@@ -60,7 +60,20 @@ public abstract class DeviceBase : IOssmDevice
     }
 
     /// <inheritdoc />
-    public Task ConnectAsync(CancellationToken cancellationToken = default) => ExecuteAsync(async () =>
+    public Exception? ConnectionFailure
+    {
+        get
+        {
+            lock (sync)
+            {
+                return providerFailure?.SourceException;
+            }
+        }
+    }
+
+    /// <inheritdoc />
+    public Task ConnectAsync(CancellationToken cancellationToken = default) => ExecuteAsync(
+        async () =>
     {
         lock (sync)
         {
@@ -81,7 +94,7 @@ public abstract class DeviceBase : IOssmDevice
         {
             await ConnectCoreAsync(cancellationToken).ConfigureAwait(false);
             UpdateState(await ReadStateAsync(cancellationToken).ConfigureAwait(false));
-            await CompleteStateReadAsync().ConfigureAwait(false);
+            await CompleteStateReadAsync(cancellationToken).ConfigureAwait(false);
             lock (sync)
             {
                 providerFailure?.Throw();
@@ -129,7 +142,8 @@ public abstract class DeviceBase : IOssmDevice
 
         try
         {
-            return await ExecuteAsync(async () =>
+            return await ExecuteAsync(
+                async () =>
             {
                 foreach (var command in current.Settings.ToCommands())
                 {
@@ -211,13 +225,14 @@ public abstract class DeviceBase : IOssmDevice
             EnsureConnected();
         }
 
-        return ExecuteAsync<DeviceState?>(async () =>
+        return ExecuteAsync<DeviceState?>(
+            async () =>
         {
             try
             {
                 var observation = await ReadStateAsync(cancellationToken).ConfigureAwait(false);
                 UpdateState(observation);
-                await CompleteStateReadAsync().ConfigureAwait(false);
+                await CompleteStateReadAsync(cancellationToken).ConfigureAwait(false);
                 return observation;
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -251,7 +266,8 @@ public abstract class DeviceBase : IOssmDevice
 
         try
         {
-            await ExecuteAsync(async () =>
+            await ExecuteAsync(
+                async () =>
             {
                 var command = new DeviceCommand(DeviceControl.Speed, 0);
                 lock (sync)
@@ -290,7 +306,8 @@ public abstract class DeviceBase : IOssmDevice
             version = disarmVersion;
         }
 
-        return ExecuteAsync(() =>
+        return ExecuteAsync(
+            () =>
         {
             bool changed;
             lock (sync)
@@ -365,7 +382,7 @@ public abstract class DeviceBase : IOssmDevice
     /// Called under the I/O gate after a successful read. Failure is surfaced as part of that read.
     /// Providers whose read fails must settle their cleanup before throwing from <see cref="ReadStateAsync"/>.
     /// </remarks>
-    protected virtual Task CompleteStateReadAsync() => Task.CompletedTask;
+    protected virtual Task CompleteStateReadAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
     /// <summary>
     /// Releases the provider connection and subscriptions after all issued operations settle.

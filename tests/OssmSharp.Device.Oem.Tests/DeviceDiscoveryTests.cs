@@ -2,7 +2,6 @@ using System.Reactive.Linq;
 using AwesomeAssertions;
 using Microsoft.Extensions.Time.Testing;
 using Moq;
-using Shiny;
 using Shiny.BluetoothLE;
 using Xunit;
 

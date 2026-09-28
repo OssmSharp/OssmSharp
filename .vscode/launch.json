@@ -11,7 +11,7 @@
       "console": "integratedTerminal",
       "preLaunchTask": "build CLI (debug)",
       "osx": {
-        "program": "${workspaceFolder:ossm-web-controls}/src/OssmSharp.Cli/bin/Debug/net10.0-macos27.0/osx-arm64/OssmSharp.Cli.app/Contents/MacOS/OssmSharp.Cli",
+        "program": "${workspaceFolder:ossm-web-controls}/src/OssmSharp.Cli/bin/Debug/net10.0-macos26.0/osx-arm64/OssmSharp.Cli.app/Contents/MacOS/OssmSharp.Cli",
         "preLaunchTask": "publish CLI"
       },
       "stopAtEntry": true

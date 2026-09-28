@@ -22,11 +22,11 @@ namespace OssmSharp.Device.Oem;
 /// </remarks>
 public sealed class OssmDevice : DeviceBase
 {
-    private static readonly ConditionalWeakTable<IPeripheral, OssmDevice> Owners = new();
+    private static readonly ConditionalWeakTable<IPeripheral, OssmDevice> Owners = [];
     private readonly IBleManager manager;
     private readonly string identifier;
-    private readonly CompositeDisposable subscriptions = new();
-    private readonly CompositeDisposable lifecycle = new();
+    private readonly CompositeDisposable subscriptions = [];
+    private readonly CompositeDisposable lifecycle = [];
     private readonly TaskCompletionSource disconnected = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly SerialDisposable notifications = new();
     private IPeripheral? peripheral;
@@ -89,7 +89,8 @@ public sealed class OssmDevice : DeviceBase
             lifecycle.Add(selected.WhenStatusChanged().Skip(1)
                 .Where(status => status == ConnectionState.Disconnected)
                 .Subscribe(_ => Disconnected(), NotificationFailed));
-            lifecycle.Add(selected.WhenConnectionFailed().Subscribe(exception =>
+            lifecycle.Add(selected.WhenConnectionFailed().Subscribe(
+                exception =>
             {
                 if (Volatile.Read(ref connectIssued))
                 {
@@ -100,7 +101,8 @@ public sealed class OssmDevice : DeviceBase
             Volatile.Write(ref connectIssued, true);
             await selected.ConnectAsync(new ConnectionConfig(AutoConnect: false), cancellationToken).ConfigureAwait(false);
             subscriptions.Add(selected.WhenCharacteristicSubscriptionChanged(BleProtocol.Service, BleProtocol.State)
-                .Subscribe(characteristic =>
+                .Subscribe(
+                    characteristic =>
                 {
                     if (characteristic.IsNotifying)
                     {
@@ -174,13 +176,13 @@ public sealed class OssmDevice : DeviceBase
     }
 
     /// <inheritdoc />
-    protected override async Task CompleteStateReadAsync()
+    protected override async Task CompleteStateReadAsync(CancellationToken cancellationToken)
     {
         if (OperatingSystem.IsMacOS())
         {
             try
             {
-                await EnableNotificationsAsync(CancellationToken.None).ConfigureAwait(false);
+                await EnableNotificationsAsync(cancellationToken).ConfigureAwait(false);
             }
             catch (Exception exception)
             {
@@ -235,7 +237,8 @@ public sealed class OssmDevice : DeviceBase
         var subscription = new SingleAssignmentDisposable();
         notifications.Disposable = subscription;
         subscription.Disposable = peripheral!.NotifyCharacteristic(BleProtocol.Service, BleProtocol.State, false)
-            .Subscribe(result =>
+            .Subscribe(
+                result =>
             {
                 try
                 {

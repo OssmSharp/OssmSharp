@@ -1,6 +1,5 @@
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
-using OssmSharp.Device.Oem.ShinyInterop;
 using OssmSharp.Device.Runtime;
 using Shiny.BluetoothLE;
 

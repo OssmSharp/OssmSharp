@@ -4,19 +4,26 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <Deterministic>true</Deterministic>
+    <DebugType Condition="'$(PublishProfile)' == 'win-x64'">embedded</DebugType>
     <RunAnalyzersDuringBuild>true</RunAnalyzersDuringBuild>
     <AnalysisMode>latest-All</AnalysisMode>
     <LanguageVersion>latest</LanguageVersion>
     <UseArtifactsOutput>true</UseArtifactsOutput>
-    <!-- The macOS SDK composes bundle paths relative to the project; absolute artifacts paths split the bundle. -->
-    <UseArtifactsOutput Condition="'$(EnableStockBle)' == 'true' and $([MSBuild]::IsOSPlatform('OSX'))">false</UseArtifactsOutput>
+    <!-- The macOS SDK composes bundle paths relative to the project; absolute artifacts paths split
+    the bundle. -->
+    <!--<UseArtifactsOutput
+    Condition="'$(EnableStockBle)' == 'true' and
+    $([MSBuild]::IsOSPlatform('OSX'))">false</UseArtifactsOutput>-->
     <ArtifactsPath>$(MSBuildThisFileDirectory).artifacts</ArtifactsPath>
   </PropertyGroup>
 
+  <!--
   <PropertyGroup Condition="'$(EnableStockBle)' == 'true' and $([MSBuild]::IsOSPlatform('OSX'))">
-    <!-- Xcode 27 preview bindings mark longstanding Apple APIs, including dispatch queues, experimental. -->
-    <NoWarn>$(NoWarn);XCODE_27_0_PREVIEW</NoWarn>
+    < Xcode 27 preview bindings mark longstanding Apple APIs, including dispatch queues, experimental.
+    <NoWarn>
+  $(NoWarn);XCODE_27_0_PREVIEW</NoWarn>
   </PropertyGroup>
+  -->
 
   <ItemGroup>
     <AdditionalFiles Include="$(MSBuildThisFileDirectory)stylecop.json" Link="stylecop.json" />

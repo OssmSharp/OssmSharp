@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <IsTestProject>true</IsTestProject>
+        <IsPackable>false</IsPackable>
+        <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+        <TargetFramework Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+            net10.0-windows10.0.19041.0</TargetFramework>
+        <TargetFramework Condition="$([MSBuild]::IsOSPlatform('OSX'))">net10.0-macos26.0</TargetFramework>
+    </PropertyGroup>
+    <ItemGroup>
+        <PackageReference Include="xunit.v3.mtp-v2" />
+        <PackageReference Include="AwesomeAssertions" />
+        <ProjectReference Include="../../src/OssmSharp.Cli/OssmSharp.Cli.csproj" />
+        <Compile Include="../OssmSharp.Device.Runtime.Tests/TestDevice.cs" Link="TestDevice.cs" />
+    </ItemGroup>
+</Project>

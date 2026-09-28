@@ -16,6 +16,15 @@ public interface IOssmDevice : IAsyncDisposable
     bool IsArmed { get; }
 
     /// <summary>
+    /// Gets the terminal provider failure, or null when no such failure has been observed.
+    /// </summary>
+    /// <remarks>
+    /// A failure raises <see cref="StateChanged"/> and requires disposal and a new connection instance.
+    /// A null value does not establish that a connection has been opened.
+    /// </remarks>
+    Exception? ConnectionFailure { get; }
+
+    /// <summary>
     /// Connects, subscribes to observations, and reads initial state without arming or sending settings.
     /// </summary>
     /// <returns>Completion of connection and initial observation; provider errors propagate.</returns>

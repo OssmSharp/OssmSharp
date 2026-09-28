@@ -1,6 +1,6 @@
 using Shiny.BluetoothLE;
 
-namespace OssmSharp.Device.Oem.ShinyInterop;
+namespace OssmSharp.Device.Oem;
 
 /// <summary>
 /// Forwards Shiny peripheral lifecycle callbacks to their owning OEM connections.

@@ -1,5 +1,4 @@
 using AwesomeAssertions;
-using Microsoft.Extensions.DependencyInjection;
 using OssmSharp.Device.Runtime;
 using Shiny.BluetoothLE;
 using Xunit;

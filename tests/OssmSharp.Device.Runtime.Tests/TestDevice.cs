@@ -47,5 +47,5 @@ internal sealed class TestDevice() : DeviceBase(NullLogger<DeviceBase>.Instance)
         return Disconnect?.Invoke() ?? Task.CompletedTask;
     }
 
-    protected override Task CompleteStateReadAsync() => ReadCompleted?.Invoke() ?? Task.CompletedTask;
+    protected override Task CompleteStateReadAsync(CancellationToken cancellationToken) => ReadCompleted?.Invoke() ?? Task.CompletedTask;
 }

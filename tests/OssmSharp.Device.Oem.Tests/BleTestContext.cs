@@ -6,7 +6,6 @@ using FastMoq;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using OssmSharp.Device.Runtime;
-using Shiny;
 using Shiny.BluetoothLE;
 
 namespace OssmSharp.Device.Oem.Tests;

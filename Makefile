@@ -2,26 +2,23 @@
 
 CONFIGURATION ?= Release
 RUNTIME ?= osx-arm64
-MACOS_API_VERSION ?= 27.0
 DEVELOPER_DIR ?= /Applications/Xcode.app/Contents/Developer
 
-CLI := ./src/OssmSharp.Cli/bin/$(CONFIGURATION)/net10.0-macos$(MACOS_API_VERSION)/$(RUNTIME)/OssmSharp.Cli.app/Contents/MacOS/OssmSharp.Cli
+CLI := ./src/OssmSharp.Cli/bin/$(CONFIGURATION)/net10.0-macos26.0/$(RUNTIME)/OssmSharp.Cli.app/Contents/MacOS/OssmSharp.Cli
 
 export DEVELOPER_DIR CLI DEVICE_ID
 
-.PHONY: help publish list identify prompt require-publish require-device-id
+.PHONY: help publish list prompt require-publish
 
 help:
 	@printf '%s\n' \
 		'make publish                    Publish the macOS BLE CLI (default).' \
-		'make list                       Discover advertising Stock devices.' \
-		'make identify DEVICE_ID=...      Read the selected device identity, then disconnect.' \
-		'make prompt DEVICE_ID=...        Connect and open the foreground prompt.' \
+		'make list                       Discover advertising OEM devices without connecting.' \
+		'make prompt [DEVICE_ID=...]      Connect to the selected or sole discovered device.' \
 		'' \
 		'Run publish again after source changes. Keep the entire .app bundle together.' \
-		'Defaults: CONFIGURATION=Release RUNTIME=osx-arm64 MACOS_API_VERSION=27.0.' \
-		'Override DEVELOPER_DIR to select another compatible Xcode installation.' \
-		'Xcode 27 bindings are preview; the minimum runtime OS remains macOS 26.'
+		'Defaults: CONFIGURATION=Release RUNTIME=osx-arm64; macOS 26 or newer.' \
+		'Override DEVELOPER_DIR to select another compatible Xcode installation.'
 
 publish:
 	@test "$$(uname -s)" = Darwin || { printf '%s\n' 'This Makefile publishes the macOS BLE CLI; run it on macOS.' >&2; exit 1; }
@@ -29,7 +26,6 @@ publish:
 		-c "$(CONFIGURATION)" \
 		-r "$(RUNTIME)" \
 		-p:EnableStockBle=true \
-		-p:StockMacOSApiVersion="$(MACOS_API_VERSION)" \
 		-bl:.artifacts/cli-publish-{}.binlog
 	@test -x "$$CLI" || { printf '%s\n' 'Publish did not produce the expected executable in its .app bundle.' >&2; exit 1; }
 	@printf 'Published CLI: %s\n' "$$CLI"
@@ -37,14 +33,8 @@ publish:
 require-publish:
 	@test -x "$$CLI" || { printf '%s\n' 'Run make publish first for the selected configuration.' >&2; exit 1; }
 
-require-device-id:
-	@test -n "$$DEVICE_ID" || { printf '%s\n' 'Set DEVICE_ID to the platform ID printed by make list.' >&2; exit 2; }
-
 list: require-publish
-	@exec "$$CLI" devices list
+	@exec "$$CLI" list
 
-identify: require-device-id require-publish
-	@exec "$$CLI" devices get "$$DEVICE_ID"
-
-prompt: require-device-id require-publish
-	@exec "$$CLI" prompt --bluetooth "$$DEVICE_ID"
+prompt: require-publish
+	@if [ -n "$$DEVICE_ID" ]; then exec "$$CLI" prompt --device "$$DEVICE_ID"; else exec "$$CLI" prompt; fi
