@@ -42,18 +42,20 @@ public interface IOssmDevice : IAsyncDisposable
     /// <remarks>
     /// Cleanup of an earlier connection finishes first; its failure propagates without opening another connection.
     /// A failed, cancelled, or interrupted attempt releases its partial connection and remains disarmed.
+    /// Stop, disconnect, and disposal interrupt unfinished setup without sending motion settings.
     /// An unexplained control change during setup leaves the connection disarmed.
     /// </remarks>
     /// <exception cref="ObjectDisposedException">The client has been disposed.</exception>
     Task ConnectAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Disarms, discards settings not yet sent, waits for commands already sent to finish, and releases connection resources.
+    /// Disarms, discards settings not yet sent, sends or joins Stop when connected, and releases connection resources.
     /// </summary>
-    /// <returns>Completion of cleanup; failures propagate and are retried by the next connection attempt or disposal.</returns>
+    /// <returns>Completion of Stop and cleanup; failures propagate after cleanup, which can be retried on reconnection.</returns>
     /// <remarks>
     /// The client, last known state, and <see cref="StateChanged"/> subscriptions are preserved for reconnection.
-    /// Cancellation can only prevent cleanup that has not started.
+    /// In-progress live reads are abandoned; issued transfers settle before their connection resources are released.
+    /// Cancellation before the call starts prevents disconnect; once started, cleanup completes regardless of cancellation.
     /// </remarks>
     /// <exception cref="ObjectDisposedException">The client has been disposed.</exception>
     Task DisconnectAsync(CancellationToken cancellationToken = default);
@@ -63,10 +65,11 @@ public interface IOssmDevice : IAsyncDisposable
     /// </summary>
     /// <param name="settings">The complete firmware pattern and control arguments.</param>
     /// <param name="cancellationToken" />
-    /// <returns>The result and count of successfully completed writes.</returns>
+    /// <returns>The result and count of writes confirmed by terminal responses.</returns>
     /// <remarks>
     /// Cancellation discards commands not yet sent and returns <see cref="SetStatus.Cancelled"/>.
-    /// A command already sent is allowed to finish, even after supersession, Stop, or cancellation.
+    /// Supersession, Stop, and cancellation abandon earlier response waits after issued transfers settle;
+    /// those assignments may still take effect even when they are not counted as confirmed writes.
     /// </remarks>
     /// <exception cref="InvalidOperationException">The device is not connected or is disarmed.</exception>
     /// <exception cref="DeviceWriteException">A write failed; the exception retains known partial progress.</exception>
@@ -79,19 +82,21 @@ public interface IOssmDevice : IAsyncDisposable
     /// <param name="cancellationToken" />
     /// <returns>The last observation, or null when no observation has been received.</returns>
     /// <remarks>
-    /// Cached reads remain available while disconnected. Live reads require a connection.
+    /// Cached reads remain available while disconnected. Live reads require a connection and survive Stop,
+    /// but disconnect and disposal abandon them with an exception rather than returning cached success.
     /// </remarks>
     Task<DeviceState?> GetStateAsync(bool bypassCache = false, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Disarms immediately, discards settings not yet sent, and sends speed zero straight away.
+    /// Disarms immediately, discards settings not yet sent, and sends speed zero ahead of queued requests.
     /// </summary>
     /// <returns>Completion of the Stop write; failures propagate and leave submission disarmed.</returns>
     /// <remarks>
-    /// Stop does not wait for a command already in progress. The device handles commands in the order received,
-    /// so a command sent just before Stop may still briefly take effect. During connection setup, Stop is sent once setup completes.
+    /// Stop waits for an issued GATT transfer, not an earlier terminal response or live read.
+    /// A command sent just before Stop may still briefly take effect; Stop completion does not confirm physical motion.
+    /// During connection setup, Stop ends the attempt without sending a command. Concurrent callers share an in-progress Stop.
     /// Stop does not require arming. Submission stays disarmed until explicit reset or successful reconnection.
-    /// Cancellation can prevent a Stop that has not been sent. It never rearms the device or recalls a sent command.
+    /// Cancellation is checked before starting Stop; once started, its write runs to completion.
     /// </remarks>
     Task EmergencyStopAsync(CancellationToken cancellationToken = default);
 
@@ -100,7 +105,7 @@ public interface IOssmDevice : IAsyncDisposable
     /// </summary>
     /// <returns>Completion of the explicit reset.</returns>
     /// <remarks>
-    /// Reset does not clear <see cref="ConnectionFailure"/>.
+    /// Reset does not clear <see cref="ConnectionFailure"/> and cannot rearm during Stop.
     /// </remarks>
     /// <exception cref="InvalidOperationException">Not connected, or a concurrent Stop or external change invalidated the reset.</exception>
     Task ResetAsync(CancellationToken cancellationToken = default);

@@ -1,4 +1,6 @@
 using System.Reactive.Linq;
+using System.Reactive.Subjects;
+using System.Reflection;
 using System.Text;
 using System.Text.Json.Nodes;
 using AwesomeAssertions;
@@ -186,6 +188,104 @@ public sealed class OssmDeviceTests
     }
 
     [Fact]
+    public async Task StopFollowsIssuedTransferAndSkipsQueuedSettingsWithoutWaitingForEarlierResponse()
+    {
+        using var context = new BleTestContext();
+        var token = TestContext.Current.CancellationToken;
+        await using var device = await context.ConnectAsync(token);
+        using var transfer = new Subject<BleCharacteristicResult>();
+        var issued = new TaskCompletionSource<JsonObject>(TaskCreationOptions.RunContinuationsAsynchronously);
+        context.Write = request =>
+        {
+            if (BleTestContext.Operation(request) != "setting.write" || request["path"]!.GetValue<string>() != "motion.pattern")
+            {
+                return null;
+            }
+
+            context.Respond(request, "accepted");
+            issued.TrySetResult(request);
+            return transfer;
+        };
+
+        var first = device.SetAsync(new(StrokePattern.TeasingPounding, 10, 10, 10, 10), token);
+        var firstRequest = await issued.Task.WaitAsync(token);
+        var queued = device.SetAsync(new(StrokePattern.RoboStroke, 20, 20, 20, 20), token);
+        var stop = device.EmergencyStopAsync(token);
+
+        try
+        {
+            stop.IsCompleted.Should().BeFalse();
+            context.RequestsFor("setting.write").Should().ContainSingle().Which.Should().BeSameAs(firstRequest);
+            transfer.OnNext(BleTestContext.WriteResult([]));
+            transfer.OnCompleted();
+            await stop;
+            (await first).Should().Be(new SetResult(SetStatus.Superseded, 0));
+            (await queued).Should().Be(new SetResult(SetStatus.Cancelled, 0));
+            var writes = context.RequestsFor("setting.write");
+            writes.Should().HaveCount(2);
+            writes[0]["path"]!.GetValue<string>().Should().Be("motion.pattern");
+            writes[1]["path"]!.GetValue<string>().Should().Be("motion.speed");
+            writes[1]["args"]!["value"]!.GetValue<double>().Should().Be(0);
+            writes[1]["lease"]!.GetValue<uint>().Should().Be(42);
+            context.Respond(firstRequest, "completed", result: new JsonObject());
+            context.RequestsFor("setting.write").Should().HaveCount(2);
+        }
+        finally
+        {
+            transfer.OnNext(BleTestContext.WriteResult([]));
+            transfer.OnCompleted();
+        }
+    }
+
+    [Fact]
+    public async Task StopTakesGateBeforeQueuedSettingWhileRenewalResponseIsWithheld()
+    {
+        using var context = new BleTestContext();
+        var token = TestContext.Current.CancellationToken;
+        await using var device = await context.ConnectAsync(token);
+        using var transfer = new Subject<BleCharacteristicResult>();
+        var issued = new TaskCompletionSource<JsonObject>(TaskCreationOptions.RunContinuationsAsynchronously);
+        context.Write = request =>
+        {
+            if (BleTestContext.Operation(request) != "control.renew")
+            {
+                return null;
+            }
+
+            issued.TrySetResult(request);
+            return transfer;
+        };
+
+        context.Clock.Advance(TimeSpan.FromSeconds(5));
+        var renewal = await issued.Task.WaitAsync(token);
+        var setting = device.SetAsync(new(StrokePattern.TeasingPounding, 20, 30, 40, 50), token);
+        var stop = device.EmergencyStopAsync(token);
+
+        try
+        {
+            setting.IsCompleted.Should().BeFalse();
+            stop.IsCompleted.Should().BeFalse();
+            context.RequestsFor("setting.write").Should().BeEmpty();
+            transfer.OnNext(BleTestContext.WriteResult([]));
+            transfer.OnCompleted();
+
+            await stop.WaitAsync(token);
+            (await setting).Should().Be(new SetResult(SetStatus.Cancelled, 0));
+            var writes = context.RequestsFor("setting.write");
+            writes.Should().ContainSingle().Which["args"]!["value"]!.GetValue<double>().Should().Be(0);
+            context.Requests.Select(BleTestContext.Operation)
+                .Should().Equal("control.acquire", "stream.start", "control.renew", "setting.write");
+            context.Respond(renewal, "completed", result: new JsonObject { ["ttlMs"] = 10000 });
+            context.RequestsFor("setting.write").Should().ContainSingle();
+        }
+        finally
+        {
+            transfer.OnNext(BleTestContext.WriteResult([]));
+            transfer.OnCompleted();
+        }
+    }
+
+    [Fact]
     public async Task LiveReadWaitsForTheNextMotionFrame()
     {
         using var context = new BleTestContext();
@@ -262,6 +362,59 @@ public sealed class OssmDeviceTests
         device.IsArmed.Should().BeTrue();
         device.ConnectionFailure.Should().BeNull();
         (await device.GetStateAsync(cancellationToken: token)).Should().Be(Initial);
+    }
+
+    [Fact]
+    public async Task OldConnectionStatusAndFramesCannotChangeNewConnection()
+    {
+        using var context = new BleTestContext();
+        using var oldStatus = new BehaviorSubject<ConnectionState>(ConnectionState.Disconnected);
+        using var newStatus = new BehaviorSubject<ConnectionState>(ConnectionState.Disconnected);
+        BehaviorSubject<ConnectionState> currentStatus = oldStatus;
+        context.Peripheral.Setup(peripheral => peripheral.WhenStatusChanged())
+            .Returns(() => currentStatus);
+        using var statusEvents = context.Status.Subscribe(state => currentStatus.OnNext(state));
+        var token = TestContext.Current.CancellationToken;
+        await using var device = await context.ConnectAsync(token);
+        await device.DisconnectAsync(token);
+
+        oldStatus.HasObservers.Should().BeFalse();
+        currentStatus = newStatus;
+        context.MotionStreamId = 8;
+        await context.StreamUntilAsync(device.ConnectAsync(token), token);
+        newStatus.HasObservers.Should().BeTrue();
+
+        oldStatus.OnNext(ConnectionState.Disconnected);
+        context.Publish(Controls.Replace("{0}", "99", StringComparison.Ordinal), streamId: BleTestContext.StreamId);
+        context.Publish("{", streamId: BleTestContext.StreamId);
+
+        device.ConnectionFailure.Should().BeNull();
+        device.IsArmed.Should().BeTrue();
+        (await device.GetStateAsync(cancellationToken: token)).Should().Be(Initial);
+        context.RequestsFor("setting.write").Should().ContainSingle().Which["args"]!["value"]!.GetValue<double>().Should().Be(0);
+    }
+
+    [Fact]
+    public async Task OldGenerationCallbackAlreadyInFlightCannotFaultReconnectedDevice()
+    {
+        using var context = new BleTestContext();
+        var token = TestContext.Current.CancellationToken;
+        await using var device = await context.ConnectAsync(token);
+        var generation = typeof(OssmDevice).GetField("generation", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var previous = (long)generation.GetValue(device)!;
+
+        await device.DisconnectAsync(token);
+        await context.StreamUntilAsync(device.ConnectAsync(token), token);
+        ((long)generation.GetValue(device)!).Should().NotBe(previous);
+
+        var callback = typeof(OssmDevice).GetMethod("ConnectionLost", BindingFlags.Instance | BindingFlags.NonPublic,
+            binder: null, types: [typeof(long), typeof(Exception)], modifiers: null)!;
+        callback.Invoke(device, [previous, new IOException("Late old-connection failure.")]);
+
+        device.IsArmed.Should().BeTrue();
+        device.ConnectionFailure.Should().BeNull();
+        (await device.GetStateAsync(cancellationToken: token)).Should().Be(Initial);
+        context.DisconnectCalls.Should().Be(1);
     }
 
     [Fact]
@@ -424,7 +577,11 @@ public sealed class OssmDeviceTests
 
         await device.DisconnectAsync(token);
 
-        context.Requests.Select(BleTestContext.Operation).Should().EndWith(["setting.write", "stream.stop", "control.release"]);
+        context.Requests.Select(BleTestContext.Operation).Should().EndWith(["setting.write", "setting.write", "stream.stop", "control.release"]);
+        var stop = context.RequestsFor("setting.write")[5];
+        stop["path"]!.GetValue<string>().Should().Be("motion.speed");
+        stop["args"]!["value"]!.GetValue<double>().Should().Be(0);
+        stop["lease"]!.GetValue<uint>().Should().Be(42);
         context.RequestsFor("control.release").Should().ContainSingle().Which["lease"]!.GetValue<uint>().Should().Be(42);
         context.DisconnectCalls.Should().Be(1);
         context.Responses.HasObservers.Should().BeFalse();
@@ -436,7 +593,42 @@ public sealed class OssmDeviceTests
         await context.StreamUntilAsync(device.ConnectAsync(token), token);
 
         device.IsArmed.Should().BeTrue();
-        context.RequestsFor("setting.write").Should().HaveCount(5);
+        context.RequestsFor("setting.write").Should().HaveCount(6);
+        context.RequestsFor("control.acquire").Should().HaveCount(2);
+        context.RequestsFor("stream.start")[1]["lease"]!.GetValue<uint>().Should().Be(43);
+    }
+
+    [Fact]
+    public async Task FailedStopDuringDisconnectStillReleasesLeaseAndAllowsReconnect()
+    {
+        using var context = new BleTestContext();
+        var token = TestContext.Current.CancellationToken;
+        await using var device = await context.ConnectAsync(token);
+        context.Write = request =>
+        {
+            if (BleTestContext.Operation(request) != "setting.write")
+            {
+                return null;
+            }
+
+            context.Respond(request, "failed", ok: false, code: "stop_rejected");
+            return Observable.Return(BleTestContext.WriteResult([]));
+        };
+
+        var disconnect = () => device.DisconnectAsync(token);
+        await disconnect.Should().ThrowAsync<IOException>().WithMessage("*stop_rejected*");
+
+        context.Requests.Select(BleTestContext.Operation).Should().EndWith(["setting.write", "stream.stop", "control.release"]);
+        context.RequestsFor("control.release").Should().ContainSingle().Which["lease"]!.GetValue<uint>().Should().Be(42);
+        context.DisconnectCalls.Should().Be(1);
+        context.Responses.HasObservers.Should().BeFalse();
+        context.Frames.HasObservers.Should().BeFalse();
+
+        context.Write = null;
+        context.Lease = 43;
+        await context.StreamUntilAsync(device.ConnectAsync(token), token);
+
+        device.IsArmed.Should().BeTrue();
         context.RequestsFor("control.acquire").Should().HaveCount(2);
         context.RequestsFor("stream.start")[1]["lease"]!.GetValue<uint>().Should().Be(43);
     }
@@ -481,21 +673,23 @@ public sealed class OssmDeviceTests
     }
 
     [Fact]
-    public async Task DisposeAwaitsIssuedWriteResponseAndDisconnectAcknowledgement()
+    public async Task DisposeAwaitsIssuedTransferAndDisconnectAcknowledgement()
     {
         using var context = new BleTestContext { CompleteDisconnect = false };
         var token = TestContext.Current.CancellationToken;
         var device = await context.ConnectAsync(token);
+        using var transfer = new Subject<BleCharacteristicResult>();
         var issued = new TaskCompletionSource<JsonObject>(TaskCreationOptions.RunContinuationsAsynchronously);
         context.Write = request =>
         {
-            if (BleTestContext.Operation(request) != "setting.write")
+            if (BleTestContext.Operation(request) != "setting.write"
+                || request["path"]!.GetValue<string>() == "motion.speed" && request["args"]!["value"]!.GetValue<double>() == 0)
             {
                 return null;
             }
 
             issued.TrySetResult(request);
-            return Observable.Return(BleTestContext.WriteResult([]));
+            return transfer;
         };
         var set = device.SetAsync(new(0, 20, 30, 40, 50), token);
         var request = await issued.Task.WaitAsync(token);
@@ -504,19 +698,30 @@ public sealed class OssmDeviceTests
         try
         {
             dispose.IsCompleted.Should().BeFalse();
+            context.RequestsFor("setting.write").Should().ContainSingle();
             context.RequestsFor("control.release").Should().BeEmpty();
-            context.Write = null;
-            context.Respond(request, "completed", result: new JsonObject());
-            (await set).Should().Be(new SetResult(SetStatus.Cancelled, 1));
+            transfer.OnNext(BleTestContext.WriteResult([]));
+            transfer.OnCompleted();
+            (await set).Should().Be(new SetResult(SetStatus.Cancelled, 0));
             await context.ConnectionCancelled.WaitAsync(token);
             dispose.IsCompleted.Should().BeFalse();
         }
         finally
         {
+            transfer.OnNext(BleTestContext.WriteResult([]));
+            transfer.OnCompleted();
             context.Status.OnNext(ConnectionState.Disconnected);
             await dispose;
         }
 
+        context.Respond(request, "completed", result: new JsonObject());
+        context.Publish("{");
+        context.Responses.HasObservers.Should().BeFalse();
+        context.Frames.HasObservers.Should().BeFalse();
+        context.Requests.Select(BleTestContext.Operation)
+            .Should().Equal("control.acquire", "stream.start", "setting.write", "setting.write", "stream.stop", "control.release");
+        context.RequestsFor("setting.write").Should().HaveCount(2);
+        device.ConnectionFailure.Should().BeNull();
         context.RequestsFor("stream.stop").Should().ContainSingle();
         context.RequestsFor("control.release").Should().ContainSingle();
         context.DisconnectCalls.Should().Be(1);

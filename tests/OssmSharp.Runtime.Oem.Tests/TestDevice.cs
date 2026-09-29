@@ -17,8 +17,6 @@ internal sealed class TestDevice() : DeviceBase(NullLogger<DeviceBase>.Instance)
 
     public Func<Task>? Disconnect { get; set; }
 
-    public Func<ValueTask>? Disposing { get; set; }
-
     public int Connects { get; private set; }
 
     public int Reads { get; private set; }
@@ -53,5 +51,4 @@ internal sealed class TestDevice() : DeviceBase(NullLogger<DeviceBase>.Instance)
         return Disconnect?.Invoke() ?? Task.CompletedTask;
     }
 
-    protected override ValueTask OnDisposingAsync() => Disposing?.Invoke() ?? ValueTask.CompletedTask;
 }

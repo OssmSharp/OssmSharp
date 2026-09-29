@@ -30,15 +30,7 @@ public sealed record DeviceState
     /// <param name="data">A serialized JSON object containing pattern, speed, stroke, depth, and sensation values.</param>
     /// <returns>The device state represented by <paramref name="data"/>.</returns>
     /// <exception cref="InvalidDataException">The payload is null, empty, larger than 512 bytes, or does not contain valid control values.</exception>
-    public static DeviceState FromBytes(byte[]? data)
-    {
-        if (TryFromBytes(data, out var state, out var errors))
-        {
-            return state;
-        }
-
-        throw new InvalidDataException(string.Join(" ", errors.Select(error => error.ErrorMessage)));
-    }
+    public static DeviceState FromBytes(byte[]? data) => FromBytes(data.AsMemory());
 
     /// <summary>
     /// Parses observed firmware controls, collecting independently detectable validation errors.
@@ -52,11 +44,24 @@ public sealed record DeviceState
     /// invalid payload size, or a non-object root produces a payload-level error without field validation.
     /// </remarks>
     public static bool TryFromBytes(byte[]? data, [NotNullWhen(true)] out DeviceState? state, out IReadOnlyList<ValidationResult> errors)
+        => TryFromBytes(data.AsMemory(), out state, out errors);
+
+    internal static DeviceState FromBytes(ReadOnlyMemory<byte> data)
+    {
+        if (TryFromBytes(data, out var state, out var errors))
+        {
+            return state;
+        }
+
+        throw new InvalidDataException(string.Join(" ", errors.Select(error => error.ErrorMessage)));
+    }
+
+    private static bool TryFromBytes(ReadOnlyMemory<byte> data, [NotNullWhen(true)] out DeviceState? state, out IReadOnlyList<ValidationResult> errors)
     {
         state = null;
         var results = new List<ValidationResult>();
         errors = results;
-        if (data is null || data.Length is 0 or > 512)
+        if (data.IsEmpty || data.Length > 512)
         {
             results.Add(new("Payload must contain between one and 512 bytes.", ["$"]));
             return false;

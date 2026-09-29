@@ -77,7 +77,7 @@ public sealed class PromptCommand
                 {
                     exitCode = 1;
                     logger.CleanupFailed("device", exception.GetType().Name);
-                    await CommandError.TryWriteAsync(error, $"ERROR during device cleanup: {exception.Message}").ConfigureAwait(false);
+                    await CommandError.TryWriteAsync(error, $"ERROR device cleanup: {exception.Message}").ConfigureAwait(false);
                 }
             }
         }

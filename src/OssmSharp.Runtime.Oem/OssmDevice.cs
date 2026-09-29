@@ -33,6 +33,7 @@ public sealed class OssmDevice : DeviceBase
     private readonly Lock sync = new();
     private readonly SemaphoreSlim writes = new(1, 1);
     private readonly Dictionary<uint, TaskCompletionSource<JsonElement>> requests = [];
+    private TaskCompletionSource? stopTransfer;
     private CompositeDisposable subscriptions = [];
     private CompositeDisposable lifecycle = [];
     private TaskCompletionSource disconnected = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -118,13 +119,13 @@ public sealed class OssmDevice : DeviceBase
         var connectIssued = false;
         events.Add(selected.WhenStatusChanged().Skip(1)
             .Where(status => status == ConnectionState.Disconnected)
-            .Subscribe(_ => ConnectionLost(new IOException("The bluetooth connection was lost.")), exception => Fail(current, exception)));
+            .Subscribe(_ => ConnectionLost(current, new IOException("The bluetooth connection was lost.")), exception => Fail(current, exception)));
         events.Add(selected.WhenConnectionFailed().Subscribe(
             exception =>
         {
             if (Volatile.Read(ref connectIssued))
             {
-                ConnectionLost(exception);
+                ConnectionLost(current, exception);
             }
         }, exception => Fail(current, exception)));
         Volatile.Write(ref connectIssued, true);
@@ -294,23 +295,6 @@ public sealed class OssmDevice : DeviceBase
         releaseFailure?.Throw();
     }
 
-    /// <inheritdoc />
-    /// <remarks>
-    /// Sends Stop while the control lease is held; nothing is sent after the connection has failed or closed.
-    /// </remarks>
-    protected override async ValueTask OnDisposingAsync()
-    {
-        lock (sync)
-        {
-            if (!active || lease == 0)
-            {
-                return;
-            }
-        }
-
-        await WriteCommandAsync(new(DeviceControl.Speed, 0), CancellationToken.None).ConfigureAwait(false);
-    }
-
     private static void ValidateProtocolInfo(byte[]? data)
     {
         try
@@ -353,8 +337,6 @@ public sealed class OssmDevice : DeviceBase
     private static TimeSpan ReadLeaseLifetime(JsonElement result) => TryGetUInt32(result, "ttlMs", out var milliseconds) && milliseconds != 0
         ? TimeSpan.FromMilliseconds(milliseconds)
         : throw new InvalidDataException("The device did not report a positive control lease lifetime.");
-
-    private static DeviceState DecodeState(byte[] payload) => DeviceState.FromBytes(payload);
 
     private async Task SubscribeAsync(
         long current,
@@ -404,6 +386,11 @@ public sealed class OssmDevice : DeviceBase
         CancellationToken cancellationToken)
     {
         var response = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var priority = operation == "setting.write" && path == "motion.speed"
+            && arguments is not null && arguments.TryGetValue("value", out var value) && value == 0
+            && !cancellationToken.CanBeCanceled
+            ? new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)
+            : null;
         IPeripheral selected;
         uint id;
         uint? token;
@@ -428,6 +415,10 @@ public sealed class OssmDevice : DeviceBase
             token = leased ? lease : null;
             selected = peripheral!;
             requests.Add(id, response);
+            if (priority is not null)
+            {
+                stopTransfer = priority;
+            }
         }
 
         try
@@ -438,23 +429,49 @@ public sealed class OssmDevice : DeviceBase
                 throw new InvalidOperationException($"The {operation} request exceeds {MaximumMessageBytes} bytes.");
             }
 
-            await writes.WaitAsync(cancellationToken).ConfigureAwait(false);
-            try
+            while (true)
             {
-                await selected
-                    .WriteCharacteristic(BleProtocolConstants.Service, BleProtocolConstants.Request, payload, withResponse: true)
-                    .ToTask()
-                    .ConfigureAwait(false);
-            }
-            finally
-            {
-                writes.Release();
+                await writes.WaitAsync(cancellationToken).ConfigureAwait(false);
+                Task? higherPriority = null;
+                try
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    lock (sync)
+                    {
+                        if (!IsCurrent(current))
+                        {
+                            throw new IOException("The bluetooth connection is no longer active.");
+                        }
+
+                        if (priority is null && stopTransfer is { Task.IsCompleted: false })
+                        {
+                            higherPriority = stopTransfer.Task;
+                        }
+                    }
+
+                    if (higherPriority is null)
+                    {
+                        await selected
+                            .WriteCharacteristic(BleProtocolConstants.Service, BleProtocolConstants.Request, payload, withResponse: true)
+                            .ToTask()
+                            .ConfigureAwait(false);
+                        break;
+                    }
+                }
+                finally
+                {
+                    writes.Release();
+                    priority?.TrySetResult();
+                }
+
+                await higherPriority.WaitAsync(cancellationToken).ConfigureAwait(false);
             }
 
-            return await response.Task.ConfigureAwait(false);
+            return await response.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
         }
         finally
         {
+            priority?.TrySetResult();
             lock (sync)
             {
                 if (requests.TryGetValue(id, out var pending) && pending == response)
@@ -531,7 +548,7 @@ public sealed class OssmDevice : DeviceBase
         try
         {
             requested = timeProvider.GetUtcNow();
-            var result = await SendRequestAsync(current, "control.acquire", null, null, leased: false, CancellationToken.None).ConfigureAwait(false);
+            var result = await SendRequestAsync(current, "control.acquire", null, null, leased: false, stopping).ConfigureAwait(false);
             if (!TryGetUInt32(result, "lease", out var token) || token == 0)
             {
                 throw new InvalidDataException("The device did not return a control lease.");
@@ -570,12 +587,16 @@ public sealed class OssmDevice : DeviceBase
             }
 
             requested = timeProvider.GetUtcNow();
-            var renewal = SendRequestAsync(current, "control.renew", null, null, leased: true, CancellationToken.None);
+            var renewal = SendRequestAsync(current, "control.renew", null, null, leased: true, stopping);
             try
             {
                 var remaining = expires - timeProvider.GetUtcNow();
                 // Issued renewal is bounded by lease expiry, not by disconnect.
                 lifetime = ReadLeaseLifetime(await renewal.WaitAsync(remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero, timeProvider, CancellationToken.None).ConfigureAwait(false));
+            }
+            catch (OperationCanceledException) when (stopping.IsCancellationRequested)
+            {
+                return;
             }
             catch (Exception exception)
             {
@@ -654,7 +675,7 @@ public sealed class OssmDevice : DeviceBase
         DeviceState observation;
         try
         {
-            observation = DecodeState(data[StreamHeaderBytes..]);
+            observation = DeviceState.FromBytes(data.AsMemory(StreamHeaderBytes));
         }
         catch (InvalidDataException exception)
         {
@@ -676,7 +697,13 @@ public sealed class OssmDevice : DeviceBase
 
         if (read is null)
         {
-            UpdateState(observation);
+            lock (sync)
+            {
+                if (IsCurrent(current))
+                {
+                    UpdateState(observation);
+                }
+            }
         }
         else
         {
@@ -688,12 +715,26 @@ public sealed class OssmDevice : DeviceBase
 
     private void ConnectionLost(Exception exception)
     {
-        TaskCompletionSource lost;
         long current;
         lock (sync)
         {
-            lost = disconnected;
             current = generation;
+        }
+
+        ConnectionLost(current, exception);
+    }
+
+    private void ConnectionLost(long current, Exception exception)
+    {
+        TaskCompletionSource lost;
+        lock (sync)
+        {
+            if (current != generation)
+            {
+                return;
+            }
+
+            lost = disconnected;
         }
 
         lost.TrySetResult();
@@ -702,17 +743,28 @@ public sealed class OssmDevice : DeviceBase
 
     private void Fail(long current, Exception exception)
     {
-        if (Abandon(current, exception))
+        CompositeDisposable owned;
+        lock (sync)
         {
-            CompositeDisposable owned;
-            lock (sync)
+            if (!IsCurrent(current))
             {
-                owned = subscriptions;
+                return;
             }
 
+            owned = subscriptions;
+        }
+
+        if (Abandon(current, exception))
+        {
             // Live notification subscriptions make Shiny reconnect; a failed connection must not be revived.
             owned.Dispose();
-            SetFaulted(exception);
+            lock (sync)
+            {
+                if (current == generation)
+                {
+                    SetFaulted(exception);
+                }
+            }
         }
     }
 

@@ -285,7 +285,7 @@ internal sealed class PromptHandler
                 await pending.ConfigureAwait(false);
             }
 
-            await output.WriteLineAsync($"OK stop: Stop command sent; pending requests cleared. {ArmedStatus}").ConfigureAwait(false);
+            await output.WriteLineAsync($"OK stop: Stop write completed; pending settings discarded; physical motion not verified. {ArmedStatus}").ConfigureAwait(false);
         });
         operations.Add(stopTask);
     }

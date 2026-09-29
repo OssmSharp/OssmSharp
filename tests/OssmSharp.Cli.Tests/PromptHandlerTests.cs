@@ -317,13 +317,14 @@ public sealed class PromptHandlerTests
         {
             Write = (command, token) =>
             {
-                token.CanBeCanceled.Should().BeFalse();
                 if (command.Control == DeviceControl.Pattern)
                 {
                     entered.TrySetResult();
+                    token.CanBeCanceled.Should().BeTrue();
                     return release.Task;
                 }
 
+                token.CanBeCanceled.Should().BeFalse();
                 stopSent.TrySetResult();
                 return Task.CompletedTask;
             },
@@ -353,6 +354,58 @@ public sealed class PromptHandlerTests
         device.Writes.Should().Equal(new DeviceCommand(DeviceControl.Pattern, 0), new DeviceCommand(DeviceControl.Speed, 0));
         output.ToString().Should().Contain("CANCELLED set: 1 commands sent").And.Contain("OK stop");
         error.ToString().Should().Contain("Sending stop command. Please wait ...");
+    }
+
+    [Fact]
+    public async Task QuitReportsNoConfirmedSettingsWhenIssuedWriteIsCancelled()
+    {
+        var issued = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var device = new TestDevice
+        {
+            Write = (command, token) =>
+            {
+                if (command.Control != DeviceControl.Pattern)
+                {
+                    return Task.CompletedTask;
+                }
+
+                issued.TrySetResult();
+                return Task.Delay(Timeout.Infinite, token);
+            },
+        };
+        var token = TestContext.Current.CancellationToken;
+        await device.ConnectAsync(token);
+        using var input = new CommandInput();
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        var run = new PromptHandler(device, input, output, error).RunAsync(token);
+        input.Send("set 0 20 50 50 25");
+        await issued.Task.WaitAsync(token);
+        input.Send("quit");
+
+        (await run.WaitAsync(token)).Should().Be(0);
+        device.Writes.Should().Equal(new DeviceCommand(DeviceControl.Pattern, 0), new DeviceCommand(DeviceControl.Speed, 0));
+        output.ToString().Should().Contain("CANCELLED set: 0 commands sent").And.Contain("OK stop")
+            .And.NotContain("CANCELLED set: 1 commands sent").And.NotContain("OK set");
+        device.IsArmed.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task FailedStopExitsWithErrorWithoutClaimingCompletion()
+    {
+        var failure = new IOException("Stop failed.");
+        await using var device = new TestDevice();
+        device.Write = (_, _) => device.Writes.Count == 1 ? Task.FromException(failure) : Task.CompletedTask;
+        await device.ConnectAsync(TestContext.Current.CancellationToken);
+        using var input = new StringReader("quit\n");
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+
+        (await new PromptHandler(device, input, output, error).RunAsync(TestContext.Current.CancellationToken)).Should().Be(1);
+
+        device.Writes.Should().Equal(new DeviceCommand(DeviceControl.Speed, 0));
+        error.ToString().Should().Contain("ERROR stop: Stop failed.").And.Contain("No rollback claimed");
+        output.ToString().Should().NotContain("OK stop");
     }
 
     [Fact]

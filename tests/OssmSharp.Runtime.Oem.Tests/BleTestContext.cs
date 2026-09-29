@@ -87,6 +87,8 @@ internal sealed class BleTestContext : IDisposable
 
     public uint Lease { get; set; } = 42;
 
+    public byte MotionStreamId { get; set; } = StreamId;
+
     public List<JsonObject> Requests { get; } = [];
 
     // Returns a custom write observable, or null to complete the request normally.
@@ -172,7 +174,7 @@ internal sealed class BleTestContext : IDisposable
         {
             if (RequestsFor("stream.start").Count > RequestsFor("stream.stop").Count)
             {
-                Publish(Motion);
+                Publish(Motion, streamId: MotionStreamId);
             }
 
             await Task.WhenAny(operation, Task.Delay(5, cancellationToken));
@@ -254,7 +256,7 @@ internal sealed class BleTestContext : IDisposable
         "control.renew" => new JsonObject { ["ttlMs"] = 10000 },
         "stream.start" => new JsonObject
         {
-            ["streamId"] = StreamId,
+            ["streamId"] = MotionStreamId,
             ["path"] = "motion.speed",
             ["surface"] = "motion",
             ["rateHz"] = 10,

@@ -7,9 +7,9 @@ namespace OssmSharp.Runtime.Oem;
 /// Owns command sequencing, last known state, arming, and the reusable connection lifecycle for a provider.
 /// </summary>
 /// <remarks>
-/// Lifecycle transitions are serialized with device I/O, except that Stop is sent without waiting for a command in progress.
-/// Providers must let commands they have sent finish before completing their hooks,
-/// including on cancellation or error. Writes update expectations, never last known state or a claim about physical motion.
+/// Lifecycle transitions are serialized with device I/O, except that Stop does not wait for an earlier response or live read.
+/// Providers must own issued transfers through settlement even when a response wait is abandoned.
+/// Writes update expectations, never last known state or a claim about physical motion.
 /// </remarks>
 public abstract class DeviceBase : IOssmDevice
 {
@@ -19,22 +19,13 @@ public abstract class DeviceBase : IOssmDevice
     private readonly ILogger<DeviceBase> logger;
     private readonly double[] expected = new double[5];
     private readonly Queue<double>[] unobserved = [new(), new(), new(), new(), new()];
-    private TaskCompletionSource drained = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    private Task stopWrites = Task.CompletedTask;
+    private Task? stop;
     private SettingsSubmission? submission;
     private DeviceState? state;
     private ExceptionDispatchInfo? providerFailure;
     private Task? disposal;
-
-    /// <summary>
-    /// Counts queued or running operations and Stop writes; <see cref="drained"/> completes when it returns to zero.
-    /// </summary>
-    private int operationCount;
-
-    /// <summary>
-    /// Counts unfinished Stop calls, including those deferred until setup completes; Reset fails while any remain.
-    /// </summary>
-    private int pendingStops;
+    private CancellationTokenSource? connectionCancellation;
+    private Task? connectionStopping;
 
     /// <summary>
     /// Increments on every disarm so Connect and Reset can detect a disarm after they captured it.
@@ -84,7 +75,6 @@ public abstract class DeviceBase : IOssmDevice
     {
         ArgumentNullException.ThrowIfNull(logger);
         this.logger = logger;
-        drained.SetResult();
     }
 
     /// <inheritdoc />
@@ -131,19 +121,32 @@ public abstract class DeviceBase : IOssmDevice
 
         await CleanupAsync().ConfigureAwait(false);
         long version;
+        CancellationTokenSource session;
         lock (sync)
         {
             ThrowIfInterrupted(attempt);
             connecting = true;
             baselinePending = true;
             cleanupPending = true;
+            connectionCancellation = session = new();
+            connectionStopping = null;
             version = disarmVersion;
         }
 
+        using var attemptCancellation = CancellationTokenSource.CreateLinkedTokenSource(token, session.Token);
         try
         {
-            await ConnectCoreAsync(token).ConfigureAwait(false);
-            UpdateState(await ReadStateAsync(token).ConfigureAwait(false));
+            await ConnectCoreAsync(attemptCancellation.Token).ConfigureAwait(false);
+            lock (sync)
+            {
+                if (!disposing)
+                {
+                    ThrowIfInterrupted(attempt);
+                }
+            }
+
+            attemptCancellation.Token.ThrowIfCancellationRequested();
+            UpdateState(await ReadStateAsync(attemptCancellation.Token).WaitAsync(attemptCancellation.Token).ConfigureAwait(false));
             bool armedByConnection;
             lock (sync)
             {
@@ -197,25 +200,41 @@ public abstract class DeviceBase : IOssmDevice
 
             throw;
         }
-    }, cancellationToken);
+    }, cancellationToken: cancellationToken);
 
     /// <inheritdoc />
     public async Task DisconnectAsync(CancellationToken cancellationToken = default)
     {
         bool changed;
         long disconnection;
+        Task? pendingStop;
+        TaskCompletionSource? started = null;
         lock (sync)
         {
             ObjectDisposedException.ThrowIf(disposing, this);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (connected && stop is not { IsCompleted: false })
+            {
+                started = new(TaskCreationOptions.RunContinuationsAsynchronously);
+                stop = started.Task;
+            }
+
+            pendingStop = stop is { IsCompleted: false } ? stop : null;
             disconnection = ++connection;
             connecting = false;
             connected = false;
             changed = DisarmLocked();
+            connectionStopping ??= connectionCancellation?.CancelAsync();
         }
 
         if (changed)
         {
             NotifyStateChanged();
+        }
+
+        if (started is not null)
+        {
+            _ = CompleteStopAsync(started);
         }
 
         await ExecuteAsync(
@@ -230,9 +249,9 @@ public abstract class DeviceBase : IOssmDevice
                 }
             }
 
-            await CleanupAsync().ConfigureAwait(false);
+            await CleanupAsync(pendingStop).ConfigureAwait(false);
             return true;
-        }, cancellationToken).ConfigureAwait(false);
+        }, cancellationToken: CancellationToken.None).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -281,8 +300,28 @@ public abstract class DeviceBase : IOssmDevice
 
                     try
                     {
-                        await WriteCommandAsync(command, CancellationToken.None).ConfigureAwait(false);
+                        await WriteCommandAsync(command, current.PendingCancellation.Token).ConfigureAwait(false);
                         current.CommandsWritten++;
+                    }
+                    catch (OperationCanceledException) when (current.PendingCancellation.IsCancellationRequested)
+                    {
+                        Exception? connectionError;
+                        lock (sync)
+                        {
+                            connectionError = providerFailure?.SourceException;
+                            if (connectionError is null)
+                            {
+                                if (current.Status == SetStatus.Completed)
+                                {
+                                    current.Status = SetStatus.Cancelled;
+                                }
+
+                                return current.Result;
+                            }
+                        }
+
+                        logger.OperationFailed("settings write", connectionError);
+                        throw new DeviceWriteException(command, current.CommandsWritten, connectionError);
                     }
                     catch (Exception exception)
                     {
@@ -301,7 +340,7 @@ public abstract class DeviceBase : IOssmDevice
 
                     return current.Result;
                 }
-            }, current.PendingCancellation.Token, requiresConnection: true).ConfigureAwait(false);
+            }, requiresConnection: true, cancellationToken: current.PendingCancellation.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (current.PendingCancellation.IsCancellationRequested || disposing)
         {
@@ -330,6 +369,7 @@ public abstract class DeviceBase : IOssmDevice
     /// <inheritdoc />
     public Task<DeviceState?> GetStateAsync(bool bypassCache = false, CancellationToken cancellationToken = default)
     {
+        CancellationToken connectionToken;
         lock (sync)
         {
             ObjectDisposedException.ThrowIf(disposing, this);
@@ -340,6 +380,7 @@ public abstract class DeviceBase : IOssmDevice
             }
 
             EnsureConnected();
+            connectionToken = connectionCancellation!.Token;
         }
 
         return ExecuteAsync<DeviceState?>(
@@ -347,7 +388,7 @@ public abstract class DeviceBase : IOssmDevice
         {
             try
             {
-                var observation = await ReadStateAsync(token).ConfigureAwait(false);
+                var observation = await ReadStateAsync(token).WaitAsync(token).ConfigureAwait(false);
                 UpdateState(observation);
                 return observation;
             }
@@ -361,33 +402,42 @@ public abstract class DeviceBase : IOssmDevice
                 logger.OperationFailed("live read", exception);
                 throw;
             }
-        }, cancellationToken, requiresConnection: true);
+        }, requiresConnection: true, connectionToken: connectionToken, cancellationToken: cancellationToken);
     }
 
     /// <inheritdoc />
-    public async Task EmergencyStopAsync(CancellationToken cancellationToken = default)
+    public Task EmergencyStopAsync(CancellationToken cancellationToken = default)
     {
         bool changed;
-        TaskCompletionSource? sent = null;
+        TaskCompletionSource? started = null;
+        Task result;
         lock (sync)
         {
             ObjectDisposedException.ThrowIf(disposing, this);
+            if (stop is { IsCompleted: false })
+            {
+                return stop;
+            }
+
             if (!connecting)
             {
                 EnsureConnected();
-                cancellationToken.ThrowIfCancellationRequested();
-
-                // Sent now, alongside any command already in progress; cleanup and disposal wait for it.
-                sent = new(TaskCreationOptions.RunContinuationsAsynchronously);
-                stopWrites = Task.WhenAll(stopWrites, sent.Task);
-                if (operationCount++ == 0)
-                {
-                    drained = new(TaskCreationOptions.RunContinuationsAsynchronously);
-                }
             }
 
+            cancellationToken.ThrowIfCancellationRequested();
             changed = DisarmLocked();
-            pendingStops++;
+            if (connecting)
+            {
+                connection++;
+                connecting = false;
+                connectionStopping ??= connectionCancellation?.CancelAsync();
+                result = Task.CompletedTask;
+            }
+            else
+            {
+                started = new(TaskCreationOptions.RunContinuationsAsynchronously);
+                result = stop = started.Task;
+            }
         }
 
         if (changed)
@@ -395,36 +445,12 @@ public abstract class DeviceBase : IOssmDevice
             NotifyStateChanged();
         }
 
-        try
+        if (started is not null)
         {
-            if (sent is null)
-            {
-                // Stop during setup prevents arming and is sent once the connection is established.
-                await ExecuteAsync(
-                    async _ =>
-                {
-                    await WriteStopAsync().ConfigureAwait(false);
-                    return true;
-                }, cancellationToken, requiresConnection: true).ConfigureAwait(false);
-            }
-            else
-            {
-                await WriteStopAsync().ConfigureAwait(false);
-            }
+            _ = CompleteStopAsync(started);
         }
-        finally
-        {
-            lock (sync)
-            {
-                pendingStops--;
-                if (sent is not null && --operationCount == 0)
-                {
-                    drained.TrySetResult();
-                }
-            }
 
-            sent?.TrySetResult();
-        }
+        return result;
     }
 
     /// <inheritdoc />
@@ -434,6 +460,11 @@ public abstract class DeviceBase : IOssmDevice
         lock (sync)
         {
             EnsureConnected();
+            if (stop is { IsCompleted: false })
+            {
+                throw new InvalidOperationException("Reset was interrupted by disarming or Stop; explicitly reset again after it completes.");
+            }
+
             version = disarmVersion;
         }
 
@@ -443,7 +474,7 @@ public abstract class DeviceBase : IOssmDevice
             bool changed;
             lock (sync)
             {
-                if (pendingStops != 0 || version != disarmVersion)
+                if (stop is { IsCompleted: false } || version != disarmVersion)
                 {
                     throw new InvalidOperationException("Reset was interrupted by disarming or Stop; explicitly reset again after it completes.");
                 }
@@ -458,31 +489,50 @@ public abstract class DeviceBase : IOssmDevice
             }
 
             return Task.FromResult(true);
-        }, cancellationToken, requiresConnection: true);
+        }, requiresConnection: true, cancellationToken: cancellationToken);
     }
 
     /// <summary>
-    /// Disarms, discards commands not yet sent, waits for sent commands to finish, runs <see cref="OnDisposingAsync"/>,
-    /// releases connection resources and subscribers, and prevents reconnection.
+    /// Disarms, discards commands not yet sent, sends or joins Stop, releases connection resources and subscribers,
+    /// and prevents reconnection.
     /// </summary>
     /// <returns>Completion of cleanup; repeated calls observe the same cleanup result.</returns>
     public ValueTask DisposeAsync()
     {
         GC.SuppressFinalize(this);
+        TaskCompletionSource? started = null;
+        Task? pendingStop;
+        Task disposingTask;
+        bool changed;
         lock (sync)
         {
-            if (disposal is null)
+            if (disposal is not null)
             {
-                disposing = true;
-                connection++;
-                connecting = false;
-                connected = false;
-                var changed = DisarmLocked();
-                disposal = CompleteDisposalAsync(drained.Task, shutdown.CancelAsync(), changed);
+                return new(disposal);
             }
 
-            return new(disposal);
+            if (connected && stop is not { IsCompleted: false })
+            {
+                started = new(TaskCreationOptions.RunContinuationsAsynchronously);
+                stop = started.Task;
+            }
+
+            pendingStop = stop is { IsCompleted: false } ? stop : null;
+            disposing = true;
+            connection++;
+            connecting = false;
+            connected = false;
+            changed = DisarmLocked();
+            connectionStopping ??= connectionCancellation?.CancelAsync();
+            disposingTask = disposal = CompleteDisposalAsync(pendingStop, shutdown.CancelAsync(), changed);
         }
+
+        if (started is not null)
+        {
+            _ = CompleteStopAsync(started);
+        }
+
+        return new(disposingTask);
     }
 
     /// <summary>
@@ -502,10 +552,11 @@ public abstract class DeviceBase : IOssmDevice
     /// <param name="command">The already validated firmware control assignment.</param>
     /// <param name="cancellationToken" />
     /// <remarks>
-    /// Complete only after a sent command finishes, even on cancellation. Do not interpret patterns or accept complete settings here.
-    /// A Stop (speed zero) can be sent while another command or live read is still in progress.
+    /// A cancelled setting may abandon its terminal response, but its issued transfer must settle before this hook returns.
+    /// Stop uses an uncancellable token and awaits its terminal response without waiting for an earlier response or live read.
+    /// Do not interpret patterns or accept complete settings here.
     /// </remarks>
-    /// <returns>Completion of the issued write, not confirmation of physical motion.</returns>
+    /// <returns>Completion of the issued transfer and, unless abandoned, its terminal response; not confirmation of physical motion.</returns>
     protected abstract Task WriteCommandAsync(DeviceCommand command, CancellationToken cancellationToken);
 
     /// <summary>
@@ -523,16 +574,6 @@ public abstract class DeviceBase : IOssmDevice
     /// Tolerate repeated calls and keep the provider instance reusable for another <see cref="ConnectCoreAsync"/>.
     /// </remarks>
     protected abstract Task DisconnectCoreAsync();
-
-    /// <summary>
-    /// Performs provider disposal work while any connection is still open, such as a final Stop.
-    /// </summary>
-    /// <returns>Completion of the provider's disposal work.</returns>
-    /// <remarks>
-    /// Called once, after sent commands finish and before <see cref="DisconnectCoreAsync"/>. Runtime is already disarmed and
-    /// may have no connection. A failure propagates from <see cref="DisposeAsync"/> after connection resources are released.
-    /// </remarks>
-    protected virtual ValueTask OnDisposingAsync() => ValueTask.CompletedTask;
 
     /// <summary>
     /// Records failure of the current connection, disarms, and discards settings not yet sent, without sending anything.
@@ -609,17 +650,13 @@ public abstract class DeviceBase : IOssmDevice
         }
     }
 
-    private async Task<T> ExecuteAsync<T>(Func<CancellationToken, Task<T>> operation, CancellationToken cancellationToken, bool requiresConnection = false)
+    private async Task<T> ExecuteAsync<T>(Func<CancellationToken, Task<T>> operation, bool requiresConnection = false, CancellationToken connectionToken = default, CancellationToken cancellationToken = default)
     {
         CancellationTokenSource waiting;
         lock (sync)
         {
             ObjectDisposedException.ThrowIf(disposing, this);
-            waiting = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, shutdown.Token);
-            if (operationCount++ == 0)
-            {
-                drained = new(TaskCreationOptions.RunContinuationsAsynchronously);
-            }
+            waiting = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, shutdown.Token, connectionToken);
         }
 
         try
@@ -646,13 +683,6 @@ public abstract class DeviceBase : IOssmDevice
         finally
         {
             waiting.Dispose();
-            lock (sync)
-            {
-                if (--operationCount == 0)
-                {
-                    drained.TrySetResult();
-                }
-            }
         }
     }
 
@@ -781,9 +811,10 @@ public abstract class DeviceBase : IOssmDevice
         }
     }
 
-    private async Task CleanupAsync()
+    private async Task CleanupAsync(Task? joinedStop = null)
     {
-        Task stops;
+        Task? pendingStop;
+        Task? stopping;
         lock (sync)
         {
             if (!cleanupPending)
@@ -791,14 +822,75 @@ public abstract class DeviceBase : IOssmDevice
                 return;
             }
 
-            stops = stopWrites;
+            pendingStop = joinedStop ?? (stop is { IsCompleted: false } ? stop : null);
+            stopping = connectionStopping;
         }
 
-        await stops.ConfigureAwait(false);
-        await DisconnectCoreAsync().ConfigureAwait(false);
+        List<Exception> failures = [];
+        try
+        {
+            if (stopping is not null)
+            {
+                await stopping.ConfigureAwait(false);
+            }
+        }
+        catch (Exception exception)
+        {
+            failures.Add(exception);
+        }
+
+        try
+        {
+            if (pendingStop is not null)
+            {
+                await pendingStop.ConfigureAwait(false);
+            }
+        }
+        catch (Exception exception)
+        {
+            failures.Add(exception);
+        }
+
+        try
+        {
+            await DisconnectCoreAsync().ConfigureAwait(false);
+        }
+        catch (Exception cleanupError) when (failures.Count > 0)
+        {
+            failures.Add(cleanupError);
+            throw new AggregateException("Cancellation, Stop, and cleanup failed.", failures);
+        }
+
         lock (sync)
         {
             cleanupPending = false;
+            connectionCancellation?.Dispose();
+            connectionCancellation = null;
+            connectionStopping = null;
+            stop = null;
+        }
+
+        if (failures.Count > 1)
+        {
+            throw new AggregateException("Cancellation and Stop failed.", failures);
+        }
+
+        if (failures.Count == 1)
+        {
+            ExceptionDispatchInfo.Capture(failures[0]).Throw();
+        }
+    }
+
+    private async Task CompleteStopAsync(TaskCompletionSource completion)
+    {
+        try
+        {
+            await WriteStopAsync().ConfigureAwait(false);
+            completion.TrySetResult();
+        }
+        catch (Exception exception)
+        {
+            completion.TrySetException(exception);
         }
     }
 
@@ -842,7 +934,7 @@ public abstract class DeviceBase : IOssmDevice
         }
     }
 
-    private async Task CompleteDisposalAsync(Task pending, Task cancellation, bool changed)
+    private async Task CompleteDisposalAsync(Task? pendingStop, Task cancellation, bool changed)
     {
         await Task.Yield();
         try
@@ -853,27 +945,15 @@ public abstract class DeviceBase : IOssmDevice
             }
 
             await cancellation.ConfigureAwait(false);
-            await pending.ConfigureAwait(false);
-            ExceptionDispatchInfo? providerDisposalFailure = null;
+            await io.WaitAsync().ConfigureAwait(false);
             try
             {
-                await OnDisposingAsync().ConfigureAwait(false);
+                await CleanupAsync(pendingStop).ConfigureAwait(false);
             }
-            catch (Exception exception)
+            finally
             {
-                providerDisposalFailure = ExceptionDispatchInfo.Capture(exception);
+                io.Release();
             }
-
-            try
-            {
-                await CleanupAsync().ConfigureAwait(false);
-            }
-            catch (Exception cleanupError) when (providerDisposalFailure is not null)
-            {
-                throw new AggregateException("Provider disposal and cleanup both failed.", providerDisposalFailure.SourceException, cleanupError);
-            }
-
-            providerDisposalFailure?.Throw();
         }
         finally
         {

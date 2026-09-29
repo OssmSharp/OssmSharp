@@ -75,7 +75,7 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
         selectedIdentifiers.Should().Equal("Device-A");
         context.Scans.Should().Be(1);
         device.IsArmed.Should().BeFalse();
-        device.Writes.Should().Equal(new DeviceCommand(DeviceControl.Speed, 0));
+        device.Writes.Should().Equal(new DeviceCommand(DeviceControl.Speed, 0), new DeviceCommand(DeviceControl.Speed, 0));
         device.Disconnects.Should().Be(1);
         error.ToString().Should().Contain("Connected. Armed: yes. Help lists commands.");
     }
@@ -86,7 +86,7 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
         var factoryCalls = 0;
         await using var device = new TestDevice
         {
-            Connect = _ => Task.FromException(new InvalidOperationException("The selected bluetooth device is unavailable.")),
+            Connect = _ => Task.FromException(new InvalidOperationException("The selected bluetooth device is unavailable. Discover devices again before connecting.")),
         };
         createDevice = selected =>
         {
@@ -102,7 +102,7 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
         device.Writes.Should().BeEmpty();
         output.ToString().Should().BeEmpty();
         error.ToString().Should().Contain("ERROR prompt: The selected bluetooth device is unavailable.")
-            .And.Contain("OssmSharp.Cli list").And.NotContain("Searching").And.NotContain("Connected.");
+            .And.Contain("Discover devices again before connecting.").And.NotContain("Searching").And.NotContain("Connected.");
     }
 
     [Fact]
@@ -166,7 +166,7 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
         context.Scans.Should().Be(identifier is null ? 1 : 0);
         selectedIdentifiers.Should().Equal(identifier ?? "Device-A");
         device.Disconnects.Should().Be(1);
-        device.Writes.Should().Equal(new DeviceCommand(DeviceControl.Speed, 0));
+        device.Writes.Should().Equal(new DeviceCommand(DeviceControl.Speed, 0), new DeviceCommand(DeviceControl.Speed, 0));
         output.ToString().Should().Contain("OK stop").And.NotContain("OK set");
         error.ToString().Should().Contain("Connected. Armed: yes").And.Contain("Sending stop command. Please wait ...").And.NotContain("ERROR");
     }
@@ -224,7 +224,7 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
 
             (await Component.RunAsync("Device-A", TestContext.Current.CancellationToken)).Should().Be(1);
             device.Disconnects.Should().Be(1);
-            device.Writes.Should().Equal(new DeviceCommand(DeviceControl.Speed, 0));
+            device.Writes.Should().Equal(new DeviceCommand(DeviceControl.Speed, 0), new DeviceCommand(DeviceControl.Speed, 0));
             error.ToString().Should().Contain("Connected. Armed: yes").And.Contain("ERROR device cleanup: disconnect failed")
                 .And.NotContain("ERROR prompt");
         }
@@ -233,6 +233,56 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
             cleanupFailureObserved = true;
         }
 
+        cleanupFailureObserved.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task PromptStopFailureDuringQuitReturnsOneAfterDisposal()
+    {
+        var failure = new IOException("Stop failed during quit.");
+        await using var device = new TestDevice();
+        device.Write = (_, _) => device.Writes.Count == 1 ? Task.FromException(failure) : Task.CompletedTask;
+        createDevice = _ => device;
+        input.Send("quit");
+
+        (await Component.RunAsync("Device-A", TestContext.Current.CancellationToken)).Should().Be(1);
+
+        device.Writes.Should().Equal(new DeviceCommand(DeviceControl.Speed, 0), new DeviceCommand(DeviceControl.Speed, 0));
+        device.Disconnects.Should().Be(1);
+        error.ToString().Should().Contain("ERROR stop: Stop failed during quit.").And.NotContain("ERROR device cleanup");
+        output.ToString().Should().NotContain("OK stop");
+    }
+
+    [Fact]
+    public async Task PromptDisposalStopFailureReturnsOneAndIsRepeated()
+    {
+        var failure = new IOException("Stop failed during disposal.");
+        var assertionsCompleted = false;
+        var cleanupFailureObserved = false;
+        try
+        {
+            await using var device = new TestDevice();
+            device.Write = (_, _) => device.Writes.Count == 2 ? Task.FromException(failure) : Task.CompletedTask;
+            createDevice = _ => device;
+            input.Send("quit");
+
+            (await Component.RunAsync("Device-A", TestContext.Current.CancellationToken)).Should().Be(1);
+
+            device.Writes.Should().Equal(new DeviceCommand(DeviceControl.Speed, 0), new DeviceCommand(DeviceControl.Speed, 0));
+            device.Disconnects.Should().Be(1);
+            output.ToString().Should().Contain("OK stop");
+            error.ToString().Should().Contain("ERROR device cleanup: Stop failed during disposal.").And.NotContain("ERROR stop:");
+            var repeated = () => device.DisposeAsync().AsTask();
+            (await repeated.Should().ThrowAsync<IOException>()).Which.Should().BeSameAs(failure);
+            device.Writes.Should().HaveCount(2);
+            assertionsCompleted = true;
+        }
+        catch (IOException exception) when (ReferenceEquals(exception, failure))
+        {
+            cleanupFailureObserved = true;
+        }
+
+        assertionsCompleted.Should().BeTrue();
         cleanupFailureObserved.Should().BeTrue();
     }
 
@@ -278,7 +328,9 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
 
         (await run).Should().Be(0);
         device.Disconnects.Should().Be(1);
-        device.Writes.Should().Equal(cancel ? [] : [new DeviceCommand(DeviceControl.Speed, 0)]);
+        device.Writes.Should().Equal(cancel
+            ? [new DeviceCommand(DeviceControl.Speed, 0)]
+            : [new DeviceCommand(DeviceControl.Speed, 0), new DeviceCommand(DeviceControl.Speed, 0)]);
         error.ToString().Should().NotContain("ERROR");
     }
 }
