@@ -11,7 +11,7 @@ internal static class Program
 
     internal static async Task<int> InvokeAsync(string[] args, TextWriter output, TextWriter error)
     {
-        var root = new RootCommand("Discover OEM OSSM devices or open a terminal prompt. Connection never arms or sends settings.");
+        var root = new RootCommand("Discover OSSM devices or open a terminal prompt. Connection never arms or sends settings.");
         var list = new Command("list", "List discovered device identifiers and names without connecting.");
         list.SetAction((_, token) => HostRunner.RunAsync(
             (services, operationToken) => services.GetRequiredService<ListCommand>().RunAsync(operationToken),

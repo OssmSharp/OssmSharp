@@ -40,7 +40,7 @@ public sealed class ListCommand(
         catch (Exception exception)
         {
             logger.CommandFailed("list", exception.GetType().Name);
-            await CommandError.TryWriteAsync(error, $"ERROR discovery: {exception.Message} Check Bluetooth access and retry OssmSharp.Cli list.").ConfigureAwait(false);
+            await CommandError.TryWriteAsync(error, $"ERROR discovery: {exception.Message} Check bluetooth access and retry OssmSharp.Cli list.").ConfigureAwait(false);
             return 1;
         }
     }

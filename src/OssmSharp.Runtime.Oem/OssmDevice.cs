@@ -10,11 +10,11 @@ using Shiny.BluetoothLE;
 namespace OssmSharp.Runtime.Oem;
 
 /// <summary>
-/// Supplies OEM Bluetooth operations while Runtime owns settings execution, state, and arming.
+/// Supplies bluetooth operations while Runtime owns settings execution, state, and arming.
 /// </summary>
 /// <remarks>
-/// Native hosts must target Windows or macOS and provide platform Bluetooth permissions.
-/// Use <see cref="ServiceCollectionExtensions.AddOemRuntime"/> when composing the native host so Shiny delivers teardown callbacks.
+/// Native hosts must target Windows or macOS and provide platform bluetooth permissions.
+/// Register the native host through the service collection extension so Shiny delivers teardown callbacks.
 /// macOS reads temporarily detach notifications and await their detachment to avoid Shiny 5.7.2's shared read/notification callback.
 /// A firmware acknowledgement is not a state observation and is surfaced as a read error, never cached success.
 /// </remarks>
@@ -36,7 +36,7 @@ public sealed class OssmDevice : DeviceBase
     /// <summary>
     /// Initializes a caller-owned device selected by its discovered platform identifier.
     /// </summary>
-    /// <param name="manager">The host-owned Bluetooth manager used for discovery.</param>
+    /// <param name="manager">The host-owned bluetooth manager used for discovery.</param>
     /// <param name="identifier">The opaque identifier returned by <see cref="DeviceDiscovery"/>.</param>
     /// <param name="logger">The operational logger for Runtime's execution owner.</param>
     public OssmDevice(IBleManager manager, string identifier, ILogger<DeviceBase> logger)
@@ -65,19 +65,19 @@ public sealed class OssmDevice : DeviceBase
         cancellationToken.ThrowIfCancellationRequested();
         if (access != AccessState.Available)
         {
-            throw new InvalidOperationException($"Bluetooth access is {access}. Enable Bluetooth and grant the application Bluetooth permission.");
+            throw new InvalidOperationException($"Bluetooth access is {access}. Enable bluetooth and grant the application bluetooth permission.");
         }
 
         var selected = manager.GetKnownPeripheral(identifier)
-            ?? throw new InvalidOperationException("The selected Bluetooth device is unavailable. Discover devices again before connecting.");
+            ?? throw new InvalidOperationException("The selected bluetooth device is unavailable. Discover devices again before connecting.");
         if (selected.Status != ConnectionState.Disconnected)
         {
-            throw new InvalidOperationException("The selected Bluetooth device is already in use by another connection.");
+            throw new InvalidOperationException("The selected bluetooth device is already in use by another connection.");
         }
 
         if (!Owners.TryAdd(selected, this))
         {
-            throw new InvalidOperationException("The selected Bluetooth device is already owned by another OEM connection.");
+            throw new InvalidOperationException("The selected bluetooth device is already owned by another connection.");
         }
 
         peripheral = selected;
@@ -112,7 +112,7 @@ public sealed class OssmDevice : DeviceBase
                     }
                     else if (Volatile.Read(ref subscriptionRequested))
                     {
-                        NotificationFailed(new IOException("The OEM Bluetooth state subscription could not be enabled or was lost."));
+                        NotificationFailed(new IOException("The bluetooth state subscription could not be enabled or was lost."));
                     }
                 }, NotificationFailed));
 
@@ -161,7 +161,7 @@ public sealed class OssmDevice : DeviceBase
             notifications.Disposable = Disposable.Empty;
             if (await detached.Task.ConfigureAwait(false))
             {
-                throw new IOException("The OEM Bluetooth state notifications could not be detached before a live read.");
+                throw new IOException("Bluetooth state notifications could not be detached before a live read.");
             }
 
             return await ReadControlsAsync().ConfigureAwait(false);
@@ -213,7 +213,7 @@ public sealed class OssmDevice : DeviceBase
                 {
                     NotificationFailed(exception);
                 }
-            }, NotificationFailed, () => NotificationFailed(new IOException("The OEM Bluetooth state subscription ended.")));
+            }, NotificationFailed, () => NotificationFailed(new IOException("The bluetooth state subscription ended.")));
         await ready.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -227,7 +227,7 @@ public sealed class OssmDevice : DeviceBase
     private void Disconnected()
     {
         disconnected.TrySetResult();
-        NotificationFailed(new IOException("The OEM Bluetooth connection was lost. Dispose the device and reconnect."));
+        NotificationFailed(new IOException("The bluetooth connection was lost. Dispose the device and reconnect."));
     }
 
     [SuppressMessage("Usage", "CA1849", Justification = "Shiny's Async wrapper adds a timeout that abandons issued GATT I/O; the raw asynchronous read is awaited to settlement.")]

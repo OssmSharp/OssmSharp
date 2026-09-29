@@ -86,7 +86,7 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
         var factoryCalls = 0;
         await using var device = new TestDevice
         {
-            Connect = _ => Task.FromException(new InvalidOperationException("The selected Bluetooth device is unavailable.")),
+            Connect = _ => Task.FromException(new InvalidOperationException("The selected bluetooth device is unavailable.")),
         };
         createDevice = selected =>
         {
@@ -101,7 +101,7 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
         device.Disconnects.Should().Be(1);
         device.Writes.Should().BeEmpty();
         output.ToString().Should().BeEmpty();
-        error.ToString().Should().Contain("ERROR prompt: The selected Bluetooth device is unavailable.")
+        error.ToString().Should().Contain("ERROR prompt: The selected bluetooth device is unavailable.")
             .And.Contain("OssmSharp.Cli list").And.NotContain("Searching").And.NotContain("Connected.");
     }
 

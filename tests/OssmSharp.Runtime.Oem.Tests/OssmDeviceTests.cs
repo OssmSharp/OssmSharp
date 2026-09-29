@@ -244,6 +244,24 @@ public sealed class OssmDeviceTests
     }
 
     [Fact]
+    public async Task InitialCompactStateIsReplacedByFullReadWithoutArmingOrWriting()
+    {
+        using var context = new BleTestContext();
+        await using var device = context.CreateDevice();
+        var token = TestContext.Current.CancellationToken;
+        context.Read = () => Observable.Return(BleTestContext.StateResult(context.Reads == 1
+            ? Encoding.UTF8.GetBytes("""{"state":"menu","v":1,"sequence":0,"uptimeMs":1,"activeOperation":null,"lease":{"active":false}}""")
+            : context.StateData));
+
+        await device.ConnectAsync(token);
+
+        context.Reads.Should().Be(2);
+        context.Writes.Should().BeEmpty();
+        device.IsArmed.Should().BeFalse();
+        (await device.GetStateAsync(cancellationToken: token)).Should().Be(new DeviceState(new(0, 0, 50, 10, 50)));
+    }
+
+    [Fact]
     public async Task SendsOneWritePerPrimitiveAndStopUsesTheSameCharacteristic()
     {
         using var context = new BleTestContext();

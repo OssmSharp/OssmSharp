@@ -5,17 +5,17 @@ using Shiny.BluetoothLE;
 namespace OssmSharp.Runtime.Oem;
 
 /// <summary>
-/// Registers OEM discovery and caller-owned device creation with the application's service collection.
+/// Registers device discovery and caller-owned device creation with the application's service collection.
 /// </summary>
 public static class ServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers Shiny Bluetooth, discovery, and a factory accepting a discovered identifier and returning <see cref="DeviceBase"/>.
+    /// Registers Shiny bluetooth, discovery, and a factory accepting a discovered identifier and returning <see cref="DeviceBase"/>.
     /// </summary>
     /// <param name="services">The application's service collection.</param>
     /// <returns>The same collection for composition.</returns>
     /// <remarks>
-    /// Native Bluetooth requires a Windows or macOS target and the host's platform permissions.
+    /// Native bluetooth requires a Windows or macOS target and the host's platform permissions.
     /// The portable target accepts an explicitly registered <see cref="IBleManager"/> for tests or host composition.
     /// Registers Shiny lifecycle callbacks needed to await native cancellation, including a pending macOS connection.
     /// The factory's caller must asynchronously dispose each device; it does not own the shared manager.
@@ -28,7 +28,7 @@ public static class ServiceCollectionExtensions
 #if WINDOWS || MACOS
             services.AddBluetoothLE();
 #else
-            throw new PlatformNotSupportedException("Native OEM Bluetooth requires a Windows or macOS target, or an explicitly registered IBleManager.");
+            throw new PlatformNotSupportedException("Native bluetooth requires a Windows or macOS target, or an explicitly registered IBleManager.");
 #endif
         }
 

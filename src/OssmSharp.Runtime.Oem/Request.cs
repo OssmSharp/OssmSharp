@@ -9,7 +9,7 @@ namespace OssmSharp.Runtime.Oem;
 public static class Request
 {
     /// <summary>
-    /// Encodes a single assignment in the OEM firmware's UTF-8 command format.
+    /// Encodes a single assignment in the device firmware's UTF-8 command format.
     /// </summary>
     /// <param name="command">The validated control assignment.</param>
     /// <returns>The command bytes, with no terminator or additional commands.</returns>
