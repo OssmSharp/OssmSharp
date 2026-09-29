@@ -92,7 +92,7 @@ public sealed class DeviceDiscovery
             var stopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var completion = new TaskCompletionSource<IList<DiscoveredDevice>>(TaskCreationOptions.RunContinuationsAsynchronously);
             using var scan = manager
-                .Scan(new ScanConfig(BleProtocol.Service))
+                .Scan(new ScanConfig(BleProtocolConstants.Service))
                 .Finally(() => stopped.TrySetResult())
                 .TakeUntil(Observable.FromAsync(token => Task.Delay(TimeSpan.FromSeconds(5), timeProvider, token)))
                 .Distinct(result => result.Peripheral.Uuid, StringComparer.OrdinalIgnoreCase)

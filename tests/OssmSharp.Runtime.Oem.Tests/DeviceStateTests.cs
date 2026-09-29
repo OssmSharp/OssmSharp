@@ -52,12 +52,12 @@ public sealed class DeviceStateTests
     }
 
     [Theory]
-    [InlineData("1.5")]
     [InlineData("2147483648")]
     [InlineData("true")]
+    [InlineData("\"20\"")]
     [InlineData("[]")]
     [InlineData("{}")]
-    public void ReturnsFieldErrorsForNonIntegerValues(string value)
+    public void ReturnsFieldErrorsForInvalidPercentages(string value)
     {
         var payload = Encoding.UTF8.GetBytes($$"""{"pattern":0,"speed":{{value}},"stroke":0,"depth":0,"sensation":0}""");
 
@@ -66,6 +66,31 @@ public sealed class DeviceStateTests
         success.Should().BeFalse();
         state.Should().BeNull();
         errors.Should().ContainSingle().Which.MemberNames.Should().Equal("speed");
+    }
+
+    [Theory]
+    [InlineData("1.5")]
+    [InlineData("2147483648")]
+    [InlineData("\"1\"")]
+    [InlineData("-1")]
+    [InlineData("7")]
+    public void ReturnsFieldErrorsForInvalidPatterns(string value)
+    {
+        var payload = Encoding.UTF8.GetBytes($$"""{"pattern":{{value}},"speed":0,"stroke":0,"depth":0,"sensation":0}""");
+
+        var success = DeviceState.TryFromBytes(payload, out var state, out var errors);
+
+        success.Should().BeFalse();
+        state.Should().BeNull();
+        errors.Should().ContainSingle().Which.MemberNames.Should().Equal("pattern");
+    }
+
+    [Fact]
+    public void ParsesFractionalPercentages()
+    {
+        var payload = Encoding.UTF8.GetBytes("""{"pattern":3,"speed":12.5,"stroke":0.25,"depth":99.75,"sensation":50}""");
+
+        DeviceState.FromBytes(payload).Should().Be(new DeviceState(new MotionSettings(StrokePattern.HalfNHalf, 12.5, 0.25, 99.75, 50)));
     }
 
     [Fact]
@@ -83,14 +108,14 @@ public sealed class DeviceStateTests
     [Fact]
     public void ParsesBoundaryValuesAndIgnoresUnknownFields()
     {
-        var json = """{"pattern":2147483647,"speed":0,"stroke":100,"depth":0,"sensation":100,"extra":true}""";
+        var json = """{"pattern":6,"speed":0,"stroke":100,"depth":0,"sensation":100,"extra":true}""";
         var payload = Encoding.UTF8.GetBytes(json.PadRight(512));
 
         var success = DeviceState.TryFromBytes(payload, out var state, out var errors);
 
         success.Should().BeTrue();
         errors.Should().BeEmpty();
-        state.Should().Be(new DeviceState(new MotionSettings(int.MaxValue, 0, 100, 0, 100)));
+        state.Should().Be(new DeviceState(new MotionSettings(StrokePattern.Insist, 0, 100, 0, 100)));
         DeviceState.FromBytes(payload).Should().Be(state);
     }
 }

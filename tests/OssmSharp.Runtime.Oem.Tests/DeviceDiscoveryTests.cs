@@ -25,7 +25,7 @@ public sealed class DeviceDiscoveryTests
         clock.Advance(TimeSpan.FromSeconds(1));
 
         (await scan).Should().Equal(new DiscoveredDevice("device-1", "OSSM"));
-        context.ScanConfiguration!.ServiceUuids.Should().Equal(BleProtocol.Service);
+        context.ScanConfiguration!.ServiceUuids.Should().Equal(BleProtocolConstants.Service);
         context.ScanDisposals.Should().Be(1);
         context.ScanResults.HasObservers.Should().BeFalse();
         context.Peripheral.Verify(peripheral => peripheral.Connect(It.IsAny<ConnectionConfig>()), Times.Never);
@@ -47,7 +47,7 @@ public sealed class DeviceDiscoveryTests
             context.ScanResults.HasObservers.Should().BeFalse();
             (await scan.WaitAsync(TestContext.Current.CancellationToken)).Should().Be(new DiscoveredDevice("device-1", "OSSM"));
             context.ScanDisposals.Should().Be(1);
-            context.ScanConfiguration!.ServiceUuids.Should().Equal(BleProtocol.Service);
+            context.ScanConfiguration!.ServiceUuids.Should().Equal(BleProtocolConstants.Service);
             context.Peripheral.Verify(peripheral => peripheral.Connect(It.IsAny<ConnectionConfig>()), Times.Never);
         }
         finally

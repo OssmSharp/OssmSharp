@@ -18,7 +18,7 @@ public static class ServiceCollectionExtensions
     /// Native bluetooth requires a Windows or macOS target and the host's platform permissions.
     /// The portable target accepts an explicitly registered <see cref="IBleManager"/> for tests or host composition.
     /// Registers Shiny lifecycle callbacks needed to await native cancellation, including a pending macOS connection.
-    /// The factory's caller must asynchronously dispose each device; it does not own the shared manager.
+    /// The factory's caller must asynchronously dispose each device, which may reconnect until disposed; it does not own the shared manager.
     /// </remarks>
     public static IServiceCollection AddOemRuntime(this IServiceCollection services)
     {
@@ -39,7 +39,10 @@ public static class ServiceCollectionExtensions
 
         // TODO: make a better factory method.
         services.AddSingleton<Func<string, DeviceBase>>(provider => identifier => new OssmDevice(
-            provider.GetRequiredService<IBleManager>(), identifier, provider.GetRequiredService<ILogger<DeviceBase>>()));
+            provider.GetRequiredService<IBleManager>(),
+            identifier,
+            provider.GetRequiredService<TimeProvider>(),
+            provider.GetRequiredService<ILogger<DeviceBase>>()));
         return services;
     }
 }

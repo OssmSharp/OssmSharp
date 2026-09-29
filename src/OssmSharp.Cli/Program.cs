@@ -11,8 +11,8 @@ internal static class Program
 
     internal static async Task<int> InvokeAsync(string[] args, TextWriter output, TextWriter error)
     {
-        var root = new RootCommand("Discover OSSM devices or open a terminal prompt. Connection never arms or sends settings.");
-        var list = new Command("list", "List discovered device identifiers and names without connecting.");
+        var root = new RootCommand("Connect to and control an OSSM device.");
+        var list = new Command("list", "Lists nearby discovered OSSM devices and their identifiers.");
         list.SetAction((_, token) => HostRunner.RunAsync(
             (services, operationToken) => services.GetRequiredService<ListCommand>().RunAsync(operationToken),
             output,
@@ -20,10 +20,10 @@ internal static class Program
             token));
         root.Subcommands.Add(list);
 
-        var prompt = new Command("prompt", "Connect to the specified or first discovered device.");
+        var prompt = new Command("prompt", "Create a prompt to send commands to a specific device or a nearby device.");
         var device = new Option<string?>("--device")
         {
-            Description = "Device identifier (GUID). It can be obtained from running \"list\". If omitted, it will try to connect to the first discovered device.",
+            Description = "Device identifier (GUID). It can be obtained from running \"list\". If omitted, it will try to connect to the first discovered nearby device.",
             Arity = ArgumentArity.ExactlyOne,
         };
         device.Validators.Add(result =>
@@ -39,7 +39,7 @@ internal static class Program
             var identifier = parsed.GetValue(device);
             if (Console.IsInputRedirected)
             {
-                await error.WriteLineAsync("ERROR input: prompt requires terminal stdin. Run OssmSharp.Cli prompt in a terminal without piping or redirecting stdin; stdout and stderr may be redirected.").ConfigureAwait(false);
+                await error.WriteLineAsync("ERROR: prompt required stdin. Run it again in a terminal without piping or redirecting stdin; stdout and stderr may be redirected.").ConfigureAwait(false);
                 return 1;
             }
 

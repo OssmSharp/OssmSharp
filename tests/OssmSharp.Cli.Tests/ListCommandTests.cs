@@ -87,7 +87,7 @@ public sealed class ListCommandTests : MockerTestBase<ListCommand>, IAsyncDispos
         (await run).Should().Be(1);
         context.ScanDisposals.Should().Be(1);
         output.ToString().Should().BeEmpty();
-        error.ToString().Should().Contain("Searching").And.Contain("ERROR discovery: scan failed").And.Contain("Bluetooth access");
+        error.ToString().Should().Contain("Searching").And.Contain("ERROR discovery: scan failed").And.Contain("bluetooth access");
         var entry = logger.Entries.Should().ContainSingle().Subject;
         entry.Id.Id.Should().Be(3);
         entry.Level.Should().Be(LogLevel.Error);

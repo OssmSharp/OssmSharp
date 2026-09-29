@@ -8,17 +8,17 @@ public sealed record MotionSettings
     /// <summary>
     /// Initializes a complete set of control arguments. Construction sends nothing.
     /// </summary>
-    /// <param name="pattern">A nonnegative firmware pattern identifier.</param>
+    /// <param name="pattern">A defined firmware stroke pattern.</param>
     /// <param name="speed">The speed argument from zero through 100 percent.</param>
     /// <param name="stroke">The stroke argument from zero through 100 percent.</param>
     /// <param name="depth">The depth argument from zero through 100 percent.</param>
     /// <param name="sensation">The sensation argument from zero through 100 percent.</param>
-    /// <exception cref="ArgumentOutOfRangeException">An argument is outside its basic range or is not finite.</exception>
-    public MotionSettings(int pattern, double speed, double stroke, double depth, double sensation)
+    /// <exception cref="ArgumentOutOfRangeException">The pattern is undefined, or a percentage is outside its basic range or is not finite.</exception>
+    public MotionSettings(StrokePattern pattern, double speed, double stroke, double depth, double sensation)
     {
         if (!IsValidPattern(pattern))
         {
-            throw new ArgumentOutOfRangeException(nameof(pattern), pattern, "Pattern must be nonnegative.");
+            throw new ArgumentOutOfRangeException(nameof(pattern), pattern, "Pattern must be a defined stroke pattern.");
         }
 
         ValidatePercentage(speed, nameof(speed));
@@ -33,9 +33,9 @@ public sealed record MotionSettings
     }
 
     /// <summary>
-    /// Gets the firmware pattern identifier.
+    /// Gets the firmware stroke pattern.
     /// </summary>
-    public int Pattern { get; }
+    public StrokePattern Pattern { get; }
 
     /// <summary>
     /// Gets the speed argument as a percentage.
@@ -59,14 +59,14 @@ public sealed record MotionSettings
 
     internal DeviceCommand[] ToCommands() =>
     [
-        new(DeviceControl.Pattern, Pattern),
+        new(DeviceControl.Pattern, (int)Pattern),
         new(DeviceControl.Stroke, Stroke),
         new(DeviceControl.Depth, Depth),
         new(DeviceControl.Sensation, Sensation),
         new(DeviceControl.Speed, Speed),
     ];
 
-    internal static bool IsValidPattern(int value) => value >= 0;
+    internal static bool IsValidPattern(StrokePattern value) => Enum.IsDefined(value);
 
     internal static bool IsValidPercentage(double value) => double.IsFinite(value) && value >= 0 && value <= 100;
 

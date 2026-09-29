@@ -75,9 +75,9 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
         selectedIdentifiers.Should().Equal("Device-A");
         context.Scans.Should().Be(1);
         device.IsArmed.Should().BeFalse();
-        device.Writes.Should().BeEmpty();
+        device.Writes.Should().Equal(new DeviceCommand(DeviceControl.Speed, 0));
         device.Disconnects.Should().Be(1);
-        error.ToString().Should().Contain("Connected. Armed: no");
+        error.ToString().Should().Contain("Connected. Armed: yes. Help lists commands.");
     }
 
     [Fact]
@@ -122,7 +122,7 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
     [InlineData("Device-B")]
     [InlineData("dEvIcE-b")]
     [InlineData("known-device")]
-    public async Task PromptConnectsOnlyToSelectedDeviceWithoutArmingOrSettings(string? identifier)
+    public async Task PromptConnectsOnlyToSelectedDeviceAndArmsWithoutSettings(string? identifier)
     {
         var selectedIdentifiers = new List<string>();
         var connects = 0;
@@ -151,7 +151,7 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
             await input.NextReadAsync(TestContext.Current.CancellationToken);
             connects.Should().Be(1);
             device.Reads.Should().Be(1);
-            device.IsArmed.Should().BeFalse();
+            device.IsArmed.Should().BeTrue();
             device.Writes.Should().BeEmpty();
             device.Disconnects.Should().Be(0);
             run.IsCompleted.Should().BeFalse();
@@ -166,9 +166,9 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
         context.Scans.Should().Be(identifier is null ? 1 : 0);
         selectedIdentifiers.Should().Equal(identifier ?? "Device-A");
         device.Disconnects.Should().Be(1);
-        device.Writes.Should().BeEmpty();
-        output.ToString().Should().BeEmpty();
-        error.ToString().Should().Contain("Connected. Armed: no").And.NotContain("ERROR");
+        device.Writes.Should().Equal(new DeviceCommand(DeviceControl.Speed, 0));
+        output.ToString().Should().Contain("OK stop").And.NotContain("OK set");
+        error.ToString().Should().Contain("Connected. Armed: yes").And.Contain("Sending stop command. Please wait ...").And.NotContain("ERROR");
     }
 
     [Theory]
@@ -187,11 +187,11 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
             createDevice = _ => device;
 
             (await Component.RunAsync("Device-A", TestContext.Current.CancellationToken)).Should().Be(1);
-            device.Disconnects.Should().Be(1);
+            device.Disconnects.Should().Be(cleanupFails ? 2 : 1);
             device.IsArmed.Should().BeFalse();
             device.Writes.Should().BeEmpty();
             output.ToString().Should().BeEmpty();
-            error.ToString().Should().Contain("ERROR prompt: connect failed").And.NotContain("Connected.");
+            error.ToString().Should().Contain("ERROR prompt: ").And.Contain("connect failed").And.NotContain("Connected.");
             if (cleanupFails)
             {
                 error.ToString().Should().Contain("ERROR device cleanup: disconnect failed");
@@ -224,8 +224,8 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
 
             (await Component.RunAsync("Device-A", TestContext.Current.CancellationToken)).Should().Be(1);
             device.Disconnects.Should().Be(1);
-            device.Writes.Should().BeEmpty();
-            error.ToString().Should().Contain("Connected. Armed: no").And.Contain("ERROR device cleanup: disconnect failed")
+            device.Writes.Should().Equal(new DeviceCommand(DeviceControl.Speed, 0));
+            error.ToString().Should().Contain("Connected. Armed: yes").And.Contain("ERROR device cleanup: disconnect failed")
                 .And.NotContain("ERROR prompt");
         }
         catch (IOException exception) when (exception.Message == "disconnect failed")
@@ -278,7 +278,7 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
 
         (await run).Should().Be(0);
         device.Disconnects.Should().Be(1);
-        device.Writes.Should().BeEmpty();
+        device.Writes.Should().Equal(cancel ? [] : [new DeviceCommand(DeviceControl.Speed, 0)]);
         error.ToString().Should().NotContain("ERROR");
     }
 }

@@ -26,8 +26,8 @@ public sealed class BleServiceCollectionExtensionsTests
         first.Should().BeOfType<OssmDevice>();
         first.Should().NotBeSameAs(second);
         first.IsArmed.Should().BeFalse();
-        context.Reads.Should().Be(0);
-        context.Writes.Should().BeEmpty();
+        context.Requests.Should().BeEmpty();
+        context.ConnectionConfiguration.Should().BeNull();
     }
 
     [Fact]

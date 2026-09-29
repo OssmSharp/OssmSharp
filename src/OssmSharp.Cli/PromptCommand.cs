@@ -51,19 +51,19 @@ public sealed class PromptCommand
             await device.ConnectAsync(cancellationToken).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
             logger.PromptConnected();
-            await error.WriteLineAsync($"Connected. Armed: {(device.IsArmed ? "yes" : "no")}. Enter reset to enable commands; help lists commands.").ConfigureAwait(false);
+            await error.WriteLineAsync($"Connected. Armed: {(device.IsArmed ? "yes" : "no")}. Help lists commands.").ConfigureAwait(false);
             exitCode = await createPrompt(device).RunAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             logger.CommandCancelled("prompt");
-            exitCode = await CommandError.TryWriteAsync(error, "Session cancelled; awaiting device cleanup.").ConfigureAwait(false) ? 0 : 1;
+            exitCode = await CommandError.TryWriteAsync(error, "Session cancelled. Cleaning up.").ConfigureAwait(false) ? 0 : 1;
         }
         catch (Exception exception)
         {
             exitCode = 1;
             logger.CommandFailed("prompt", exception.GetType().Name);
-            await CommandError.TryWriteAsync(error, $"ERROR prompt: {exception.Message} Run OssmSharp.Cli list before reconnecting.").ConfigureAwait(false);
+            await CommandError.TryWriteAsync(error, $"ERROR prompt: {exception.Message}").ConfigureAwait(false);
         }
         finally
         {
@@ -77,7 +77,7 @@ public sealed class PromptCommand
                 {
                     exitCode = 1;
                     logger.CleanupFailed("device", exception.GetType().Name);
-                    await CommandError.TryWriteAsync(error, $"ERROR device cleanup: {exception.Message}").ConfigureAwait(false);
+                    await CommandError.TryWriteAsync(error, $"ERROR during device cleanup: {exception.Message}").ConfigureAwait(false);
                 }
             }
         }

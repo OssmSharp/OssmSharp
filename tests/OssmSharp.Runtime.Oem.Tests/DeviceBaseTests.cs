@@ -7,24 +7,185 @@ namespace OssmSharp.Runtime.Oem.Tests;
 public sealed class DeviceBaseTests
 {
     [Fact]
-    public async Task ReadIsPublishedBeforeObservationsResume()
+    public async Task DisconnectPreservesClientAndReconnectArmsFreshStateWithoutReplay()
+    {
+        await using var device = new TestDevice();
+        var token = TestContext.Current.CancellationToken;
+        var notifications = 0;
+        device.StateChanged += (_, _) => notifications++;
+        await device.ConnectAsync(token);
+        await device.SetAsync(new(StrokePattern.TeasingPounding, 20, 30, 40, 50), token);
+
+        await device.DisconnectAsync(token);
+
+        device.IsArmed.Should().BeFalse();
+        device.Disconnects.Should().Be(1);
+        (await device.GetStateAsync(cancellationToken: token)).Should().Be(new DeviceState(new(0, 0, 0, 0, 0)));
+        var set = () => device.SetAsync(new(StrokePattern.TeasingPounding, 20, 30, 40, 50), token);
+        await set.Should().ThrowAsync<InvalidOperationException>();
+        device.Observe(new(StrokePattern.Insist, 9, 9, 9, 9));
+        (await device.GetStateAsync(cancellationToken: token)).Should().Be(new DeviceState(new(0, 0, 0, 0, 0)));
+        var notificationsBeforeReconnect = notifications;
+        var reconnected = new MotionSettings(StrokePattern.RoboStroke, 70, 70, 70, 70);
+        device.LiveState = new(reconnected);
+
+        await device.ConnectAsync(token);
+
+        device.Connects.Should().Be(2);
+        device.Disconnects.Should().Be(1);
+        device.IsArmed.Should().BeTrue();
+        device.Writes.Should().HaveCount(5);
+        (await device.GetStateAsync(cancellationToken: token)).Should().Be(new DeviceState(reconnected));
+        notifications.Should().BeGreaterThan(notificationsBeforeReconnect);
+        device.Observe(reconnected);
+        device.IsArmed.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ConnectionFailureClearsOnlyAfterSuccessfulReconnect()
     {
         await using var device = new TestDevice();
         var token = TestContext.Current.CancellationToken;
         await device.ConnectAsync(token);
-        await device.ResetAsync(token);
-        var settings = new MotionSettings(1, 20, 30, 40, 50);
-        await device.SetAsync(settings, token);
-        device.ReadCompleted = () =>
+        var failure = new IOException("Connection lost.");
+
+        device.Fail(failure);
+
+        device.ConnectionFailure.Should().BeSameAs(failure);
+        var reset = () => device.ResetAsync(token);
+        (await reset.Should().ThrowAsync<IOException>()).Which.Should().BeSameAs(failure);
+        device.ConnectionFailure.Should().BeSameAs(failure);
+        device.Disconnects.Should().Be(0);
+
+        await device.ConnectAsync(token);
+
+        device.Disconnects.Should().Be(1);
+        device.Connects.Should().Be(2);
+        device.ConnectionFailure.Should().BeNull();
+        device.IsArmed.Should().BeTrue();
+        device.Writes.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task CleanupFailurePropagatesWithoutOpeningAnotherConnection()
+    {
+        var failure = new IOException("Disconnect failed.");
+        var cleanupFails = true;
+        await using var device = new TestDevice { Disconnect = () => cleanupFails ? Task.FromException(failure) : Task.CompletedTask };
+        var token = TestContext.Current.CancellationToken;
+        await device.ConnectAsync(token);
+
+        var disconnect = () => device.DisconnectAsync(token);
+        (await disconnect.Should().ThrowAsync<IOException>()).Which.Should().BeSameAs(failure);
+        var connect = () => device.ConnectAsync(token);
+        (await connect.Should().ThrowAsync<IOException>()).Which.Should().BeSameAs(failure);
+
+        device.Connects.Should().Be(1);
+        device.IsArmed.Should().BeFalse();
+        cleanupFails = false;
+        await device.ConnectAsync(token);
+        device.Connects.Should().Be(2);
+        device.Disconnects.Should().Be(3);
+        device.IsArmed.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task StopDuringSetupPreventsArmingAndIsSentAfterConnection()
+    {
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var device = new TestDevice { Connect = _ => release.Task };
+        var token = TestContext.Current.CancellationToken;
+        var connect = device.ConnectAsync(token);
+        var stop = device.EmergencyStopAsync(token);
+
+        try
         {
-            device.Observe(settings);
+            stop.IsCompleted.Should().BeFalse();
+            device.Writes.Should().BeEmpty();
+        }
+        finally
+        {
+            release.TrySetResult();
+            await connect;
+            await stop;
+        }
+
+        device.IsArmed.Should().BeFalse();
+        device.Writes.Should().Equal(new DeviceCommand(DeviceControl.Speed, 0));
+    }
+
+    [Fact]
+    public async Task UnexplainedChangeDuringSetupLeavesConnectionDisarmed()
+    {
+        await using var device = new TestDevice();
+        device.Connect = _ =>
+        {
+            device.Observe(new(StrokePattern.TeasingPounding, 10, 10, 10, 10));
+            return Task.CompletedTask;
+        };
+        var token = TestContext.Current.CancellationToken;
+
+        await device.ConnectAsync(token);
+
+        device.IsArmed.Should().BeFalse();
+        (await device.GetStateAsync(cancellationToken: token)).Should().Be(device.LiveState);
+        await device.ResetAsync(token);
+        device.IsArmed.Should().BeTrue();
+        device.Writes.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ConnectionFailureDuringSetupFailsAttemptAndReleasesResources()
+    {
+        var failure = new IOException("Subscription lost.");
+        await using var device = new TestDevice();
+        device.Connect = _ =>
+        {
+            device.Fail(failure);
             return Task.CompletedTask;
         };
 
-        await device.GetStateAsync(true, token);
+        var connect = () => device.ConnectAsync(TestContext.Current.CancellationToken);
 
-        (await device.GetStateAsync(cancellationToken: token)).Should().Be(new DeviceState(settings));
-        device.IsArmed.Should().BeTrue();
+        (await connect.Should().ThrowAsync<IOException>()).Which.Should().BeSameAs(failure);
+        device.ConnectionFailure.Should().BeSameAs(failure);
+        device.Disconnects.Should().Be(1);
+        device.IsArmed.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task DisconnectDuringSetupFailsAttemptAndReleasesResourcesOnce()
+    {
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var device = new TestDevice { Connect = _ => release.Task };
+        var token = TestContext.Current.CancellationToken;
+        var connect = device.ConnectAsync(token);
+        var disconnect = device.DisconnectAsync(token);
+        release.TrySetResult();
+
+        var attempt = () => connect;
+        await attempt.Should().ThrowAsync<InvalidOperationException>().WithMessage("*interrupted*");
+        await disconnect;
+
+        device.Disconnects.Should().Be(1);
+        device.IsArmed.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task DisposalCancelsSetupAndPreventsReconnection()
+    {
+        var device = new TestDevice { Connect = token => Task.Delay(Timeout.Infinite, token) };
+        var connect = device.ConnectAsync(TestContext.Current.CancellationToken);
+
+        await device.DisposeAsync();
+
+        var attempt = () => connect;
+        await attempt.Should().ThrowAsync<OperationCanceledException>();
+        device.Disconnects.Should().Be(1);
+        var reconnect = () => device.ConnectAsync(TestContext.Current.CancellationToken);
+        await reconnect.Should().ThrowAsync<ObjectDisposedException>();
+        var disconnect = () => device.DisconnectAsync(TestContext.Current.CancellationToken);
+        await disconnect.Should().ThrowAsync<ObjectDisposedException>();
     }
 
     [Fact]
@@ -36,7 +197,7 @@ public sealed class DeviceBaseTests
         await device.ResetAsync(token);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         device.Write = (_, _) => release.Task;
-        var set = device.SetAsync(new(1, 20, 30, 40, 50), token);
+        var set = device.SetAsync(new(StrokePattern.TeasingPounding, 20, 30, 40, 50), token);
         var failure = new IOException("Provider disconnected.");
 
         try
@@ -48,7 +209,7 @@ public sealed class DeviceBaseTests
             (await reset.Should().ThrowAsync<IOException>()).Which.Should().BeSameAs(failure);
             var live = () => device.GetStateAsync(true, token);
             (await live.Should().ThrowAsync<IOException>()).Which.Should().BeSameAs(failure);
-            device.Observe(new(4, 50, 50, 50, 50));
+            device.Observe(new(StrokePattern.Deeper, 50, 50, 50, 50));
             (await device.GetStateAsync(cancellationToken: token)).Should().Be(device.LiveState);
         }
         finally
@@ -56,7 +217,7 @@ public sealed class DeviceBaseTests
             release.TrySetResult();
         }
 
-        (await set).Should().Be(new SettingsResult(SettingsOutcome.Cancelled, 1));
+        (await set).Should().Be(new SetResult(SetStatus.Cancelled, 1));
         device.Writes.Should().HaveCount(1);
     }
 
@@ -70,7 +231,7 @@ public sealed class DeviceBaseTests
         var original = device.LiveState;
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         device.Write = (_, _) => device.Writes.Count == 1 ? release.Task : Task.CompletedTask;
-        var settings = new MotionSettings(1, 20, 30, 40, 50);
+        var settings = new MotionSettings(StrokePattern.TeasingPounding, 20, 30, 40, 50);
         var set = device.SetAsync(settings, token);
         var live = device.GetStateAsync(true, token);
 
@@ -121,7 +282,7 @@ public sealed class DeviceBaseTests
         var failure = new IOException("Write failed.");
         device.Write = (_, _) => device.Writes.Count == 3 ? Task.FromException(failure) : Task.CompletedTask;
 
-        var set = () => device.SetAsync(new(1, 20, 30, 40, 50), token);
+        var set = () => device.SetAsync(new(StrokePattern.TeasingPounding, 20, 30, 40, 50), token);
         var error = (await set.Should().ThrowAsync<DeviceWriteException>()).Which;
 
         error.CommandsWritten.Should().Be(2);
@@ -142,15 +303,15 @@ public sealed class DeviceBaseTests
         await device.ResetAsync(token);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         device.Write = (_, _) => release.Task;
-        var active = device.SetAsync(new(1, 20, 30, 40, 50), token);
-        var pending = device.SetAsync(new(2, 10, 10, 10, 10), token);
-        var observed = new MotionSettings(1, 99, 0, 0, 0);
+        var active = device.SetAsync(new(StrokePattern.TeasingPounding, 20, 30, 40, 50), token);
+        var pending = device.SetAsync(new(StrokePattern.RoboStroke, 10, 10, 10, 10), token);
+        var observed = new MotionSettings(StrokePattern.TeasingPounding, 99, 0, 0, 0);
 
         try
         {
             device.Observe(observed);
             device.IsArmed.Should().BeFalse();
-            (await pending).Should().Be(new SettingsResult(SettingsOutcome.Cancelled, 0));
+            (await pending).Should().Be(new SetResult(SetStatus.Cancelled, 0));
             active.IsCompleted.Should().BeFalse();
             (await device.GetStateAsync(cancellationToken: token)).Should().Be(new DeviceState(observed));
         }
@@ -175,7 +336,7 @@ public sealed class DeviceBaseTests
         await device.ResetAsync(token);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         device.Write = (_, _) => device.Writes.Count == 1 ? release.Task : Task.CompletedTask;
-        var set = device.SetAsync(new(1, 20, 30, 40, 50), token);
+        var set = device.SetAsync(new(StrokePattern.TeasingPounding, 20, 30, 40, 50), token);
         var reset = device.ResetAsync(token);
         var stop = device.EmergencyStopAsync(token);
         release.TrySetResult();
@@ -218,8 +379,8 @@ public sealed class DeviceBaseTests
         await device.ResetAsync(token);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         device.Write = (_, _) => release.Task;
-        var active = device.SetAsync(new(1, 20, 30, 40, 50), token);
-        var pending = device.SetAsync(new(2, 10, 10, 10, 10), token);
+        var active = device.SetAsync(new(StrokePattern.TeasingPounding, 20, 30, 40, 50), token);
+        var pending = device.SetAsync(new(StrokePattern.RoboStroke, 10, 10, 10, 10), token);
         var dispose = device.DisposeAsync().AsTask();
 
         try
@@ -235,8 +396,8 @@ public sealed class DeviceBaseTests
             await device.DisposeAsync();
         }
 
-        (await pending).Should().Be(new SettingsResult(SettingsOutcome.Cancelled, 0));
-        (await active).Should().Be(new SettingsResult(SettingsOutcome.Superseded, 1));
+        (await pending).Should().Be(new SetResult(SetStatus.Cancelled, 0));
+        (await active).Should().Be(new SetResult(SetStatus.Superseded, 1));
         device.Disconnects.Should().Be(1);
         device.Writes.Should().HaveCount(1);
         var reset = () => device.ResetAsync(token);
@@ -244,7 +405,7 @@ public sealed class DeviceBaseTests
     }
 
     [Fact]
-    public async Task FailedConnectionStillReleasesPartialProviderResources()
+    public async Task FailedConnectionReleasesPartialProviderResourcesAndCanBeRetried()
     {
         var failure = new IOException("Connection failed.");
         var device = new TestDevice { Connect = _ => Task.FromException(failure) };
@@ -256,14 +417,30 @@ public sealed class DeviceBaseTests
             (await connect.Should().ThrowAsync<IOException>()).Which.Should().BeSameAs(failure);
             device.IsArmed.Should().BeFalse();
             device.Writes.Should().BeEmpty();
-            await connect.Should().ThrowAsync<InvalidOperationException>();
+            device.Disconnects.Should().Be(1);
+            (await connect.Should().ThrowAsync<IOException>()).Which.Should().BeSameAs(failure);
+            device.Connects.Should().Be(2);
         }
         finally
         {
             await device.DisposeAsync();
         }
 
-        device.Disconnects.Should().Be(1);
+        device.Disconnects.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task FailedCleanupAfterFailedSetupReportsBothErrors()
+    {
+        var failure = new IOException("Connection failed.");
+        var cleanupFailure = new IOException("Cleanup failed.");
+        await using var device = new TestDevice { Connect = _ => Task.FromException(failure), Disconnect = () => Task.FromException(cleanupFailure) };
+
+        var connect = () => device.ConnectAsync(TestContext.Current.CancellationToken);
+
+        (await connect.Should().ThrowAsync<AggregateException>()).Which.InnerExceptions.Should().Equal(failure, cleanupFailure);
+        device.IsArmed.Should().BeFalse();
+        device.Disconnect = null;
     }
 
     [Fact]
@@ -356,7 +533,7 @@ public sealed class DeviceBaseTests
             issuedToken = token;
             return release.Task.WaitAsync(token);
         };
-        var set = device.SetAsync(new(1, 10, 10, 10, 10), cancellation.Token);
+        var set = device.SetAsync(new(StrokePattern.TeasingPounding, 10, 10, 10, 10), cancellation.Token);
 
         try
         {
@@ -370,15 +547,15 @@ public sealed class DeviceBaseTests
             await set;
         }
 
-        (await set).Should().Be(new SettingsResult(SettingsOutcome.Cancelled, 1));
+        (await set).Should().Be(new SetResult(SetStatus.Cancelled, 1));
         device.Writes.Should().HaveCount(1);
         device.IsArmed.Should().BeTrue();
     }
 
     [Theory]
-    [InlineData(false, SettingsOutcome.Superseded)]
-    [InlineData(true, SettingsOutcome.Cancelled)]
-    public async Task FinalWritePreservesInterruptionOutcome(bool stopRequested, SettingsOutcome expectedOutcome)
+    [InlineData(false, SetStatus.Superseded)]
+    [InlineData(true, SetStatus.Cancelled)]
+    public async Task FinalWritePreservesInterruptionOutcome(bool stopRequested, SetStatus expectedOutcome)
     {
         await using var device = new TestDevice();
         var token = TestContext.Current.CancellationToken;
@@ -386,10 +563,10 @@ public sealed class DeviceBaseTests
         await device.ResetAsync(token);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         device.Write = (_, _) => device.Writes.Count == 5 ? release.Task : Task.CompletedTask;
-        var first = device.SetAsync(new(1, 10, 10, 10, 10), token);
+        var first = device.SetAsync(new(StrokePattern.TeasingPounding, 10, 10, 10, 10), token);
         Task next = stopRequested
             ? device.EmergencyStopAsync(token)
-            : device.SetAsync(new(2, 20, 20, 20, 20), token);
+            : device.SetAsync(new(StrokePattern.RoboStroke, 20, 20, 20, 20), token);
 
         try
         {
@@ -401,24 +578,26 @@ public sealed class DeviceBaseTests
             await next;
         }
 
-        (await first).Should().Be(new SettingsResult(expectedOutcome, 5));
+        (await first).Should().Be(new SetResult(expectedOutcome, 5));
     }
 
     [Fact]
-    public async Task ConnectAndResetDoNotSendMotion()
+    public async Task ConnectArmsWithoutSendingMotionAndResetSendsNothing()
     {
         await using var device = new TestDevice();
         var token = TestContext.Current.CancellationToken;
         (await device.GetStateAsync(cancellationToken: token)).Should().BeNull();
-
-        await device.ConnectAsync(token);
-        device.IsArmed.Should().BeFalse();
         var set = () => device.SetAsync(new(0, 20, 30, 40, 50), token);
         await set.Should().ThrowAsync<InvalidOperationException>();
+
+        await device.ConnectAsync(token);
+        device.IsArmed.Should().BeTrue();
+        await device.EmergencyStopAsync(token);
+        device.IsArmed.Should().BeFalse();
         await device.ResetAsync(token);
 
         device.IsArmed.Should().BeTrue();
-        device.Writes.Should().BeEmpty();
+        device.Writes.Should().Equal(new DeviceCommand(DeviceControl.Speed, 0));
         device.Reads.Should().Be(1);
     }
 
@@ -429,11 +608,11 @@ public sealed class DeviceBaseTests
         var token = TestContext.Current.CancellationToken;
         await device.ConnectAsync(token);
         await device.ResetAsync(token);
-        var settings = new MotionSettings(50, 20, 30, 40, 50);
+        var settings = new MotionSettings(StrokePattern.StopNGo, 20, 30, 40, 50);
 
         var result = await device.SetAsync(settings, token);
 
-        result.Should().Be(new SettingsResult(SettingsOutcome.Completed, 5));
+        result.Should().Be(new SetResult(SetStatus.Completed, 5));
         device.Writes.Should().Equal(settings.ToCommands());
         (await device.GetStateAsync(cancellationToken: token)).Should().Be(device.LiveState);
         device.IsArmed.Should().BeTrue();
@@ -448,16 +627,16 @@ public sealed class DeviceBaseTests
         await device.ResetAsync(token);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         device.Write = (_, _) => device.Writes.Count == 1 ? release.Task : Task.CompletedTask;
-        var first = device.SetAsync(new(1, 10, 10, 10, 10), token);
-        var second = device.SetAsync(new(2, 20, 20, 20, 20), token);
-        var latestSettings = new MotionSettings(3, 30, 30, 30, 30);
+        var first = device.SetAsync(new(StrokePattern.TeasingPounding, 10, 10, 10, 10), token);
+        var second = device.SetAsync(new(StrokePattern.RoboStroke, 20, 20, 20, 20), token);
+        var latestSettings = new MotionSettings(StrokePattern.HalfNHalf, 30, 30, 30, 30);
         var latest = device.SetAsync(latestSettings, token);
 
         try
         {
             first.IsCompleted.Should().BeFalse();
             latest.IsCompleted.Should().BeFalse();
-            (await second).Should().Be(new SettingsResult(SettingsOutcome.Superseded, 0));
+            (await second).Should().Be(new SetResult(SetStatus.Superseded, 0));
             device.Writes.Should().Equal(new DeviceCommand(DeviceControl.Pattern, 1));
         }
         finally
@@ -465,38 +644,165 @@ public sealed class DeviceBaseTests
             release.TrySetResult();
         }
 
-        (await first).Should().Be(new SettingsResult(SettingsOutcome.Superseded, 1));
-        (await latest).Should().Be(new SettingsResult(SettingsOutcome.Completed, 5));
+        (await first).Should().Be(new SetResult(SetStatus.Superseded, 1));
+        (await latest).Should().Be(new SetResult(SetStatus.Completed, 5));
         device.Writes.Should().Equal(new[] { new DeviceCommand(DeviceControl.Pattern, 1) }.Concat(latestSettings.ToCommands()));
     }
 
     [Fact]
-    public async Task StopWaitsForIssuedIoDisarmsAndDoesNotReplayOnReset()
+    public async Task StopIsSentWithoutWaitingForCommandInProgressAndDoesNotReplayOnReset()
     {
         await using var device = new TestDevice();
         var token = TestContext.Current.CancellationToken;
         await device.ConnectAsync(token);
-        await device.ResetAsync(token);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         device.Write = (_, _) => device.Writes.Count == 1 ? release.Task : Task.CompletedTask;
-        var set = device.SetAsync(new(1, 10, 10, 10, 10), token);
-        var stop = device.EmergencyStopAsync(token);
+        var set = device.SetAsync(new(StrokePattern.TeasingPounding, 10, 10, 10, 10), token);
 
         try
         {
+            await device.EmergencyStopAsync(token);
+
             device.IsArmed.Should().BeFalse();
-            stop.IsCompleted.Should().BeFalse();
-            device.Writes.Should().HaveCount(1);
+            set.IsCompleted.Should().BeFalse();
+            device.Writes.Should().Equal(new DeviceCommand(DeviceControl.Pattern, 1), new DeviceCommand(DeviceControl.Speed, 0));
         }
         finally
         {
             release.TrySetResult();
         }
 
-        (await set).Should().Be(new SettingsResult(SettingsOutcome.Cancelled, 1));
-        await stop;
+        (await set).Should().Be(new SetResult(SetStatus.Cancelled, 1));
         await device.ResetAsync(token);
         device.IsArmed.Should().BeTrue();
         device.Writes.Should().Equal(new DeviceCommand(DeviceControl.Pattern, 1), new DeviceCommand(DeviceControl.Speed, 0));
+    }
+
+    [Fact]
+    public async Task StopIsSentWithoutWaitingForLiveRead()
+    {
+        await using var device = new TestDevice();
+        var token = TestContext.Current.CancellationToken;
+        await device.ConnectAsync(token);
+        var observation = new TaskCompletionSource<DeviceState>(TaskCreationOptions.RunContinuationsAsynchronously);
+        device.Read = _ => observation.Task;
+        var live = device.GetStateAsync(true, token);
+
+        try
+        {
+            await device.EmergencyStopAsync(token);
+
+            device.Writes.Should().Equal(new DeviceCommand(DeviceControl.Speed, 0));
+            live.IsCompleted.Should().BeFalse();
+        }
+        finally
+        {
+            observation.TrySetResult(device.LiveState);
+            await live;
+        }
+    }
+
+    [Fact]
+    public async Task DisconnectAndDisposalWaitForStopInProgress()
+    {
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var device = new TestDevice { Write = (_, _) => release.Task };
+        var token = TestContext.Current.CancellationToken;
+        await device.ConnectAsync(token);
+        var stop = device.EmergencyStopAsync(token);
+        var disconnect = device.DisconnectAsync(token);
+        var dispose = device.DisposeAsync().AsTask();
+
+        try
+        {
+            disconnect.IsCompleted.Should().BeFalse();
+            dispose.IsCompleted.Should().BeFalse();
+            device.Disconnects.Should().Be(0);
+        }
+        finally
+        {
+            release.TrySetResult();
+            await stop;
+            await disconnect;
+            await dispose;
+        }
+
+        device.Disconnects.Should().Be(1);
+        device.Writes.Should().Equal(new DeviceCommand(DeviceControl.Speed, 0));
+    }
+
+    [Fact]
+    public async Task DisposalRunsProviderHookAfterIssuedIoAndBeforeCleanup()
+    {
+        var order = new List<string>();
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var device = new TestDevice
+        {
+            Write = async (_, _) =>
+            {
+                await release.Task;
+                order.Add("write");
+            },
+            Disconnect = () =>
+            {
+                order.Add("disconnect");
+                return Task.CompletedTask;
+            },
+        };
+        device.Disposing = () =>
+        {
+            order.Add($"dispose armed={device.IsArmed}");
+            return ValueTask.CompletedTask;
+        };
+        var token = TestContext.Current.CancellationToken;
+        await device.ConnectAsync(token);
+        var set = device.SetAsync(new(StrokePattern.TeasingPounding, 20, 30, 40, 50), token);
+        var dispose = device.DisposeAsync().AsTask();
+
+        try
+        {
+            dispose.IsCompleted.Should().BeFalse();
+            order.Should().BeEmpty();
+        }
+        finally
+        {
+            release.TrySetResult();
+            await dispose;
+        }
+
+        (await set).Should().Be(new SetResult(SetStatus.Cancelled, 1));
+        order.Should().Equal("write", "dispose armed=False", "disconnect");
+    }
+
+    [Fact]
+    public async Task ProviderDisposalFailurePropagatesAfterCleanup()
+    {
+        var failure = new IOException("Stop failed.");
+        var device = new TestDevice { Disposing = () => ValueTask.FromException(failure) };
+        await device.ConnectAsync(TestContext.Current.CancellationToken);
+
+        var disposal = device.DisposeAsync().AsTask();
+        var dispose = () => disposal;
+
+        (await dispose.Should().ThrowAsync<IOException>()).Which.Should().BeSameAs(failure);
+        device.Disconnects.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task ProviderDisposalAndCleanupFailuresAreBothReported()
+    {
+        var failure = new IOException("Stop failed.");
+        var cleanupFailure = new IOException("Cleanup failed.");
+        var device = new TestDevice
+        {
+            Disposing = () => ValueTask.FromException(failure),
+            Disconnect = () => Task.FromException(cleanupFailure),
+        };
+        await device.ConnectAsync(TestContext.Current.CancellationToken);
+
+        var disposal = device.DisposeAsync().AsTask();
+        var dispose = () => disposal;
+
+        (await dispose.Should().ThrowAsync<AggregateException>()).Which.InnerExceptions.Should().Equal(failure, cleanupFailure);
     }
 }

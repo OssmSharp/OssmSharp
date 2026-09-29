@@ -5,7 +5,7 @@ using System.Text.Json;
 namespace OssmSharp.Runtime.Oem;
 
 /// <summary>
-/// Contains the last observed firmware controls, with no expiry or inference about physical motion or safety.
+/// Contains complete last-observed firmware controls, without compact protocol metadata, expiry, or inference about physical motion or safety.
 /// </summary>
 public sealed record DeviceState
 {
@@ -43,7 +43,7 @@ public sealed record DeviceState
     /// <summary>
     /// Parses observed firmware controls, collecting independently detectable validation errors.
     /// </summary>
-    /// <param name="data">A JSON object of at most 512 bytes containing integer pattern, speed, stroke, depth, and sensation values.</param>
+    /// <param name="data">A JSON object of at most 512 bytes containing a defined integer pattern and numeric speed, stroke, depth, and sensation values.</param>
     /// <param name="state">The parsed state on success; otherwise, null.</param>
     /// <param name="errors">An empty list on success; otherwise, errors with JSON field names in <see cref="ValidationResult.MemberNames"/>, or "$" for payload-level errors.</param>
     /// <returns>True if the payload contains valid control values; otherwise, false.</returns>
@@ -73,7 +73,7 @@ public sealed record DeviceState
             }
 
             var names = new HashSet<string>(StringComparer.Ordinal);
-            var controls = new Dictionary<string, int>(StringComparer.Ordinal);
+            var controls = new Dictionary<string, double>(StringComparer.Ordinal);
             foreach (var property in root.EnumerateObject())
             {
                 if (!names.Add(property.Name))
@@ -81,21 +81,34 @@ public sealed record DeviceState
                     results.Add(new($"Field '{property.Name}' must not be duplicated.", [property.Name]));
                 }
 
-                if (property.Name is "pattern" or "speed" or "stroke" or "depth" or "sensation")
+                if (property.Name == "pattern")
                 {
-                    if (property.Value.ValueKind != JsonValueKind.Number || !property.Value.TryGetInt32(out var value))
+                    if (property.Value.ValueKind != JsonValueKind.Number || !property.Value.TryGetInt32(out var pattern))
                     {
-                        results.Add(new($"Field '{property.Name}' must be a 32-bit integer.", [property.Name]));
+                        results.Add(new("Field 'pattern' must be a 32-bit integer.", [property.Name]));
                     }
-                    else if (property.Name == "pattern" ? !MotionSettings.IsValidPattern(value) : !MotionSettings.IsValidPercentage(value))
+                    else if (!MotionSettings.IsValidPattern((StrokePattern)pattern))
                     {
-                        results.Add(new(
-                            property.Name == "pattern" ? "Pattern must be nonnegative." : $"Field '{property.Name}' must be between zero and 100.",
-                            [property.Name]));
+                        results.Add(new("Pattern must be a defined stroke pattern.", [property.Name]));
                     }
                     else
                     {
-                        controls[property.Name] = value;
+                        controls[property.Name] = pattern;
+                    }
+                }
+                else if (property.Name is "speed" or "stroke" or "depth" or "sensation")
+                {
+                    if (property.Value.ValueKind != JsonValueKind.Number || !property.Value.TryGetDouble(out var percentage))
+                    {
+                        results.Add(new($"Field '{property.Name}' must be a number.", [property.Name]));
+                    }
+                    else if (!MotionSettings.IsValidPercentage(percentage))
+                    {
+                        results.Add(new($"Field '{property.Name}' must be between zero and 100.", [property.Name]));
+                    }
+                    else
+                    {
+                        controls[property.Name] = percentage;
                     }
                 }
             }
@@ -113,7 +126,7 @@ public sealed record DeviceState
                 return false;
             }
 
-            state = new(new MotionSettings(controls["pattern"], controls["speed"], controls["stroke"], controls["depth"], controls["sensation"]));
+            state = new(new MotionSettings((StrokePattern)(int)controls["pattern"], controls["speed"], controls["stroke"], controls["depth"], controls["sensation"]));
             return true;
         }
         catch (JsonException)

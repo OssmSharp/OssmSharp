@@ -7,7 +7,7 @@ public sealed class DeviceCommandTests
 {
     [Theory]
     [InlineData(DeviceControl.Pattern, 0)]
-    [InlineData(DeviceControl.Pattern, int.MaxValue)]
+    [InlineData(DeviceControl.Pattern, 6)]
     [InlineData(DeviceControl.Speed, 0)]
     [InlineData(DeviceControl.Speed, 100)]
     [InlineData(DeviceControl.Stroke, 12.5)]
@@ -26,6 +26,7 @@ public sealed class DeviceCommandTests
     [InlineData((DeviceControl)99, 0)]
     [InlineData(DeviceControl.Pattern, -1)]
     [InlineData(DeviceControl.Pattern, 0.5)]
+    [InlineData(DeviceControl.Pattern, 7)]
     [InlineData(DeviceControl.Pattern, 2147483648d)]
     [InlineData(DeviceControl.Speed, -0.1)]
     [InlineData(DeviceControl.Stroke, 100.1)]
