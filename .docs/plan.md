@@ -38,11 +38,12 @@ visibility, and specified behavior is required, not an implementation suggestion
 ### Connection lifecycle
 
 - A disconnected client remains reusable. Call `ConnectAsync` on the same instance to reconnect after an explicit disconnect, connection loss, or failed setup.
-- `DeviceBase` serializes lifecycle transitions with device operations. Disconnect and connection loss disarm immediately and discard settings not yet sent; commands already sent, including Stop, must finish before cleanup.
+- `DeviceBase` serializes connection setup with device operations. Stop, disconnect, and disposal take precedence: each disarms, discards pending settings, abandons commands in flight, and immediately sends Stop over an established connection without waiting for other device I/O. Disconnect and disposal also abandon live reads, and release connection resources once that Stop settles, whether it succeeds or fails. Discarded or abandoned settings return Cancelled, not an exception; live reads without an established connection, ended connection attempts, and interrupted resets throw.
+- Connection loss disarms and discards pending settings without sending anything.
 - Before another connection attempt, finish cleanup of the previous connection, including partial setup. Cleanup failures propagate without opening another connection.
 - Each connection creates fresh subscriptions and protocol state. Late observations, responses, and failures from an earlier connection must not affect the new connection.
 - Successful connection or reconnection establishes fresh initial controls, resets expectations, clears the previous connection failure, and arms command submission. It never sends or replays motion settings.
-- Stop, unexpected state, disconnect, or disposal during setup prevent that attempt from arming. Failed or cancelled connection attempts remain disarmed.
+- Stop, disconnect, or disposal during setup end that attempt; unexpected state during setup prevents it from arming. Failed or cancelled connection attempts remain disarmed.
 - `DisconnectAsync` releases connection resources but preserves the client and consumer event subscriptions. `DisposeAsync` permanently ends the client lifetime and prevents reconnection.
 
 ### Types and members
@@ -53,16 +54,16 @@ visibility, and specified behavior is required, not an implementation suggestion
   - **`DeviceCommand.cs`**
     - Represent one assignment to one DeviceControl, such as setting speed to 20 percent.
   - **`IOssmDevice.cs`**
-    - **ConnectAsync:** Connect or reconnect the same undisposed client, initialize fresh state, and arm submission on success without sending or replaying motion settings.
-    - **DisconnectAsync:** Disarm, discard settings not yet sent, wait for commands already sent to finish, and release connection resources while keeping the client reusable.
-    - **SetAsync:** Submit complete MotionSettings and return SetResult with completion status and successful write count; write failures retain partial progress in DeviceWriteException.
-    - **GetStateAsync(bypassCache):** Return cached state, including while disconnected, or read live state when bypassCache is true, requiring a connection and propagating read errors.
-    - **EmergencyStopAsync:** Disarm, discard settings not yet sent, and send speed zero immediately without waiting for a command or live read in progress; keep submission disarmed until explicit reset or successful reconnection, propagating Stop failures. During connection setup, send Stop once setup completes.
-    - **ResetAsync:** Arm command submission without sending motion settings or clearing connection failures.
+    - **ConnectAsync:** Connect or reconnect the same undisposed client, initialize fresh state, and arm submission on success without sending or replaying motion settings. Throw when Stop, disconnect, or disposal ends the attempt.
+    - **DisconnectAsync:** Disarm, discard pending settings, abandon commands and live reads in flight, send Stop immediately, then release connection resources once Stop settles while keeping the client reusable.
+    - **SetAsync:** Submit complete MotionSettings and return SetResult with completion status and successful write count; write failures retain partial progress in DeviceWriteException. Submissions discarded or abandoned by Stop, disconnect, or disposal return Cancelled with the completed write count instead of throwing.
+    - **GetStateAsync(bypassCache):** Return cached state, including while disconnected, or read live state when bypassCache is true, requiring a connection and propagating read errors. Live reads without an established connection, including those abandoned by disconnect or disposal, throw.
+    - **EmergencyStopAsync:** Disarm, discard pending settings, abandon commands in flight, and send speed zero immediately without waiting for them or for a live read in progress, which continues; keep submission disarmed until explicit reset or successful reconnection, propagating Stop failures. During connection setup, end the attempt instead.
+    - **ResetAsync:** Arm command submission without sending motion settings or clearing connection failures. Throw when Stop or disarming interrupts it.
     - **IsArmed (property):** Indicate whether command submission is armed by successful connection or explicit reset, or disarmed by Stop, unexpected state, or connection failure.
     - **ConnectionFailure (property):** Expose the current connection failure; clear it only after successful connection initialization, never through reset.
     - **StateChanged (event):** Notify subscribers when the last known state or armed status changes.
-    - **DisposeAsync:** Disarm, await owned operations, release connection resources and consumer subscriptions, and permanently prevent reconnection.
+    - **DisposeAsync:** Disarm, discard pending settings, abandon commands and live reads in flight, send Stop immediately, then release connection resources and consumer subscriptions once Stop settles, and permanently prevent reconnection.
   - **`MotionSettings.cs`**
     - Carry a StrokePattern and control arguments without interpreting pattern behavior.
     - Require a defined StrokePattern and finite percentages between zero and 100; accept fractional percentages without pattern-specific validation.
@@ -81,10 +82,9 @@ visibility, and specified behavior is required, not an implementation suggestion
     - **ExecuteAsync (private):** Serialize device I/O other than Stop, awaiting WriteCommandAsync for each surviving primitive command or ReadStateAsync for a live read before proceeding.
     - **Supersede (private):** Replace pending settings with the latest submission and discard older primitive commands not yet sent, letting a command already sent finish.
     - **CancelPending (private):** Discard pending settings and primitive commands not yet sent, without claiming that a sent command was recalled.
-    - **WriteCommandAsync(command) (protected abstract):** Send one primitive command, wait for the provider to confirm it finished, and propagate errors without claiming physical motion. Stop may call this while another command or live read is in progress.
+    - **WriteCommandAsync(command) (protected abstract):** Send one primitive command, wait for the provider to confirm it finished or for Stop, disconnect, or disposal to abandon it, and propagate errors without claiming physical motion. Stop may call this while another command or live read is in progress.
     - **ReadStateAsync (protected abstract):** Read live device state through the provider without maintaining another state cache.
-    - **DisconnectCoreAsync (protected abstract):** Release per-connection resources after sent commands finish, including partial setup; tolerate repeated cleanup and preserve the provider instance for reconnection.
-    - **OnDisposingAsync (protected virtual):** Default to no action; allow provider disposal work after sent commands finish, before connection cleanup; propagate failures after cleanup.
+    - **DisconnectCoreAsync (protected abstract):** Release per-connection resources, including partial setup, without waiting for abandoned commands; tolerate repeated cleanup and preserve the provider instance for reconnection.
     - **UpdateState (protected):** Store incoming state, detect external changes, and notify subscribers.
     - **SetFaulted (protected):** Record failure of the current connection, disarm, and discard settings not yet sent, without sending commands or permanently preventing reconnection.
     - **DetectExternalChange (private):** Compare incoming controls with the current expectation; set IsArmed false and cancel pending work when external changes are unexplained.
@@ -105,8 +105,7 @@ visibility, and specified behavior is required, not an implementation suggestion
     - **StartMotionStreamAsync (private):** Start motion.speed streaming after subscription readiness and retain the returned stream identity for validating observations.
     - **HandleMotionObservation (private):** Validate stream frames, decode controls, satisfy pending live reads, and forward asynchronous observations through UpdateState without maintaining another controls cache.
     - **DecodeState (private):** Decode complete motion controls into DeviceState, rejecting malformed values without substituting defaults or treating compact State as controls.
-    - **DisconnectCoreAsync (protected override):** Settle renewal and requests, stop streaming, release the lease when connected, and close per-connection resources without disposing the reusable client.
-    - **OnDisposingAsync (protected override):** Send Stop while the connection and lease remain active, before stream and lease release; send nothing after connection failure or closure.
+    - **DisconnectCoreAsync (protected override):** Fail outstanding requests, settle renewal, stop streaming, release the lease when connected, and close per-connection resources without disposing the reusable client.
   - **`Request.cs`**
     - **Encode:** Serialize a RAD v1 request with nonzero ID, operation, optional path, arguments, and lease, preserving supplied values without interpreting patterns.
   - **`ServiceCollectionExtensions.cs`**
@@ -135,7 +134,7 @@ visibility, and specified behavior is required, not an implementation suggestion
     - **Reset:** Explicitly reset the device and report its result and armed status without resubmitting previous motion.
     - **StatusAsync(bypassCache):** Display cached or live state as requested, together with whether command submission is armed.
     - **Help (private):** Display general or command-specific parser help, including argument ranges for set, and current armed status.
-    - **Quit:** Stop the device, end command intake, and wait for the Stop, other sent commands, and cleanup to finish before exiting. End of input behaves the same.
+    - **Quit:** Stop the device, end command intake, and wait for the Stop and cleanup to finish before exiting. End of input behaves the same.
 
 ## Consumer call chains (examples)
 
@@ -146,9 +145,9 @@ visibility, and specified behavior is required, not an implementation suggestion
   - **Initialization:** `OssmDevice.MaintainLeaseAsync` -> `OssmDevice.SendRequestAsync` -> `Request.Encode` -> `control.acquire`; `OssmDevice.StartMotionStreamAsync` -> the same request path -> `stream.start` on `motion.speed`.
   - **Initial controls:** `IOssmDevice.ConnectAsync` -> `OssmDevice.ReadStateAsync` -> next valid motion observation -> `OssmDevice.DecodeState` -> `DeviceBase.UpdateState`; successful initialization arms submission without sending motion settings.
   - **Outcome:** After connection succeeds, `Program.PromptAsync` passes the device as `IOssmDevice` to `PromptHandler.RunAsync`; ambiguous discovery exits without connecting.
-  - **Reusable disconnect:** Library caller -> `IOssmDevice.DisconnectAsync` -> disarm and discard pending settings -> wait for sent commands to finish -> `OssmDevice.DisconnectCoreAsync`; the client remains reusable.
+  - **Reusable disconnect:** Library caller -> `IOssmDevice.DisconnectAsync` -> disarm, discard pending settings, and abandon work in flight -> `OssmDevice.WriteCommandAsync(command)` sends Stop immediately -> `OssmDevice.DisconnectCoreAsync`; the client remains reusable.
   - **Reconnect:** Library caller -> `IOssmDevice.ConnectAsync` on the same instance -> finish previous cleanup if needed -> `OssmDevice.ConnectCoreAsync` -> new lease and subscriptions -> fresh initial controls -> rearm submission without replaying settings.
-  - **Cleanup:** On prompt exit or connection failure, `Program.PromptAsync` -> `IOssmDevice.DisposeAsync` -> wait for sent commands to finish -> `OssmDevice.OnDisposingAsync` -> Stop while the connection and lease remain active -> `OssmDevice.DisconnectCoreAsync` -> stream stop, lease release when connected, and Bluetooth teardown; cleanup still runs if the disposal Stop fails, and disposal prevents reuse.
+  - **Cleanup:** On prompt exit or connection failure, `Program.PromptAsync` -> `IOssmDevice.DisposeAsync` -> disarm, discard pending settings, and abandon work in flight -> `OssmDevice.WriteCommandAsync(command)` sends Stop immediately while the connection and lease remain active -> `OssmDevice.DisconnectCoreAsync` -> stream stop, lease release when connected, and Bluetooth teardown; cleanup still runs if the disposal Stop fails, and disposal prevents reuse.
   - **Simulator path:** Use the same interface calls on `SimulatedDevice`, with `SimulatedDevice.ConnectCoreAsync` and `SimulatedDevice.DisconnectCoreAsync`; reconnection never restarts the simulator process.
 
 - **Submit settings or Stop:**
@@ -185,12 +184,12 @@ visibility, and specified behavior is required, not an implementation suggestion
 ### Prompt commands
 
 - `set <pattern> <speed> <stroke> <depth> <sensation>` submits one complete settings value; all five arguments are required.
-- Pattern is a `StrokePattern` ID (0..6) or case-insensitive name; each remaining argument is independently a finite percentage between 0 and 100, allowing fractions.
+  - Pattern is a `StrokePattern` ID (0..6) or case-insensitive name; each remaining argument is independently a finite percentage between 0 and 100, allowing fractions.
 - `stop` sends emergency Stop immediately, discards queued commands, and disarms command submission.
 - `reset` enables command submission without sending previous settings.
 - `status` displays cached state and armed status; `status --live` reads the device before displaying state.
 - `help` lists commands; `help <command>` displays command-specific help, with argument order, pattern choices, and percentage ranges available through `help set`.
-- `quit` sends Stop, waits for it and any other sent commands to finish, then exits after cleanup.
+- `quit` sends Stop, waits for it to finish, then exits after cleanup.
 
 ### Command results
 
