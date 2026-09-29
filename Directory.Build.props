@@ -1,6 +1,11 @@
 <Project>
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <BaseTargetFramework>net10.0</BaseTargetFramework>
+    <TargetFramework>$(BaseTargetFramework)</TargetFramework>
+    <NativeTargetFramework Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+      $(BaseTargetFramework)-windows10.0.19041.0</NativeTargetFramework>
+    <NativeTargetFramework Condition="$([MSBuild]::IsOSPlatform('OSX'))">
+      $(BaseTargetFramework)-macos27.0</NativeTargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <Deterministic>true</Deterministic>
@@ -9,21 +14,18 @@
     <AnalysisMode>latest-All</AnalysisMode>
     <LanguageVersion>latest</LanguageVersion>
     <UseArtifactsOutput>true</UseArtifactsOutput>
+    <ArtifactsPath>$(MSBuildThisFileDirectory).artifacts</ArtifactsPath>
     <!-- The macOS SDK composes bundle paths relative to the project; absolute artifacts paths split
     the bundle. -->
     <!--<UseArtifactsOutput
     Condition="'$(EnableStockBle)' == 'true' and
     $([MSBuild]::IsOSPlatform('OSX'))">false</UseArtifactsOutput>-->
-    <ArtifactsPath>$(MSBuildThisFileDirectory).artifacts</ArtifactsPath>
   </PropertyGroup>
 
-  <!--
-  <PropertyGroup Condition="'$(EnableStockBle)' == 'true' and $([MSBuild]::IsOSPlatform('OSX'))">
-    < Xcode 27 preview bindings mark longstanding Apple APIs, including dispatch queues, experimental.
-    <NoWarn>
-  $(NoWarn);XCODE_27_0_PREVIEW</NoWarn>
+  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('OSX'))">
+    <NoWarn>$(NoWarn);XCODE_27_0_PREVIEW</NoWarn> <!-- TODO: remove once supported -->
+    <SupportedOSPlatformVersion>26.0</SupportedOSPlatformVersion>
   </PropertyGroup>
-  -->
 
   <ItemGroup>
     <PackageReference Include="StyleCop.Analyzers" PrivateAssets="all" />

@@ -7,26 +7,51 @@ namespace OssmSharp.Runtime.Oem.Tests;
 
 public sealed class RequestTests
 {
-    [Theory]
-    [InlineData(DeviceControl.Pattern, 0, "set:pattern:0")]
-    [InlineData(DeviceControl.Pattern, int.MaxValue, "set:pattern:2147483647")]
-    [InlineData(DeviceControl.Speed, 20, "set:speed:20")]
-    [InlineData(DeviceControl.Stroke, 0, "set:stroke:0")]
-    [InlineData(DeviceControl.Depth, 100, "set:depth:100")]
-    [InlineData(DeviceControl.Sensation, 25, "set:sensation:25")]
-    [InlineData(DeviceControl.Speed, 12.5, "set:speed:12.5")]
-    public void EncodesExactlyOneAssignmentWithoutPatternPolicy(DeviceControl control, double value, string expected)
+    [Fact]
+    public void EncodesRadRequestWithInvariantValuesAndLease()
     {
         var previousCulture = CultureInfo.CurrentCulture;
         try
         {
             CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("fr-FR");
 
-            Request.Encode(new(control, value)).Should().Equal(Encoding.UTF8.GetBytes(expected));
+            var encoded = Request.Encode(7, "setting.write", "motion.speed", new Dictionary<string, double> { ["value"] = 12.5 }, 42);
+
+            Encoding.UTF8.GetString(encoded).Should().Be("""{"v":1,"id":7,"op":"setting.write","path":"motion.speed","args":{"value":12.5},"lease":42}""");
         }
         finally
         {
             CultureInfo.CurrentCulture = previousCulture;
         }
+    }
+
+    [Fact]
+    public void OmitsAbsentOptionalFields()
+    {
+        Encoding.UTF8.GetString(Request.Encode(uint.MaxValue, "control.acquire"))
+            .Should().Be("""{"v":1,"id":4294967295,"op":"control.acquire"}""");
+    }
+
+    [Theory]
+    [InlineData(0, "0")]
+    [InlineData(100, "100")]
+    [InlineData(int.MaxValue, "2147483647")]
+    public void PreservesSuppliedValuesWithoutPatternPolicy(double value, string expected)
+    {
+        var encoded = Encoding.UTF8.GetString(Request.Encode(1, "setting.write", "motion.pattern", new Dictionary<string, double> { ["value"] = value }));
+
+        encoded.Should().Contain($"\"args\":{{\"value\":{expected}}}");
+    }
+
+    [Fact]
+    public void RejectsZeroIdentifierEmptyOperationAndNonFiniteArguments()
+    {
+        var zero = () => Request.Encode(0, "setting.write");
+        var empty = () => Request.Encode(1, " ");
+        var infinite = () => Request.Encode(1, "setting.write", "motion.speed", new Dictionary<string, double> { ["value"] = double.PositiveInfinity });
+
+        zero.Should().Throw<ArgumentOutOfRangeException>();
+        empty.Should().Throw<ArgumentException>();
+        infinite.Should().Throw<ArgumentException>();
     }
 }

@@ -7,6 +7,8 @@ namespace OssmSharp.Cli;
 internal sealed class PromptHandler
 {
     private const int MaximumPendingCommands = 32;
+    private static readonly StrokePattern[] Patterns = Enum.GetValues<StrokePattern>();
+    private static readonly string PatternChoices = string.Join(", ", Patterns.Select(value => FormattableString.Invariant($"{(int)value}={value}")));
     private readonly IOssmDevice device;
     private readonly TextReader input;
     private readonly TextWriter output;
@@ -15,19 +17,23 @@ internal sealed class PromptHandler
     private readonly HashSet<Task> operations = [];
     private readonly TaskCompletionSource terminal = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly RootCommand commands;
-    private readonly Argument<int> pattern = new("pattern")
+    private readonly Argument<StrokePattern> pattern = new("pattern")
     {
-        Description = "Nonnegative integer pattern identifier, passed unchanged to firmware.",
+        Description = $"Pattern ID {(int)Patterns[0]}..{(int)Patterns[^1]} or case-insensitive name: {PatternChoices}.",
         CustomParser = result =>
         {
             var value = result.Tokens.Single().Value;
-            if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) && parsed >= 0)
+            foreach (var candidate in Patterns)
             {
-                return parsed;
+                if (value == ((int)candidate).ToString(CultureInfo.InvariantCulture)
+                    || value.Equals(candidate.ToString(), StringComparison.OrdinalIgnoreCase))
+                {
+                    return candidate;
+                }
             }
 
-            result.AddError($"pattern '{value}' must be an integer between 0 and {int.MaxValue}.");
-            return 0;
+            result.AddError($"pattern '{value}' must be one of: {PatternChoices}.");
+            return default;
         },
     };
     private readonly Argument<double> speed = Percentage("speed");
@@ -130,7 +136,7 @@ internal sealed class PromptHandler
         }
         catch (OperationCanceledException) when (sessionToken.IsCancellationRequested)
         {
-            if (!await CommandError.TryWriteAsync(error, "Session cancelled; awaiting issued work.").ConfigureAwait(false))
+            if (!await CommandError.TryWriteAsync(error, "Session cancelled; waiting for commands already sent to finish.").ConfigureAwait(false))
             {
                 Interlocked.Exchange(ref exitCode, 1);
             }
@@ -200,8 +206,8 @@ internal sealed class PromptHandler
 
     private RootCommand CreateCommands()
     {
-        var root = new RootCommand("Send firmware settings; completed writes do not verify physical motion.");
-        var set = new Command("set", "Submit all five settings: pattern speed stroke depth sensation.");
+        var root = new RootCommand("Control your OSSM device through a command-line interface. Connecting arms the device without sending settings.");
+        var set = new Command("set", "Send a command to the device with the specified pattern, speed, stroke, depth, and sensation.");
         set.Arguments.Add(pattern);
         set.Arguments.Add(speed);
         set.Arguments.Add(stroke);
@@ -210,23 +216,26 @@ internal sealed class PromptHandler
         set.SetAction(Set);
         root.Subcommands.Add(set);
 
-        var stop = new Command("stop", "Disarm, discard pending settings, and send speed zero after issued I/O settles.");
+        var stop = new Command("stop", "Immediately stop the device and disables/disarms it. Any pending commands are discarded.");
         stop.SetAction(_ => Stop());
         root.Subcommands.Add(stop);
-        var reset = new Command("reset", "Explicitly arm without resending previous settings.");
+        var reset = new Command("reset", "Rearms the device after it was manually stopped or due to an unexplained change. Any previously-pending commands are discarded.");
         reset.SetAction(_ => Reset());
         root.Subcommands.Add(reset);
-        var status = new Command("status", "Display last known state and arming status.");
-        var live = new Option<bool>("--live") { Description = "Read device state instead of using the cache." };
+        var status = new Command("status", "Display the device's last-known state.");
+        var live = new Option<bool>("--live") { Description = "Read the state directly from the device." };
         status.Options.Add(live);
         status.SetAction(parsed => Track("status", () => StatusAsync(parsed.GetValue(live))));
         root.Subcommands.Add(status);
-        var help = new Command("help", "List commands and input ranges.");
-        help.SetAction(_ => Help());
+        var help = new Command("help", "Show the help information.");
         root.Subcommands.Add(help);
-        var quit = new Command("quit", "End input and await issued operations and cleanup.");
+        var quit = new Command("quit", "Immediately stop the device and exit.");
         quit.SetAction(_ => Quit());
         root.Subcommands.Add(quit);
+        var topic = new Argument<string?>("command") { Description = "Command to describe.", Arity = ArgumentArity.ZeroOrOne };
+        topic.AcceptOnlyFromAmong([.. root.Subcommands.Select(command => command.Name)]);
+        help.Arguments.Add(topic);
+        help.SetAction(parsed => Help(parsed.GetValue(topic)));
         return root;
     }
 
@@ -235,7 +244,7 @@ internal sealed class PromptHandler
         var settings = new MotionSettings(parsed.GetValue(pattern), parsed.GetValue(speed), parsed.GetValue(stroke), parsed.GetValue(depth), parsed.GetValue(sensation));
         Track("set", async () =>
         {
-            SettingsResult result;
+            SetResult result;
             try
             {
                 result = await device.SetAsync(settings, sessionToken).ConfigureAwait(false);
@@ -246,21 +255,21 @@ internal sealed class PromptHandler
                 return;
             }
 
-            var message = result.Outcome switch
+            var message = result.Status switch
             {
-                SettingsOutcome.Completed => "OK set: all control commands sent; physical motion not verified.",
-                SettingsOutcome.Superseded => $"SUPERSEDED set: {result.CommandsWritten} commands sent; issued commands may have taken effect.",
+                SetStatus.Completed => "OK set: all control commands sent; physical motion not verified.",
+                SetStatus.Superseded => $"SUPERSEDED set: {result.CommandsWritten} commands sent; issued commands may have taken effect.",
                 _ => $"CANCELLED set: {result.CommandsWritten} commands sent; issued commands may have taken effect.",
             };
             await output.WriteLineAsync($"{message} {ArmedStatus}").ConfigureAwait(false);
         });
     }
 
-    private void Stop()
+    private void Stop(string message = "Stopping immediately.")
     {
         if (stopTask is { IsCompleted: false })
         {
-            error.WriteLine($"Stop already pending; awaiting issued I/O. {ArmedStatus}");
+            error.WriteLine($"Stop already in progress. {ArmedStatus}");
             return;
         }
 
@@ -269,7 +278,7 @@ internal sealed class PromptHandler
             var pending = device.EmergencyStopAsync(CancellationToken.None);
             try
             {
-                await error.WriteLineAsync($"Stop requested; pending settings cancelled, issued I/O still awaited. {ArmedStatus}").ConfigureAwait(false);
+                await error.WriteLineAsync($"{message} {ArmedStatus}").ConfigureAwait(false);
             }
             finally
             {
@@ -307,18 +316,21 @@ internal sealed class PromptHandler
         }
 
         var settings = state.Settings;
-        await output.WriteLineAsync(FormattableString.Invariant($"OK status ({origin}): pattern={settings.Pattern} speed={settings.Speed} stroke={settings.Stroke} depth={settings.Depth} sensation={settings.Sensation}. {ArmedStatus}")).ConfigureAwait(false);
+        await output.WriteLineAsync(FormattableString.Invariant($"OK status ({origin}): pattern={settings.Pattern:D} speed={settings.Speed} stroke={settings.Stroke} depth={settings.Depth} sensation={settings.Sensation}. {ArmedStatus}")).ConfigureAwait(false);
     }
 
-    private void Help()
+    private void Help(string? command)
     {
-        commands.Parse("--help").Invoke(new InvocationConfiguration { Output = output, Error = error });
-        output.WriteLine("set <pattern> <speed> <stroke> <depth> <sensation>");
-        output.WriteLine($"pattern: integer 0..{int.MaxValue}; speed, stroke, depth, sensation: finite 0..100 (decimal point).");
-        output.WriteLine($"Connect never arms; reset sends no settings. {ArmedStatus}");
+        commands.Parse(command is null ? ["--help"] : [command, "--help"]).Invoke(new InvocationConfiguration { Output = output, Error = error });
+        output.WriteLine(ArmedStatus);
     }
 
-    private void Quit() => quitting = true;
+    // RunAsync awaits the Stop before returning.
+    private void Quit()
+    {
+        Stop("Sending stop command. Please wait ...");
+        quitting = true;
+    }
 
     private void Track(string operation, Func<Task> action)
     {
@@ -342,7 +354,7 @@ internal sealed class PromptHandler
         {
             try
             {
-                await output.WriteLineAsync($"CANCELLED {operation}: unissued work cancelled; issued work awaited. {ArmedStatus}").ConfigureAwait(false);
+                await output.WriteLineAsync($"CANCELLED {operation}: queued commands discarded; commands already sent may still take effect. {ArmedStatus}").ConfigureAwait(false);
             }
             catch (Exception exception)
             {

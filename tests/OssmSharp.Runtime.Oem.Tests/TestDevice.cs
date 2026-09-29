@@ -13,11 +13,13 @@ internal sealed class TestDevice() : DeviceBase(NullLogger<DeviceBase>.Instance)
 
     public Func<CancellationToken, Task<DeviceState>>? Read { get; set; }
 
-    public Func<Task>? ReadCompleted { get; set; }
-
     public Func<CancellationToken, Task>? Connect { get; set; }
 
     public Func<Task>? Disconnect { get; set; }
+
+    public Func<ValueTask>? Disposing { get; set; }
+
+    public int Connects { get; private set; }
 
     public int Reads { get; private set; }
 
@@ -25,9 +27,13 @@ internal sealed class TestDevice() : DeviceBase(NullLogger<DeviceBase>.Instance)
 
     public void Observe(MotionSettings settings) => UpdateState(new(settings));
 
-    public void Fail(Exception exception) => FailConnection(exception);
+    public void Fail(Exception exception) => SetFaulted(exception);
 
-    protected override Task ConnectCoreAsync(CancellationToken cancellationToken) => Connect?.Invoke(cancellationToken) ?? Task.CompletedTask;
+    protected override Task ConnectCoreAsync(CancellationToken cancellationToken)
+    {
+        Connects++;
+        return Connect?.Invoke(cancellationToken) ?? Task.CompletedTask;
+    }
 
     protected override Task WriteCommandAsync(DeviceCommand command, CancellationToken cancellationToken)
     {
@@ -41,11 +47,11 @@ internal sealed class TestDevice() : DeviceBase(NullLogger<DeviceBase>.Instance)
         return Read?.Invoke(cancellationToken) ?? Task.FromResult(LiveState);
     }
 
-    protected override Task DisconnectAsync()
+    protected override Task DisconnectCoreAsync()
     {
         Disconnects++;
         return Disconnect?.Invoke() ?? Task.CompletedTask;
     }
 
-    protected override Task CompleteStateReadAsync(CancellationToken cancellationToken) => ReadCompleted?.Invoke() ?? Task.CompletedTask;
+    protected override ValueTask OnDisposingAsync() => Disposing?.Invoke() ?? ValueTask.CompletedTask;
 }

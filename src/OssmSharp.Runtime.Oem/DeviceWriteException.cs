@@ -22,7 +22,7 @@ public sealed class DeviceWriteException : IOException
     }
 
     /// <summary>
-    /// Gets the primitive whose outcome may be unknown.
+    /// Gets the command whose result may be unknown.
     /// </summary>
     public DeviceCommand Command { get; }
 

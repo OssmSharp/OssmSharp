@@ -5,16 +5,25 @@
       "name": "CLI prompt (debug)",
       "type": "coreclr",
       "request": "launch",
-      "program": "${workspaceFolder:ossm-web-controls}/.artifacts/cli-debug/OssmSharp.Cli.dll",
+      "program": "${workspaceFolder:OssmSharp}/.artifacts/cli-debug/OssmSharp.Cli.dll",
       "args": ["prompt"],
-      "cwd": "${workspaceFolder:ossm-web-controls}",
+      "cwd": "${workspaceFolder:OssmSharp}",
       "console": "integratedTerminal",
       "preLaunchTask": "build CLI (debug)",
-      "osx": {
-        "program": "${workspaceFolder:ossm-web-controls}/src/OssmSharp.Cli/bin/Debug/net10.0-macos26.0/osx-arm64/OssmSharp.Cli.app/Contents/MacOS/OssmSharp.Cli",
+      "windows": {
+        "program": "${workspaceFolder:OssmSharp}/.artifacts/publish/OssmSharp.Cli/debug_net10.0-windows10.0.19041.0_win-x64/OssmSharp.Cli.exe",
         "preLaunchTask": "publish CLI"
       },
-      "stopAtEntry": true
+      "osx": {
+        "program": "${workspaceFolder:OssmSharp}/.artifacts/bin/OssmSharp.Cli/debug_net10.0-macos27.0_osx-arm64/OssmSharp.Cli.app/Contents/MacOS/OssmSharp.Cli",
+        "preLaunchTask": "publish CLI"
+      },
+      "stopAtEntry": false,
+      "justMyCode": false,
+      "symbolOptions": {
+        "searchMicrosoftSymbolServer": false,
+        "searchNuGetOrgSymbolServer": false
+      }
     },
     {
       "name": "Attach to CLI prompt",

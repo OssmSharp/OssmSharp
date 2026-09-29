@@ -1,35 +1,73 @@
-using System.Globalization;
-using System.Text;
+using System.Buffers;
+using System.Text.Json;
 
 namespace OssmSharp.Runtime.Oem;
 
 /// <summary>
-/// Encodes one firmware control assignment without interpreting patterns or changing values.
+/// Serializes RAD BLE v1 requests without interpreting patterns or changing values.
 /// </summary>
 public static class Request
 {
     /// <summary>
-    /// Encodes a single assignment in the OEM firmware's UTF-8 command format.
+    /// Serializes one RAD BLE v1 request as UTF-8 JSON.
     /// </summary>
-    /// <param name="command">The validated control assignment.</param>
-    /// <returns>The command bytes, with no terminator or additional commands.</returns>
+    /// <param name="id">The nonzero identifier that correlates responses with this request.</param>
+    /// <param name="operation">The RAD operation, such as <c>setting.write</c>.</param>
+    /// <param name="path">The optional resource path, such as <c>motion.speed</c>.</param>
+    /// <param name="arguments">Optional finite numeric arguments.</param>
+    /// <param name="lease">The optional control lease token.</param>
+    /// <returns>The request bytes. The caller enforces the transport's message size limit.</returns>
     /// <remarks>
     /// Values are preserved, not rounded or clamped. Firmware owns acceptance and application;
-    /// firmware 1.0.34 ignores fractional values and pattern identifiers above 100.
-    /// Successful transmission does not establish acceptance or physical motion.
+    /// a successful write or response does not establish physical motion.
     /// </remarks>
-    public static byte[] Encode(DeviceCommand command)
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="id"/> is zero.</exception>
+    /// <exception cref="ArgumentException"><paramref name="operation"/> is empty, or an argument is not finite.</exception>
+    public static byte[] Encode(
+        uint id,
+        string operation,
+        string? path = null,
+        IReadOnlyDictionary<string, double>? arguments = null,
+        uint? lease = null)
     {
-        var control = command.Control switch
+        ArgumentOutOfRangeException.ThrowIfZero(id);
+        ArgumentException.ThrowIfNullOrWhiteSpace(operation);
+        var buffer = new ArrayBufferWriter<byte>();
+        using (var writer = new Utf8JsonWriter(buffer))
         {
-            DeviceControl.Pattern => "pattern",
-            DeviceControl.Speed => "speed",
-            DeviceControl.Stroke => "stroke",
-            DeviceControl.Depth => "depth",
-            DeviceControl.Sensation => "sensation",
-            _ => throw new ArgumentOutOfRangeException(nameof(command), command.Control, "Unknown firmware control."),
-        };
+            writer.WriteStartObject();
+            writer.WriteNumber("v", 1);
+            writer.WriteNumber("id", id);
+            writer.WriteString("op", operation);
+            if (path is not null)
+            {
+                writer.WriteString("path", path);
+            }
 
-        return Encoding.UTF8.GetBytes($"set:{control}:{command.Value.ToString("R", CultureInfo.InvariantCulture)}");
+            if (arguments is not null)
+            {
+                writer.WriteStartObject("args");
+                foreach (var (name, value) in arguments)
+                {
+                    if (!double.IsFinite(value))
+                    {
+                        throw new ArgumentException($"Argument '{name}' must be finite.", nameof(arguments));
+                    }
+
+                    writer.WriteNumber(name, value);
+                }
+
+                writer.WriteEndObject();
+            }
+
+            if (lease is { } token)
+            {
+                writer.WriteNumber("lease", token);
+            }
+
+            writer.WriteEndObject();
+        }
+
+        return buffer.WrittenSpan.ToArray();
     }
 }

@@ -9,8 +9,8 @@ public readonly record struct DeviceCommand
     /// Initializes a validated control assignment.
     /// </summary>
     /// <param name="control">The firmware control to assign.</param>
-    /// <param name="value">An integer pattern identifier or a percentage from zero through 100.</param>
-/// <exception cref="ArgumentOutOfRangeException">The control or value is outside its basic range.</exception>
+    /// <param name="value">A defined <see cref="StrokePattern"/> value or a percentage from zero through 100.</param>
+    /// <exception cref="ArgumentOutOfRangeException">The control or value is outside its basic range.</exception>
     public DeviceCommand(DeviceControl control, double value)
     {
         if (!Enum.IsDefined(control))
@@ -20,11 +20,12 @@ public readonly record struct DeviceCommand
 
         var maximum = control == DeviceControl.Pattern ? int.MaxValue : 100;
         if (!double.IsFinite(value) || value < 0 || value > maximum
-            || (control == DeviceControl.Pattern && value != Math.Truncate(value)))
+            || (control == DeviceControl.Pattern
+                && (value != Math.Truncate(value) || !MotionSettings.IsValidPattern((StrokePattern)value))))
         {
             throw new ArgumentOutOfRangeException(nameof(value), value,
                 control == DeviceControl.Pattern
-                    ? "Pattern must be a nonnegative 32-bit integer."
+                    ? "Pattern must be a defined stroke pattern."
                     : "Percentage must be finite and between zero and 100.");
         }
 

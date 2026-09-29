@@ -57,7 +57,9 @@ public sealed class PromptHandlerTests
         }
 
         (await run).Should().Be(0);
-        device.Writes.Should().ContainSingle();
+        device.Writes.Should().Equal(cancel
+            ? [new DeviceCommand(DeviceControl.Pattern, 0)]
+            : [new DeviceCommand(DeviceControl.Pattern, 0), new DeviceCommand(DeviceControl.Speed, 0)]);
         output.ToString().Should().Contain("CANCELLED set: 1 commands sent");
     }
 
@@ -70,6 +72,11 @@ public sealed class PromptHandlerTests
         {
             Write = (command, _) =>
             {
+                if (command.Control == DeviceControl.Speed)
+                {
+                    return release.Task;
+                }
+
                 if (command.Control != DeviceControl.Pattern)
                 {
                     return Task.CompletedTask;
@@ -102,8 +109,8 @@ public sealed class PromptHandlerTests
             }
 
             device.IsArmed.Should().BeFalse();
-            device.Writes.Should().ContainSingle();
-            error.ToString().Should().Contain("queue is full").And.Contain("Stop already pending");
+            device.Writes.Should().Equal(new DeviceCommand(DeviceControl.Pattern, 0), new DeviceCommand(DeviceControl.Speed, 0));
+            error.ToString().Should().Contain("queue is full").And.Contain("Stop already in progress");
         }
         finally
         {
@@ -113,7 +120,10 @@ public sealed class PromptHandlerTests
         }
 
         (await run).Should().Be(0);
-        device.Writes.Should().Equal(new DeviceCommand(DeviceControl.Pattern, 0), new DeviceCommand(DeviceControl.Speed, 0));
+
+        // Quit joins the Stop if it is still in progress; otherwise it sends another.
+        device.Writes.Take(2).Should().Equal(new DeviceCommand(DeviceControl.Pattern, 0), new DeviceCommand(DeviceControl.Speed, 0));
+        device.Writes.Skip(2).Should().AllBeEquivalentTo(new DeviceCommand(DeviceControl.Speed, 0)).And.HaveCountLessThan(2);
     }
 
     [Fact]
@@ -124,7 +134,7 @@ public sealed class PromptHandlerTests
         await device.ConnectAsync(TestContext.Current.CancellationToken);
         using var input = new StringReader("stop\nquit\n");
         using var output = new StringWriter();
-        using var error = new FailingWriter(line => line?.StartsWith("Stop requested", StringComparison.Ordinal) == true);
+        using var error = new FailingWriter(line => line?.StartsWith("Stopping", StringComparison.Ordinal) == true);
         var run = new PromptHandler(device, input, output, error).RunAsync(TestContext.Current.CancellationToken);
         try
         {
@@ -191,6 +201,9 @@ public sealed class PromptHandlerTests
     [InlineData("set -1 20 50 50 25", "pattern '-1'")]
     [InlineData("set 1.5 20 50 50 25", "pattern '1.5'")]
     [InlineData("set 2147483648 20 50 50 25", "pattern '2147483648'")]
+    [InlineData("set 7 20 50 50 25", "pattern '7'")]
+    [InlineData("set 01 20 50 50 25", "pattern '01'")]
+    [InlineData("set Deeper,Insist 20 50 50 25", "pattern 'Deeper,Insist'")]
     [InlineData("set 0 20 50", "depth")]
     [InlineData("set 0 20 50 50 25 extra", "extra")]
     [InlineData("status --fresh", "--fresh")]
@@ -205,9 +218,61 @@ public sealed class PromptHandlerTests
 
         (await handler.RunAsync(TestContext.Current.CancellationToken)).Should().Be(0);
 
-        device.Writes.Should().BeEmpty();
+        device.Writes.Should().Equal(new DeviceCommand(DeviceControl.Speed, 0));
         error.ToString().Should().Contain(offending).And.Contain("Nothing sent").And.Contain("Armed: yes");
         output.ToString().Should().Contain("OK status (cached)").And.NotContain("OK set");
+    }
+
+    [Fact]
+    public async Task SettingsAfterConnectionNeedNoReset()
+    {
+        await using var device = new TestDevice();
+        await device.ConnectAsync(TestContext.Current.CancellationToken);
+        using var input = new StringReader("set 0 20 50 50 25\nquit\n");
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+
+        (await new PromptHandler(device, input, output, error).RunAsync(TestContext.Current.CancellationToken)).Should().Be(0);
+
+        device.Writes.Should().HaveCount(6).And.EndWith(new DeviceCommand(DeviceControl.Speed, 0));
+        output.ToString().Should().Contain("OK set").And.Contain("Armed: yes");
+        error.ToString().Should().NotContain("ERROR");
+    }
+
+    [Fact]
+    public async Task QuitSendsStopAndWaitsForItBeforeExiting()
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var device = new TestDevice
+        {
+            Write = (_, _) =>
+            {
+                entered.TrySetResult();
+                return release.Task;
+            },
+        };
+        await device.ConnectAsync(TestContext.Current.CancellationToken);
+        using var input = new StringReader("quit\nset 0 20 50 50 25\n");
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        var run = new PromptHandler(device, input, output, error).RunAsync(TestContext.Current.CancellationToken);
+
+        try
+        {
+            await entered.Task.WaitAsync(TestContext.Current.CancellationToken);
+            run.IsCompleted.Should().BeFalse();
+            error.ToString().Should().Contain("Sending stop command. Please wait ...");
+        }
+        finally
+        {
+            release.TrySetResult();
+        }
+
+        (await run).Should().Be(0);
+        device.Writes.Should().Equal(new DeviceCommand(DeviceControl.Speed, 0));
+        device.IsArmed.Should().BeFalse();
+        output.ToString().Should().Contain("OK stop");
     }
 
     [Fact]
@@ -215,35 +280,39 @@ public sealed class PromptHandlerTests
     {
         await using var device = new TestDevice();
         await device.ConnectAsync(TestContext.Current.CancellationToken);
-        using var input = new StringReader("set 0 20 50 50 25\nreset\nset 2147483647 100 0 50.5 25\nstatus\nstatus --live\nhelp\nstop\nquit\n");
+        using var input = new StringReader("stop\nset 0 20 50 50 25\nreset\nset insist 100 0 50.5 25\nstatus\nstatus --live\nhelp\nhelp set\nhelp bogus\nstop\nquit\n");
         using var output = new StringWriter();
         using var error = new StringWriter();
 
         (await new PromptHandler(device, input, output, error).RunAsync(TestContext.Current.CancellationToken)).Should().Be(0);
 
         device.Writes.Should().Equal(
-            new DeviceCommand(DeviceControl.Pattern, int.MaxValue),
+            new DeviceCommand(DeviceControl.Speed, 0),
+            new DeviceCommand(DeviceControl.Pattern, 6),
             new DeviceCommand(DeviceControl.Stroke, 0),
             new DeviceCommand(DeviceControl.Depth, 50.5),
             new DeviceCommand(DeviceControl.Sensation, 25),
             new DeviceCommand(DeviceControl.Speed, 100),
+            new DeviceCommand(DeviceControl.Speed, 0),
             new DeviceCommand(DeviceControl.Speed, 0));
         device.Reads.Should().Be(2);
         device.IsArmed.Should().BeFalse();
-        error.ToString().Should().Contain("Nothing sent").And.Contain("disarmed");
+        error.ToString().Should().Contain("Nothing sent").And.Contain("disarmed").And.Contain("'bogus'");
         output.ToString().Should().Contain("OK reset").And.Contain("No motion command sent")
             .And.Contain("OK set").And.Contain("physical motion not verified")
             .And.Contain("status (cached): pattern=0 speed=0")
             .And.Contain("status (live): pattern=0 speed=0")
             .And.Contain("set <pattern> <speed> <stroke> <depth> <sensation>")
+            .And.Contain("0=SimpleStroke, 1=TeasingPounding, 2=RoboStroke, 3=HalfNHalf, 4=Deeper, 5=StopNGo, 6=Insist")
             .And.Contain("OK stop").And.Contain("Armed: no");
     }
 
     [Fact]
-    public async Task StopRemainsResponsiveAndQuitAwaitsIssuedWrite()
+    public async Task QuitSendsStopImmediatelyAndWaitsForCommandInProgress()
     {
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stopSent = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         await using var device = new TestDevice
         {
             Write = (command, token) =>
@@ -255,6 +324,7 @@ public sealed class PromptHandlerTests
                     return release.Task;
                 }
 
+                stopSent.TrySetResult();
                 return Task.CompletedTask;
             },
         };
@@ -265,29 +335,24 @@ public sealed class PromptHandlerTests
         var run = new PromptHandler(device, input, output, error).RunAsync(TestContext.Current.CancellationToken);
         try
         {
-            input.Send("reset");
             input.Send("set 0 20 50 50 25");
             await entered.Task.WaitAsync(TestContext.Current.CancellationToken);
-            input.Send("stop");
-            for (var count = 0; count < 4; count++)
-            {
-                await input.NextReadAsync(TestContext.Current.CancellationToken);
-            }
-
-            device.IsArmed.Should().BeFalse();
-            device.Writes.Should().ContainSingle();
             input.Send("quit");
+            await stopSent.Task.WaitAsync(TestContext.Current.CancellationToken);
+            device.IsArmed.Should().BeFalse();
+            device.Writes.Should().Equal(new DeviceCommand(DeviceControl.Pattern, 0), new DeviceCommand(DeviceControl.Speed, 0));
             run.IsCompleted.Should().BeFalse();
         }
         finally
         {
             release.TrySetResult();
-            input.Send("quit");
             await run;
         }
 
+        device.IsArmed.Should().BeFalse();
         device.Writes.Should().Equal(new DeviceCommand(DeviceControl.Pattern, 0), new DeviceCommand(DeviceControl.Speed, 0));
         output.ToString().Should().Contain("CANCELLED set: 1 commands sent").And.Contain("OK stop");
+        error.ToString().Should().Contain("Sending stop command. Please wait ...");
     }
 
     [Fact]
@@ -347,7 +412,8 @@ public sealed class PromptHandlerTests
             new DeviceCommand(DeviceControl.Stroke, 60),
             new DeviceCommand(DeviceControl.Depth, 40),
             new DeviceCommand(DeviceControl.Sensation, 35),
-            new DeviceCommand(DeviceControl.Speed, 30));
+            new DeviceCommand(DeviceControl.Speed, 30),
+            new DeviceCommand(DeviceControl.Speed, 0));
         output.ToString().Should().Contain("SUPERSEDED set: 1 commands sent");
     }
 

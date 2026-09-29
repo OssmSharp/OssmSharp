@@ -25,18 +25,63 @@ public sealed class DeviceDiscoveryTests
         clock.Advance(TimeSpan.FromSeconds(1));
 
         (await scan).Should().Equal(new DiscoveredDevice("device-1", "OSSM"));
-        context.ScanConfiguration!.ServiceUuids.Should().Equal(BleProtocol.Service);
+        context.ScanConfiguration!.ServiceUuids.Should().Equal(BleProtocolConstants.Service);
         context.ScanDisposals.Should().Be(1);
         context.ScanResults.HasObservers.Should().BeFalse();
         context.Peripheral.Verify(peripheral => peripheral.Connect(It.IsAny<ConnectionConfig>()), Times.Never);
     }
 
     [Fact]
-    public async Task EmptyScanReturnsNoDevicesAndReleasesSubscription()
+    public async Task FindFirstReturnsFirstDeviceBeforeTimeoutAndReleasesSubscription()
     {
         using var context = new BleTestContext();
         var clock = new FakeTimeProvider();
-        var scan = new DeviceDiscovery(context.Manager.Object, clock).ScanAsync(TestContext.Current.CancellationToken);
+        var scan = new DeviceDiscovery(context.Manager.Object, clock).FindFirstAsync(TestContext.Current.CancellationToken);
+        var advertisement = context.Mocks.GetOrCreateMock<IAdvertisementData>().Instance;
+
+        try
+        {
+            scan.IsCompleted.Should().BeFalse();
+            context.ScanResults.OnNext(new(context.Peripheral.Object, -40, advertisement));
+
+            context.ScanResults.HasObservers.Should().BeFalse();
+            (await scan.WaitAsync(TestContext.Current.CancellationToken)).Should().Be(new DiscoveredDevice("device-1", "OSSM"));
+            context.ScanDisposals.Should().Be(1);
+            context.ScanConfiguration!.ServiceUuids.Should().Equal(BleProtocolConstants.Service);
+            context.Peripheral.Verify(peripheral => peripheral.Connect(It.IsAny<ConnectionConfig>()), Times.Never);
+        }
+        finally
+        {
+            clock.Advance(TimeSpan.FromSeconds(5));
+            await scan;
+        }
+    }
+
+    [Fact]
+    public async Task FindFirstReturnsNullOnTimeoutAndReleasesSubscription()
+    {
+        using var context = new BleTestContext();
+        var clock = new FakeTimeProvider();
+        var scan = new DeviceDiscovery(context.Manager.Object, clock).FindFirstAsync(TestContext.Current.CancellationToken);
+
+        clock.Advance(TimeSpan.FromSeconds(4));
+        scan.IsCompleted.Should().BeFalse();
+        clock.Advance(TimeSpan.FromSeconds(1));
+
+        (await scan).Should().BeNull();
+        context.ScanDisposals.Should().Be(1);
+        context.ScanResults.HasObservers.Should().BeFalse();
+        context.Peripheral.Verify(peripheral => peripheral.Connect(It.IsAny<ConnectionConfig>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task EmptyScanReturnsNoDevicesAndReleasesSubscription(bool stopAfterFirst)
+    {
+        using var context = new BleTestContext();
+        var clock = new FakeTimeProvider();
+        var scan = new DeviceDiscovery(context.Manager.Object, clock).ScanAsync(stopAfterFirst, TestContext.Current.CancellationToken);
 
         clock.Advance(TimeSpan.FromSeconds(5));
 
@@ -44,12 +89,14 @@ public sealed class DeviceDiscoveryTests
         context.ScanDisposals.Should().Be(1);
     }
 
-    [Fact]
-    public async Task CancellationPropagatesAndReleasesScan()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CancellationPropagatesAndReleasesScan(bool stopAfterFirst)
     {
         using var context = new BleTestContext();
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
-        var scan = new DeviceDiscovery(context.Manager.Object, new FakeTimeProvider()).ScanAsync(cancellation.Token);
+        var scan = new DeviceDiscovery(context.Manager.Object, new FakeTimeProvider()).ScanAsync(stopAfterFirst, cancellation.Token);
 
         await cancellation.CancelAsync();
 
@@ -59,11 +106,13 @@ public sealed class DeviceDiscoveryTests
         context.ScanResults.HasObservers.Should().BeFalse();
     }
 
-    [Fact]
-    public async Task BluetoothScanErrorPropagatesUnchanged()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task BluetoothScanErrorPropagatesUnchanged(bool stopAfterFirst)
     {
         using var context = new BleTestContext();
-        var scan = new DeviceDiscovery(context.Manager.Object, new FakeTimeProvider()).ScanAsync(TestContext.Current.CancellationToken);
+        var scan = new DeviceDiscovery(context.Manager.Object, new FakeTimeProvider()).ScanAsync(stopAfterFirst, TestContext.Current.CancellationToken);
         var failure = new IOException("Scan failed.");
 
         context.ScanResults.OnError(failure);
