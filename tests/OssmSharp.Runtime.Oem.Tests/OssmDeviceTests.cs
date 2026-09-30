@@ -566,10 +566,19 @@ public sealed class OssmDeviceTests
         device.IsArmed.Should().BeTrue();
     }
 
-    [Fact]
-    public async Task UnansweredRequestFailsConnectionAfterBoundedResends()
+    [Theory]
+    [InlineData(null, 2000)]
+    [InlineData(1, 250)]
+    [InlineData(2, 250)]
+    public async Task UnansweredRequestFailsConnectionAfterBoundedResends(int? maximumRequestAttempts, int responseTimeoutMilliseconds)
     {
-        using var context = new BleTestContext();
+        var responseTimeout = TimeSpan.FromMilliseconds(responseTimeoutMilliseconds);
+        using var context = new BleTestContext
+        {
+            DeviceOptions = maximumRequestAttempts is { } attempts
+                ? new() { MaximumRequestAttempts = attempts, ResponseTimeout = responseTimeout }
+                : null,
+        };
         var token = TestContext.Current.CancellationToken;
         await using var device = await context.ConnectAsync(token);
         var failed = WhenConnectionFails(device);
@@ -580,15 +589,16 @@ public sealed class OssmDeviceTests
         var set = device.SetAsync(new(StrokePattern.TeasingPounding, 20, 30, 40, 50), token);
         for (var elapsed = 0; elapsed < 10 && !failed.IsCompleted; elapsed++)
         {
-            context.Clock.Advance(TimeSpan.FromSeconds(1));
+            context.Clock.Advance(responseTimeout);
             await Task.Delay(1, token);
         }
 
+        context.Write = null;
         failed.IsCompleted.Should().BeTrue();
         device.ConnectionFailure.Should().BeOfType<IOException>().Which.Message.Should().Contain("did not answer");
         device.IsArmed.Should().BeFalse();
         var writes = context.RequestsFor("setting.write");
-        writes.Should().HaveCount(3);
+        writes.Should().HaveCount(maximumRequestAttempts ?? 3);
         writes.Select(request => request["id"]!.GetValue<uint>()).Distinct().Should().ContainSingle();
         var result = () => set;
         await result.Should().ThrowAsync<DeviceWriteException>();

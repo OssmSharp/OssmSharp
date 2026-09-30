@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Shiny.BluetoothLE;
 
 namespace OssmSharp.Runtime.Oem;
@@ -33,16 +34,21 @@ public static class ServiceCollectionExtensions
         }
 
         services.AddLogging();
+        services
+            .AddOptionsWithValidateOnStart<OssmDeviceOptions, OssmDeviceOptionsValidator>();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IBleDelegate>(new BleLifecycleDelegate()));
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton<DeviceDiscovery>();
 
         // TODO: make a better factory method.
-        services.AddSingleton<Func<string, DeviceBase>>(provider => identifier => new OssmDevice(
-            provider.GetRequiredService<IBleManager>(),
-            identifier,
-            provider.GetRequiredService<TimeProvider>(),
-            provider.GetRequiredService<ILogger<DeviceBase>>()));
+        services.AddSingleton<Func<string, DeviceBase>>(
+            provider => identifier => new OssmDevice(
+                provider.GetRequiredService<IBleManager>(),
+                identifier,
+                provider.GetRequiredService<TimeProvider>(),
+                provider.GetRequiredService<ILogger<DeviceBase>>(),
+                provider.GetRequiredService<IOptions<OssmDeviceOptions>>()));
+
         return services;
     }
 }

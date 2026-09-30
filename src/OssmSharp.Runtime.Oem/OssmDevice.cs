@@ -7,6 +7,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.ExceptionServices;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Shiny.BluetoothLE;
 
 namespace OssmSharp.Runtime.Oem;
@@ -28,13 +29,12 @@ public sealed class OssmDevice : DeviceBase
 {
     private const int MaximumMessageBytes = 509;
     private const int StreamHeaderBytes = 20;
-    private const int MaximumRequestAttempts = 3;
-    private static readonly TimeSpan ResponseTimeout = TimeSpan.FromSeconds(2);
     private static readonly ConditionalWeakTable<IPeripheral, OssmDevice> Owners = [];
     private readonly IBleManager manager;
     private readonly string identifier;
     private readonly TimeProvider timeProvider;
     private readonly ILogger logger;
+    private readonly OssmDeviceOptions options;
     private readonly Lock sync = new();
     private readonly SemaphoreSlim writes = new(1, 1);
     private readonly Dictionary<uint, TaskCompletionSource<Response>> requests = [];
@@ -60,15 +60,30 @@ public sealed class OssmDevice : DeviceBase
     /// <param name="timeProvider">The clock used to renew the control lease before its reported expiry and to detect lost responses.</param>
     /// <param name="logger">The operational logger for Runtime's execution owner.</param>
     public OssmDevice(IBleManager manager, string identifier, TimeProvider timeProvider, ILogger<DeviceBase> logger)
+        : this(manager, identifier, timeProvider, logger, Options.Create(new OssmDeviceOptions()))
+    {
+    }
+
+    /// <summary>
+    /// Initializes a caller-owned, reusable client with configured request limits for a device selected by its discovered platform identifier.
+    /// </summary>
+    /// <param name="manager">The host-owned bluetooth manager used for discovery.</param>
+    /// <param name="identifier">The opaque identifier returned by <see cref="DeviceDiscovery"/>.</param>
+    /// <param name="timeProvider">The clock used to renew the control lease before its reported expiry and to detect lost responses.</param>
+    /// <param name="logger">The operational logger for Runtime's execution owner.</param>
+    /// <param name="options">The request retry and terminal-response wait limits.</param>
+    public OssmDevice(IBleManager manager, string identifier, TimeProvider timeProvider, ILogger<DeviceBase> logger, IOptions<OssmDeviceOptions> options)
         : base(logger)
     {
         ArgumentNullException.ThrowIfNull(manager);
         ArgumentException.ThrowIfNullOrWhiteSpace(identifier);
         ArgumentNullException.ThrowIfNull(timeProvider);
+        ArgumentNullException.ThrowIfNull(options);
         this.manager = manager;
         this.identifier = identifier;
         this.timeProvider = timeProvider;
         this.logger = logger;
+        this.options = options.Value;
     }
 
     internal static void PeripheralStateChanged(IPeripheral peripheral)
@@ -467,9 +482,9 @@ public sealed class OssmDevice : DeviceBase
                 await WriteRequestAsync(current, selected, payload, priority, cancellationToken).ConfigureAwait(false);
                 try
                 {
-                    return await response.Task.WaitAsync(ResponseTimeout, timeProvider, cancellationToken).ConfigureAwait(false);
+                    return await response.Task.WaitAsync(options.ResponseTimeout, timeProvider, cancellationToken).ConfigureAwait(false);
                 }
-                catch (TimeoutException) when (attempt < MaximumRequestAttempts)
+                catch (TimeoutException) when (attempt < options.MaximumRequestAttempts)
                 {
                     // The firmware replays a cached response for a repeated identifier and re-executes one it could not cache.
                     logger.RequestResent(operation);

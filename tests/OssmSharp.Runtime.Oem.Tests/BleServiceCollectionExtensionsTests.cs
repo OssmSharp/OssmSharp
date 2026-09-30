@@ -1,4 +1,5 @@
 using AwesomeAssertions;
+using Microsoft.Extensions.Options;
 using OssmSharp.Runtime.Oem;
 using Shiny.BluetoothLE;
 using Xunit;
@@ -28,6 +29,28 @@ public sealed class BleServiceCollectionExtensionsTests
         first.IsArmed.Should().BeFalse();
         context.Requests.Should().BeEmpty();
         context.ConnectionConfiguration.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData(0, 2000)]
+    [InlineData(3, 0)]
+    public void RegisteredRequestOptionsRejectInvalidLimits(int attempts, int responseTimeoutMilliseconds)
+    {
+        using var context = new BleTestContext();
+        var services = new ServiceCollection();
+        services.AddSingleton(context.Manager.Object);
+        services.AddOemRuntime();
+        services.Configure<OssmDeviceOptions>(options =>
+        {
+            options.MaximumRequestAttempts = attempts;
+            options.ResponseTimeout = TimeSpan.FromMilliseconds(responseTimeoutMilliseconds);
+        });
+        using var provider = services.BuildServiceProvider();
+
+        var resolve = () => provider.GetRequiredService<IOptions<OssmDeviceOptions>>().Value;
+
+        resolve.Should().Throw<OptionsValidationException>();
+        context.Requests.Should().BeEmpty();
     }
 
     [Fact]
