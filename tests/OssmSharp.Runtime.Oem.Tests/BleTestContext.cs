@@ -118,15 +118,19 @@ internal sealed class BleTestContext : IDisposable
 
     public static string Operation(JsonObject request) => request["op"]!.GetValue<string>();
 
+    public static bool IsMotionWrite(JsonObject request) => Operation(request) == "setting.write"
+        && request["path"]!.GetValue<string>().StartsWith("motion.", StringComparison.Ordinal);
+
     public OssmDevice CreateDevice() => DeviceOptions is null
         ? new(Manager.Object, "device-1", Clock, NullLogger<DeviceBase>.Instance)
         : new(Manager.Object, "device-1", Clock, NullLogger<DeviceBase>.Instance, Options.Create(DeviceOptions));
 
-    public List<JsonObject> RequestsFor(string operation)
+    public List<JsonObject> RequestsFor(string operation, string? pathPrefix = null)
     {
         lock (Requests)
         {
-            return [.. Requests.Where(request => Operation(request) == operation)];
+            return [.. Requests.Where(request => Operation(request) == operation
+                && (pathPrefix is null || request["path"]?.GetValue<string>().StartsWith(pathPrefix, StringComparison.Ordinal) == true))];
         }
     }
 

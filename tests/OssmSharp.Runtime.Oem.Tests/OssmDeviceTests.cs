@@ -108,8 +108,10 @@ public sealed class OssmDeviceTests
         device.IsArmed.Should().BeFalse();
     }
 
-    [Fact]
-    public async Task SettingsSendLeasedWritesCompletedOnlyByTerminalResponses()
+    [Theory]
+    [InlineData(StrokePattern.RoboStroke, 20, 30, 40, 50)]
+    [InlineData(StrokePattern.SimpleStroke, 5, 5, 5, 5)]
+    public async Task SettingsSendLeasedWritesCompletedOnlyByTerminalResponses(StrokePattern pattern, int speed, int stroke, int depth, int sensation)
     {
         using var context = new BleTestContext();
         var token = TestContext.Current.CancellationToken;
@@ -117,7 +119,7 @@ public sealed class OssmDeviceTests
         var held = new TaskCompletionSource<JsonObject>(TaskCreationOptions.RunContinuationsAsynchronously);
         context.Write = request =>
         {
-            if (BleTestContext.Operation(request) != "setting.write" || held.Task.IsCompleted)
+            if (!BleTestContext.IsMotionWrite(request) || held.Task.IsCompleted)
             {
                 return null;
             }
@@ -127,17 +129,17 @@ public sealed class OssmDeviceTests
             return Observable.Return(BleTestContext.WriteResult([]));
         };
 
-        var set = device.SetAsync(new(StrokePattern.RoboStroke, 20, 30, 40, 50), token);
+        var set = device.SetAsync(new(pattern, speed, stroke, depth, sensation), token);
         var first = await held.Task.WaitAsync(token);
 
         set.IsCompleted.Should().BeFalse();
-        context.RequestsFor("setting.write").Should().ContainSingle();
+        context.RequestsFor("setting.write", "motion.").Should().ContainSingle();
         context.Respond(first, "completed", result: new JsonObject());
         (await set).Should().Be(new SetResult(SetStatus.Completed, 5));
-        var writes = context.RequestsFor("setting.write");
+        var writes = context.RequestsFor("setting.write", "motion.");
         writes.Select(request => request["path"]!.GetValue<string>())
             .Should().Equal("motion.pattern", "motion.stroke", "motion.depth", "motion.sensation", "motion.speed");
-        writes.Select(request => request["args"]!["value"]!.GetValue<int>()).Should().Equal(2, 30, 40, 50, 20);
+        writes.Select(request => request["args"]!["value"]!.GetValue<int>()).Should().Equal((int)pattern, stroke, depth, sensation, speed);
         writes.Should().OnlyContain(request => request["lease"]!.GetValue<uint>() == 42);
         device.IsArmed.Should().BeTrue();
     }
@@ -150,7 +152,7 @@ public sealed class OssmDeviceTests
         await using var device = await context.ConnectAsync(token);
         context.Write = request =>
         {
-            if (BleTestContext.Operation(request) != "setting.write" || context.RequestsFor("setting.write").Count != 2)
+            if (!BleTestContext.IsMotionWrite(request) || context.RequestsFor("setting.write", "motion.").Count != 2)
             {
                 return null;
             }
@@ -166,7 +168,7 @@ public sealed class OssmDeviceTests
         error.CommandsWritten.Should().Be(1);
         error.Command.Should().Be(new DeviceCommand(DeviceControl.Stroke, 30));
         error.InnerException.Should().BeOfType<IOException>().Which.Message.Should().Contain("invalid_value");
-        context.RequestsFor("setting.write").Should().HaveCount(2);
+        context.RequestsFor("setting.write", "motion.").Should().HaveCount(2);
         device.IsArmed.Should().BeFalse();
         device.ConnectionFailure.Should().BeNull();
     }
@@ -180,7 +182,7 @@ public sealed class OssmDeviceTests
 
         await device.EmergencyStopAsync(token);
 
-        var stop = context.RequestsFor("setting.write").Should().ContainSingle().Which;
+        var stop = context.RequestsFor("setting.write", "motion.").Should().ContainSingle().Which;
         stop["path"]!.GetValue<string>().Should().Be("motion.speed");
         stop["args"]!["value"]!.GetValue<double>().Should().Be(0);
         stop["lease"]!.GetValue<uint>().Should().Be(42);
@@ -197,7 +199,7 @@ public sealed class OssmDeviceTests
         var issued = new TaskCompletionSource<JsonObject>(TaskCreationOptions.RunContinuationsAsynchronously);
         context.Write = request =>
         {
-            if (BleTestContext.Operation(request) != "setting.write" || request["path"]!.GetValue<string>() != "motion.pattern")
+            if (!BleTestContext.IsMotionWrite(request) || request["path"]!.GetValue<string>() != "motion.pattern")
             {
                 return null;
             }
@@ -215,20 +217,20 @@ public sealed class OssmDeviceTests
         try
         {
             stop.IsCompleted.Should().BeFalse();
-            context.RequestsFor("setting.write").Should().ContainSingle().Which.Should().BeSameAs(firstRequest);
+            context.RequestsFor("setting.write", "motion.").Should().ContainSingle().Which.Should().BeSameAs(firstRequest);
             transfer.OnNext(BleTestContext.WriteResult([]));
             transfer.OnCompleted();
             await stop;
             (await first).Should().Be(new SetResult(SetStatus.Superseded, 0));
             (await queued).Should().Be(new SetResult(SetStatus.Cancelled, 0));
-            var writes = context.RequestsFor("setting.write");
+            var writes = context.RequestsFor("setting.write", "motion.");
             writes.Should().HaveCount(2);
             writes[0]["path"]!.GetValue<string>().Should().Be("motion.pattern");
             writes[1]["path"]!.GetValue<string>().Should().Be("motion.speed");
             writes[1]["args"]!["value"]!.GetValue<double>().Should().Be(0);
             writes[1]["lease"]!.GetValue<uint>().Should().Be(42);
             context.Respond(firstRequest, "completed", result: new JsonObject());
-            context.RequestsFor("setting.write").Should().HaveCount(2);
+            context.RequestsFor("setting.write", "motion.").Should().HaveCount(2);
         }
         finally
         {
@@ -265,18 +267,18 @@ public sealed class OssmDeviceTests
         {
             setting.IsCompleted.Should().BeFalse();
             stop.IsCompleted.Should().BeFalse();
-            context.RequestsFor("setting.write").Should().BeEmpty();
+            context.RequestsFor("setting.write", "motion.").Should().BeEmpty();
             transfer.OnNext(BleTestContext.WriteResult([]));
             transfer.OnCompleted();
 
             await stop.WaitAsync(token);
             (await setting).Should().Be(new SetResult(SetStatus.Cancelled, 0));
-            var writes = context.RequestsFor("setting.write");
+            var writes = context.RequestsFor("setting.write", "motion.");
             writes.Should().ContainSingle().Which["args"]!["value"]!.GetValue<double>().Should().Be(0);
             context.Requests.Select(BleTestContext.Operation)
                 .Should().Equal("control.acquire", "stream.start", "control.renew", "setting.write");
             context.Respond(renewal, "completed", result: new JsonObject { ["ttlMs"] = 10000 });
-            context.RequestsFor("setting.write").Should().ContainSingle();
+            context.RequestsFor("setting.write", "motion.").Should().ContainSingle();
         }
         finally
         {
@@ -338,7 +340,7 @@ public sealed class OssmDeviceTests
         (await device.GetStateAsync(cancellationToken: token)).Should().Be(Initial);
         var reset = () => device.ResetAsync(token);
         await reset.Should().ThrowAsync<InvalidDataException>();
-        context.RequestsFor("setting.write").Should().BeEmpty();
+        context.RequestsFor("setting.write", "motion.").Should().BeEmpty();
     }
 
     [Theory]
@@ -404,7 +406,7 @@ public sealed class OssmDeviceTests
         device.ConnectionFailure.Should().BeNull();
         device.IsArmed.Should().BeTrue();
         (await device.GetStateAsync(cancellationToken: token)).Should().Be(Initial);
-        context.RequestsFor("setting.write").Should().ContainSingle().Which["args"]!["value"]!.GetValue<double>().Should().Be(0);
+        context.RequestsFor("setting.write", "motion.").Should().ContainSingle().Which["args"]!["value"]!.GetValue<double>().Should().Be(0);
     }
 
     [Fact]
@@ -457,12 +459,12 @@ public sealed class OssmDeviceTests
         device.IsArmed.Should().BeTrue();
         device.ConnectionFailure.Should().BeNull();
         (await device.GetStateAsync(cancellationToken: token)).Should().Be(new DeviceState(new(0, 0, 12, 10, 50)));
-        context.RequestsFor("setting.write").Should().BeEmpty();
+        context.RequestsFor("setting.write", "motion.").Should().BeEmpty();
 
         (await device.SetAsync(new(StrokePattern.RoboStroke, 5, 5, 5, 5), token))
             .Should().Be(new SetResult(SetStatus.Completed, 5));
 
-        context.RequestsFor("setting.write").Should().HaveCount(5);
+        context.RequestsFor("setting.write", "motion.").Should().HaveCount(5);
         device.IsArmed.Should().BeTrue();
     }
 
@@ -483,7 +485,7 @@ public sealed class OssmDeviceTests
                 return null;
             }
 
-            context.RequestsFor("setting.write").Should().BeEmpty();
+            context.RequestsFor("setting.write", "motion.").Should().BeEmpty();
             context.State = "strokeEngine.idle";
             context.Motion = Controls.Replace("{0}", "0", StringComparison.Ordinal);
             context.Respond(request, "completed", result: new JsonObject(), stateBefore: "menu.idle");
@@ -493,7 +495,7 @@ public sealed class OssmDeviceTests
         var set = device.SetAsync(new(StrokePattern.RoboStroke, 5, 5, 5, 5), token);
         try
         {
-            context.RequestsFor("setting.write").Should().HaveCount(5);
+            context.RequestsFor("setting.write", "motion.").Should().HaveCount(5);
             (await set).Should().Be(new SetResult(SetStatus.Completed, 5));
             (await device.GetStateAsync(cancellationToken: token)).Should().Be(new DeviceState(new(0, 0, 20, 10, 50)));
         }
@@ -507,9 +509,89 @@ public sealed class OssmDeviceTests
         var target = context.RequestsFor("target.set").Should().ContainSingle().Which;
         target["path"]!.GetValue<string>().Should().Be("target.strokeEngine");
         target["lease"]!.GetValue<uint>().Should().Be(42);
-        context.RequestsFor("setting.write").Should().HaveCount(5);
+        context.RequestsFor("setting.write", "motion.").Should().HaveCount(5);
         device.IsArmed.Should().BeTrue();
         (await device.GetStateAsync(cancellationToken: token)).Should().Be(new DeviceState(new(StrokePattern.RoboStroke, 1, 5, 5, 5)));
+    }
+
+    [Fact]
+    public async Task SetWaitsForDirectSpeedSetupBeforeSelectingModeOrWritingMotion()
+    {
+        using var context = new BleTestContext();
+        var token = TestContext.Current.CancellationToken;
+        await using var device = await context.ConnectAsync(token);
+        context.Write = request => request["path"]?.GetValue<string>() == "setting.speedKnobAsLimit"
+            ? Observable.Return(BleTestContext.WriteResult([]))
+            : null;
+
+        var set = device.SetAsync(new(StrokePattern.SimpleStroke, 5, 5, 5, 5), token);
+        try
+        {
+            var setup = context.RequestsFor("setting.write").Should().ContainSingle().Which;
+            setup["path"]!.GetValue<string>().Should().Be("setting.speedKnobAsLimit");
+            setup["args"]!["value"]!.GetValue<bool>().Should().BeFalse();
+            setup["lease"]!.GetValue<uint>().Should().Be(42);
+            context.RequestsFor("target.set").Should().BeEmpty();
+            set.IsCompleted.Should().BeFalse();
+
+            context.Complete(setup);
+            (await set).Should().Be(new SetResult(SetStatus.Completed, 5));
+            context.Requests.Skip(2).Select(request => request["path"]!.GetValue<string>())
+                .Should().Equal("setting.speedKnobAsLimit", "target.strokeEngine", "motion.pattern", "motion.stroke", "motion.depth", "motion.sensation", "motion.speed");
+        }
+        finally
+        {
+            context.Write = null;
+            await device.EmergencyStopAsync(token);
+            await set;
+        }
+    }
+
+    [Fact]
+    public async Task RejectedDirectSpeedSetupDisarmsWithoutSelectingModeOrWritingMotion()
+    {
+        using var context = new BleTestContext();
+        var token = TestContext.Current.CancellationToken;
+        await using var device = await context.ConnectAsync(token);
+        context.Write = request =>
+        {
+            if (request["path"]?.GetValue<string>() != "setting.speedKnobAsLimit")
+            {
+                return null;
+            }
+
+            context.Respond(request, "failed", ok: false, code: "invalid_value");
+            return Observable.Return(BleTestContext.WriteResult([]));
+        };
+
+        await device.Invoking(value => value.SetAsync(new(0, 5, 5, 5, 5), token))
+            .Should().ThrowAsync<IOException>().WithMessage("*no settings were sent*invalid_value*");
+
+        device.IsArmed.Should().BeFalse();
+        context.RequestsFor("target.set").Should().BeEmpty();
+        context.RequestsFor("setting.write", "motion.").Should().BeEmpty();
+        context.RequestsFor("setting.write").Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task CancelledDirectSpeedSetupDoesNotWriteMotionAfterLateAcknowledgement()
+    {
+        using var context = new BleTestContext();
+        var token = TestContext.Current.CancellationToken;
+        await using var device = await context.ConnectAsync(token);
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(token);
+        context.Write = request => request["path"]?.GetValue<string>() == "setting.speedKnobAsLimit"
+            ? Observable.Return(BleTestContext.WriteResult([]))
+            : null;
+
+        var set = device.SetAsync(new(0, 5, 5, 5, 5), cancellation.Token);
+        var setup = context.RequestsFor("setting.write").Should().ContainSingle().Which;
+        await cancellation.CancelAsync();
+
+        (await set).Should().Be(new SetResult(SetStatus.Cancelled, 0));
+        context.Complete(setup);
+        context.RequestsFor("target.set").Should().BeEmpty();
+        context.RequestsFor("setting.write", "motion.").Should().BeEmpty();
     }
 
     [Fact]
@@ -524,7 +606,7 @@ public sealed class OssmDeviceTests
             .Should().ThrowAsync<InvalidOperationException>().WithMessage("*speed knob*");
 
         context.RequestsFor("target.set").Should().ContainSingle();
-        context.RequestsFor("setting.write").Should().BeEmpty();
+        context.RequestsFor("setting.write", "motion.").Should().BeEmpty();
         device.IsArmed.Should().BeTrue();
     }
 
@@ -552,7 +634,7 @@ public sealed class OssmDeviceTests
         var resent = new TaskCompletionSource<JsonObject>(TaskCreationOptions.RunContinuationsAsynchronously);
         context.Write = request =>
         {
-            if (BleTestContext.Operation(request) != "setting.write")
+            if (!BleTestContext.IsMotionWrite(request))
             {
                 return null;
             }
@@ -600,7 +682,7 @@ public sealed class OssmDeviceTests
         var token = TestContext.Current.CancellationToken;
         await using var device = await context.ConnectAsync(token);
         var failed = WhenConnectionFails(device);
-        context.Write = request => BleTestContext.Operation(request) == "setting.write"
+        context.Write = request => BleTestContext.IsMotionWrite(request)
             ? Observable.Return(BleTestContext.WriteResult([]))
             : null;
 
@@ -615,7 +697,7 @@ public sealed class OssmDeviceTests
         failed.IsCompleted.Should().BeTrue();
         device.ConnectionFailure.Should().BeOfType<IOException>().Which.Message.Should().Contain("did not answer");
         device.IsArmed.Should().BeFalse();
-        var writes = context.RequestsFor("setting.write");
+        var writes = context.RequestsFor("setting.write", "motion.");
         writes.Should().HaveCount(maximumRequestAttempts ?? 3);
         writes.Select(request => request["id"]!.GetValue<uint>()).Distinct().Should().ContainSingle();
         var result = () => set;
@@ -731,7 +813,7 @@ public sealed class OssmDeviceTests
         await device.DisconnectAsync(token);
 
         context.Requests.Select(BleTestContext.Operation).Should().EndWith(["setting.write", "setting.write", "stream.stop", "control.release"]);
-        var stop = context.RequestsFor("setting.write")[5];
+        var stop = context.RequestsFor("setting.write", "motion.")[5];
         stop["path"]!.GetValue<string>().Should().Be("motion.speed");
         stop["args"]!["value"]!.GetValue<double>().Should().Be(0);
         stop["lease"]!.GetValue<uint>().Should().Be(42);
@@ -746,7 +828,7 @@ public sealed class OssmDeviceTests
         await context.StreamUntilAsync(device.ConnectAsync(token), token);
 
         device.IsArmed.Should().BeTrue();
-        context.RequestsFor("setting.write").Should().HaveCount(6);
+        context.RequestsFor("setting.write", "motion.").Should().HaveCount(6);
         context.RequestsFor("control.acquire").Should().HaveCount(2);
         context.RequestsFor("stream.start")[1]["lease"]!.GetValue<uint>().Should().Be(43);
     }
@@ -759,7 +841,7 @@ public sealed class OssmDeviceTests
         await using var device = await context.ConnectAsync(token);
         context.Write = request =>
         {
-            if (BleTestContext.Operation(request) != "setting.write")
+            if (!BleTestContext.IsMotionWrite(request))
             {
                 return null;
             }
@@ -795,7 +877,7 @@ public sealed class OssmDeviceTests
         var issued = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         context.Write = request =>
         {
-            if (BleTestContext.Operation(request) != "setting.write")
+            if (!BleTestContext.IsMotionWrite(request))
             {
                 return null;
             }
@@ -822,7 +904,7 @@ public sealed class OssmDeviceTests
         device.ConnectionFailure.Should().BeNull();
         context.DisconnectCalls.Should().Be(1);
         context.RequestsFor("control.release").Should().BeEmpty();
-        context.RequestsFor("setting.write").Should().ContainSingle();
+        context.RequestsFor("setting.write", "motion.").Should().ContainSingle();
     }
 
     [Fact]
@@ -835,7 +917,7 @@ public sealed class OssmDeviceTests
         var issued = new TaskCompletionSource<JsonObject>(TaskCreationOptions.RunContinuationsAsynchronously);
         context.Write = request =>
         {
-            if (BleTestContext.Operation(request) != "setting.write"
+            if (!BleTestContext.IsMotionWrite(request)
                 || request["path"]!.GetValue<string>() == "motion.speed" && request["args"]!["value"]!.GetValue<double>() == 0)
             {
                 return null;
@@ -851,7 +933,7 @@ public sealed class OssmDeviceTests
         try
         {
             dispose.IsCompleted.Should().BeFalse();
-            context.RequestsFor("setting.write").Should().ContainSingle();
+            context.RequestsFor("setting.write", "motion.").Should().ContainSingle();
             context.RequestsFor("control.release").Should().BeEmpty();
             transfer.OnNext(BleTestContext.WriteResult([]));
             transfer.OnCompleted();
@@ -872,8 +954,8 @@ public sealed class OssmDeviceTests
         context.Responses.HasObservers.Should().BeFalse();
         context.Frames.HasObservers.Should().BeFalse();
         context.Requests.Select(BleTestContext.Operation)
-            .Should().Equal("control.acquire", "stream.start", "target.set", "setting.write", "setting.write", "stream.stop", "control.release");
-        context.RequestsFor("setting.write").Should().HaveCount(2);
+            .Should().Equal("control.acquire", "stream.start", "setting.write", "target.set", "setting.write", "setting.write", "stream.stop", "control.release");
+        context.RequestsFor("setting.write", "motion.").Should().HaveCount(2);
         device.ConnectionFailure.Should().BeNull();
         context.RequestsFor("stream.stop").Should().ContainSingle();
         context.RequestsFor("control.release").Should().ContainSingle();
@@ -890,7 +972,7 @@ public sealed class OssmDeviceTests
 
         context.Requests.Select(BleTestContext.Operation)
             .Should().Equal("control.acquire", "stream.start", "setting.write", "stream.stop", "control.release");
-        var stop = context.RequestsFor("setting.write").Should().ContainSingle().Which;
+        var stop = context.RequestsFor("setting.write", "motion.").Should().ContainSingle().Which;
         stop["path"]!.GetValue<string>().Should().Be("motion.speed");
         stop["args"]!["value"]!.GetValue<double>().Should().Be(0);
         stop["lease"]!.GetValue<uint>().Should().Be(42);
@@ -905,7 +987,7 @@ public sealed class OssmDeviceTests
 
         await device.DisposeAsync();
 
-        context.RequestsFor("setting.write").Should().BeEmpty();
+        context.RequestsFor("setting.write", "motion.").Should().BeEmpty();
     }
 
     [Fact]

@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace OssmSharp.Runtime.Oem;
 
@@ -30,6 +31,21 @@ public static class Request
         IReadOnlyDictionary<string, int>? arguments = null,
         uint? lease = null)
     {
+        JsonObject? jsonArguments = null;
+        if (arguments is not null)
+        {
+            jsonArguments = new JsonObject();
+            foreach (var (name, value) in arguments)
+            {
+                jsonArguments.Add(name, JsonValue.Create(value));
+            }
+        }
+
+        return EncodeWithArguments(id, operation, path, jsonArguments, lease);
+    }
+
+    internal static byte[] EncodeWithArguments(uint id, string operation, string? path, JsonObject? arguments, uint? lease)
+    {
         ArgumentOutOfRangeException.ThrowIfZero(id);
         ArgumentException.ThrowIfNullOrWhiteSpace(operation);
         var buffer = new ArrayBufferWriter<byte>();
@@ -46,13 +62,8 @@ public static class Request
 
             if (arguments is not null)
             {
-                writer.WriteStartObject("args");
-                foreach (var (name, value) in arguments)
-                {
-                    writer.WriteNumber(name, value);
-                }
-
-                writer.WriteEndObject();
+                writer.WritePropertyName("args");
+                arguments.WriteTo(writer);
             }
 
             if (lease is { } token)

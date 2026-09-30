@@ -6,6 +6,7 @@ using System.Reactive.Threading.Tasks;
 using System.Runtime.CompilerServices;
 using System.Runtime.ExceptionServices;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Shiny.BluetoothLE;
@@ -20,6 +21,8 @@ namespace OssmSharp.Runtime.Oem;
 /// Register the native host through the service collection extension so Shiny delivers teardown callbacks.
 /// Each connection validates the protocol, subscribes to responses and the sensor stream, acquires a control lease,
 /// and streams motion observations. Lease tokens, request identifiers, and subscriptions stay internal.
+/// Each settings submission configures direct BLE speed by turning off the firmware's physical speed-input scaling.
+/// That configuration is not restored on Stop or disconnect. Connecting alone does not change it.
 /// A terminal response confirms firmware completion, not physical motion. Lease loss fails the connection;
 /// the lease is never silently reacquired. The firmware can emit malformed JSON; such responses and motion
 /// payloads are discarded, and a request without a terminal response is resent with its original identifier
@@ -269,12 +272,12 @@ public sealed class OssmDevice : DeviceBase
             current = generation;
         }
 
-        return SendRequestAsync(current, "setting.write", path, new Dictionary<string, int> { ["value"] = command.Value }, leased: true, cancellationToken);
+        return SendRequestAsync(current, "setting.write", path, new JsonObject { ["value"] = command.Value }, leased: true, cancellationToken);
     }
 
     /// <inheritdoc />
     /// <remarks>
-    /// Selects the stroke engine and checks readiness from its terminal response without waiting for a motion observation.
+    /// Configures direct speed control, then selects the stroke engine and checks readiness from its terminal response.
     /// Homing and preflight report not ready.
     /// </remarks>
     protected override async Task<bool> PreparePatternAsync(CancellationToken cancellationToken)
@@ -285,6 +288,7 @@ public sealed class OssmDevice : DeviceBase
             current = generation;
         }
 
+        await SendRequestAsync(current, "setting.write", "setting.speedKnobAsLimit", new JsonObject { ["value"] = false }, leased: true, cancellationToken).ConfigureAwait(false);
         var response = await SendRequestAsync(current, "target.set", "target.strokeEngine", null, leased: true, cancellationToken).ConfigureAwait(false);
         return response.StateAfter is "strokeEngine.idle" or "strokeEngine.pattern";
     }
@@ -463,6 +467,34 @@ public sealed class OssmDevice : DeviceBase
         ? TimeSpan.FromMilliseconds(milliseconds)
         : throw new InvalidDataException("The device did not report a positive control lease lifetime.");
 
+    private static Response ParseResponse(byte[]? data)
+    {
+        if (data is null || data.Length > MaximumMessageBytes)
+        {
+            throw new InvalidDataException("A RAD response must contain at most 509 bytes.");
+        }
+
+        using var document = JsonDocument.Parse(data);
+        var root = document.RootElement;
+        if (!TryGetUInt32(root, "v", out var version)
+            || version != 1
+            || !TryGetUInt32(root, "id", out var id)
+            || !TryGetString(root, "stage", out var stage)
+            || stage is not ("accepted" or "completed" or "failed")
+            || !root.TryGetProperty("ok", out var status)
+            || status.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+        {
+            throw new InvalidDataException("A RAD response requires v=1, an id, a known stage, and ok.");
+        }
+
+        var ok = status.GetBoolean();
+        TryGetString(root, "code", out var code);
+        TryGetString(root, "message", out var message);
+        TryGetString(root, "stateAfter", out var stateAfter);
+        var result = root.TryGetProperty("result", out var value) ? value.Clone() : default;
+        return new(id, stage, ok, code, message, result, stateAfter);
+    }
+
     private async Task SubscribeAsync(
         long current,
         IPeripheral selected,
@@ -505,13 +537,13 @@ public sealed class OssmDevice : DeviceBase
         long current,
         string operation,
         string? path,
-        IReadOnlyDictionary<string, int>? arguments,
+        JsonObject? arguments,
         bool leased,
         CancellationToken cancellationToken)
     {
         var response = new TaskCompletionSource<Response>(TaskCreationOptions.RunContinuationsAsynchronously);
         var priority = operation == "setting.write" && path == "motion.speed"
-            && arguments is not null && arguments.TryGetValue("value", out var value) && value == 0
+            && arguments?["value"]?.GetValue<int>() == 0
             && !cancellationToken.CanBeCanceled
             ? new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)
             : null;
@@ -547,7 +579,7 @@ public sealed class OssmDevice : DeviceBase
 
         try
         {
-            var payload = Request.Encode(id, operation, path, arguments, token);
+            var payload = Request.EncodeWithArguments(id, operation, path, arguments, token);
             if (payload.Length > MaximumMessageBytes)
             {
                 throw new InvalidOperationException($"The {operation} request exceeds {MaximumMessageBytes} bytes.");
@@ -630,38 +662,10 @@ public sealed class OssmDevice : DeviceBase
 
     private void HandleResponse(long current, byte[]? data)
     {
-        uint id;
-        string? stage;
-        bool ok;
-        string? code;
-        string? message;
-        string? stateAfter;
-        JsonElement result;
+        Response response;
         try
         {
-            if (data is null || data.Length > MaximumMessageBytes)
-            {
-                throw new InvalidDataException("A RAD response must contain at most 509 bytes.");
-            }
-
-            using var document = JsonDocument.Parse(data);
-            var root = document.RootElement;
-            if (!TryGetUInt32(root, "v", out var version)
-                || version != 1
-                || !TryGetUInt32(root, "id", out id)
-                || !TryGetString(root, "stage", out stage)
-                || stage is not ("accepted" or "completed" or "failed")
-                || !root.TryGetProperty("ok", out var status)
-                || status.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
-            {
-                throw new InvalidDataException("A RAD response requires v=1, an id, a known stage, and ok.");
-            }
-
-            ok = status.GetBoolean();
-            TryGetString(root, "code", out code);
-            TryGetString(root, "message", out message);
-            TryGetString(root, "stateAfter", out stateAfter);
-            result = root.TryGetProperty("result", out var value) ? value.Clone() : default;
+            response = ParseResponse(data);
         }
         catch (Exception exception) when (exception is JsonException or InvalidDataException)
         {
@@ -673,20 +677,20 @@ public sealed class OssmDevice : DeviceBase
         TaskCompletionSource<Response>? pending;
         lock (sync)
         {
-            if (!IsCurrent(current) || !requests.TryGetValue(id, out pending))
+            if (!IsCurrent(current) || !requests.TryGetValue(response.Id, out pending))
             {
                 return;
             }
         }
 
         // Accepted requests remain pending until a terminal stage.
-        if (stage == "completed" && ok)
+        if (response.Stage == "completed" && response.Ok)
         {
-            pending.TrySetResult(new(result, stateAfter));
+            pending.TrySetResult(response);
         }
-        else if (stage != "accepted")
+        else if (response.Stage != "accepted")
         {
-            pending.TrySetException(new IOException($"The device rejected the request: {code ?? "unknown"}{(message is null ? string.Empty : $" ({message})")}."));
+            pending.TrySetException(new IOException($"The device rejected the request: {response.Code ?? "unknown"}{(response.Message is null ? string.Empty : $" ({response.Message})")}."));
         }
     }
 
@@ -945,5 +949,5 @@ public sealed class OssmDevice : DeviceBase
         return true;
     }
 
-    private readonly record struct Response(JsonElement Result, string? StateAfter);
+    private readonly record struct Response(uint Id, string Stage, bool Ok, string? Code, string? Message, JsonElement Result, string? StateAfter);
 }

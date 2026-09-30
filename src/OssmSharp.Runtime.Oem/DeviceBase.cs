@@ -235,18 +235,12 @@ public abstract class DeviceBase : IOssmDevice
         bool changed;
         long disconnection;
         Task? pendingStop;
-        TaskCompletionSource? started = null;
+        TaskCompletionSource? started;
         lock (sync)
         {
             ObjectDisposedException.ThrowIf(disposing, this);
             cancellationToken.ThrowIfCancellationRequested();
-            if (connected && stop is not { IsCompleted: false })
-            {
-                started = new(TaskCreationOptions.RunContinuationsAsynchronously);
-                stop = started.Task;
-            }
-
-            pendingStop = stop is { IsCompleted: false } ? stop : null;
+            pendingStop = PrepareStop(out started);
             disconnection = ++connection;
             connecting = false;
             connected = false;
@@ -306,63 +300,9 @@ public abstract class DeviceBase : IOssmDevice
         try
         {
             return await ExecuteAsync(
-                async _ =>
-            {
-                lock (sync)
-                {
-                    if (IsDiscardedLocked(current))
-                    {
-                        return current.Result;
-                    }
-                }
-
-                var ready = false;
-                var prepared = await TryStepAsync(
-                    current,
-                    async () => ready = await PreparePatternAsync(current.PendingCancellation.Token).ConfigureAwait(false),
-                    exception => new IOException($"Preparing the device to run the pattern failed; no settings were sent. {exception.Message}", exception)).ConfigureAwait(false);
-
-                if (!prepared)
-                {
-                    return current.Result;
-                }
-
-                if (!ready)
-                {
-                    throw new InvalidOperationException("The device is not ready to run patterns. Wait for homing to finish and turn the speed knob to zero, then submit the settings again.");
-                }
-
-                foreach (var command in current.Settings.ToCommands())
-                {
-                    lock (sync)
-                    {
-                        if (IsDiscardedLocked(current))
-                        {
-                            return current.Result;
-                        }
-                    }
-
-                    if (!await TryStepAsync(
-                        current,
-                        () => WriteCommandAsync(command, current.PendingCancellation.Token),
-                        exception => new DeviceWriteException(command, current.CommandsWritten, exception)).ConfigureAwait(false))
-                    {
-                        return current.Result;
-                    }
-
-                    current.CommandsWritten++;
-                }
-
-                lock (sync)
-                {
-                    if (current.PendingCancellation.IsCancellationRequested && current.Status == SetStatus.Completed)
-                    {
-                        current.Status = SetStatus.Cancelled;
-                    }
-
-                    return current.Result;
-                }
-            }, requiresConnection: true, cancellationToken: current.PendingCancellation.Token).ConfigureAwait(false);
+                _ => ApplySettingsAsync(current),
+                requiresConnection: true,
+                cancellationToken: current.PendingCancellation.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (current.PendingCancellation.IsCancellationRequested || disposing)
         {
@@ -522,7 +462,7 @@ public abstract class DeviceBase : IOssmDevice
     public ValueTask DisposeAsync()
     {
         GC.SuppressFinalize(this);
-        TaskCompletionSource? started = null;
+        TaskCompletionSource? started;
         Task? pendingStop;
         Task disposingTask;
         bool changed;
@@ -533,13 +473,7 @@ public abstract class DeviceBase : IOssmDevice
                 return new(disposal);
             }
 
-            if (connected && stop is not { IsCompleted: false })
-            {
-                started = new(TaskCreationOptions.RunContinuationsAsynchronously);
-                stop = started.Task;
-            }
-
-            pendingStop = stop is { IsCompleted: false } ? stop : null;
+            pendingStop = PrepareStop(out started);
             disposing = true;
             connection++;
             connecting = false;
@@ -699,6 +633,64 @@ public abstract class DeviceBase : IOssmDevice
         finally
         {
             waiting.Dispose();
+        }
+    }
+
+    private async Task<SetResult> ApplySettingsAsync(SettingsSubmission current)
+    {
+        lock (sync)
+        {
+            if (IsDiscardedLocked(current))
+            {
+                return current.Result;
+            }
+        }
+
+        var ready = false;
+        var prepared = await TryStepAsync(
+            current,
+            async () => ready = await PreparePatternAsync(current.PendingCancellation.Token).ConfigureAwait(false),
+            exception => new IOException($"Preparing the device to run the pattern failed; no settings were sent. {exception.Message}", exception)).ConfigureAwait(false);
+
+        if (!prepared)
+        {
+            return current.Result;
+        }
+
+        if (!ready)
+        {
+            throw new InvalidOperationException("The device is not ready to run patterns. Wait for homing to finish and turn the speed knob to zero, then submit the settings again.");
+        }
+
+        foreach (var command in current.Settings.ToCommands())
+        {
+            lock (sync)
+            {
+                if (IsDiscardedLocked(current))
+                {
+                    return current.Result;
+                }
+            }
+
+            if (!await TryStepAsync(
+                current,
+                () => WriteCommandAsync(command, current.PendingCancellation.Token),
+                exception => new DeviceWriteException(command, current.CommandsWritten, exception)).ConfigureAwait(false))
+            {
+                return current.Result;
+            }
+
+            current.CommandsWritten++;
+        }
+
+        lock (sync)
+        {
+            if (current.PendingCancellation.IsCancellationRequested && current.Status == SetStatus.Completed)
+            {
+                current.Status = SetStatus.Cancelled;
+            }
+
+            return current.Result;
         }
     }
 
@@ -886,6 +878,27 @@ public abstract class DeviceBase : IOssmDevice
         {
             ExceptionDispatchInfo.Capture(failures[0]).Throw();
         }
+    }
+
+    /// <summary>
+    /// Returns the pending Stop or reserves a new one when connected, without sending a command.
+    /// </summary>
+    /// <param name="started">The newly reserved completion source, or null when no new Stop is needed.</param>
+    /// <returns>Completion of the pending or reserved Stop, or null when neither exists.</returns>
+    /// <remarks>
+    /// The caller must hold <see cref="sync"/>. When <paramref name="started"/> is non-null,
+    /// the caller must invoke <see cref="CompleteStopAsync"/> after releasing the lock to send the Stop command.
+    /// </remarks>
+    private Task? PrepareStop(out TaskCompletionSource? started)
+    {
+        started = null;
+        if (connected && stop is not { IsCompleted: false })
+        {
+            started = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            stop = started.Task;
+        }
+
+        return stop is { IsCompleted: false } ? stop : null;
     }
 
     private async Task CompleteStopAsync(TaskCompletionSource completion)
