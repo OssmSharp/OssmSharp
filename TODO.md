@@ -1,0 +1,1 @@
+- Check for usage of modern .NET memory and span constructs.

@@ -582,6 +582,29 @@ public sealed class DeviceBaseTests
     }
 
     [Fact]
+    public async Task DelayedOwnObservationsDuringPreparationRemainExplained()
+    {
+        await using var device = new TestDevice();
+        var token = TestContext.Current.CancellationToken;
+        await device.ConnectAsync(token);
+        await device.SetAsync(new(0, 0, 20, 0, 0), token);
+        await device.SetAsync(new(0, 0, 30, 0, 0), token);
+        device.Prepare = _ =>
+        {
+            device.Observe(new(0, 0, 20, 0, 0));
+            return Task.FromResult(true);
+        };
+
+        (await device.SetAsync(new(0, 0, 40, 0, 0), token)).Should().Be(new SetResult(SetStatus.Completed, 5));
+        device.Observe(new(0, 0, 30, 0, 0));
+        device.IsArmed.Should().BeTrue();
+        device.Observe(new(0, 0, 40, 0, 0));
+        device.IsArmed.Should().BeTrue();
+        device.Observe(new(0, 0, 30, 0, 0));
+        device.IsArmed.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task ReportedSpeedChangesDoNotDisarm()
     {
         await using var device = new TestDevice();

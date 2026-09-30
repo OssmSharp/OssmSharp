@@ -4,8 +4,7 @@ Date inspected: 23 September 2026
 
 This local snapshot records decision-bearing behavior from the stock OSSM
 firmware. It does not copy firmware source, replace the pinned upstream files,
-or establish physical qualification. The authoritative device requirements
-remain in [`spec.md`](../../specs/device-control/spec.md).
+or establish physical qualification.
 
 ## Pinned source
 

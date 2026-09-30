@@ -49,7 +49,7 @@ visibility, and specified behavior is required, not an implementation suggestion
     - **GetStateAsync(bypassCache):** Return cached state, including while disconnected, or read live state when bypassCache is true, requiring a connection and propagating read errors. Live reads without an established connection, including those abandoned by disconnect or disposal, throw.
     - **EmergencyStopAsync:** Disarm and abandon settings; send or join Stop without waiting for earlier responses or live reads, or end an unfinished connection attempt.
     - **ResetAsync:** Arm without resending settings or clearing failures; throw when disarmed later or while Stop is in progress.
-    - **IsArmed (property):** Indicate whether command submission is armed by successful connection or explicit reset, or disarmed by Stop, unexpected state, or connection failure.
+    - **IsArmed (property):** Indicate submission arming: successful connection or explicit reset arms; Stop, operational failure, disconnect, and disposal disarm.
     - **ConnectionFailure (property):** Expose the current connection failure; clear it only after successful connection initialization, never through reset.
     - **StateChanged (event):** Notify subscribers when the last known state or armed status changes.
     - **DisposeAsync:** Disarm and abandon settings and live reads; send or join Stop when connected, then release resources even on failure and prohibit reuse.
@@ -67,8 +67,7 @@ visibility, and specified behavior is required, not an implementation suggestion
     - Represent complete last-observed controls without interpreting compact protocol metadata, inferring motion safety, or imposing expiry.
     - Expose observed Pattern, Speed, Stroke, Depth, and Sensation directly. Preserve fractional effective speed; require integer values for the other controls and reject malformed, missing, duplicate, or out-of-range values.
   - **`DeviceBase.cs`** — abstract class implementing `IOssmDevice`.
-    - Remove `drained`, `operationCount`, `pendingStops`, and `OnDisposingAsync`; one in-progress Stop task guards Reset and cleanup, and `disposal` signals the disposing state.
-    - Keep `io`, `shutdown`, `connection`, `disarmVersion`, and `cleanupPending`; do not dispose shared resources while abandoned operations can still touch them.
+
     - **ConnectCoreAsync (protected abstract):** Establish fresh provider connectivity and subscriptions; DeviceBase arms only after initial state initialization succeeds, without sending motion settings.
     - **ExecuteAsync (private):** Serialize non-Stop I/O, abandon cancelled operation waits, and prevent queued settings from running after disarm.
     - **Supersede (private):** Replace pending settings with the latest submission and discard older primitive commands not yet sent, letting a command already sent finish.
@@ -76,9 +75,8 @@ visibility, and specified behavior is required, not an implementation suggestion
     - **WriteCommandAsync(command) (protected abstract):** Send one control assignment while owning issued transport writes after abandonment; Stop awaits terminal completion without claiming physical motion.
     - **ReadStateAsync (protected abstract):** Read live device state through the provider without maintaining another state cache.
     - **DisconnectCoreAsync (protected abstract):** Release resources after Stop and issued transport writes settle, without waiting for abandoned responses; tolerate partial setup and reconnection.
-    - **UpdateState (protected):** Store incoming state, detect external changes, and notify subscribers.
+    - **UpdateState (protected):** Store incoming last known state and notify subscribers without changing arming or cancelling pending submissions.
     - **SetFaulted (protected):** Record failure of the current connection, disarm, and discard settings not yet sent, without sending commands or permanently preventing reconnection.
-    - **DetectExternalChange (private):** Compare incoming controls with the current expectation; set IsArmed false and cancel pending work when external changes are unexplained.
 
   - **`DeviceDiscovery.cs`**
     - **ScanAsync:** Discover distinct devices advertising the fixed OSSM service within a bounded scan, returning identifiers and names and surfacing cancellation or Bluetooth errors.
@@ -156,10 +154,11 @@ visibility, and specified behavior is required, not an implementation suggestion
   - **Input:** The consumer requests status with or without cache bypass.
   - **Cached chain:** `PromptHandler.StatusAsync(false)` -> `IOssmDevice.GetStateAsync(false)` -> last known state.
   - **Live chain:** `PromptHandler.StatusAsync(true)` -> `IOssmDevice.GetStateAsync(true)` -> `DeviceBase.ExecuteAsync` -> `OssmDevice.ReadStateAsync` -> subsequent Sensor Stream frame -> `OssmDevice.HandleMotionObservation` -> `OssmDevice.DecodeState` -> `DeviceBase.UpdateState`.
-  - **Asynchronous feedback:** Sensor Stream frame -> `OssmDevice.HandleMotionObservation` -> `OssmDevice.DecodeState` -> `DeviceBase.UpdateState` -> `DeviceBase.DetectExternalChange` -> `IOssmDevice.StateChanged`, including while no commands are pending.
+  - **Asynchronous feedback:** Sensor Stream frame -> `OssmDevice.HandleMotionObservation` -> `OssmDevice.DecodeState` -> `DeviceBase.UpdateState` -> `IOssmDevice.StateChanged`, including while no commands are pending.
+  - **Observation policy:** Changed controls update last known state only; they do not disarm submission, discard queued commands, or trigger Stop.
   - **Failure:** Invalid controls, lost stream, or lost lease -> `DeviceBase.SetFaulted`; compact State alone neither replaces controls nor constitutes malformed motion telemetry.
   - **Outcome:** Return the requested state and display it alongside `IOssmDevice.IsArmed`; cached reads require no I/O, and live read failures surface as errors.
-  - **Simulator path:** Replace the Bluetooth read with `SimulatedDevice.ReadStateAsync` -> simulator protocol request -> `SimulatedDevice.DecodeState` -> `DeviceBase.UpdateState`.
+  - **Simulator path:** `SimulatedDevice.ReadStateAsync` -> simulator protocol request -> `SimulatedDevice.DecodeState` -> `DeviceBase.UpdateState`.
 
 ## Command-line prompt
 
@@ -243,6 +242,18 @@ ERROR set: Bluetooth connection lost during a control write; settings may be par
 Session ended. Run OssmSharp.Cli prompt to reconnect.
 ```
 
-## Appendix
+## Appendix: Future Ideas
+
+These ideas are deferred and are not part of the current implementation contract.
+
+### Observation-triggered Auto-disarm
+
+Consider disarming submission and discarding unissued settings after an unexplained control change.
+Control values alone cannot identify who changed them. This requires distinguishing external changes
+from delayed feedback on this client's writes and firmware mode-entry resets, without treating
+knob-scaled effective speed as an external change. The current design exposes observations through
+`StateChanged` and `GetStateAsync` without inferring their source or changing arming.
+
+### RAD Transport Adapter
 
 An optional `RadBleConnection` transport adapter could isolate Bluetooth lifecycle, RAD requests, responses, leases, and subscriptions from `OssmDevice`.
