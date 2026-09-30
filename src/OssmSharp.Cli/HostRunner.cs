@@ -13,6 +13,7 @@ internal static class HostRunner
         CancellationToken cancellationToken)
     {
         IHost? host = null;
+        TextWriter? originalError = null;
         var stoppingToken = CancellationToken.None;
         var exitCode = 0;
 #if MACOS
@@ -30,7 +31,15 @@ internal static class HostRunner
                 new Shiny.BluetoothLE.AppleBleConfiguration(DispatchQueue: bluetoothQueue));
 #endif
             builder.Services.AddOemRuntime();
+            var console = PromptConsole.FromConsole(output, error);
+            builder.Services.AddSingleton(console);
             builder.Services.AddCliCommands(output, error);
+            if (ReferenceEquals(error, Console.Error))
+            {
+                originalError = Console.Error;
+                Console.SetError(console.Error);
+            }
+
             host = builder.Build();
             stoppingToken = host.Services.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping;
             using var operation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, stoppingToken);
@@ -76,6 +85,11 @@ internal static class HostRunner
                     exitCode = 1;
                     await CommandError.TryWriteAsync(error, $"ERROR host cleanup: {exception.Message}").ConfigureAwait(false);
                 }
+            }
+
+            if (originalError is not null)
+            {
+                Console.SetError(originalError);
             }
         }
 

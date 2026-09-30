@@ -13,6 +13,9 @@ internal static class CliServiceCollectionExtensions
         services.AddLogging();
         services.AddKeyedSingleton("output", output);
         services.AddKeyedSingleton("error", error);
+        services.TryAddSingleton(provider => PromptConsole.FromConsole(
+            provider.GetRequiredKeyedService<TextWriter>("output"),
+            provider.GetRequiredKeyedService<TextWriter>("error")));
         services.TryAddSingleton<TextReader, ConsoleInputReader>();
 
         // TODO: registering delegates is bad practice.
@@ -22,7 +25,7 @@ internal static class CliServiceCollectionExtensions
             provider.GetRequiredService<TextReader>(),
             provider.GetRequiredKeyedService<TextWriter>("output"),
             provider.GetRequiredKeyedService<TextWriter>("error"),
-            interactive: true));
+            provider.GetRequiredService<PromptConsole>()));
 
         services.AddTransient<ListCommand>();
         services.AddTransient(provider => new PromptCommand(

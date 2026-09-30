@@ -94,9 +94,12 @@ Do not copy client-side pattern policies or introduce legacy protocol fallback.
 - **Stop mapping:** the codemap specifies speed zero; the discovered client uses
   `target.set` with `target.emergencyStop`. Confirm firmware effects and agree the
   public Stop contract before changing it; neither response proves physical stop.
-- **Readiness and feedback:** verify required modes, numeric representation, and
-  speed-knob effects against the selected firmware before defining expected-state
-  comparisons; do not silently change device modes or knob configuration.
+- **Readiness and feedback:** `setting.write` only stores values; patterns run only in the
+  stroke engine, so each submission first sends `target.set` `target.strokeEngine` and
+  requires `stateAfter` to be `strokeEngine.idle` or `strokeEngine.pattern`. Entering the
+  engine resets stroke, depth, sensation, and speed; that reset becomes the expected
+  baseline. Reported speed is the knob-scaled effective speed, so it is excluded from
+  external-change detection. Knob configuration is never changed.
 - **Recovery:** explicitly reconnect with fresh protocol state and reject stale
   callbacks. Lease loss fails the connection and disarms; never silently reacquire
   and replay settings. Cancellation does not prove that an issued write stopped.

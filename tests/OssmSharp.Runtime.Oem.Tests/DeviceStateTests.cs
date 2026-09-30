@@ -85,12 +85,29 @@ public sealed class DeviceStateTests
         errors.Should().ContainSingle().Which.MemberNames.Should().Equal("pattern");
     }
 
-    [Fact]
-    public void ParsesFractionalPercentages()
+    [Theory]
+    [InlineData("stroke")]
+    [InlineData("depth")]
+    [InlineData("sensation")]
+    public void RejectsFractionalPercentages(string field)
     {
-        var payload = Encoding.UTF8.GetBytes("""{"pattern":3,"speed":12.5,"stroke":0.25,"depth":99.75,"sensation":50}""");
+        var values = new Dictionary<string, decimal> { ["pattern"] = 3, ["speed"] = 12, ["stroke"] = 25, ["depth"] = 99, ["sensation"] = 50 };
+        values[field] = 12.5m;
+        var payload = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(values);
 
-        DeviceState.FromBytes(payload).Should().Be(new DeviceState(new MotionSettings(StrokePattern.HalfNHalf, 12.5, 0.25, 99.75, 50)));
+        DeviceState.TryFromBytes(payload, out var state, out var errors).Should().BeFalse();
+        state.Should().BeNull();
+        errors.Should().ContainSingle().Which.MemberNames.Should().Equal(field);
+        var parse = () => DeviceState.FromBytes(payload);
+        parse.Should().Throw<InvalidDataException>();
+    }
+
+    [Fact]
+    public void PreservesFractionalEffectiveSpeed()
+    {
+        var payload = Encoding.UTF8.GetBytes("""{"pattern":3,"speed":12.5,"stroke":25,"depth":99,"sensation":50}""");
+
+        DeviceState.FromBytes(payload).Should().Be(new DeviceState(StrokePattern.HalfNHalf, 12.5, 25, 99, 50));
     }
 
     [Fact]

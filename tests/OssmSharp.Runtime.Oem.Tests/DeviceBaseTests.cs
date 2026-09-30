@@ -308,7 +308,7 @@ public sealed class DeviceBaseTests
         device.Write = (_, _) => release.Task;
         var active = device.SetAsync(new(StrokePattern.TeasingPounding, 20, 30, 40, 50), token);
         var pending = device.SetAsync(new(StrokePattern.RoboStroke, 10, 10, 10, 10), token);
-        var observed = new MotionSettings(StrokePattern.TeasingPounding, 99, 0, 0, 0);
+        var observed = new MotionSettings(StrokePattern.TeasingPounding, 0, 99, 0, 0);
 
         try
         {
@@ -553,12 +553,12 @@ public sealed class DeviceBaseTests
         device.Observe(new(0, 0, 0, 0, 0));
         notifications.Should().Be(2);
 
-        await device.SetAsync(new(0, 20, 0, 0, 0), token);
-        device.Observe(new(0, 20, 0, 0, 0));
+        await device.SetAsync(new(0, 0, 20, 0, 0), token);
+        device.Observe(new(0, 0, 20, 0, 0));
         notifications.Should().Be(3);
         device.IsArmed.Should().BeTrue();
 
-        device.Observe(new(0, 25, 0, 0, 0));
+        device.Observe(new(0, 0, 25, 0, 0));
         notifications.Should().Be(4);
         device.IsArmed.Should().BeFalse();
     }
@@ -570,14 +570,89 @@ public sealed class DeviceBaseTests
         var token = TestContext.Current.CancellationToken;
         await device.ConnectAsync(token);
         await device.ResetAsync(token);
-        await device.SetAsync(new(0, 20, 0, 0, 0), token);
-        await device.SetAsync(new(0, 30, 0, 0, 0), token);
+        await device.SetAsync(new(0, 0, 20, 0, 0), token);
+        await device.SetAsync(new(0, 0, 30, 0, 0), token);
 
-        device.Observe(new(0, 20, 0, 0, 0));
+        device.Observe(new(0, 0, 20, 0, 0));
         device.IsArmed.Should().BeTrue();
-        device.Observe(new(0, 30, 0, 0, 0));
+        device.Observe(new(0, 0, 30, 0, 0));
         device.IsArmed.Should().BeTrue();
-        device.Observe(new(0, 20, 0, 0, 0));
+        device.Observe(new(0, 0, 20, 0, 0));
+        device.IsArmed.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ReportedSpeedChangesDoNotDisarm()
+    {
+        await using var device = new TestDevice();
+        var token = TestContext.Current.CancellationToken;
+        await device.ConnectAsync(token);
+        await device.SetAsync(new(0, 20, 0, 0, 0), token);
+
+        // The firmware reports speed scaled by its speed knob.
+        device.Observe(new(0, 7, 0, 0, 0));
+        device.Observe(new(0, 13, 0, 0, 0));
+
+        device.IsArmed.Should().BeTrue();
+        (await device.GetStateAsync(cancellationToken: token)).Should().Be(new DeviceState(new(0, 13, 0, 0, 0)));
+    }
+
+    [Fact]
+    public async Task SetPreparesPatternBeforeWritingAndAcceptsItsControlReset()
+    {
+        await using var device = new TestDevice();
+        var token = TestContext.Current.CancellationToken;
+        await device.ConnectAsync(token);
+        await device.SetAsync(new(0, 0, 20, 0, 0), token);
+        device.Observe(new(0, 0, 20, 0, 0));
+        device.Prepare = _ =>
+        {
+            device.Writes.Should().HaveCount(5);
+
+            // Entering the pattern mode resets controls; that reset is not an external change.
+            device.Observe(new(0, 0, 50, 10, 50));
+            return Task.FromResult(true);
+        };
+
+        (await device.SetAsync(new(StrokePattern.Deeper, 5, 5, 5, 5), token)).Should().Be(new SetResult(SetStatus.Completed, 5));
+        device.Observe(new(StrokePattern.Deeper, 1, 5, 5, 5));
+
+        device.Prepares.Should().Be(2);
+        device.Writes.Skip(5).Should().Equal(
+            new DeviceCommand(DeviceControl.Pattern, 4),
+            new DeviceCommand(DeviceControl.Stroke, 5),
+            new DeviceCommand(DeviceControl.Depth, 5),
+            new DeviceCommand(DeviceControl.Sensation, 5),
+            new DeviceCommand(DeviceControl.Speed, 5));
+        device.IsArmed.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task SetWhenPatternsCannotRunSendsNoSettingsAndStaysArmed()
+    {
+        await using var device = new TestDevice { Prepare = _ => Task.FromResult(false) };
+        var token = TestContext.Current.CancellationToken;
+        await device.ConnectAsync(token);
+
+        await device.Invoking(value => value.SetAsync(new(0, 5, 5, 5, 5), token))
+            .Should().ThrowAsync<InvalidOperationException>().WithMessage("*not ready to run patterns*");
+
+        device.Writes.Should().BeEmpty();
+        device.IsArmed.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task FailedPatternPreparationDisarmsWithoutWriting()
+    {
+        await using var device = new TestDevice { Prepare = _ => Task.FromException<bool>(new IOException("rejected")) };
+        var token = TestContext.Current.CancellationToken;
+        await device.ConnectAsync(token);
+
+        var failure = await device.Invoking(value => value.SetAsync(new(0, 5, 5, 5, 5), token)).Should().ThrowAsync<IOException>();
+
+        failure.Which.Should().NotBeOfType<DeviceWriteException>();
+        failure.Which.Message.Should().Contain("no settings were sent").And.Contain("rejected");
+        device.Writes.Should().BeEmpty();
         device.IsArmed.Should().BeFalse();
     }
 

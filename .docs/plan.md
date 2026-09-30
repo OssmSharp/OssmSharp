@@ -55,7 +55,7 @@ visibility, and specified behavior is required, not an implementation suggestion
     - **DisposeAsync:** Disarm and abandon settings and live reads; send or join Stop when connected, then release resources even on failure and prohibit reuse.
   - **`MotionSettings.cs`**
     - Carry a StrokePattern and control arguments without interpreting pattern behavior.
-    - Require a defined StrokePattern and finite percentages between zero and 100; accept fractional percentages without pattern-specific validation.
+    - Require a defined StrokePattern and whole-number percentages between zero and 100, without pattern-specific validation.
     - **ToCommands (internal):** Expand these settings into an ordered sequence of individual DeviceCommand values without interpreting patterns or deciding motor safety.
   - **`StrokePattern.cs`** — public enum.
     - Identify the seven supported firmware patterns by name and ID (0..6), without implementing their behavior.
@@ -65,7 +65,7 @@ visibility, and specified behavior is required, not an implementation suggestion
     - Distinguish Completed, Superseded, and Cancelled submissions; commands already sent may have taken effect regardless of status.
   - **`DeviceState.cs`**
     - Represent complete last-observed controls without interpreting compact protocol metadata, inferring motion safety, or imposing expiry.
-    - Preserve fractional percentages and require a defined pattern ID when decoding controls; reject malformed, missing, duplicate, or out-of-range values.
+    - Expose observed Pattern, Speed, Stroke, Depth, and Sensation directly. Preserve fractional effective speed; require integer values for the other controls and reject malformed, missing, duplicate, or out-of-range values.
   - **`DeviceBase.cs`** — abstract class implementing `IOssmDevice`.
     - Remove `drained`, `operationCount`, `pendingStops`, and `OnDisposingAsync`; one in-progress Stop task guards Reset and cleanup, and `disposal` signals the disposing state.
     - Keep `io`, `shutdown`, `connection`, `disarmVersion`, and `cleanupPending`; do not dispose shared resources while abandoned operations can still touch them.
@@ -174,17 +174,19 @@ visibility, and specified behavior is required, not an implementation suggestion
 
 ### Prompt commands
 
-- `set <pattern> <speed> <stroke> <depth> <sensation>` submits one complete settings value; all five arguments are required.
-  - Pattern is a `StrokePattern` ID (0..6) or case-insensitive name; each remaining argument is independently a finite percentage between 0 and 100, allowing fractions.
+- `set <pattern> <speed> <stroke> <depth> <sensation>` asks the device to run patterns, then submits one complete settings value; all five arguments are required.
+  - Pattern is a `StrokePattern` ID (0..6) or case-insensitive name; each remaining argument is independently a whole-number percentage between 0 and 100. Decimal and exponent forms are rejected.
+  - When the device is homing or waiting for its speed knob to reach zero, no settings are sent and the prompt stays armed.
 - `stop` sends emergency Stop immediately, discards queued commands, and disarms command submission.
 - `reset` enables command submission without sending previous settings.
-- `status` displays cached state and armed status; `status --live` reads the device before displaying state.
+- `status` reads the device's live state and displays it with armed status, preserving fractional effective speed.
 - `help` lists commands; `help <command>` displays command-specific help, with argument order, pattern choices, and percentage ranges available through `help set`.
 - `quit` sends Stop, waits for it to finish, then exits after cleanup.
 
 ### Command results
 
-- Each command identifies its outcome and current armed status; state output explicitly distinguishes cached values from live reads.
+- Each command identifies its outcome and current armed status on its own line. Results and background diagnostics clear and redraw the active prompt and partial input without blocking new commands. Long input scrolls within one terminal row.
+- Only outcome keywords are colored: green for success, yellow for superseded or cancelled work, and red for errors. Redirected streams, `NO_COLOR`, and `TERM=dumb` suppress outcome colors.
 - A settings success means all primitive writes completed, not that physical motion was verified.
 - Validate the entire input before submitting settings; report the offending argument, supplied value, expected range or syntax, and that nothing was sent.
 - Superseded settings are reported as superseded, not successful; commands already sent may have taken effect.
@@ -204,8 +206,8 @@ Found 1 device. Connecting to OSSM...
 Connected. Armed: yes. No motion command sent; help lists commands.
 ossm> set 0 20 50 50 25
 OK set: all control commands sent.
-ossm> status --live
-OK status (live): pattern=0 speed=20 stroke=50 depth=50 sensation=25.
+ossm> status
+OK status: pattern=0 speed=20 stroke=50 depth=50 sensation=25.
 ossm> stop
 OK stop: Stop command sent; pending requests cleared. Armed: no.
 ossm> set 0 20 50 50 25

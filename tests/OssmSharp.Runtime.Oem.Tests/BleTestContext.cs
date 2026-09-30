@@ -85,6 +85,9 @@ internal sealed class BleTestContext : IDisposable
 
     public string Motion { get; set; } = InitialMotion;
 
+    // The firmware state reported after each request.
+    public string State { get; set; } = "strokeEngine.idle";
+
     public uint Lease { get; set; } = 42;
 
     public byte MotionStreamId { get; set; } = StreamId;
@@ -128,7 +131,7 @@ internal sealed class BleTestContext : IDisposable
         Respond(request, "completed", result: DefaultResult(request));
     }
 
-    public void Respond(JsonObject request, string stage, bool ok = true, string? code = null, JsonNode? result = null)
+    public void Respond(JsonObject request, string stage, bool ok = true, string? code = null, JsonNode? result = null, string? stateBefore = null)
     {
         var response = new JsonObject
         {
@@ -136,6 +139,8 @@ internal sealed class BleTestContext : IDisposable
             ["id"] = request["id"]!.GetValue<uint>(),
             ["stage"] = stage,
             ["ok"] = ok,
+            ["stateBefore"] = stateBefore ?? State,
+            ["stateAfter"] = State,
         };
         if (code is not null)
         {

@@ -20,19 +20,24 @@ namespace OssmSharp.Runtime.Oem;
 /// Each connection validates the protocol, subscribes to responses and the sensor stream, acquires a control lease,
 /// and streams motion observations. Lease tokens, request identifiers, and subscriptions stay internal.
 /// A terminal response confirms firmware completion, not physical motion. Lease loss fails the connection;
-/// the lease is never silently reacquired.
+/// the lease is never silently reacquired. The firmware can emit malformed JSON; such responses and motion
+/// payloads are discarded, and a request without a terminal response is resent with its original identifier
+/// a bounded number of times before the connection fails.
 /// </remarks>
 public sealed class OssmDevice : DeviceBase
 {
     private const int MaximumMessageBytes = 509;
     private const int StreamHeaderBytes = 20;
+    private const int MaximumRequestAttempts = 3;
+    private static readonly TimeSpan ResponseTimeout = TimeSpan.FromSeconds(2);
     private static readonly ConditionalWeakTable<IPeripheral, OssmDevice> Owners = [];
     private readonly IBleManager manager;
     private readonly string identifier;
     private readonly TimeProvider timeProvider;
+    private readonly ILogger logger;
     private readonly Lock sync = new();
     private readonly SemaphoreSlim writes = new(1, 1);
-    private readonly Dictionary<uint, TaskCompletionSource<JsonElement>> requests = [];
+    private readonly Dictionary<uint, TaskCompletionSource<Response>> requests = [];
     private TaskCompletionSource? stopTransfer;
     private CompositeDisposable subscriptions = [];
     private CompositeDisposable lifecycle = [];
@@ -52,7 +57,7 @@ public sealed class OssmDevice : DeviceBase
     /// </summary>
     /// <param name="manager">The host-owned bluetooth manager used for discovery.</param>
     /// <param name="identifier">The opaque identifier returned by <see cref="DeviceDiscovery"/>.</param>
-    /// <param name="timeProvider">The clock used to renew the control lease before its reported expiry.</param>
+    /// <param name="timeProvider">The clock used to renew the control lease before its reported expiry and to detect lost responses.</param>
     /// <param name="logger">The operational logger for Runtime's execution owner.</param>
     public OssmDevice(IBleManager manager, string identifier, TimeProvider timeProvider, ILogger<DeviceBase> logger)
         : base(logger)
@@ -63,6 +68,7 @@ public sealed class OssmDevice : DeviceBase
         this.manager = manager;
         this.identifier = identifier;
         this.timeProvider = timeProvider;
+        this.logger = logger;
     }
 
     internal static void PeripheralStateChanged(IPeripheral peripheral)
@@ -161,7 +167,35 @@ public sealed class OssmDevice : DeviceBase
             current = generation;
         }
 
-        return SendRequestAsync(current, "setting.write", path, new Dictionary<string, double> { ["value"] = command.Value }, leased: true, cancellationToken);
+        return SendRequestAsync(current, "setting.write", path, new Dictionary<string, int> { ["value"] = command.Value }, leased: true, cancellationToken);
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Selects the stroke engine. Entering it resets the firmware's controls, so a mode change waits for the next
+    /// observation. The firmware homes first when needed and holds a preflight until the speed knob reads zero;
+    /// both report not ready.
+    /// </remarks>
+    protected override async Task<bool> PreparePatternAsync(CancellationToken cancellationToken)
+    {
+        long current;
+        lock (sync)
+        {
+            current = generation;
+        }
+
+        var response = await SendRequestAsync(current, "target.set", "target.strokeEngine", null, leased: true, cancellationToken).ConfigureAwait(false);
+        if (response.StateAfter is not ("strokeEngine.idle" or "strokeEngine.pattern"))
+        {
+            return false;
+        }
+
+        if (response.StateBefore != response.StateAfter)
+        {
+            UpdateState(await ReadStateAsync(cancellationToken).ConfigureAwait(false));
+        }
+
+        return true;
     }
 
     /// <inheritdoc />
@@ -376,16 +410,15 @@ public sealed class OssmDevice : DeviceBase
         await ready.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    [SuppressMessage("Usage", "CA1849", Justification = "Shiny's Async wrapper adds a timeout that abandons issued GATT I/O; the raw observable is awaited to settlement.")]
-    private async Task<JsonElement> SendRequestAsync(
+    private async Task<Response> SendRequestAsync(
         long current,
         string operation,
         string? path,
-        IReadOnlyDictionary<string, double>? arguments,
+        IReadOnlyDictionary<string, int>? arguments,
         bool leased,
         CancellationToken cancellationToken)
     {
-        var response = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var response = new TaskCompletionSource<Response>(TaskCreationOptions.RunContinuationsAsynchronously);
         var priority = operation == "setting.write" && path == "motion.speed"
             && arguments is not null && arguments.TryGetValue("value", out var value) && value == 0
             && !cancellationToken.CanBeCanceled
@@ -429,45 +462,25 @@ public sealed class OssmDevice : DeviceBase
                 throw new InvalidOperationException($"The {operation} request exceeds {MaximumMessageBytes} bytes.");
             }
 
-            while (true)
+            for (var attempt = 1; ; attempt++)
             {
-                await writes.WaitAsync(cancellationToken).ConfigureAwait(false);
-                Task? higherPriority = null;
+                await WriteRequestAsync(current, selected, payload, priority, cancellationToken).ConfigureAwait(false);
                 try
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    lock (sync)
-                    {
-                        if (!IsCurrent(current))
-                        {
-                            throw new IOException("The bluetooth connection is no longer active.");
-                        }
-
-                        if (priority is null && stopTransfer is { Task.IsCompleted: false })
-                        {
-                            higherPriority = stopTransfer.Task;
-                        }
-                    }
-
-                    if (higherPriority is null)
-                    {
-                        await selected
-                            .WriteCharacteristic(BleProtocolConstants.Service, BleProtocolConstants.Request, payload, withResponse: true)
-                            .ToTask()
-                            .ConfigureAwait(false);
-                        break;
-                    }
+                    return await response.Task.WaitAsync(ResponseTimeout, timeProvider, cancellationToken).ConfigureAwait(false);
                 }
-                finally
+                catch (TimeoutException) when (attempt < MaximumRequestAttempts)
                 {
-                    writes.Release();
-                    priority?.TrySetResult();
+                    // The firmware replays a cached response for a repeated identifier and re-executes one it could not cache.
+                    logger.RequestResent(operation);
                 }
-
-                await higherPriority.WaitAsync(cancellationToken).ConfigureAwait(false);
+                catch (TimeoutException)
+                {
+                    var failure = new IOException($"The device did not answer the {operation} request.");
+                    Fail(current, failure);
+                    throw failure;
+                }
             }
-
-            return await response.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -482,6 +495,48 @@ public sealed class OssmDevice : DeviceBase
         }
     }
 
+    [SuppressMessage("Usage", "CA1849", Justification = "Shiny's Async wrapper adds a timeout that abandons issued GATT I/O; the raw observable is awaited to settlement.")]
+    private async Task WriteRequestAsync(long current, IPeripheral selected, byte[] payload, TaskCompletionSource? priority, CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            await writes.WaitAsync(cancellationToken).ConfigureAwait(false);
+            Task? higherPriority = null;
+            try
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                lock (sync)
+                {
+                    if (!IsCurrent(current))
+                    {
+                        throw new IOException("The bluetooth connection is no longer active.");
+                    }
+
+                    if (priority is null && stopTransfer is { Task.IsCompleted: false })
+                    {
+                        higherPriority = stopTransfer.Task;
+                    }
+                }
+
+                if (higherPriority is null)
+                {
+                    await selected
+                        .WriteCharacteristic(BleProtocolConstants.Service, BleProtocolConstants.Request, payload, withResponse: true)
+                        .ToTask()
+                        .ConfigureAwait(false);
+                    return;
+                }
+            }
+            finally
+            {
+                writes.Release();
+                priority?.TrySetResult();
+            }
+
+            await higherPriority.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+    }
+
     private void HandleResponse(long current, byte[]? data)
     {
         uint id;
@@ -489,6 +544,8 @@ public sealed class OssmDevice : DeviceBase
         bool ok;
         string? code;
         string? message;
+        string? stateBefore;
+        string? stateAfter;
         JsonElement result;
         try
         {
@@ -513,15 +570,18 @@ public sealed class OssmDevice : DeviceBase
             ok = status.GetBoolean();
             TryGetString(root, "code", out code);
             TryGetString(root, "message", out message);
+            TryGetString(root, "stateBefore", out stateBefore);
+            TryGetString(root, "stateAfter", out stateAfter);
             result = root.TryGetProperty("result", out var value) ? value.Clone() : default;
         }
         catch (Exception exception) when (exception is JsonException or InvalidDataException)
         {
-            Fail(current, new InvalidDataException("The device sent a malformed RAD response.", exception));
+            // An uncorrelated response cannot complete a request; its sender resends after the response timeout.
+            logger.ResponseDiscarded(exception);
             return;
         }
 
-        TaskCompletionSource<JsonElement>? pending;
+        TaskCompletionSource<Response>? pending;
         lock (sync)
         {
             if (!IsCurrent(current) || !requests.TryGetValue(id, out pending))
@@ -533,7 +593,7 @@ public sealed class OssmDevice : DeviceBase
         // Accepted requests remain pending until a terminal stage.
         if (stage == "completed" && ok)
         {
-            pending.TrySetResult(result);
+            pending.TrySetResult(new(result, stateBefore, stateAfter));
         }
         else if (stage != "accepted")
         {
@@ -548,7 +608,7 @@ public sealed class OssmDevice : DeviceBase
         try
         {
             requested = timeProvider.GetUtcNow();
-            var result = await SendRequestAsync(current, "control.acquire", null, null, leased: false, stopping).ConfigureAwait(false);
+            var result = (await SendRequestAsync(current, "control.acquire", null, null, leased: false, stopping).ConfigureAwait(false)).Result;
             if (!TryGetUInt32(result, "lease", out var token) || token == 0)
             {
                 throw new InvalidDataException("The device did not return a control lease.");
@@ -592,7 +652,7 @@ public sealed class OssmDevice : DeviceBase
             {
                 var remaining = expires - timeProvider.GetUtcNow();
                 // Issued renewal is bounded by lease expiry, not by disconnect.
-                lifetime = ReadLeaseLifetime(await renewal.WaitAsync(remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero, timeProvider, CancellationToken.None).ConfigureAwait(false));
+                lifetime = ReadLeaseLifetime((await renewal.WaitAsync(remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero, timeProvider, CancellationToken.None).ConfigureAwait(false)).Result);
             }
             catch (OperationCanceledException) when (stopping.IsCancellationRequested)
             {
@@ -619,7 +679,7 @@ public sealed class OssmDevice : DeviceBase
 
     private async Task StartMotionStreamAsync(long current, CancellationToken cancellationToken)
     {
-        var result = await SendRequestAsync(current, "stream.start", "motion.speed", null, leased: true, cancellationToken).ConfigureAwait(false);
+        var result = (await SendRequestAsync(current, "stream.start", "motion.speed", null, leased: true, cancellationToken).ConfigureAwait(false)).Result;
         if (!TryGetUInt32(result, "streamId", out var id)
             || id is 0 or > byte.MaxValue
             || !TryGetString(result, "surface", out var surface)
@@ -679,7 +739,8 @@ public sealed class OssmDevice : DeviceBase
         }
         catch (InvalidDataException exception)
         {
-            Fail(current, exception);
+            // The firmware can emit truncated or incomplete payloads in valid frames; wait for the next observation.
+            logger.ObservationDiscarded(exception);
             return;
         }
 
@@ -770,7 +831,7 @@ public sealed class OssmDevice : DeviceBase
 
     private bool Abandon(long current, Exception exception)
     {
-        TaskCompletionSource<JsonElement>[] pending;
+        TaskCompletionSource<Response>[] pending;
         TaskCompletionSource<DeviceState>? read;
         lock (sync)
         {
@@ -794,4 +855,6 @@ public sealed class OssmDevice : DeviceBase
         read?.TrySetException(exception);
         return true;
     }
+
+    private readonly record struct Response(JsonElement Result, string? StateBefore, string? StateAfter);
 }

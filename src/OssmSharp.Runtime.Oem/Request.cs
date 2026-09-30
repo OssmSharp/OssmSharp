@@ -14,7 +14,7 @@ public static class Request
     /// <param name="id">The nonzero identifier that correlates responses with this request.</param>
     /// <param name="operation">The RAD operation, such as <c>setting.write</c>.</param>
     /// <param name="path">The optional resource path, such as <c>motion.speed</c>.</param>
-    /// <param name="arguments">Optional finite numeric arguments.</param>
+    /// <param name="arguments">Optional whole-number arguments.</param>
     /// <param name="lease">The optional control lease token.</param>
     /// <returns>The request bytes. The caller enforces the transport's message size limit.</returns>
     /// <remarks>
@@ -22,12 +22,12 @@ public static class Request
     /// a successful write or response does not establish physical motion.
     /// </remarks>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="id"/> is zero.</exception>
-    /// <exception cref="ArgumentException"><paramref name="operation"/> is empty, or an argument is not finite.</exception>
+    /// <exception cref="ArgumentException"><paramref name="operation"/> is empty.</exception>
     public static byte[] Encode(
         uint id,
         string operation,
         string? path = null,
-        IReadOnlyDictionary<string, double>? arguments = null,
+        IReadOnlyDictionary<string, int>? arguments = null,
         uint? lease = null)
     {
         ArgumentOutOfRangeException.ThrowIfZero(id);
@@ -49,11 +49,6 @@ public static class Request
                 writer.WriteStartObject("args");
                 foreach (var (name, value) in arguments)
                 {
-                    if (!double.IsFinite(value))
-                    {
-                        throw new ArgumentException($"Argument '{name}' must be finite.", nameof(arguments));
-                    }
-
                     writer.WriteNumber(name, value);
                 }
 

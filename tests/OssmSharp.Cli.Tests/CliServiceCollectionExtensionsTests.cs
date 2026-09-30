@@ -21,6 +21,8 @@ public sealed class CliServiceCollectionExtensionsTests
 
         Assert.Same(output, provider.GetRequiredKeyedService<TextWriter>("output"));
         Assert.Same(error, provider.GetRequiredKeyedService<TextWriter>("error"));
+        Assert.IsType<ConsoleInputReader>(provider.GetRequiredService<TextReader>());
+        Assert.NotNull(provider.GetRequiredService<PromptConsole>());
         Assert.NotNull(provider.GetRequiredService<Func<string, IOssmDevice>>());
         Assert.NotNull(provider.GetRequiredService<Func<IOssmDevice, PromptHandler>>());
         Assert.IsType<ListCommand>(provider.GetRequiredService<ListCommand>());

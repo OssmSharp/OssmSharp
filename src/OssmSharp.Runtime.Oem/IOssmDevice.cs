@@ -21,7 +21,8 @@ public interface IOssmDevice : IAsyncDisposable
     /// Gets whether settings submission is armed by successful connection or explicit reset.
     /// </summary>
     /// <remarks>
-    /// Stop, an unexplained control change, disconnection, connection failure, and disposal disarm submission.
+    /// Stop, a change to pattern, stroke, depth, or sensation not explained by submitted settings, disconnection,
+    /// connection failure, and disposal disarm submission.
     /// </remarks>
     bool IsArmed { get; }
 
@@ -61,18 +62,20 @@ public interface IOssmDevice : IAsyncDisposable
     Task DisconnectAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Submits complete settings, replacing older commands not yet sent.
+    /// Asks the device to run patterns, then submits complete settings, replacing older commands not yet sent.
     /// </summary>
     /// <param name="settings">The complete firmware pattern and control arguments.</param>
     /// <param name="cancellationToken" />
     /// <returns>The result and count of writes confirmed by terminal responses.</returns>
     /// <remarks>
+    /// Entering the pattern mode can reset the device's controls before the settings are written; that reset does not disarm.
     /// Cancellation discards commands not yet sent and returns <see cref="SetStatus.Cancelled"/>.
     /// Supersession, Stop, and cancellation abandon earlier response waits after issued transfers settle;
     /// those assignments may still take effect even when they are not counted as confirmed writes.
     /// </remarks>
-    /// <exception cref="InvalidOperationException">The device is not connected or is disarmed.</exception>
+    /// <exception cref="InvalidOperationException">The device is not connected, is disarmed, or is not ready to run patterns; no settings were sent.</exception>
     /// <exception cref="DeviceWriteException">A write failed; the exception retains known partial progress.</exception>
+    /// <exception cref="IOException">Asking the device to run patterns failed; no settings were sent and submission is disarmed.</exception>
     Task<SetResult> SetAsync(MotionSettings settings, CancellationToken cancellationToken = default);
 
     /// <summary>

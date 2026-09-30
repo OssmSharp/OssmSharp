@@ -15,9 +15,9 @@ public sealed class RequestTests
         {
             CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("fr-FR");
 
-            var encoded = Request.Encode(7, "setting.write", "motion.speed", new Dictionary<string, double> { ["value"] = 12.5 }, 42);
+            var encoded = Request.Encode(7, "setting.write", "motion.speed", new Dictionary<string, int> { ["value"] = 12 }, 42);
 
-            Encoding.UTF8.GetString(encoded).Should().Be("""{"v":1,"id":7,"op":"setting.write","path":"motion.speed","args":{"value":12.5},"lease":42}""");
+            Encoding.UTF8.GetString(encoded).Should().Be("""{"v":1,"id":7,"op":"setting.write","path":"motion.speed","args":{"value":12},"lease":42}""");
         }
         finally
         {
@@ -36,22 +36,20 @@ public sealed class RequestTests
     [InlineData(0, "0")]
     [InlineData(100, "100")]
     [InlineData(int.MaxValue, "2147483647")]
-    public void PreservesSuppliedValuesWithoutPatternPolicy(double value, string expected)
+    public void PreservesSuppliedValuesWithoutPatternPolicy(int value, string expected)
     {
-        var encoded = Encoding.UTF8.GetString(Request.Encode(1, "setting.write", "motion.pattern", new Dictionary<string, double> { ["value"] = value }));
+        var encoded = Encoding.UTF8.GetString(Request.Encode(1, "setting.write", "motion.pattern", new Dictionary<string, int> { ["value"] = value }));
 
         encoded.Should().Contain($"\"args\":{{\"value\":{expected}}}");
     }
 
     [Fact]
-    public void RejectsZeroIdentifierEmptyOperationAndNonFiniteArguments()
+    public void RejectsZeroIdentifierAndEmptyOperation()
     {
         var zero = () => Request.Encode(0, "setting.write");
         var empty = () => Request.Encode(1, " ");
-        var infinite = () => Request.Encode(1, "setting.write", "motion.speed", new Dictionary<string, double> { ["value"] = double.PositiveInfinity });
 
         zero.Should().Throw<ArgumentOutOfRangeException>();
         empty.Should().Throw<ArgumentException>();
-        infinite.Should().Throw<ArgumentException>();
     }
 }

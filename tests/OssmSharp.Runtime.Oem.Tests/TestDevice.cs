@@ -15,9 +15,13 @@ internal sealed class TestDevice() : DeviceBase(NullLogger<DeviceBase>.Instance)
 
     public Func<CancellationToken, Task>? Connect { get; set; }
 
+    public Func<CancellationToken, Task<bool>>? Prepare { get; set; }
+
     public Func<Task>? Disconnect { get; set; }
 
     public int Connects { get; private set; }
+
+    public int Prepares { get; private set; }
 
     public int Reads { get; private set; }
 
@@ -37,6 +41,12 @@ internal sealed class TestDevice() : DeviceBase(NullLogger<DeviceBase>.Instance)
     {
         Writes.Add(command);
         return Write?.Invoke(command, cancellationToken) ?? Task.CompletedTask;
+    }
+
+    protected override Task<bool> PreparePatternAsync(CancellationToken cancellationToken)
+    {
+        Prepares++;
+        return Prepare?.Invoke(cancellationToken) ?? Task.FromResult(true);
     }
 
     protected override Task<DeviceState> ReadStateAsync(CancellationToken cancellationToken)

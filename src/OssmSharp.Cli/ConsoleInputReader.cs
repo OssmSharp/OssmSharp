@@ -2,7 +2,7 @@ using System.Text;
 
 namespace OssmSharp.Cli;
 
-internal sealed class ConsoleInputReader : TextReader
+internal sealed class ConsoleInputReader(PromptConsole console) : TextReader
 {
     private const int MaximumLineLength = 4096;
     private bool endOfInput;
@@ -29,16 +29,16 @@ internal sealed class ConsoleInputReader : TextReader
                 if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key is ConsoleKey.D or ConsoleKey.Z)
                 {
                     endOfInput = true;
-                    await Console.Error.WriteLineAsync().ConfigureAwait(false);
+                    console.EndRead();
                     return null;
                 }
 
                 if (key.Key == ConsoleKey.Enter)
                 {
-                    await Console.Error.WriteLineAsync().ConfigureAwait(false);
+                    console.EndRead();
                     if (overlong)
                     {
-                        await Console.Error.WriteLineAsync("ERROR input: command exceeds 4096 characters; entire line discarded. Nothing sent.").ConfigureAwait(false);
+                        await console.Error.WriteLineAsync($"{console.Failure}ERROR{console.ErrorReset} input: command exceeds 4096 characters; entire line discarded. Nothing sent.").ConfigureAwait(false);
                         return string.Empty;
                     }
 
@@ -55,10 +55,7 @@ internal sealed class ConsoleInputReader : TextReader
                     if (line.Length > 0)
                     {
                         line.Length--;
-                        if (!Console.IsErrorRedirected)
-                        {
-                            await Console.Error.WriteAsync("\b \b").ConfigureAwait(false);
-                        }
+                        console.Backspace();
                     }
 
                     continue;
@@ -74,12 +71,11 @@ internal sealed class ConsoleInputReader : TextReader
                     else
                     {
                         line.Append(key.KeyChar);
-                        await Console.Error.WriteAsync(key.KeyChar).ConfigureAwait(false);
+                        console.Append(key.KeyChar);
                     }
                 }
             }
 
-            await Console.Error.FlushAsync(cancellationToken).ConfigureAwait(false);
         }
 
         return null;

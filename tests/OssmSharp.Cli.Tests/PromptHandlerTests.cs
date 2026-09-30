@@ -98,7 +98,7 @@ public sealed class PromptHandlerTests
             await entered.Task.WaitAsync(TestContext.Current.CancellationToken);
             for (var count = 0; count < 35; count++)
             {
-                input.Send("status --live");
+                input.Send("status");
             }
 
             input.Send("stop");
@@ -135,7 +135,8 @@ public sealed class PromptHandlerTests
         using var input = new StringReader("stop\nquit\n");
         using var output = new StringWriter();
         using var error = new FailingWriter(line => line?.StartsWith("Stopping", StringComparison.Ordinal) == true);
-        var run = new PromptHandler(device, input, output, error).RunAsync(TestContext.Current.CancellationToken);
+        var console = new PromptConsole(output, error, interactive: false);
+        var run = new PromptHandler(device, input, output, error, console).RunAsync(TestContext.Current.CancellationToken);
         try
         {
             device.Writes.Should().Equal(new DeviceCommand(DeviceControl.Speed, 0));
@@ -171,7 +172,7 @@ public sealed class PromptHandlerTests
         await using var device = new TestDevice();
         await device.ConnectAsync(TestContext.Current.CancellationToken);
         device.Read = _ => Task.FromException<DeviceState>(new IOException("read failed"));
-        using var input = new StringReader("status --live\nquit\n");
+        using var input = new StringReader("status\nquit\n");
         using var output = new StringWriter();
         using var error = new FailingWriter(_ => true);
 
@@ -185,7 +186,7 @@ public sealed class PromptHandlerTests
         await using var device = new TestDevice();
         await device.ConnectAsync(TestContext.Current.CancellationToken);
         device.Read = _ => Task.FromException<DeviceState>(new InvalidOperationException("native read failed"));
-        using var input = new StringReader("status --live\nquit\n");
+        using var input = new StringReader("status\nquit\n");
         using var output = new StringWriter();
         using var error = new StringWriter();
 
@@ -198,6 +199,11 @@ public sealed class PromptHandlerTests
     [InlineData("set 0 50 -1 50 25", "stroke '-1'")]
     [InlineData("set 0 50 50 NaN 25", "depth 'NaN'")]
     [InlineData("set 0 50 50 50 Infinity", "sensation 'Infinity'")]
+    [InlineData("set 0 5.5 5 5 5", "speed '5.5'")]
+    [InlineData("set 0 5 5.0 5 5", "stroke '5.0'")]
+    [InlineData("set 0 5 5 5.5 5", "depth '5.5'")]
+    [InlineData("set 0 5 5 5 5.5", "sensation '5.5'")]
+    [InlineData("set 0 5e1 5 5 5", "speed '5e1'")]
     [InlineData("set -1 20 50 50 25", "pattern '-1'")]
     [InlineData("set 1.5 20 50 50 25", "pattern '1.5'")]
     [InlineData("set 2147483648 20 50 50 25", "pattern '2147483648'")]
@@ -220,7 +226,7 @@ public sealed class PromptHandlerTests
 
         device.Writes.Should().Equal(new DeviceCommand(DeviceControl.Speed, 0));
         error.ToString().Should().Contain(offending).And.Contain("Nothing sent").And.Contain("Armed: yes");
-        output.ToString().Should().Contain("OK status (cached)").And.NotContain("OK set");
+        output.ToString().Should().Contain("OK status:").And.NotContain("OK set");
     }
 
     [Fact]
@@ -280,7 +286,7 @@ public sealed class PromptHandlerTests
     {
         await using var device = new TestDevice();
         await device.ConnectAsync(TestContext.Current.CancellationToken);
-        using var input = new StringReader("stop\nset 0 20 50 50 25\nreset\nset insist 100 0 50.5 25\nstatus\nstatus --live\nhelp\nhelp set\nhelp bogus\nstop\nquit\n");
+        using var input = new StringReader("stop\nset 0 20 50 50 25\nreset\nset insist 100 0 50 25\nstatus\nhelp\nhelp set\nhelp bogus\nstop\nquit\n");
         using var output = new StringWriter();
         using var error = new StringWriter();
 
@@ -290,7 +296,7 @@ public sealed class PromptHandlerTests
             new DeviceCommand(DeviceControl.Speed, 0),
             new DeviceCommand(DeviceControl.Pattern, 6),
             new DeviceCommand(DeviceControl.Stroke, 0),
-            new DeviceCommand(DeviceControl.Depth, 50.5),
+            new DeviceCommand(DeviceControl.Depth, 50),
             new DeviceCommand(DeviceControl.Sensation, 25),
             new DeviceCommand(DeviceControl.Speed, 100),
             new DeviceCommand(DeviceControl.Speed, 0),
@@ -300,8 +306,8 @@ public sealed class PromptHandlerTests
         error.ToString().Should().Contain("Nothing sent").And.Contain("disarmed").And.Contain("'bogus'");
         output.ToString().Should().Contain("OK reset").And.Contain("No motion command sent")
             .And.Contain("OK set").And.Contain("physical motion not verified")
-            .And.Contain("status (cached): pattern=0 speed=0")
-            .And.Contain("status (live): pattern=0 speed=0")
+            .And.Contain("OK status: pattern=0 speed=0")
+            .And.NotContain("cached")
             .And.Contain("set <pattern> <speed> <stroke> <depth> <sensation>")
             .And.Contain("0=SimpleStroke, 1=TeasingPounding, 2=RoboStroke, 3=HalfNHalf, 4=Deeper, 5=StopNGo, 6=Insist")
             .And.Contain("OK stop").And.Contain("Armed: no");
@@ -408,8 +414,10 @@ public sealed class PromptHandlerTests
         output.ToString().Should().NotContain("OK stop");
     }
 
-    [Fact]
-    public async Task NewSettingsSupersedePendingCommandsWithoutAbandoningIssuedIo()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task NewSettingsSupersedePendingCommandsWithoutAbandoningIssuedIo(bool colour)
     {
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -436,7 +444,8 @@ public sealed class PromptHandlerTests
         using var input = new CommandInput();
         using var output = new StringWriter();
         using var error = new StringWriter();
-        var run = new PromptHandler(device, input, output, error).RunAsync(TestContext.Current.CancellationToken);
+        var console = new PromptConsole(output, error, interactive: false, colourOutput: colour);
+        var run = new PromptHandler(device, input, output, error, console).RunAsync(TestContext.Current.CancellationToken);
         try
         {
             input.Send("reset");
@@ -467,7 +476,7 @@ public sealed class PromptHandlerTests
             new DeviceCommand(DeviceControl.Sensation, 35),
             new DeviceCommand(DeviceControl.Speed, 30),
             new DeviceCommand(DeviceControl.Speed, 0));
-        output.ToString().Should().Contain("SUPERSEDED set: 1 commands sent");
+        output.ToString().Should().Contain(colour ? "\u001b[33mSUPERSEDED\u001b[0m set: 1 commands sent" : "SUPERSEDED set: 1 commands sent");
     }
 
     [Fact]
@@ -513,12 +522,142 @@ public sealed class PromptHandlerTests
         await using var device = new TestDevice();
         await device.ConnectAsync(TestContext.Current.CancellationToken);
         device.Read = _ => Task.FromException<DeviceState>(new IOException("read failed"));
-        using var input = new StringReader("status --live\nquit\n");
+        using var input = new StringReader("status\nquit\n");
         using var output = new StringWriter();
         using var error = new StringWriter();
 
         (await new PromptHandler(device, input, output, error).RunAsync(TestContext.Current.CancellationToken)).Should().Be(1);
         output.ToString().Should().NotContain("OK status");
         error.ToString().Should().Contain("ERROR status").And.Contain("read failed");
+    }
+
+    [Fact]
+    public async Task InteractiveResultsRedrawPartialInputWithoutBlockingCommands()
+    {
+        var token = TestContext.Current.CancellationToken;
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var device = new TestDevice
+        {
+            Write = (command, _) => command.Control == DeviceControl.Speed ? release.Task : Task.CompletedTask,
+        };
+        await device.ConnectAsync(token);
+        using var input = new CommandInput();
+        using var writer = new FailingWriter(value =>
+        {
+            if (value?.StartsWith("OK set:", StringComparison.Ordinal) == true)
+            {
+                completed.TrySetResult();
+            }
+
+            return false;
+        });
+        var console = new PromptConsole(writer, writer, interactive: true, columns: () => 80);
+        var run = new PromptHandler(device, input, writer, writer, console).RunAsync(token);
+        try
+        {
+            await input.NextReadAsync(token);
+            input.Send("set 0 20 50 50 25");
+            await input.NextReadAsync(token);
+            writer.ToString().Should().EndWith("ossm> ");
+            console.Append('s');
+            console.Append('t');
+            console.Append('o');
+            console.Append('p');
+
+            release.TrySetResult();
+            await completed.Task.WaitAsync(token);
+            input.Send("stop");
+            await input.NextReadAsync(token);
+            device.IsArmed.Should().BeFalse();
+        }
+        finally
+        {
+            release.TrySetResult();
+            input.Send("quit");
+            await run;
+        }
+
+        writer.ToString().Should().Contain($"\r\u001b[2KOK set: all control commands sent; physical motion not verified. Armed: yes.{Environment.NewLine}\r\u001b[2Kossm> stop");
+        writer.ToString().Should().NotContain("ossm> OK");
+    }
+
+    [Fact]
+    public async Task StatusAlwaysReadsLiveState()
+    {
+        await using var device = new TestDevice { LiveState = new(new(StrokePattern.Deeper, 5, 6, 7, 8)) };
+        await device.ConnectAsync(TestContext.Current.CancellationToken);
+        device.LiveState = new(StrokePattern.Insist, 1.5, 2, 3, 4);
+        using var input = new StringReader("status\nquit\n");
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+
+        (await new PromptHandler(device, input, output, error).RunAsync(TestContext.Current.CancellationToken)).Should().Be(0);
+
+        device.Reads.Should().Be(2);
+        output.ToString().Should().Contain("OK status: pattern=6 speed=1.5 stroke=2 depth=3 sensation=4.");
+    }
+
+    [Fact]
+    public void RendererKeepsLongInputAndResultsOnSeparateLines()
+    {
+        using var writer = new StringWriter();
+        var console = new PromptConsole(writer, writer, interactive: true, columns: () => 16);
+        console.BeginRead();
+        foreach (var character in "set 0 20 50 50 25")
+        {
+            console.Append(character);
+        }
+
+        console.Output.Write("OK ");
+        console.Output.WriteLine("set");
+        writer.ToString().Should().EndWith($"\r\u001b[2KOK set{Environment.NewLine}\r\u001b[2Kossm>  50 50 25");
+        console.Backspace();
+        writer.ToString().Should().EndWith("ossm> 0 50 50 2");
+        console.EndRead();
+        console.Error.WriteLine("ERROR input");
+        writer.ToString().Should().EndWith($"ossm> 0 50 50 2{Environment.NewLine}ERROR input{Environment.NewLine}");
+    }
+
+    [Fact]
+    public void BackgroundDiagnosticsRedrawPartialInputAndFlushPartialLines()
+    {
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        var console = new PromptConsole(output, error, interactive: true, columns: () => 80);
+        console.BeginRead();
+        console.Append('h');
+        console.Error.Write("info: Device");
+        console.Error.WriteLine(" connected");
+        console.Error.Write("warn: Waiting");
+        console.Error.Flush();
+
+        error.ToString().Should().EndWith($"\r\u001b[2Kinfo: Device connected{Environment.NewLine}\r\u001b[2Kossm> h\r\u001b[2Kwarn: Waiting{Environment.NewLine}\r\u001b[2Kossm> h");
+        output.ToString().Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ResultColoursHighlightOnlyOutcomeKeywords(bool colour)
+    {
+        await using var device = new TestDevice();
+        await device.ConnectAsync(TestContext.Current.CancellationToken);
+        using var input = new StringReader("reset\nset 0 1.5 5 5 5\nquit\n");
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        var console = new PromptConsole(output, error, interactive: false, colourOutput: colour, colourError: colour);
+
+        (await new PromptHandler(device, input, output, error, console).RunAsync(TestContext.Current.CancellationToken)).Should().Be(0);
+
+        output.ToString().Should().Contain(colour ? "\u001b[32mOK\u001b[0m reset:" : "OK reset:");
+        error.ToString().Should().Contain(colour ? "\u001b[31mERROR\u001b[0m input:" : "ERROR input:");
+        if (!colour)
+        {
+            output.ToString().Should().NotContain("\u001b");
+            error.ToString().Should().NotContain("\u001b");
+        }
+
+        error.ToString().Should().NotContain("ossm> ");
     }
 }

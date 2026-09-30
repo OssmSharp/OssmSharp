@@ -13,8 +13,8 @@ public sealed record MotionSettings
     /// <param name="stroke">The stroke argument from zero through 100 percent.</param>
     /// <param name="depth">The depth argument from zero through 100 percent.</param>
     /// <param name="sensation">The sensation argument from zero through 100 percent.</param>
-    /// <exception cref="ArgumentOutOfRangeException">The pattern is undefined, or a percentage is outside its basic range or is not finite.</exception>
-    public MotionSettings(StrokePattern pattern, double speed, double stroke, double depth, double sensation)
+    /// <exception cref="ArgumentOutOfRangeException">The pattern is undefined, or a percentage is outside its basic range.</exception>
+    public MotionSettings(StrokePattern pattern, int speed, int stroke, int depth, int sensation)
     {
         if (!IsValidPattern(pattern))
         {
@@ -40,22 +40,22 @@ public sealed record MotionSettings
     /// <summary>
     /// Gets the speed argument as a percentage.
     /// </summary>
-    public double Speed { get; }
+    public int Speed { get; }
 
     /// <summary>
     /// Gets the stroke argument as a percentage.
     /// </summary>
-    public double Stroke { get; }
+    public int Stroke { get; }
 
     /// <summary>
     /// Gets the depth argument as a percentage.
     /// </summary>
-    public double Depth { get; }
+    public int Depth { get; }
 
     /// <summary>
     /// Gets the sensation argument as a percentage.
     /// </summary>
-    public double Sensation { get; }
+    public int Sensation { get; }
 
     internal DeviceCommand[] ToCommands() =>
     [
@@ -68,13 +68,13 @@ public sealed record MotionSettings
 
     internal static bool IsValidPattern(StrokePattern value) => Enum.IsDefined(value);
 
-    internal static bool IsValidPercentage(double value) => double.IsFinite(value) && value >= 0 && value <= 100;
+    internal static bool IsValidPercentage(int value) => value is >= 0 and <= 100;
 
-    private static void ValidatePercentage(double value, string parameterName)
+    private static void ValidatePercentage(int value, string parameterName)
     {
         if (!IsValidPercentage(value))
         {
-            throw new ArgumentOutOfRangeException(parameterName, value, "Percentage must be finite and between zero and 100.");
+            throw new ArgumentOutOfRangeException(parameterName, value, "Percentage must be between zero and 100.");
         }
     }
 }
