@@ -65,8 +65,6 @@ internal sealed class PromptHandler
         commands = CreateCommands();
     }
 
-    private string ArmedStatus => $"Armed: {(device.IsArmed ? "yes" : "no")}.";
-
     internal async Task<int> RunAsync(CancellationToken cancellationToken = default)
     {
         using var session = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -104,7 +102,7 @@ internal sealed class PromptHandler
 
                 if (line.Length > 4096)
                 {
-                    await error.WriteLineAsync($"{failure}ERROR{errorReset} input: command exceeds 4096 characters. Nothing sent. {ArmedStatus}").ConfigureAwait(false);
+                    await error.WriteLineAsync($"{failure}ERROR{errorReset} input: command exceeds 4096 characters. Nothing sent.").ConfigureAwait(false);
                     continue;
                 }
 
@@ -117,13 +115,14 @@ internal sealed class PromptHandler
                         var missing = arguments.Where(argument => parsed.GetResult(argument) is not { Tokens.Count: > 0 }).Select(argument => argument.Name).ToArray();
                         if (missing.Length > 0)
                         {
-                            await error.WriteLineAsync($"{failure}ERROR{errorReset} set: missing {string.Join(", ", missing)}; expected set <pattern> <speed> <stroke> <depth> <sensation>. Nothing sent. {ArmedStatus}").ConfigureAwait(false);
+                            await error.WriteLineAsync($"{failure}ERROR{errorReset} set: missing {string.Join(", ", missing)}; expected set <pattern> <speed> <stroke> <depth> <sensation>.").ConfigureAwait(false);
+                            continue;
                         }
                     }
 
                     foreach (var issue in parsed.Errors)
                     {
-                        await error.WriteLineAsync($"{failure}ERROR{errorReset} input: {issue.Message} Nothing sent. {ArmedStatus}").ConfigureAwait(false);
+                        await error.WriteLineAsync($"{failure}ERROR{errorReset} input: {issue.Message} Nothing sent.").ConfigureAwait(false);
                     }
 
                     continue;
@@ -195,7 +194,7 @@ internal sealed class PromptHandler
 
         if (terminal.Task.IsCompleted)
         {
-            await CommandError.TryWriteAsync(error, $"Session ended after a failure. {ArmedStatus} Run OssmSharp.Cli prompt to reconnect.").ConfigureAwait(false);
+            await CommandError.TryWriteAsync(error, "Session ended after a failure. Run OssmSharp.Cli prompt to reconnect.").ConfigureAwait(false);
         }
 
         return exitCode;
@@ -263,7 +262,7 @@ internal sealed class PromptHandler
             }
             catch (InvalidOperationException exception) when (device.ConnectionFailure is null && exception is not ObjectDisposedException)
             {
-                await error.WriteLineAsync($"{failure}ERROR{errorReset} set: {exception.Message} No settings sent. {ArmedStatus}").ConfigureAwait(false);
+                await error.WriteLineAsync($"{failure}ERROR{errorReset} set: {exception.Message} No settings sent.").ConfigureAwait(false);
                 return;
             }
 
@@ -273,7 +272,7 @@ internal sealed class PromptHandler
                 SetStatus.Superseded => $"{warning}SUPERSEDED{outputReset} set: {result.CommandsWritten} commands sent; issued commands may have taken effect.",
                 _ => $"{warning}CANCELLED{outputReset} set: {result.CommandsWritten} commands sent; issued commands may have taken effect.",
             };
-            await output.WriteLineAsync($"{message} {ArmedStatus}").ConfigureAwait(false);
+            await output.WriteLineAsync(message).ConfigureAwait(false);
         });
     }
 
@@ -281,7 +280,7 @@ internal sealed class PromptHandler
     {
         if (stopTask is { IsCompleted: false })
         {
-            error.WriteLine($"Stop already in progress. {ArmedStatus}");
+            error.WriteLine("Stop already in progress.");
             return;
         }
 
@@ -290,14 +289,14 @@ internal sealed class PromptHandler
             var pending = device.EmergencyStopAsync(CancellationToken.None);
             try
             {
-                await error.WriteLineAsync($"{message} {ArmedStatus}").ConfigureAwait(false);
+                await error.WriteLineAsync(message).ConfigureAwait(false);
             }
             finally
             {
                 await pending.ConfigureAwait(false);
             }
 
-            await output.WriteLineAsync($"{success}OK{outputReset} stop: Stop write completed; pending settings discarded; physical motion not verified. {ArmedStatus}").ConfigureAwait(false);
+            await output.WriteLineAsync($"{success}OK{outputReset} stop: Stop write completed; pending settings discarded; physical motion not verified.").ConfigureAwait(false);
         });
         operations.Add(stopTask);
     }
@@ -310,24 +309,23 @@ internal sealed class PromptHandler
         }
         catch (InvalidOperationException exception) when (device.ConnectionFailure is null && exception is not ObjectDisposedException)
         {
-            await error.WriteLineAsync($"{failure}ERROR{errorReset} reset: {exception.Message} Nothing sent. {ArmedStatus}").ConfigureAwait(false);
+            await error.WriteLineAsync($"{failure}ERROR{errorReset} reset: {exception.Message} Nothing sent.").ConfigureAwait(false);
             return;
         }
 
-        await output.WriteLineAsync($"{success}OK{outputReset} reset: No motion command sent. {ArmedStatus}").ConfigureAwait(false);
+        await output.WriteLineAsync($"{success}OK{outputReset} reset: No motion command sent.").ConfigureAwait(false);
     });
 
     private async Task StatusAsync()
     {
         var state = await device.GetStateAsync(bypassCache: true, sessionToken).ConfigureAwait(false);
         var settings = state!;
-        await output.WriteLineAsync(FormattableString.Invariant($"{success}OK{outputReset} status: pattern={settings.Pattern:D} speed={settings.Speed} stroke={settings.Stroke} depth={settings.Depth} sensation={settings.Sensation}. {ArmedStatus}")).ConfigureAwait(false);
+        await output.WriteLineAsync(FormattableString.Invariant($"{success}OK{outputReset} status: pattern={settings.Pattern:D} speed={settings.Speed} stroke={settings.Stroke} depth={settings.Depth} sensation={settings.Sensation}.")).ConfigureAwait(false);
     }
 
     private void Help(string? command)
     {
         commands.Parse(command is null ? ["--help"] : [command, "--help"]).Invoke(new InvocationConfiguration { Output = output, Error = error });
-        output.WriteLine(ArmedStatus);
     }
 
     // RunAsync awaits the Stop before returning.
@@ -342,7 +340,7 @@ internal sealed class PromptHandler
         operations.RemoveWhere(task => task.IsCompleted);
         if (operations.Count >= MaximumPendingCommands)
         {
-            error.WriteLine($"{failure}ERROR{errorReset} {operation}: command queue is full; wait for completion. Stop remains available. Nothing sent. {ArmedStatus}");
+            error.WriteLine($"{failure}ERROR{errorReset} {operation}: command queue is full; wait for completion. Stop remains available. Nothing sent.");
             return;
         }
 
@@ -359,7 +357,7 @@ internal sealed class PromptHandler
         {
             try
             {
-                await output.WriteLineAsync($"{warning}CANCELLED{outputReset} {operation}: queued commands discarded; commands already sent may still take effect. {ArmedStatus}").ConfigureAwait(false);
+                await output.WriteLineAsync($"{warning}CANCELLED{outputReset} {operation}: queued commands discarded; commands already sent may still take effect.").ConfigureAwait(false);
             }
             catch (Exception exception)
             {
@@ -379,7 +377,7 @@ internal sealed class PromptHandler
         var detail = exception is DeviceWriteException write
             ? $"{write.Command.Control} write failed after {write.CommandsWritten} completed commands; settings may be partially applied."
             : $"{exception.Message} Device state may be unknown.";
-        return CommandError.TryWriteAsync(error, $"{failure}ERROR{errorReset} {operation}: {detail} No rollback claimed. {ArmedStatus}");
+        return CommandError.TryWriteAsync(error, $"{failure}ERROR{errorReset} {operation}: {detail} No rollback claimed.");
     }
 
     private void StateChanged(object? sender, EventArgs args)

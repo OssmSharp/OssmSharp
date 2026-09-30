@@ -77,7 +77,7 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
         device.IsArmed.Should().BeFalse();
         device.Writes.Should().Equal(new DeviceCommand(DeviceControl.Speed, 0), new DeviceCommand(DeviceControl.Speed, 0));
         device.Disconnects.Should().Be(1);
-        error.ToString().Should().Contain("Connected. Armed: yes. Help lists commands.");
+        error.ToString().Should().Contain("Connected. Help lists commands.").And.NotContain("Armed:");
     }
 
     [Fact]
@@ -168,7 +168,8 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
         device.Disconnects.Should().Be(1);
         device.Writes.Should().Equal(new DeviceCommand(DeviceControl.Speed, 0), new DeviceCommand(DeviceControl.Speed, 0));
         output.ToString().Should().Contain("OK stop").And.NotContain("OK set");
-        error.ToString().Should().Contain("Connected. Armed: yes").And.Contain("Sending stop command. Please wait ...").And.NotContain("ERROR");
+        error.ToString().Should().Contain("Connected. Help lists commands.").And.Contain("Sending stop command. Please wait ...")
+            .And.NotContain("ERROR").And.NotContain("Armed:");
     }
 
     [Theory]
@@ -225,8 +226,8 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
             (await Component.RunAsync("Device-A", TestContext.Current.CancellationToken)).Should().Be(1);
             device.Disconnects.Should().Be(1);
             device.Writes.Should().Equal(new DeviceCommand(DeviceControl.Speed, 0), new DeviceCommand(DeviceControl.Speed, 0));
-            error.ToString().Should().Contain("Connected. Armed: yes").And.Contain("ERROR device cleanup: disconnect failed")
-                .And.NotContain("ERROR prompt");
+            error.ToString().Should().Contain("Connected. Help lists commands.").And.Contain("ERROR device cleanup: disconnect failed")
+                .And.NotContain("ERROR prompt").And.NotContain("Armed:");
         }
         catch (IOException exception) when (exception.Message == "disconnect failed")
         {

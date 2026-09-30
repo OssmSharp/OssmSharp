@@ -210,7 +210,6 @@ public sealed class PromptHandlerTests
     [InlineData("set 7 20 50 50 25", "pattern '7'")]
     [InlineData("set 01 20 50 50 25", "pattern '01'")]
     [InlineData("set Deeper,Insist 20 50 50 25", "pattern 'Deeper,Insist'")]
-    [InlineData("set 0 20 50", "depth")]
     [InlineData("set 0 20 50 50 25 extra", "extra")]
     [InlineData("status --fresh", "--fresh")]
     public async Task InvalidInputSendsNothingAndSessionContinues(string command, string offending)
@@ -225,8 +224,30 @@ public sealed class PromptHandlerTests
         (await handler.RunAsync(TestContext.Current.CancellationToken)).Should().Be(0);
 
         device.Writes.Should().Equal(new DeviceCommand(DeviceControl.Speed, 0));
-        error.ToString().Should().Contain(offending).And.Contain("Nothing sent").And.Contain("Armed: yes");
+        error.ToString().Should().Contain(offending).And.Contain("Nothing sent").And.NotContain("Armed:");
         output.ToString().Should().Contain("OK status:").And.NotContain("OK set");
+    }
+
+    [Theory]
+    [InlineData("set", "pattern, speed, stroke, depth, sensation")]
+    [InlineData("set simplestroke", "speed, stroke, depth, sensation")]
+    [InlineData("set 0 20 50", "depth, sensation")]
+    public async Task MissingSetArgumentsPrintSingleUsageError(string command, string missing)
+    {
+        await using var device = new TestDevice();
+        await device.ConnectAsync(TestContext.Current.CancellationToken);
+        using var input = new StringReader($"{command}\nhelp set\nstatus\nquit\n");
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+
+        (await new PromptHandler(device, input, output, error).RunAsync(TestContext.Current.CancellationToken)).Should().Be(0);
+
+        const string usage = "set <pattern> <speed> <stroke> <depth> <sensation>";
+        error.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
+            .Where(line => line.StartsWith("ERROR", StringComparison.Ordinal))
+            .Should().Equal($"ERROR set: missing {missing}; expected {usage}.");
+        device.Writes.Should().Equal(new DeviceCommand(DeviceControl.Speed, 0));
+        output.ToString().Should().Contain(usage).And.Contain("OK status:").And.NotContain("OK set");
     }
 
     [Fact]
@@ -241,7 +262,7 @@ public sealed class PromptHandlerTests
         (await new PromptHandler(device, input, output, error).RunAsync(TestContext.Current.CancellationToken)).Should().Be(0);
 
         device.Writes.Should().HaveCount(6).And.EndWith(new DeviceCommand(DeviceControl.Speed, 0));
-        output.ToString().Should().Contain("OK set").And.Contain("Armed: yes");
+        output.ToString().Should().Contain("OK set").And.NotContain("Armed:");
         error.ToString().Should().NotContain("ERROR");
     }
 
@@ -303,14 +324,16 @@ public sealed class PromptHandlerTests
             new DeviceCommand(DeviceControl.Speed, 0));
         device.Reads.Should().Be(2);
         device.IsArmed.Should().BeFalse();
-        error.ToString().Should().Contain("Nothing sent").And.Contain("disarmed").And.Contain("'bogus'");
+        error.ToString().Should().Contain("Nothing sent")
+            .And.Contain("ERROR set: Commands are disarmed; explicitly reset before submitting settings. No settings sent.")
+            .And.Contain("'bogus'").And.NotContain("Armed:");
         output.ToString().Should().Contain("OK reset").And.Contain("No motion command sent")
             .And.Contain("OK set").And.Contain("physical motion not verified")
             .And.Contain("OK status: pattern=0 speed=0")
             .And.NotContain("cached")
             .And.Contain("set <pattern> <speed> <stroke> <depth> <sensation>")
             .And.Contain("0=SimpleStroke, 1=TeasingPounding, 2=RoboStroke, 3=HalfNHalf, 4=Deeper, 5=StopNGo, 6=Insist")
-            .And.Contain("OK stop").And.Contain("Armed: no");
+            .And.Contain("OK stop").And.NotContain("Armed:");
     }
 
     [Fact]
@@ -578,7 +601,7 @@ public sealed class PromptHandlerTests
             await run;
         }
 
-        writer.ToString().Should().Contain($"\r\u001b[2KOK set: all control commands sent; physical motion not verified. Armed: yes.{Environment.NewLine}\r\u001b[2Kossm> stop");
+        writer.ToString().Should().Contain($"\r\u001b[2KOK set: all control commands sent; physical motion not verified.{Environment.NewLine}\r\u001b[2Kossm> stop");
         writer.ToString().Should().NotContain("ossm> OK");
     }
 

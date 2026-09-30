@@ -51,7 +51,7 @@ public sealed class PromptCommand
             await device.ConnectAsync(cancellationToken).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
             logger.PromptConnected();
-            await error.WriteLineAsync($"Connected. Armed: {(device.IsArmed ? "yes" : "no")}. Help lists commands.").ConfigureAwait(false);
+            await error.WriteLineAsync("Connected. Help lists commands.").ConfigureAwait(false);
             exitCode = await createPrompt(device).RunAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
