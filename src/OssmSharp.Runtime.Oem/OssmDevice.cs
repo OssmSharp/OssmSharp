@@ -27,29 +27,116 @@ namespace OssmSharp.Runtime.Oem;
 /// </remarks>
 public sealed class OssmDevice : DeviceBase
 {
+    /// <summary>
+    /// Maximum byte length of an encoded request, response, or complete sensor frame.
+    /// </summary>
     private const int MaximumMessageBytes = 509;
+
+    /// <summary>
+    /// Byte length of the sensor-frame header preceding the motion JSON payload.
+    /// </summary>
     private const int StreamHeaderBytes = 20;
+
+    /// <summary>
+    /// Associates peripherals with their owning clients for exclusive connections and lifecycle callbacks.
+    /// </summary>
     private static readonly ConditionalWeakTable<IPeripheral, OssmDevice> Owners = [];
+
+    /// <summary>
+    /// Host-owned bluetooth manager for access checks and peripheral lookup.
+    /// </summary>
     private readonly IBleManager manager;
+
+    /// <summary>
+    /// The identifier of the current device (opaque, but typically a GUID).
+    /// </summary>
     private readonly string identifier;
+
     private readonly TimeProvider timeProvider;
     private readonly ILogger logger;
     private readonly OssmDeviceOptions options;
+
+    /// <summary>
+    /// Protects per-connection state and pending request and read ownership.
+    /// </summary>
     private readonly Lock sync = new();
+
+    /// <summary>
+    /// Serializes issued GATT writes without holding the gate while awaiting terminal responses.
+    /// </summary>
     private readonly SemaphoreSlim writes = new(1, 1);
+
+    /// <summary>
+    /// Correlates outstanding request identifiers with their terminal-response completions.
+    /// </summary>
     private readonly Dictionary<uint, TaskCompletionSource<Response>> requests = [];
+
+    /// <summary>
+    /// Completion signal for the priority Stop transfer; ordinary writes yield while it is pending.
+    /// </summary>
     private TaskCompletionSource? stopTransfer;
+
+    /// <summary>
+    /// Owns response, motion-stream, and characteristic-subscription observers for the current connection.
+    /// </summary>
     private CompositeDisposable subscriptions = [];
+
+    /// <summary>
+    /// Owns connection-status and connection-failure observers until disconnection is acknowledged.
+    /// </summary>
     private CompositeDisposable lifecycle = [];
+
+    /// <summary>
+    /// Signals native disconnection for the current connection generation.
+    /// </summary>
+    /// <remarks>
+    /// Replaced before teardown so an earlier loss notification cannot acknowledge a later connection closure.
+    /// </remarks>
     private TaskCompletionSource disconnected = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>
+    /// Pending live read, completed by the next valid motion observation or failed when the connection is abandoned.
+    /// </summary>
     private TaskCompletionSource<DeviceState>? liveRead;
+
+    /// <summary>
+    /// Per-connection cancellation source that stops lease acquisition and renewal during teardown.
+    /// </summary>
     private CancellationTokenSource? leaseStopping;
+
+    /// <summary>
+    /// Lease acquisition and renewal work, awaited during teardown before releasing control ownership.
+    /// </summary>
     private Task leaseMaintenance = Task.CompletedTask;
+
+    /// <summary>
+    /// Peripheral retained until native disconnection and resource cleanup finish.
+    /// </summary>
     private IPeripheral? peripheral;
+
+    /// <summary>
+    /// Identifies the current connection attempt so callbacks from earlier connections are ignored.
+    /// </summary>
     private long generation;
+
+    /// <summary>
+    /// Indicates that the current connection generation has not been abandoned.
+    /// </summary>
     private bool active;
+
+    /// <summary>
+    /// Request identifier counter; allocation skips zero and identifiers still in use.
+    /// </summary>
     private uint nextRequestId;
+
+    /// <summary>
+    /// Control-lease token returned by acquisition; zero means no lease has been acquired for this connection.
+    /// </summary>
     private uint lease;
+
+    /// <summary>
+    /// Motion-stream identifier used to reject other streams; zero means no stream has started for this connection.
+    /// </summary>
     private byte streamId;
 
     /// <summary>
@@ -187,9 +274,8 @@ public sealed class OssmDevice : DeviceBase
 
     /// <inheritdoc />
     /// <remarks>
-    /// Selects the stroke engine. Entering it resets the firmware's controls, so a mode change waits for the next
-    /// observation. The firmware homes first when needed and holds a preflight until the speed knob reads zero;
-    /// both report not ready.
+    /// Selects the stroke engine and checks readiness from its terminal response without waiting for a motion observation.
+    /// Homing and preflight report not ready.
     /// </remarks>
     protected override async Task<bool> PreparePatternAsync(CancellationToken cancellationToken)
     {
@@ -200,17 +286,7 @@ public sealed class OssmDevice : DeviceBase
         }
 
         var response = await SendRequestAsync(current, "target.set", "target.strokeEngine", null, leased: true, cancellationToken).ConfigureAwait(false);
-        if (response.StateAfter is not ("strokeEngine.idle" or "strokeEngine.pattern"))
-        {
-            return false;
-        }
-
-        if (response.StateBefore != response.StateAfter)
-        {
-            UpdateState(await ReadStateAsync(cancellationToken).ConfigureAwait(false));
-        }
-
-        return true;
+        return response.StateAfter is "strokeEngine.idle" or "strokeEngine.pattern";
     }
 
     /// <inheritdoc />
@@ -559,7 +635,6 @@ public sealed class OssmDevice : DeviceBase
         bool ok;
         string? code;
         string? message;
-        string? stateBefore;
         string? stateAfter;
         JsonElement result;
         try
@@ -585,7 +660,6 @@ public sealed class OssmDevice : DeviceBase
             ok = status.GetBoolean();
             TryGetString(root, "code", out code);
             TryGetString(root, "message", out message);
-            TryGetString(root, "stateBefore", out stateBefore);
             TryGetString(root, "stateAfter", out stateAfter);
             result = root.TryGetProperty("result", out var value) ? value.Clone() : default;
         }
@@ -608,7 +682,7 @@ public sealed class OssmDevice : DeviceBase
         // Accepted requests remain pending until a terminal stage.
         if (stage == "completed" && ok)
         {
-            pending.TrySetResult(new(result, stateBefore, stateAfter));
+            pending.TrySetResult(new(result, stateAfter));
         }
         else if (stage != "accepted")
         {
@@ -871,5 +945,5 @@ public sealed class OssmDevice : DeviceBase
         return true;
     }
 
-    private readonly record struct Response(JsonElement Result, string? StateBefore, string? StateAfter);
+    private readonly record struct Response(JsonElement Result, string? StateAfter);
 }

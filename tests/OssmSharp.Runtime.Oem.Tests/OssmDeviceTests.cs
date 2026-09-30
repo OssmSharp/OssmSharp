@@ -446,7 +446,7 @@ public sealed class OssmDeviceTests
     }
 
     [Fact]
-    public async Task AsynchronousObservationUpdatesStateAndUnexplainedChangeDisarms()
+    public async Task AsynchronousObservationUpdatesStateWithoutDisarmingOrIssuingStop()
     {
         using var context = new BleTestContext();
         var token = TestContext.Current.CancellationToken;
@@ -454,13 +454,20 @@ public sealed class OssmDeviceTests
 
         context.Publish("""{"pattern":0,"speed":0,"stroke":12,"depth":10,"sensation":50,"homed":true}""");
 
-        device.IsArmed.Should().BeFalse();
+        device.IsArmed.Should().BeTrue();
         device.ConnectionFailure.Should().BeNull();
         (await device.GetStateAsync(cancellationToken: token)).Should().Be(new DeviceState(new(0, 0, 12, 10, 50)));
+        context.RequestsFor("setting.write").Should().BeEmpty();
+
+        (await device.SetAsync(new(StrokePattern.RoboStroke, 5, 5, 5, 5), token))
+            .Should().Be(new SetResult(SetStatus.Completed, 5));
+
+        context.RequestsFor("setting.write").Should().HaveCount(5);
+        device.IsArmed.Should().BeTrue();
     }
 
     [Fact]
-    public async Task SetEntersStrokeEngineBeforeWritingAndAcceptsItsControlReset()
+    public async Task ModeSelectionDoesNotWaitForObservationBeforeWritingSettings()
     {
         using var context = new BleTestContext
         {
@@ -483,8 +490,18 @@ public sealed class OssmDeviceTests
             return Observable.Return(BleTestContext.WriteResult([]));
         };
 
-        (await context.StreamUntilAsync(device.SetAsync(new(StrokePattern.RoboStroke, 5, 5, 5, 5), token), token))
-            .Should().Be(new SetResult(SetStatus.Completed, 5));
+        var set = device.SetAsync(new(StrokePattern.RoboStroke, 5, 5, 5, 5), token);
+        try
+        {
+            context.RequestsFor("setting.write").Should().HaveCount(5);
+            (await set).Should().Be(new SetResult(SetStatus.Completed, 5));
+            (await device.GetStateAsync(cancellationToken: token)).Should().Be(new DeviceState(new(0, 0, 20, 10, 50)));
+        }
+        finally
+        {
+            await context.StreamUntilAsync(set, token);
+        }
+
         context.Publish("""{"pattern":2,"speed":1,"stroke":5,"depth":5,"sensation":5,"homed":true}""");
 
         var target = context.RequestsFor("target.set").Should().ContainSingle().Which;
@@ -492,6 +509,7 @@ public sealed class OssmDeviceTests
         target["lease"]!.GetValue<uint>().Should().Be(42);
         context.RequestsFor("setting.write").Should().HaveCount(5);
         device.IsArmed.Should().BeTrue();
+        (await device.GetStateAsync(cancellationToken: token)).Should().Be(new DeviceState(new(StrokePattern.RoboStroke, 1, 5, 5, 5)));
     }
 
     [Fact]

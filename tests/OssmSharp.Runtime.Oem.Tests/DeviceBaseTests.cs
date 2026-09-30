@@ -118,7 +118,7 @@ public sealed class DeviceBaseTests
     }
 
     [Fact]
-    public async Task UnexplainedChangeDuringSetupLeavesConnectionDisarmed()
+    public async Task ControlObservationsDuringSetupDoNotPreventArming()
     {
         await using var device = new TestDevice();
         device.Connect = _ =>
@@ -130,10 +130,8 @@ public sealed class DeviceBaseTests
 
         await device.ConnectAsync(token);
 
-        device.IsArmed.Should().BeFalse();
-        (await device.GetStateAsync(cancellationToken: token)).Should().Be(device.LiveState);
-        await device.ResetAsync(token);
         device.IsArmed.Should().BeTrue();
+        (await device.GetStateAsync(cancellationToken: token)).Should().Be(device.LiveState);
         device.Writes.Should().BeEmpty();
     }
 
@@ -298,7 +296,7 @@ public sealed class DeviceBaseTests
     }
 
     [Fact]
-    public async Task ExternalControlChangeCancelsPendingWorkWithoutIssuingStop()
+    public async Task ControlObservationDoesNotCancelPendingSettingsOrIssueStop()
     {
         await using var device = new TestDevice();
         var token = TestContext.Current.CancellationToken;
@@ -307,14 +305,15 @@ public sealed class DeviceBaseTests
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         device.Write = (_, _) => release.Task;
         var active = device.SetAsync(new(StrokePattern.TeasingPounding, 20, 30, 40, 50), token);
-        var pending = device.SetAsync(new(StrokePattern.RoboStroke, 10, 10, 10, 10), token);
+        var settings = new MotionSettings(StrokePattern.RoboStroke, 10, 10, 10, 10);
+        var pending = device.SetAsync(settings, token);
         var observed = new MotionSettings(StrokePattern.TeasingPounding, 0, 99, 0, 0);
 
         try
         {
             device.Observe(observed);
-            device.IsArmed.Should().BeFalse();
-            (await pending).Should().Be(new SetResult(SetStatus.Cancelled, 0));
+            device.IsArmed.Should().BeTrue();
+            pending.IsCompleted.Should().BeFalse();
             active.IsCompleted.Should().BeFalse();
             (await device.GetStateAsync(cancellationToken: token)).Should().Be(new DeviceState(observed));
         }
@@ -324,10 +323,11 @@ public sealed class DeviceBaseTests
             await active;
         }
 
-        device.Writes.Should().Equal(new DeviceCommand(DeviceControl.Pattern, 1));
-        await device.ResetAsync(token);
+        (await active).Should().Be(new SetResult(SetStatus.Superseded, 1));
+        (await pending).Should().Be(new SetResult(SetStatus.Completed, 5));
+        device.Writes.Should().Equal(new[] { new DeviceCommand(DeviceControl.Pattern, 1) }.Concat(settings.ToCommands()));
+        (await device.GetStateAsync(cancellationToken: token)).Should().Be(new DeviceState(observed));
         device.IsArmed.Should().BeTrue();
-        device.Writes.Should().HaveCount(1);
     }
 
     [Fact]
@@ -560,11 +560,19 @@ public sealed class DeviceBaseTests
 
         device.Observe(new(0, 0, 25, 0, 0));
         notifications.Should().Be(4);
+        device.IsArmed.Should().BeTrue();
+        (await device.GetStateAsync(cancellationToken: token)).Should().Be(new DeviceState(new(0, 0, 25, 0, 0)));
+        device.Observe(new(0, 0, 25, 0, 0));
+        notifications.Should().Be(4);
+
+        await device.EmergencyStopAsync(token);
+
+        notifications.Should().Be(5);
         device.IsArmed.Should().BeFalse();
     }
 
     [Fact]
-    public async Task DelayedOwnObservationsRemainExplained()
+    public async Task DelayedAndRevertedObservationsOnlyUpdateLastKnownState()
     {
         await using var device = new TestDevice();
         var token = TestContext.Current.CancellationToken;
@@ -575,14 +583,18 @@ public sealed class DeviceBaseTests
 
         device.Observe(new(0, 0, 20, 0, 0));
         device.IsArmed.Should().BeTrue();
+        (await device.GetStateAsync(cancellationToken: token)).Should().Be(new DeviceState(new(0, 0, 20, 0, 0)));
         device.Observe(new(0, 0, 30, 0, 0));
         device.IsArmed.Should().BeTrue();
+        (await device.GetStateAsync(cancellationToken: token)).Should().Be(new DeviceState(new(0, 0, 30, 0, 0)));
         device.Observe(new(0, 0, 20, 0, 0));
-        device.IsArmed.Should().BeFalse();
+        device.IsArmed.Should().BeTrue();
+        (await device.GetStateAsync(cancellationToken: token)).Should().Be(new DeviceState(new(0, 0, 20, 0, 0)));
+        device.Writes.Should().HaveCount(10);
     }
 
     [Fact]
-    public async Task DelayedOwnObservationsDuringPreparationRemainExplained()
+    public async Task ObservationsDuringModeSelectionDoNotChangeArming()
     {
         await using var device = new TestDevice();
         var token = TestContext.Current.CancellationToken;
@@ -601,7 +613,9 @@ public sealed class DeviceBaseTests
         device.Observe(new(0, 0, 40, 0, 0));
         device.IsArmed.Should().BeTrue();
         device.Observe(new(0, 0, 30, 0, 0));
-        device.IsArmed.Should().BeFalse();
+        device.IsArmed.Should().BeTrue();
+        (await device.GetStateAsync(cancellationToken: token)).Should().Be(new DeviceState(new(0, 0, 30, 0, 0)));
+        device.Writes.Should().HaveCount(15);
     }
 
     [Fact]
@@ -621,7 +635,7 @@ public sealed class DeviceBaseTests
     }
 
     [Fact]
-    public async Task SetPreparesPatternBeforeWritingAndAcceptsItsControlReset()
+    public async Task ModeSelectionPrecedesSettingsAndItsObservationsDoNotDisarm()
     {
         await using var device = new TestDevice();
         var token = TestContext.Current.CancellationToken;
@@ -632,7 +646,6 @@ public sealed class DeviceBaseTests
         {
             device.Writes.Should().HaveCount(5);
 
-            // Entering the pattern mode resets controls; that reset is not an external change.
             device.Observe(new(0, 0, 50, 10, 50));
             return Task.FromResult(true);
         };
@@ -680,7 +693,7 @@ public sealed class DeviceBaseTests
     }
 
     [Fact]
-    public async Task ResetWhileArmedPreservesUnobservedAssignments()
+    public async Task ResetWhileArmedDoesNotReplaySettings()
     {
         await using var device = new TestDevice();
         var token = TestContext.Current.CancellationToken;

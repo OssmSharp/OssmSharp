@@ -9,26 +9,67 @@ namespace OssmSharp.Runtime.Oem;
 /// <remarks>
 /// Lifecycle transitions are serialized with device I/O, except that Stop does not wait for an earlier response or live read.
 /// Providers must own issued transfers through settlement even when a response wait is abandoned.
-/// Writes update expectations, never last known state or a claim about physical motion.
+/// Only observations update last known state; writes do not confirm physical motion.
 /// </remarks>
 public abstract class DeviceBase : IOssmDevice
 {
+    /// <summary>
+    /// Protects lifecycle, submission, and last known state from concurrent calls and provider callbacks.
+    /// </summary>
     private readonly Lock sync = new();
+
+    /// <summary>
+    /// Serializes non-Stop operations and provider cleanup.
+    /// </summary>
     private readonly SemaphoreSlim io = new(1, 1);
+
+    /// <summary>
+    /// Cancels operation waits and cooperative work when disposal starts.
+    /// </summary>
     private readonly CancellationTokenSource shutdown = new();
+
+    /// <summary>
+    /// Host-owned logger for operation failures and isolated subscriber errors.
+    /// </summary>
     private readonly ILogger<DeviceBase> logger;
-    private readonly int[] expected = new int[5];
-    private readonly Queue<int>[] unobserved = [new(), new(), new(), new(), new()];
+
+    /// <summary>
+    /// Shared Stop result joined by concurrent Stop callers, disconnect, and disposal while still in progress.
+    /// </summary>
     private Task? stop;
+
+    /// <summary>
+    /// Latest accepted settings submission; newer submissions supersede its unsent commands.
+    /// </summary>
     private SettingsSubmission? submission;
+
+    /// <summary>
+    /// Last observed controls, retained across disconnection and never inferred from writes.
+    /// </summary>
     private DeviceState? state;
+
+    /// <summary>
+    /// Connection failure retained with its stack trace until a successful reconnection.
+    /// </summary>
     private ExceptionDispatchInfo? providerFailure;
+
+    /// <summary>
+    /// Shared cleanup result returned by every disposal call, including when cleanup fails.
+    /// </summary>
     private Task? disposal;
+
+    /// <summary>
+    /// Per-connection cancellation source for interrupting setup and live reads during teardown.
+    /// </summary>
     private CancellationTokenSource? connectionCancellation;
+
+    /// <summary>
+    /// Tracks connection cancellation so cleanup waits for callbacks before disposing the source.
+    /// </summary>
     private Task? connectionStopping;
 
     /// <summary>
-    /// Increments on every disarm so Connect and Reset can detect a disarm after they captured it.
+    /// Increments on every disarm so Reset can detect a disarm after it captured the version.
     /// </summary>
     private long disarmVersion;
 
@@ -46,16 +87,6 @@ public abstract class DeviceBase : IOssmDevice
     /// Indicates an established connection that has not been disconnected, faulted, or disposed.
     /// </summary>
     private bool connected;
-
-    /// <summary>
-    /// Indicates that the next observation sets fresh expectations instead of being checked for external changes.
-    /// </summary>
-    private bool baselinePending;
-
-    /// <summary>
-    /// Indicates that the firmware is preparing a pattern; observations replace expectations instead of being checked.
-    /// </summary>
-    private bool baselineHeld;
 
     /// <summary>
     /// Indicates that provider connection resources may still need <see cref="DisconnectCoreAsync"/>.
@@ -125,17 +156,14 @@ public abstract class DeviceBase : IOssmDevice
         }
 
         await CleanupAsync().ConfigureAwait(false);
-        long version;
         CancellationTokenSource session;
         lock (sync)
         {
             ThrowIfInterrupted(attempt);
             connecting = true;
-            baselinePending = true;
             cleanupPending = true;
             connectionCancellation = session = new();
             connectionStopping = null;
-            version = disarmVersion;
         }
 
         using var attemptCancellation = CancellationTokenSource.CreateLinkedTokenSource(token, session.Token);
@@ -152,7 +180,6 @@ public abstract class DeviceBase : IOssmDevice
 
             attemptCancellation.Token.ThrowIfCancellationRequested();
             UpdateState(await ReadStateAsync(attemptCancellation.Token).WaitAsync(attemptCancellation.Token).ConfigureAwait(false));
-            bool armedByConnection;
             lock (sync)
             {
                 ThrowIfInterrupted(attempt);
@@ -165,15 +192,10 @@ public abstract class DeviceBase : IOssmDevice
                 connecting = false;
                 connected = true;
                 providerFailure = null;
-                armedByConnection = version == disarmVersion;
-                armed = armedByConnection;
+                armed = true;
             }
 
-            if (armedByConnection)
-            {
-                NotifyStateChanged();
-            }
-
+            NotifyStateChanged();
             return true;
         }
         catch (Exception connectionError)
@@ -292,26 +314,13 @@ public abstract class DeviceBase : IOssmDevice
                     {
                         return current.Result;
                     }
-
-                    baselineHeld = true;
                 }
 
                 var ready = false;
-                bool prepared;
-                try
-                {
-                    prepared = await TryStepAsync(
-                        current,
-                        async () => ready = await PreparePatternAsync(current.PendingCancellation.Token).ConfigureAwait(false),
-                        exception => new IOException($"Preparing the device to run the pattern failed; no settings were sent. {exception.Message}", exception)).ConfigureAwait(false);
-                }
-                finally
-                {
-                    lock (sync)
-                    {
-                        baselineHeld = false;
-                    }
-                }
+                var prepared = await TryStepAsync(
+                    current,
+                    async () => ready = await PreparePatternAsync(current.PendingCancellation.Token).ConfigureAwait(false),
+                    exception => new IOException($"Preparing the device to run the pattern failed; no settings were sent. {exception.Message}", exception)).ConfigureAwait(false);
 
                 if (!prepared)
                 {
@@ -331,8 +340,6 @@ public abstract class DeviceBase : IOssmDevice
                         {
                             return current.Result;
                         }
-
-                        Expect(command);
                     }
 
                     if (!await TryStepAsync(
@@ -580,9 +587,8 @@ public abstract class DeviceBase : IOssmDevice
     /// <param name="cancellationToken" />
     /// <returns>Whether the firmware now runs patterns; false when it is waiting, for example for homing or its speed knob.</returns>
     /// <remarks>
-    /// Called once per submission, so it must succeed without effect when patterns already run. Observations received
-    /// before it returns replace expectations instead of disarming; if preparation changes controls, report an
-    /// observation of them through <see cref="UpdateState"/> before returning. Cancellation follows <see cref="WriteCommandAsync"/>.
+    /// Called once per submission, so it must succeed without effect when patterns already run.
+    /// Cancellation follows <see cref="WriteCommandAsync"/>.
     /// The firmware decides whether motion is safe to start; completion does not confirm physical motion.
     /// </remarks>
     protected abstract Task<bool> PreparePatternAsync(CancellationToken cancellationToken);
@@ -632,22 +638,17 @@ public abstract class DeviceBase : IOssmDevice
     }
 
     /// <summary>
-    /// Records an incoming observation and disarms if changed controls are unexplained by issued assignments.
+    /// Records an incoming observation without changing arming or cancelling settings.
     /// </summary>
     /// <param name="observation">Decoded controls from a provider read or notification.</param>
     /// <remarks>
-    /// Unchanged last-observed controls and unobserved issued assignments are accepted while notifications catch up.
-    /// Observing an issued value accounts for earlier assignments to that control; subsequent reversions are external changes.
-    /// Speed is not checked because the firmware reports its effective speed, which the speed knob can scale.
-    /// The first observation of each connection, and observations during <see cref="PreparePatternAsync"/>, establish
-    /// fresh expectations. Observations never arm or cause motion writes,
-    /// and are ignored without an active or pending connection. Subscriber failures are logged and cannot interrupt device execution.
+    /// Observations never cause motion writes and are ignored without an active or pending connection.
+    /// Subscriber failures are logged and cannot interrupt device execution.
     /// </remarks>
     protected void UpdateState(DeviceState observation)
     {
         ArgumentNullException.ThrowIfNull(observation);
         bool changed;
-        bool external = false;
         lock (sync)
         {
             if (disposing || !(connecting || connected))
@@ -655,23 +656,8 @@ public abstract class DeviceBase : IOssmDevice
                 return;
             }
 
-            if (baselinePending || baselineHeld)
-            {
-                baselinePending = false;
-                SetExpectation(observation);
-            }
-            else
-            {
-                external = DetectExternalChange(observation);
-            }
-
-            changed = state != observation || external;
+            changed = state != observation;
             state = observation;
-        }
-
-        if (external)
-        {
-            logger.ExternalChange();
         }
 
         if (changed)
@@ -787,73 +773,6 @@ public abstract class DeviceBase : IOssmDevice
         {
             submission.Status = SetStatus.Cancelled;
             submission.PendingCancellation.Cancel();
-        }
-    }
-
-    private bool DetectExternalChange(DeviceState observation)
-    {
-        if (state is null)
-        {
-            return false;
-        }
-
-        var previous = state.ComparableControls();
-        var incoming = observation.ComparableControls();
-        var unexplained = false;
-        for (var index = 0; index < incoming.Length; index++)
-        {
-            var command = incoming[index];
-            if (command.Value == previous[index].Value)
-            {
-                continue;
-            }
-
-            var pending = unobserved[(int)command.Control];
-            if (pending.Contains(command.Value))
-            {
-                while (pending.Dequeue() != command.Value)
-                {
-                }
-            }
-            else
-            {
-                unexplained = true;
-                pending.Clear();
-                expected[(int)command.Control] = command.Value;
-            }
-        }
-
-        if (!unexplained || !(armed || connecting))
-        {
-            return false;
-        }
-
-        // During setup this prevents the attempt from arming.
-        DisarmLocked();
-        return true;
-    }
-
-    private void Expect(DeviceCommand command)
-    {
-        if (command.Control == DeviceControl.Speed)
-        {
-            return;
-        }
-
-        var index = (int)command.Control;
-        if (expected[index] != command.Value)
-        {
-            unobserved[index].Enqueue(command.Value);
-            expected[index] = command.Value;
-        }
-    }
-
-    private void SetExpectation(DeviceState observation)
-    {
-        foreach (var command in observation.ComparableControls())
-        {
-            expected[(int)command.Control] = command.Value;
-            unobserved[(int)command.Control].Clear();
         }
     }
 
@@ -985,11 +904,6 @@ public abstract class DeviceBase : IOssmDevice
     private async Task WriteStopAsync()
     {
         var command = new DeviceCommand(DeviceControl.Speed, 0);
-        lock (sync)
-        {
-            Expect(command);
-        }
-
         try
         {
             await WriteCommandAsync(command, CancellationToken.None).ConfigureAwait(false);

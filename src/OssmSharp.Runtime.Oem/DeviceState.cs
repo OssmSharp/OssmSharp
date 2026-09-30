@@ -89,14 +89,6 @@ public sealed record DeviceState
     public static bool TryFromBytes(byte[]? data, [NotNullWhen(true)] out DeviceState? state, out IReadOnlyList<ValidationResult> errors)
         => TryFromBytes(data.AsMemory(), out state, out errors);
 
-    internal DeviceCommand[] ComparableControls() =>
-    [
-        new(DeviceControl.Pattern, (int)Pattern),
-        new(DeviceControl.Stroke, Stroke),
-        new(DeviceControl.Depth, Depth),
-        new(DeviceControl.Sensation, Sensation),
-    ];
-
     internal static DeviceState FromBytes(ReadOnlyMemory<byte> data)
     {
         if (TryFromBytes(data, out var state, out var errors))

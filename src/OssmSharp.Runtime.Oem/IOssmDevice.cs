@@ -21,8 +21,8 @@ public interface IOssmDevice : IAsyncDisposable
     /// Gets whether settings submission is armed by successful connection or explicit reset.
     /// </summary>
     /// <remarks>
-    /// Stop, a change to pattern, stroke, depth, or sensation not explained by submitted settings, disconnection,
-    /// connection failure, and disposal disarm submission.
+    /// Stop, operation failure, disconnection, connection failure, and disposal disarm submission.
+    /// Valid control observations update last known state without arming, disarming, or cancelling settings.
     /// </remarks>
     bool IsArmed { get; }
 
@@ -44,7 +44,6 @@ public interface IOssmDevice : IAsyncDisposable
     /// Cleanup of an earlier connection finishes first; its failure propagates without opening another connection.
     /// A failed, cancelled, or interrupted attempt releases its partial connection and remains disarmed.
     /// Stop, disconnect, and disposal interrupt unfinished setup without sending motion settings.
-    /// An unexplained control change during setup leaves the connection disarmed.
     /// </remarks>
     /// <exception cref="ObjectDisposedException">The client has been disposed.</exception>
     Task ConnectAsync(CancellationToken cancellationToken = default);
@@ -110,6 +109,6 @@ public interface IOssmDevice : IAsyncDisposable
     /// <remarks>
     /// Reset does not clear <see cref="ConnectionFailure"/> and cannot rearm during Stop.
     /// </remarks>
-    /// <exception cref="InvalidOperationException">Not connected, or a concurrent Stop or external change invalidated the reset.</exception>
+    /// <exception cref="InvalidOperationException">Not connected, or a concurrent Stop or operation failure invalidated the reset.</exception>
     Task ResetAsync(CancellationToken cancellationToken = default);
 }
