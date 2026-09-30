@@ -20,7 +20,7 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
     {
         mocks.AddType(context.Discovery);
         mocks.AddType<Func<string, IOssmDevice>>(identifier => createDevice(identifier));
-        mocks.AddType<Func<IOssmDevice, PromptHandler>>(device => new PromptHandler(device, input, output, error));
+        mocks.AddType<Func<IOssmDevice, IPromptHandler>>(device => new PromptHandler(device, input, output, error));
         mocks.AddKeyedType<TextWriter>("error", error);
         mocks.AddType<ILogger<PromptCommand>>(logger);
     };

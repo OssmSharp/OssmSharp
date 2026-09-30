@@ -4,7 +4,8 @@ using OssmSharp.Runtime.Oem;
 
 namespace OssmSharp.Cli;
 
-internal sealed class PromptHandler
+// TODO: refactor this omnibus class
+internal sealed class PromptHandler : IPromptHandler
 {
     private const int MaximumPendingCommands = 32;
     private static readonly StrokePattern[] Patterns = Enum.GetValues<StrokePattern>();
@@ -13,7 +14,7 @@ internal sealed class PromptHandler
     private readonly TextReader input;
     private readonly TextWriter output;
     private readonly TextWriter error;
-    private readonly PromptConsole? console;
+    private readonly IPromptConsole? console;
     private readonly string success;
     private readonly string warning;
     private readonly string failure;
@@ -50,7 +51,7 @@ internal sealed class PromptHandler
     private bool quitting;
     private int exitCode;
 
-    internal PromptHandler(IOssmDevice device, TextReader input, TextWriter output, TextWriter error, PromptConsole? console = null)
+    internal PromptHandler(IOssmDevice device, TextReader input, TextWriter output, TextWriter error, IPromptConsole? console = null)
     {
         this.device = device;
         this.input = input;
@@ -65,7 +66,8 @@ internal sealed class PromptHandler
         commands = CreateCommands();
     }
 
-    internal async Task<int> RunAsync(CancellationToken cancellationToken = default)
+    /// <inheritdoc />
+    public async Task<int> RunAsync(CancellationToken cancellationToken = default)
     {
         using var session = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         sessionToken = session.Token;

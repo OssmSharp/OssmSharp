@@ -32,7 +32,7 @@ internal static class HostRunner
 #endif
             builder.Services.AddOemRuntime();
             var console = PromptConsole.FromConsole(output, error);
-            builder.Services.AddSingleton(console);
+            builder.Services.AddSingleton<IPromptConsole>(console);
             builder.Services.AddCliCommands(output, error);
             if (ReferenceEquals(error, Console.Error))
             {

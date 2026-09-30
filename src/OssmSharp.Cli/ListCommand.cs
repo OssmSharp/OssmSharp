@@ -5,7 +5,7 @@ using OssmSharp.Runtime.Oem;
 namespace OssmSharp.Cli;
 
 public sealed class ListCommand(
-    DeviceDiscovery discovery,
+    IDeviceDiscovery discovery,
     [FromKeyedServices("output")] TextWriter output,
     [FromKeyedServices("error")] TextWriter error,
     ILogger<ListCommand> logger)

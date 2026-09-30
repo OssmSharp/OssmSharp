@@ -2,7 +2,7 @@ using System.Text;
 
 namespace OssmSharp.Cli;
 
-internal sealed class ConsoleInputReader(PromptConsole console) : TextReader
+internal sealed class ConsoleInputReader(IPromptConsole console) : TextReader
 {
     private const int MaximumLineLength = 4096;
     private bool endOfInput;

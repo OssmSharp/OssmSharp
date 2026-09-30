@@ -3,10 +3,8 @@ using Shiny.BluetoothLE;
 
 namespace OssmSharp.Runtime.Oem;
 
-/// <summary>
-/// Discovers devices advertising the fixed OSSM bluetooth service without connecting to them.
-/// </summary>
-public sealed class DeviceDiscovery
+/// <inheritdoc />
+public sealed class DeviceDiscovery : IDeviceDiscovery
 {
     private readonly IBleManager manager;
     private readonly TimeProvider timeProvider;
@@ -28,33 +26,11 @@ public sealed class DeviceDiscovery
         this.timeProvider = timeProvider;
     }
 
-    /// <summary>
-    /// Requests bluetooth access and scans for matching devices for up to five seconds without connecting to them.
-    /// </summary>
-    /// <param name="cancellationToken"/>
-    /// <returns>
-    /// The first identifier and name observed for each distinct platform identifier, compared without regard to case;
-    /// an empty collection when no matching devices are discovered.
-    /// </returns>
-    /// <remarks>
-    /// The five-second limit excludes the permission request, which cancellation does not interrupt.
-    /// Cancellation is checked before and after that request and while collecting scan results.
-    /// An acquired scan subscription is disposed before completion, including on cancellation or failure;
-    /// the host-owned bluetooth manager is not disposed. Cancellation and bluetooth errors propagate without returning partial results.
-    /// </remarks>
-    /// <exception cref="InvalidOperationException">
-    /// Another scan is active on this instance or the bluetooth manager, or bluetooth access is unavailable.
-    /// </exception>
-    /// <exception cref="OperationCanceledException">Discovery was cancelled.</exception>
+    /// <inheritdoc />
     public Task<IReadOnlyList<DiscoveredDevice>> ScanAsync(CancellationToken cancellationToken = default)
         => ScanAsync(false, cancellationToken);
 
-    /// <summary>
-    /// Scans until the first matching device is discovered or five seconds elapse.
-    /// </summary>
-    /// <param name="cancellationToken"/>
-    /// <returns>The first matching device, or <see langword="null"/> when none is discovered.</returns>
-    /// <inheritdoc cref="ScanAsync(CancellationToken)"/>
+    /// <inheritdoc />
     public async Task<DiscoveredDevice?> FindFirstAsync(CancellationToken cancellationToken = default)
     {
         var devices = await ScanAsync(true, cancellationToken).ConfigureAwait(false);
@@ -66,7 +42,7 @@ public sealed class DeviceDiscovery
     /// </summary>
     /// <param name="stopAfterFirst">Whether to stop scanning as soon as one matching device is discovered.</param>
     /// <param name="cancellationToken"/>
-    /// <inheritdoc cref="ScanAsync(CancellationToken)"/>
+    /// <inheritdoc cref="IDeviceDiscovery.ScanAsync(CancellationToken)"/>
     public async Task<IReadOnlyList<DiscoveredDevice>> ScanAsync(bool stopAfterFirst, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();

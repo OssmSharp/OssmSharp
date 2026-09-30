@@ -38,7 +38,7 @@ public static class ServiceCollectionExtensions
             .AddOptionsWithValidateOnStart<OssmDeviceOptions, OssmDeviceOptionsValidator>();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IBleDelegate>(new BleLifecycleDelegate()));
         services.AddSingleton(TimeProvider.System);
-        services.AddSingleton<DeviceDiscovery>();
+        services.AddSingleton<IDeviceDiscovery, DeviceDiscovery>();
 
         // TODO: make a better factory method.
         services.AddSingleton<Func<string, DeviceBase>>(

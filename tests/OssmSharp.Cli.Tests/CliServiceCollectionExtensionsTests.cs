@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Moq;
 using OssmSharp.Runtime.Oem;
 using Shiny.BluetoothLE;
 using Xunit;
@@ -22,9 +23,9 @@ public sealed class CliServiceCollectionExtensionsTests
         Assert.Same(output, provider.GetRequiredKeyedService<TextWriter>("output"));
         Assert.Same(error, provider.GetRequiredKeyedService<TextWriter>("error"));
         Assert.IsType<ConsoleInputReader>(provider.GetRequiredService<TextReader>());
-        Assert.NotNull(provider.GetRequiredService<PromptConsole>());
+        Assert.IsType<PromptConsole>(provider.GetRequiredService<IPromptConsole>());
         Assert.NotNull(provider.GetRequiredService<Func<string, IOssmDevice>>());
-        Assert.NotNull(provider.GetRequiredService<Func<IOssmDevice, PromptHandler>>());
+        Assert.IsType<PromptHandler>(provider.GetRequiredService<Func<IOssmDevice, IPromptHandler>>()(Mock.Of<IOssmDevice>()));
         Assert.IsType<ListCommand>(provider.GetRequiredService<ListCommand>());
         Assert.IsType<PromptCommand>(provider.GetRequiredService<PromptCommand>());
     }

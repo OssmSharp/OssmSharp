@@ -2,7 +2,7 @@ using System.Text;
 
 namespace OssmSharp.Cli;
 
-internal sealed class PromptTextWriter(PromptConsole console, TextWriter target) : TextWriter
+internal sealed class PromptTextWriter(IPromptConsole console, TextWriter target) : TextWriter
 {
     private readonly Lock sync = new();
     private readonly StringBuilder pending = new();

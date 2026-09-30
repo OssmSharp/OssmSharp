@@ -13,25 +13,25 @@ internal static class CliServiceCollectionExtensions
         services.AddLogging();
         services.AddKeyedSingleton("output", output);
         services.AddKeyedSingleton("error", error);
-        services.TryAddSingleton(provider => PromptConsole.FromConsole(
+        services.TryAddSingleton<IPromptConsole>(provider => PromptConsole.FromConsole(
             provider.GetRequiredKeyedService<TextWriter>("output"),
             provider.GetRequiredKeyedService<TextWriter>("error")));
         services.TryAddSingleton<TextReader, ConsoleInputReader>();
 
         // TODO: registering delegates is bad practice.
         services.TryAddSingleton<Func<string, IOssmDevice>>(provider => provider.GetRequiredService<Func<string, DeviceBase>>());
-        services.TryAddSingleton<Func<IOssmDevice, PromptHandler>>(provider => device => new PromptHandler(
+        services.TryAddSingleton<Func<IOssmDevice, IPromptHandler>>(provider => device => new PromptHandler(
             device,
             provider.GetRequiredService<TextReader>(),
             provider.GetRequiredKeyedService<TextWriter>("output"),
             provider.GetRequiredKeyedService<TextWriter>("error"),
-            provider.GetRequiredService<PromptConsole>()));
+            provider.GetRequiredService<IPromptConsole>()));
 
         services.AddTransient<ListCommand>();
         services.AddTransient(provider => new PromptCommand(
-            provider.GetRequiredService<DeviceDiscovery>(),
+            provider.GetRequiredService<IDeviceDiscovery>(),
             provider.GetRequiredService<Func<string, IOssmDevice>>(),
-            provider.GetRequiredService<Func<IOssmDevice, PromptHandler>>(),
+            provider.GetRequiredService<Func<IOssmDevice, IPromptHandler>>(),
             provider.GetRequiredKeyedService<TextWriter>("error"),
             provider.GetRequiredService<ILogger<PromptCommand>>()));
         return services;

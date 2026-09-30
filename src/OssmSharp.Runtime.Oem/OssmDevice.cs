@@ -146,7 +146,7 @@ public sealed class OssmDevice : DeviceBase
     /// Initializes a caller-owned, reusable client for a device selected by its discovered platform identifier.
     /// </summary>
     /// <param name="manager">The host-owned bluetooth manager used for discovery.</param>
-    /// <param name="identifier">The opaque identifier returned by <see cref="DeviceDiscovery"/>.</param>
+    /// <param name="identifier">The opaque identifier returned by <see cref="IDeviceDiscovery"/>.</param>
     /// <param name="timeProvider">The clock used to renew the control lease before its reported expiry and to detect lost responses.</param>
     /// <param name="logger">The operational logger for Runtime's execution owner.</param>
     public OssmDevice(IBleManager manager, string identifier, TimeProvider timeProvider, ILogger<DeviceBase> logger)
@@ -158,7 +158,7 @@ public sealed class OssmDevice : DeviceBase
     /// Initializes a caller-owned, reusable client with configured request limits for a device selected by its discovered platform identifier.
     /// </summary>
     /// <param name="manager">The host-owned bluetooth manager used for discovery.</param>
-    /// <param name="identifier">The opaque identifier returned by <see cref="DeviceDiscovery"/>.</param>
+    /// <param name="identifier">The opaque identifier returned by <see cref="IDeviceDiscovery"/>.</param>
     /// <param name="timeProvider">The clock used to renew the control lease before its reported expiry and to detect lost responses.</param>
     /// <param name="logger">The operational logger for Runtime's execution owner.</param>
     /// <param name="options">The request retry and terminal-response wait limits.</param>

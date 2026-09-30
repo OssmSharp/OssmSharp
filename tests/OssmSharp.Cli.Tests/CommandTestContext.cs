@@ -31,7 +31,7 @@ internal sealed class CommandTestContext : IDisposable
 
     public Subject<ScanResult> ScanResults { get; } = new();
 
-    public DeviceDiscovery Discovery { get; }
+    public IDeviceDiscovery Discovery { get; }
 
     public int Scans { get; private set; }
 

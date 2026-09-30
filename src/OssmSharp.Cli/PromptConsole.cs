@@ -2,7 +2,7 @@ using System.Text;
 
 namespace OssmSharp.Cli;
 
-internal sealed class PromptConsole
+internal sealed class PromptConsole : IPromptConsole
 {
     private const string SuccessColour = "\u001b[32m";
     private const string WarningColour = "\u001b[33m";
@@ -29,28 +29,21 @@ internal sealed class PromptConsole
         ErrorReset = colourError ? ResetColour : string.Empty;
     }
 
-    internal TextWriter Output { get; }
+    public TextWriter Output { get; }
 
-    internal TextWriter Error { get; }
+    public TextWriter Error { get; }
 
-    internal string Success { get; }
+    public string Success { get; }
 
-    internal string Warning { get; }
+    public string Warning { get; }
 
-    internal string Failure { get; }
+    public string Failure { get; }
 
-    internal string OutputReset { get; }
+    public string OutputReset { get; }
 
-    internal string ErrorReset { get; }
+    public string ErrorReset { get; }
 
-    internal static PromptConsole FromConsole(TextWriter output, TextWriter error) => new(
-        output,
-        error,
-        interactive: !Console.IsErrorRedirected,
-        colourOutput: !Console.IsOutputRedirected && Environment.GetEnvironmentVariable("NO_COLOR") is null && Environment.GetEnvironmentVariable("TERM") != "dumb",
-        colourError: !Console.IsErrorRedirected && Environment.GetEnvironmentVariable("NO_COLOR") is null && Environment.GetEnvironmentVariable("TERM") != "dumb");
-
-    internal void BeginRead()
+    public void BeginRead()
     {
         lock (sync)
         {
@@ -63,7 +56,7 @@ internal sealed class PromptConsole
         }
     }
 
-    internal void Append(char character)
+    public void Append(char character)
     {
         lock (sync)
         {
@@ -75,7 +68,7 @@ internal sealed class PromptConsole
         }
     }
 
-    internal void Backspace()
+    public void Backspace()
     {
         lock (sync)
         {
@@ -91,7 +84,7 @@ internal sealed class PromptConsole
         }
     }
 
-    internal void EndRead()
+    public void EndRead()
     {
         lock (sync)
         {
@@ -106,7 +99,7 @@ internal sealed class PromptConsole
         }
     }
 
-    internal void WriteLine(TextWriter target, string value)
+    public void WriteLine(TextWriter target, string value)
     {
         lock (sync)
         {
@@ -124,6 +117,13 @@ internal sealed class PromptConsole
             }
         }
     }
+
+    internal static PromptConsole FromConsole(TextWriter output, TextWriter error) => new(
+        output,
+        error,
+        interactive: !Console.IsErrorRedirected,
+        colourOutput: !Console.IsOutputRedirected && Environment.GetEnvironmentVariable("NO_COLOR") is null && Environment.GetEnvironmentVariable("TERM") != "dumb",
+        colourError: !Console.IsErrorRedirected && Environment.GetEnvironmentVariable("NO_COLOR") is null && Environment.GetEnvironmentVariable("TERM") != "dumb");
 
     private void RenderInput()
     {

@@ -19,7 +19,8 @@ public sealed class BleServiceCollectionExtensionsTests
         await using var provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true, ValidateScopes = true });
 
         provider.GetRequiredService<IBleManager>().Should().BeSameAs(context.Manager.Object);
-        provider.GetRequiredService<DeviceDiscovery>().Should().BeSameAs(provider.GetRequiredService<DeviceDiscovery>());
+        provider.GetRequiredService<IDeviceDiscovery>().Should().BeOfType<DeviceDiscovery>()
+            .And.BeSameAs(provider.GetRequiredService<IDeviceDiscovery>());
         var factory = provider.GetRequiredService<Func<string, DeviceBase>>();
         await using var first = factory("device-1");
         await using var second = factory("device-2");

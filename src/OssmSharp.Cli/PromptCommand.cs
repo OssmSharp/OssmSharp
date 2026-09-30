@@ -6,16 +6,16 @@ namespace OssmSharp.Cli;
 
 public sealed class PromptCommand
 {
-    private readonly DeviceDiscovery discovery;
+    private readonly IDeviceDiscovery discovery;
     private readonly Func<string, IOssmDevice> createDevice;
-    private readonly Func<IOssmDevice, PromptHandler> createPrompt;
+    private readonly Func<IOssmDevice, IPromptHandler> createPrompt;
     private readonly TextWriter error;
     private readonly ILogger<PromptCommand> logger;
 
     internal PromptCommand(
-        DeviceDiscovery discovery,
+        IDeviceDiscovery discovery,
         Func<string, IOssmDevice> createDevice,
-        Func<IOssmDevice, PromptHandler> createPrompt,
+        Func<IOssmDevice, IPromptHandler> createPrompt,
         [FromKeyedServices("error")] TextWriter error,
         ILogger<PromptCommand> logger)
     {
