@@ -52,7 +52,7 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
         context.Scans.Should().Be(1);
         context.ScanDisposals.Should().Be(1);
         output.ToString().Should().BeEmpty();
-        error.ToString().Should().Contain("No devices found.").And.NotContain("Connecting");
+        error.ToString().Should().Be($"Scanning for nearby devices...{Environment.NewLine}No devices found.{Environment.NewLine}");
     }
 
     [Fact]
@@ -77,7 +77,7 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
         device.IsArmed.Should().BeFalse();
         device.Writes.Should().Equal(new DeviceCommand(DeviceControl.Speed, 0), new DeviceCommand(DeviceControl.Speed, 0));
         device.Disconnects.Should().Be(1);
-        error.ToString().Should().Contain("Connected. Help lists commands.").And.NotContain("Armed:");
+        error.ToString().Should().Contain("Connected. Type 'help' for commands.").And.NotContain("Armed:");
     }
 
     [Fact]
@@ -102,7 +102,7 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
         device.Writes.Should().BeEmpty();
         output.ToString().Should().BeEmpty();
         error.ToString().Should().Contain("ERROR prompt: The selected bluetooth device is unavailable.")
-            .And.Contain("Discover devices again before connecting.").And.NotContain("Searching").And.NotContain("Connected.");
+            .And.Contain("Discover devices again before connecting.").And.NotContain("Scanning").And.NotContain("Connected.");
     }
 
     [Fact]
@@ -114,7 +114,7 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
         (await run).Should().Be(1);
         context.ScanDisposals.Should().Be(1);
         output.ToString().Should().BeEmpty();
-        error.ToString().Should().Contain("ERROR prompt: scan failed").And.NotContain("Connecting");
+        error.ToString().Should().Contain("ERROR discovery: scan failed Check bluetooth access and that the device is turned on.").And.NotContain("Connecting");
     }
 
     [Theory]
@@ -168,7 +168,7 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
         device.Disconnects.Should().Be(1);
         device.Writes.Should().Equal(new DeviceCommand(DeviceControl.Speed, 0), new DeviceCommand(DeviceControl.Speed, 0));
         output.ToString().Should().Contain("OK stop").And.NotContain("OK set");
-        error.ToString().Should().Contain("Connected. Help lists commands.").And.Contain("Sending stop command. Please wait ...")
+        error.ToString().Should().Contain("Connected. Type 'help' for commands.").And.Contain("Sending stop command...")
             .And.NotContain("ERROR").And.NotContain("Armed:");
     }
 
@@ -226,7 +226,7 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
             (await Component.RunAsync("Device-A", TestContext.Current.CancellationToken)).Should().Be(1);
             device.Disconnects.Should().Be(1);
             device.Writes.Should().Equal(new DeviceCommand(DeviceControl.Speed, 0), new DeviceCommand(DeviceControl.Speed, 0));
-            error.ToString().Should().Contain("Connected. Help lists commands.").And.Contain("ERROR device cleanup: disconnect failed")
+            error.ToString().Should().Contain("Connected. Type 'help' for commands.").And.Contain("ERROR device cleanup: disconnect failed")
                 .And.NotContain("ERROR prompt").And.NotContain("Armed:");
         }
         catch (IOException exception) when (exception.Message == "disconnect failed")
@@ -333,5 +333,7 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
             ? [new DeviceCommand(DeviceControl.Speed, 0)]
             : [new DeviceCommand(DeviceControl.Speed, 0), new DeviceCommand(DeviceControl.Speed, 0)]);
         error.ToString().Should().NotContain("ERROR");
+        error.ToString().Split(Environment.NewLine).Count(line => line == "Cancelled. Waiting for pending work and cleanup.")
+            .Should().Be(cancel ? 1 : 0);
     }
 }

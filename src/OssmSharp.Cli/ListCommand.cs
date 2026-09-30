@@ -15,18 +15,18 @@ public sealed class ListCommand(
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
-            await error.WriteLineAsync("Searching for OSSM devices ...").ConfigureAwait(false);
+            await error.WriteLineAsync(CliStrings.DiscoveryProgress).ConfigureAwait(false);
             var devices = await discovery.ScanAsync(cancellationToken).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
             foreach (var device in devices)
             {
-                await output.WriteLineAsync($"{device.Identifier}  {device.Name}").ConfigureAwait(false);
+                await output.WriteLineAsync(CliStrings.DeviceListing(device)).ConfigureAwait(false);
             }
 
             logger.DiscoveryCompleted(devices.Count);
             if (devices.Count == 0)
             {
-                await error.WriteLineAsync("No devices found.").ConfigureAwait(false);
+                await error.WriteLineAsync(CliStrings.NoDevices).ConfigureAwait(false);
                 return 1;
             }
 
@@ -35,12 +35,12 @@ public sealed class ListCommand(
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             logger.CommandCancelled("list");
-            return await CommandError.TryWriteAsync(error, "Discovery cancelled.").ConfigureAwait(false) ? 0 : 1;
+            return await CommandError.TryWriteAsync(error, CliStrings.Cancellation).ConfigureAwait(false) ? 0 : 1;
         }
         catch (Exception exception)
         {
             logger.CommandFailed("list", exception.GetType().Name);
-            await CommandError.TryWriteAsync(error, $"ERROR discovery: {exception.Message} Check bluetooth access and retry OssmSharp.Cli list.").ConfigureAwait(false);
+            await CommandError.TryWriteAsync(error, CliStrings.Error("discovery", CliStrings.DiscoveryFailure(exception.Message))).ConfigureAwait(false);
             return 1;
         }
     }

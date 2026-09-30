@@ -16,9 +16,9 @@ public sealed class ProgramTests
     }
 
     [Theory]
-    [InlineData(new[] { "--help" }, "list")]
-    [InlineData(new[] { "list", "--help" }, "identifiers")]
-    [InlineData(new[] { "prompt", "--help" }, "--device")]
+    [InlineData(new[] { "--help" }, "Control an OSSM device from the command line.")]
+    [InlineData(new[] { "list", "--help" }, "List nearby devices and their identifiers.")]
+    [InlineData(new[] { "prompt", "--help" }, "Open an interactive device prompt.")]
     public async Task MainHelpReturnsZeroWithoutDeviceAccess(string[] args, string expected)
     {
         using var output = new StringWriter();
@@ -47,8 +47,8 @@ public sealed class ProgramTests
     [InlineData(new[] { "--unknown" }, "--unknown")]
     [InlineData(new[] { "list", "--unknown" }, "--unknown")]
     [InlineData(new[] { "prompt", "--device" }, "--device")]
-    [InlineData(new[] { "prompt", "--device", "" }, "--device <identifier> is required")]
-    [InlineData(new[] { "prompt", "--device", " " }, "--device <identifier> is required")]
+    [InlineData(new[] { "prompt", "--device", "" }, "--device requires <identifier>")]
+    [InlineData(new[] { "prompt", "--device", " " }, "--device requires <identifier>")]
     public async Task MainInvalidArgumentsReturnTwoWithoutDeviceAccess(string[] args, string expected)
     {
         using var output = new StringWriter();
@@ -57,7 +57,7 @@ public sealed class ProgramTests
         (await Program.InvokeAsync(args, output, error)).Should().Be(2);
 
         output.ToString().Should().BeEmpty();
-        error.ToString().Should().Contain("ERROR:").And.Contain("--help").And.Contain(expected)
-            .And.NotContain("Searching").And.NotContain("Connecting");
+        error.ToString().Should().Contain("ERROR input:").And.Contain("--help").And.Contain(expected)
+            .And.NotContain("Scanning").And.NotContain("Connecting");
     }
 }

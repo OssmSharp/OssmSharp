@@ -4,7 +4,6 @@ namespace OssmSharp.Cli;
 
 internal sealed class PromptConsole
 {
-    private const string Prompt = "ossm> ";
     private const string SuccessColour = "\u001b[32m";
     private const string WarningColour = "\u001b[33m";
     private const string ErrorColour = "\u001b[31m";
@@ -129,7 +128,7 @@ internal sealed class PromptConsole
     private void RenderInput()
     {
         var text = input.ToString();
-        var available = Math.Max(1, columns() - Prompt.Length - 1);
+        var available = Math.Max(1, columns() - CliStrings.Prompt.Length - 1);
         if (text.Any(character => character > 127))
         {
             available = Math.Max(1, available / 2);
@@ -141,7 +140,7 @@ internal sealed class PromptConsole
             start++;
         }
 
-        error.Write($"\r\u001b[2K{Prompt}{text[start..]}");
+        error.Write($"\r\u001b[2K{CliStrings.Prompt}{text[start..]}");
         error.Flush();
     }
 }

@@ -134,7 +134,7 @@ public sealed class PromptHandlerTests
         await device.ConnectAsync(TestContext.Current.CancellationToken);
         using var input = new StringReader("stop\nquit\n");
         using var output = new StringWriter();
-        using var error = new FailingWriter(line => line?.StartsWith("Stopping", StringComparison.Ordinal) == true);
+        using var error = new FailingWriter(line => line?.StartsWith("Sending stop", StringComparison.Ordinal) == true);
         var console = new PromptConsole(output, error, interactive: false);
         var run = new PromptHandler(device, input, output, error, console).RunAsync(TestContext.Current.CancellationToken);
         try
@@ -224,7 +224,7 @@ public sealed class PromptHandlerTests
         (await handler.RunAsync(TestContext.Current.CancellationToken)).Should().Be(0);
 
         device.Writes.Should().Equal(new DeviceCommand(DeviceControl.Speed, 0));
-        error.ToString().Should().Contain(offending).And.Contain("Nothing sent").And.NotContain("Armed:");
+        error.ToString().Should().Contain("ERROR input:").And.Contain(offending).And.NotContain("Nothing sent").And.NotContain("Armed:");
         output.ToString().Should().Contain("OK status:").And.NotContain("OK set");
     }
 
@@ -245,7 +245,7 @@ public sealed class PromptHandlerTests
         const string usage = "set <pattern> <speed> <stroke> <depth> <sensation>";
         error.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
             .Where(line => line.StartsWith("ERROR", StringComparison.Ordinal))
-            .Should().Equal($"ERROR set: missing {missing}; expected {usage}.");
+            .Should().Equal($"ERROR set: Missing {missing}; expected {usage}.");
         device.Writes.Should().Equal(new DeviceCommand(DeviceControl.Speed, 0));
         output.ToString().Should().Contain(usage).And.Contain("OK status:").And.NotContain("OK set");
     }
@@ -289,7 +289,7 @@ public sealed class PromptHandlerTests
         {
             await entered.Task.WaitAsync(TestContext.Current.CancellationToken);
             run.IsCompleted.Should().BeFalse();
-            error.ToString().Should().Contain("Sending stop command. Please wait ...");
+            error.ToString().Should().Contain("Sending stop command...");
         }
         finally
         {
@@ -324,11 +324,11 @@ public sealed class PromptHandlerTests
             new DeviceCommand(DeviceControl.Speed, 0));
         device.Reads.Should().Be(2);
         device.IsArmed.Should().BeFalse();
-        error.ToString().Should().Contain("Nothing sent")
-            .And.Contain("ERROR set: Commands are disarmed; explicitly reset before submitting settings. No settings sent.")
+        error.ToString().Should().NotContain("Nothing sent")
+            .And.Contain("ERROR set: Device is disarmed. Run reset before set.")
             .And.Contain("'bogus'").And.NotContain("Armed:");
-        output.ToString().Should().Contain("OK reset").And.Contain("No motion command sent")
-            .And.Contain("OK set").And.Contain("physical motion not verified")
+        output.ToString().Should().Contain("OK reset: ready for settings.")
+            .And.Contain("OK set: settings sent.")
             .And.Contain("OK status: pattern=0 speed=0")
             .And.NotContain("cached")
             .And.Contain("set <pattern> <speed> <stroke> <depth> <sensation>")
@@ -382,7 +382,7 @@ public sealed class PromptHandlerTests
         device.IsArmed.Should().BeFalse();
         device.Writes.Should().Equal(new DeviceCommand(DeviceControl.Pattern, 0), new DeviceCommand(DeviceControl.Speed, 0));
         output.ToString().Should().Contain("CANCELLED set: 1 commands sent").And.Contain("OK stop");
-        error.ToString().Should().Contain("Sending stop command. Please wait ...");
+        error.ToString().Should().Contain("Sending stop command...");
     }
 
     [Fact]
@@ -433,7 +433,7 @@ public sealed class PromptHandlerTests
         (await new PromptHandler(device, input, output, error).RunAsync(TestContext.Current.CancellationToken)).Should().Be(1);
 
         device.Writes.Should().Equal(new DeviceCommand(DeviceControl.Speed, 0));
-        error.ToString().Should().Contain("ERROR stop: Stop failed.").And.Contain("No rollback claimed");
+        error.ToString().Should().Contain("ERROR stop: Stop failed.").And.NotContain("No rollback claimed");
         output.ToString().Should().NotContain("OK stop");
     }
 
@@ -535,7 +535,7 @@ public sealed class PromptHandlerTests
 
         (await new PromptHandler(device, input, output, error).RunAsync(TestContext.Current.CancellationToken)).Should().Be(1);
         device.IsArmed.Should().BeFalse();
-        error.ToString().Should().Contain("Depth write failed after 2 completed commands").And.Contain("partially applied");
+        error.ToString().Should().Contain("ERROR set: Could not send Depth after 2 commands: write failed. Settings may be partially applied.");
         output.ToString().Should().NotContain("OK set");
     }
 
@@ -601,7 +601,7 @@ public sealed class PromptHandlerTests
             await run;
         }
 
-        writer.ToString().Should().Contain($"\r\u001b[2KOK set: all control commands sent; physical motion not verified.{Environment.NewLine}\r\u001b[2Kossm> stop");
+        writer.ToString().Should().Contain($"\r\u001b[2KOK set: settings sent.{Environment.NewLine}\r\u001b[2Kossm> stop");
         writer.ToString().Should().NotContain("ossm> OK");
     }
 

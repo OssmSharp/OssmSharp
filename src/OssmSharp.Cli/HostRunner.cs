@@ -48,12 +48,12 @@ internal static class HostRunner
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested || stoppingToken.IsCancellationRequested)
         {
-            exitCode = await CommandError.TryWriteAsync(error, "Operation cancelled; awaiting host cleanup.").ConfigureAwait(false) ? 0 : 1;
+            exitCode = await CommandError.TryWriteAsync(error, CliStrings.Cancellation).ConfigureAwait(false) ? 0 : 1;
         }
         catch (Exception exception)
         {
             exitCode = 1;
-            await CommandError.TryWriteAsync(error, $"ERROR: {exception.Message}").ConfigureAwait(false);
+            await CommandError.TryWriteAsync(error, CliStrings.Error("host", exception.Message)).ConfigureAwait(false);
         }
         finally
         {
@@ -66,7 +66,7 @@ internal static class HostRunner
                 catch (Exception exception)
                 {
                     exitCode = 1;
-                    await CommandError.TryWriteAsync(error, $"ERROR host stop: {exception.Message}").ConfigureAwait(false);
+                    await CommandError.TryWriteAsync(error, CliStrings.Error("host stop", exception.Message)).ConfigureAwait(false);
                 }
 
                 try
@@ -83,7 +83,7 @@ internal static class HostRunner
                 catch (Exception exception)
                 {
                     exitCode = 1;
-                    await CommandError.TryWriteAsync(error, $"ERROR host cleanup: {exception.Message}").ConfigureAwait(false);
+                    await CommandError.TryWriteAsync(error, CliStrings.Error("host cleanup", exception.Message)).ConfigureAwait(false);
                 }
             }
 

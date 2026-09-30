@@ -11,8 +11,8 @@ internal static class Program
 
     internal static async Task<int> InvokeAsync(string[] args, TextWriter output, TextWriter error)
     {
-        var root = new RootCommand("Connect to and control an OSSM device.");
-        var list = new Command("list", "Lists nearby discovered OSSM devices and their identifiers.");
+        var root = new RootCommand(CliStrings.RootHelp);
+        var list = new Command("list", CliStrings.ListHelp);
         list.SetAction((_, token) => HostRunner.RunAsync(
             (services, operationToken) => services.GetRequiredService<ListCommand>().RunAsync(operationToken),
             output,
@@ -20,17 +20,17 @@ internal static class Program
             token));
         root.Subcommands.Add(list);
 
-        var prompt = new Command("prompt", "Create a prompt to send commands to a specific device or a nearby device.");
+        var prompt = new Command("prompt", CliStrings.PromptHelp);
         var device = new Option<string?>("--device")
         {
-            Description = "Device identifier (GUID). It can be obtained from running \"list\". If omitted, it will try to connect to the first discovered nearby device.",
+            Description = CliStrings.DeviceHelp,
             Arity = ArgumentArity.ExactlyOne,
         };
         device.Validators.Add(result =>
         {
             if (string.IsNullOrWhiteSpace(result.GetValueOrDefault<string?>()))
             {
-                result.AddError("--device <identifier> is required.");
+                result.AddError(CliStrings.MissingOptionValue("--device", "<identifier>"));
             }
         });
         prompt.Options.Add(device);
@@ -39,7 +39,7 @@ internal static class Program
             var identifier = parsed.GetValue(device);
             if (Console.IsInputRedirected)
             {
-                await error.WriteLineAsync("ERROR: prompt required stdin. Run it again in a terminal without piping or redirecting stdin; stdout and stderr may be redirected.").ConfigureAwait(false);
+                await error.WriteLineAsync(CliStrings.Error("prompt", CliStrings.RedirectedInput)).ConfigureAwait(false);
                 return 1;
             }
 
@@ -66,10 +66,10 @@ internal static class Program
             {
                 foreach (var issue in parsed.Errors)
                 {
-                    await error.WriteLineAsync($"ERROR: {issue.Message}").ConfigureAwait(false);
+                    await error.WriteLineAsync(CliStrings.Error("input", issue.Message)).ConfigureAwait(false);
                 }
 
-                await error.WriteLineAsync("Run OssmSharp.Cli --help for usage.").ConfigureAwait(false);
+                await error.WriteLineAsync(CliStrings.UsageHint).ConfigureAwait(false);
                 return 2;
             }
 
@@ -77,7 +77,7 @@ internal static class Program
         }
         catch (Exception exception)
         {
-            await CommandError.TryWriteAsync(error, $"ERROR: {exception.Message}").ConfigureAwait(false);
+            await CommandError.TryWriteAsync(error, CliStrings.Error("command", exception.Message)).ConfigureAwait(false);
             return 1;
         }
     }

@@ -38,7 +38,7 @@ internal sealed class ConsoleInputReader(PromptConsole console) : TextReader
                     console.EndRead();
                     if (overlong)
                     {
-                        await console.Error.WriteLineAsync($"{console.Failure}ERROR{console.ErrorReset} input: command exceeds 4096 characters; entire line discarded. Nothing sent.").ConfigureAwait(false);
+                        await console.Error.WriteLineAsync(CliStrings.Error("input", CliStrings.OversizedInput, console.Failure, console.ErrorReset)).ConfigureAwait(false);
                         return string.Empty;
                     }
 

@@ -8,7 +8,7 @@ internal sealed class PromptHandler
 {
     private const int MaximumPendingCommands = 32;
     private static readonly StrokePattern[] Patterns = Enum.GetValues<StrokePattern>();
-    private static readonly string PatternChoices = string.Join(", ", Patterns.Select(value => FormattableString.Invariant($"{(int)value}={value}")));
+    private static readonly string PatternChoices = string.Join(", ", Patterns.Select(CliStrings.PatternChoice));
     private readonly IOssmDevice device;
     private readonly TextReader input;
     private readonly TextWriter output;
@@ -24,7 +24,7 @@ internal sealed class PromptHandler
     private readonly RootCommand commands;
     private readonly Argument<StrokePattern> pattern = new("pattern")
     {
-        Description = $"Pattern ID {(int)Patterns[0]}..{(int)Patterns[^1]} or case-insensitive name: {PatternChoices}.",
+        Description = CliStrings.PatternHelp((int)Patterns[0], (int)Patterns[^1], PatternChoices),
         CustomParser = result =>
         {
             var value = result.Tokens.Single().Value;
@@ -37,7 +37,7 @@ internal sealed class PromptHandler
                 }
             }
 
-            result.AddError($"pattern '{value}' must be one of: {PatternChoices}.");
+            result.AddError(CliStrings.InvalidPattern(value, PatternChoices));
             return default;
         },
     };
@@ -102,7 +102,7 @@ internal sealed class PromptHandler
 
                 if (line.Length > 4096)
                 {
-                    await error.WriteLineAsync($"{failure}ERROR{errorReset} input: command exceeds 4096 characters. Nothing sent.").ConfigureAwait(false);
+                    await error.WriteLineAsync(CliStrings.Error("input", CliStrings.OversizedInput, failure, errorReset)).ConfigureAwait(false);
                     continue;
                 }
 
@@ -111,18 +111,20 @@ internal sealed class PromptHandler
                 {
                     if (parsed.CommandResult.Command.Name == "set")
                     {
-                        Argument[] arguments = [pattern, speed, stroke, depth, sensation];
+                        var command = parsed.CommandResult.Command;
+                        var arguments = command.Arguments;
                         var missing = arguments.Where(argument => parsed.GetResult(argument) is not { Tokens.Count: > 0 }).Select(argument => argument.Name).ToArray();
                         if (missing.Length > 0)
                         {
-                            await error.WriteLineAsync($"{failure}ERROR{errorReset} set: missing {string.Join(", ", missing)}; expected set <pattern> <speed> <stroke> <depth> <sensation>.").ConfigureAwait(false);
+                            var usage = $"{command.Name} {string.Join(" ", arguments.Select(argument => $"<{argument.Name}>"))}";
+                            await error.WriteLineAsync(CliStrings.Error("set", CliStrings.MissingArguments(string.Join(", ", missing), usage), failure, errorReset)).ConfigureAwait(false);
                             continue;
                         }
                     }
 
                     foreach (var issue in parsed.Errors)
                     {
-                        await error.WriteLineAsync($"{failure}ERROR{errorReset} input: {issue.Message} Nothing sent.").ConfigureAwait(false);
+                        await error.WriteLineAsync(CliStrings.Error("input", issue.Message, failure, errorReset)).ConfigureAwait(false);
                     }
 
                     continue;
@@ -142,7 +144,7 @@ internal sealed class PromptHandler
         catch (OperationCanceledException) when (sessionToken.IsCancellationRequested)
         {
             console?.EndRead();
-            if (!await CommandError.TryWriteAsync(error, "Session cancelled; waiting for commands already sent to finish.").ConfigureAwait(false))
+            if (!await CommandError.TryWriteAsync(error, CliStrings.Cancellation).ConfigureAwait(false))
             {
                 Interlocked.Exchange(ref exitCode, 1);
             }
@@ -194,7 +196,7 @@ internal sealed class PromptHandler
 
         if (terminal.Task.IsCompleted)
         {
-            await CommandError.TryWriteAsync(error, "Session ended after a failure. Run OssmSharp.Cli prompt to reconnect.").ConfigureAwait(false);
+            await CommandError.TryWriteAsync(error, CliStrings.SessionEnded).ConfigureAwait(false);
         }
 
         return exitCode;
@@ -202,7 +204,7 @@ internal sealed class PromptHandler
 
     private static Argument<int> Percentage(string name) => new(name)
     {
-        Description = "Whole-number percentage between 0 and 100.",
+        Description = CliStrings.PercentageHelp,
         CustomParser = result =>
         {
             var value = result.Tokens.Single().Value;
@@ -212,15 +214,15 @@ internal sealed class PromptHandler
                 return parsed;
             }
 
-            result.AddError($"{name} '{value}' must be a whole number between 0 and 100.");
+            result.AddError(CliStrings.InvalidPercentage(name, value));
             return 0;
         },
     };
 
     private RootCommand CreateCommands()
     {
-        var root = new RootCommand("Control your OSSM device through a command-line interface. Connecting arms the device without sending settings.");
-        var set = new Command("set", "Send a command to the device with the specified pattern, speed, stroke, depth, and sensation.");
+        var root = new RootCommand(CliStrings.RootHelp);
+        var set = new Command("set", CliStrings.SetHelp);
         set.Arguments.Add(pattern);
         set.Arguments.Add(speed);
         set.Arguments.Add(stroke);
@@ -229,21 +231,21 @@ internal sealed class PromptHandler
         set.SetAction(Set);
         root.Subcommands.Add(set);
 
-        var stop = new Command("stop", "Immediately stop the device and disables/disarms it. Any pending commands are discarded.");
+        var stop = new Command("stop", CliStrings.StopHelp);
         stop.SetAction(_ => Stop());
         root.Subcommands.Add(stop);
-        var reset = new Command("reset", "Rearms the device after it was manually stopped or due to an unexplained change. Any previously-pending commands are discarded.");
+        var reset = new Command("reset", CliStrings.ResetHelp);
         reset.SetAction(_ => Reset());
         root.Subcommands.Add(reset);
-        var status = new Command("status", "Read and display the device's live state.");
+        var status = new Command("status", CliStrings.StatusHelp);
         status.SetAction(_ => Track("status", StatusAsync));
         root.Subcommands.Add(status);
-        var help = new Command("help", "Show the help information.");
+        var help = new Command("help", CliStrings.HelpHelp);
         root.Subcommands.Add(help);
-        var quit = new Command("quit", "Immediately stop the device and exit.");
+        var quit = new Command("quit", CliStrings.QuitHelp);
         quit.SetAction(_ => Quit());
         root.Subcommands.Add(quit);
-        var topic = new Argument<string?>("command") { Description = "Command to describe.", Arity = ArgumentArity.ZeroOrOne };
+        var topic = new Argument<string?>("command") { Description = CliStrings.HelpArgument, Arity = ArgumentArity.ZeroOrOne };
         topic.AcceptOnlyFromAmong([.. root.Subcommands.Select(command => command.Name)]);
         help.Arguments.Add(topic);
         help.SetAction(parsed => Help(parsed.GetValue(topic)));
@@ -262,25 +264,23 @@ internal sealed class PromptHandler
             }
             catch (InvalidOperationException exception) when (device.ConnectionFailure is null && exception is not ObjectDisposedException)
             {
-                await error.WriteLineAsync($"{failure}ERROR{errorReset} set: {exception.Message} No settings sent.").ConfigureAwait(false);
+                var detail = device.IsArmed ? exception.Message : CliStrings.DisarmedSet;
+                await error.WriteLineAsync(CliStrings.Error("set", detail, failure, errorReset)).ConfigureAwait(false);
                 return;
             }
 
-            var message = result.Status switch
-            {
-                SetStatus.Completed => $"{success}OK{outputReset} set: all control commands sent; physical motion not verified.",
-                SetStatus.Superseded => $"{warning}SUPERSEDED{outputReset} set: {result.CommandsWritten} commands sent; issued commands may have taken effect.",
-                _ => $"{warning}CANCELLED{outputReset} set: {result.CommandsWritten} commands sent; issued commands may have taken effect.",
-            };
+            var message = result.Status == SetStatus.Completed
+                ? CliStrings.SetCompleted(success, outputReset)
+                : CliStrings.SetInterrupted(result, warning, outputReset);
             await output.WriteLineAsync(message).ConfigureAwait(false);
         });
     }
 
-    private void Stop(string message = "Stopping immediately.")
+    private void Stop()
     {
         if (stopTask is { IsCompleted: false })
         {
-            error.WriteLine("Stop already in progress.");
+            error.WriteLine(CliStrings.StopInProgress);
             return;
         }
 
@@ -289,14 +289,14 @@ internal sealed class PromptHandler
             var pending = device.EmergencyStopAsync(CancellationToken.None);
             try
             {
-                await error.WriteLineAsync(message).ConfigureAwait(false);
+                await error.WriteLineAsync(CliStrings.StopProgress).ConfigureAwait(false);
             }
             finally
             {
                 await pending.ConfigureAwait(false);
             }
 
-            await output.WriteLineAsync($"{success}OK{outputReset} stop: Stop write completed; pending settings discarded; physical motion not verified.").ConfigureAwait(false);
+            await output.WriteLineAsync(CliStrings.StopCompleted(success, outputReset)).ConfigureAwait(false);
         });
         operations.Add(stopTask);
     }
@@ -309,18 +309,17 @@ internal sealed class PromptHandler
         }
         catch (InvalidOperationException exception) when (device.ConnectionFailure is null && exception is not ObjectDisposedException)
         {
-            await error.WriteLineAsync($"{failure}ERROR{errorReset} reset: {exception.Message} Nothing sent.").ConfigureAwait(false);
+            await error.WriteLineAsync(CliStrings.Error("reset", exception.Message, failure, errorReset)).ConfigureAwait(false);
             return;
         }
 
-        await output.WriteLineAsync($"{success}OK{outputReset} reset: No motion command sent.").ConfigureAwait(false);
+        await output.WriteLineAsync(CliStrings.ResetCompleted(success, outputReset)).ConfigureAwait(false);
     });
 
     private async Task StatusAsync()
     {
         var state = await device.GetStateAsync(bypassCache: true, sessionToken).ConfigureAwait(false);
-        var settings = state!;
-        await output.WriteLineAsync(FormattableString.Invariant($"{success}OK{outputReset} status: pattern={settings.Pattern:D} speed={settings.Speed} stroke={settings.Stroke} depth={settings.Depth} sensation={settings.Sensation}.")).ConfigureAwait(false);
+        await output.WriteLineAsync(CliStrings.Status(state!, success, outputReset)).ConfigureAwait(false);
     }
 
     private void Help(string? command)
@@ -331,7 +330,7 @@ internal sealed class PromptHandler
     // RunAsync awaits the Stop before returning.
     private void Quit()
     {
-        Stop("Sending stop command. Please wait ...");
+        Stop();
         quitting = true;
     }
 
@@ -340,7 +339,7 @@ internal sealed class PromptHandler
         operations.RemoveWhere(task => task.IsCompleted);
         if (operations.Count >= MaximumPendingCommands)
         {
-            error.WriteLine($"{failure}ERROR{errorReset} {operation}: command queue is full; wait for completion. Stop remains available. Nothing sent.");
+            error.WriteLine(CliStrings.Error(operation, CliStrings.QueueFull, failure, errorReset));
             return;
         }
 
@@ -357,7 +356,7 @@ internal sealed class PromptHandler
         {
             try
             {
-                await output.WriteLineAsync($"{warning}CANCELLED{outputReset} {operation}: queued commands discarded; commands already sent may still take effect.").ConfigureAwait(false);
+                await output.WriteLineAsync(CliStrings.OperationCancelled(operation, warning, outputReset)).ConfigureAwait(false);
             }
             catch (Exception exception)
             {
@@ -375,9 +374,9 @@ internal sealed class PromptHandler
         Interlocked.Exchange(ref exitCode, 1);
         terminal.TrySetResult();
         var detail = exception is DeviceWriteException write
-            ? $"{write.Command.Control} write failed after {write.CommandsWritten} completed commands; settings may be partially applied."
-            : $"{exception.Message} Device state may be unknown.";
-        return CommandError.TryWriteAsync(error, $"{failure}ERROR{errorReset} {operation}: {detail} No rollback claimed.");
+            ? CliStrings.WriteFailure(write)
+            : exception.Message;
+        return CommandError.TryWriteAsync(error, CliStrings.Error(operation, detail, failure, errorReset));
     }
 
     private void StateChanged(object? sender, EventArgs args)

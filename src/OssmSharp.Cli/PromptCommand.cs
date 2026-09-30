@@ -30,6 +30,7 @@ public sealed class PromptCommand
     {
         IOssmDevice? device = null;
         var exitCode = 0;
+        var operation = identifier is null ? "discovery" : "prompt";
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -46,24 +47,26 @@ public sealed class PromptCommand
                 name = discovered.Name ?? name;
             }
 
-            await error.WriteLineAsync($"Connecting to {name} ({identifier})...").ConfigureAwait(false);
+            operation = "prompt";
+            await error.WriteLineAsync(CliStrings.Connecting(name, identifier)).ConfigureAwait(false);
             device = createDevice(identifier);
             await device.ConnectAsync(cancellationToken).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
             logger.PromptConnected();
-            await error.WriteLineAsync("Connected. Help lists commands.").ConfigureAwait(false);
+            await error.WriteLineAsync(CliStrings.Connected).ConfigureAwait(false);
             exitCode = await createPrompt(device).RunAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             logger.CommandCancelled("prompt");
-            exitCode = await CommandError.TryWriteAsync(error, "Session cancelled. Cleaning up.").ConfigureAwait(false) ? 0 : 1;
+            exitCode = await CommandError.TryWriteAsync(error, CliStrings.Cancellation).ConfigureAwait(false) ? 0 : 1;
         }
         catch (Exception exception)
         {
             exitCode = 1;
             logger.CommandFailed("prompt", exception.GetType().Name);
-            await CommandError.TryWriteAsync(error, $"ERROR prompt: {exception.Message}").ConfigureAwait(false);
+            var detail = operation == "discovery" ? CliStrings.DiscoveryFailure(exception.Message) : exception.Message;
+            await CommandError.TryWriteAsync(error, CliStrings.Error(operation, detail)).ConfigureAwait(false);
         }
         finally
         {
@@ -77,7 +80,7 @@ public sealed class PromptCommand
                 {
                     exitCode = 1;
                     logger.CleanupFailed("device", exception.GetType().Name);
-                    await CommandError.TryWriteAsync(error, $"ERROR device cleanup: {exception.Message}").ConfigureAwait(false);
+                    await CommandError.TryWriteAsync(error, CliStrings.Error("device cleanup", exception.Message)).ConfigureAwait(false);
                 }
             }
         }
@@ -88,12 +91,12 @@ public sealed class PromptCommand
 
     private async Task<DiscoveredDevice?> FindDeviceAsync(CancellationToken cancellationToken)
     {
-        await error.WriteLineAsync("Searching for OSSM devices...").ConfigureAwait(false);
+        await error.WriteLineAsync(CliStrings.DiscoveryProgress).ConfigureAwait(false);
         var device = await discovery.FindFirstAsync(cancellationToken).ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
         if (device is null)
         {
-            await error.WriteLineAsync("No devices found.").ConfigureAwait(false);
+            await error.WriteLineAsync(CliStrings.NoDevices).ConfigureAwait(false);
         }
 
         return device;

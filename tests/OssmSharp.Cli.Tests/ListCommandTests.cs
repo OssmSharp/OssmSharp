@@ -63,7 +63,7 @@ public sealed class ListCommandTests : MockerTestBase<ListCommand>, IAsyncDispos
             _ => $"Device-A  First OSSM{Environment.NewLine}Device-B  Second OSSM{Environment.NewLine}",
         };
         output.ToString().Should().Be(expected);
-        error.ToString().Should().Be($"Searching for OSSM devices ...{Environment.NewLine}"
+        error.ToString().Should().Be($"Scanning for nearby devices...{Environment.NewLine}"
             + (count == 0 ? $"No devices found.{Environment.NewLine}" : string.Empty));
         var entry = logger.Entries.Should().ContainSingle().Subject;
         entry.Id.Id.Should().Be(1);
@@ -87,7 +87,7 @@ public sealed class ListCommandTests : MockerTestBase<ListCommand>, IAsyncDispos
         (await run).Should().Be(1);
         context.ScanDisposals.Should().Be(1);
         output.ToString().Should().BeEmpty();
-        error.ToString().Should().Contain("Searching").And.Contain("ERROR discovery: scan failed").And.Contain("bluetooth access");
+        error.ToString().Should().Contain("Scanning").And.Contain("ERROR discovery: scan failed").And.Contain("Check bluetooth access and that the device is turned on.");
         var entry = logger.Entries.Should().ContainSingle().Subject;
         entry.Id.Id.Should().Be(3);
         entry.Level.Should().Be(LogLevel.Error);
@@ -113,7 +113,7 @@ public sealed class ListCommandTests : MockerTestBase<ListCommand>, IAsyncDispos
         context.ScanDisposals.Should().Be(1);
         context.ScanResults.HasObservers.Should().BeFalse();
         output.ToString().Should().BeEmpty();
-        error.ToString().Should().Contain("Discovery cancelled.").And.NotContain("ERROR");
+        error.ToString().Should().Be($"Scanning for nearby devices...{Environment.NewLine}Cancelled. Waiting for pending work and cleanup.{Environment.NewLine}");
         var entry = logger.Entries.Should().ContainSingle().Subject;
         entry.Id.Id.Should().Be(2);
         entry.Level.Should().Be(LogLevel.Debug);
