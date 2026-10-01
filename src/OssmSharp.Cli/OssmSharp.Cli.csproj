@@ -9,6 +9,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../OssmSharp.Runtime.Oem/OssmSharp.Runtime.Oem.csproj" />
+    <PackageReference Include="PrettyPrompt" />
     <PackageReference Include="System.CommandLine" />
     <PackageReference Include="Microsoft.Extensions.Hosting" />
     <InternalsVisibleTo Include="OssmSharp.Cli.Tests" />

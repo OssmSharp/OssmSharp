@@ -47,9 +47,9 @@ visibility, and specified behavior is required, not an implementation suggestion
     - **DisconnectAsync:** Disarm and abandon settings and live reads; send or join Stop when connected, then clean up even if it fails while preserving reuse.
     - **SetAsync:** Submit MotionSettings and count confirmed writes; return Cancelled on Stop, disconnect, or disposal, and retain genuine failures' partial progress in DeviceWriteException.
     - **GetStateAsync(bypassCache):** Return cached state, including while disconnected, or read live state when bypassCache is true, requiring a connection and propagating read errors. Live reads without an established connection, including those abandoned by disconnect or disposal, throw.
-    - **EmergencyStopAsync:** Disarm and abandon settings; send or join Stop without waiting for earlier responses or live reads, or end an unfinished connection attempt.
+    - **EmergencyStopAsync:** Abandon pending settings and send or join Stop without waiting for earlier responses or live reads, or end an unfinished connection attempt. Success preserves current arming; failure disarms.
     - **ResetAsync:** Arm without resending settings or clearing failures; throw when disarmed later or while Stop is in progress.
-    - **IsArmed (property):** Indicate submission arming: successful connection or explicit reset arms; Stop, operational failure, disconnect, and disposal disarm.
+    - **IsArmed (property):** Indicate submission arming: successful connection or explicit reset arms; successful Stop preserves current arming; Stop failure, operational failure, disconnect, and disposal disarm.
     - **ConnectionFailure (property):** Expose the current connection failure; clear it only after successful connection initialization, never through reset.
     - **StateChanged (event):** Notify subscribers when the last known state or armed status changes.
     - **DisposeAsync:** Disarm and abandon settings and live reads; send or join Stop when connected, then release resources even on failure and prohibit reuse.
@@ -147,7 +147,7 @@ visibility, and specified behavior is required, not an implementation suggestion
   - **Completion:** Response indication -> `OssmDevice.HandleResponse` -> matching ID reaches `completed` or `failed` -> pending `OssmDevice.SendRequestAsync` settles; GATT acknowledgement and `accepted` are insufficient.
   - **Outcome:** Every assignment must complete successfully; firmware owns motor behavior and safety, and protocol completion does not confirm physical motion.
   - **Stop:** `PromptHandler.Stop` or `PromptHandler.Quit` -> `IOssmDevice.EmergencyStopAsync` -> `DeviceBase.CancelPending` -> `OssmDevice.WriteCommandAsync(command)` -> `OssmDevice.SendRequestAsync` sends speed zero next after the current GATT write, without waiting for its terminal response or a live read.
-  - **Stop outcome:** The firmware handles requests in the order received, so a command sent just before Stop may briefly take effect; no queued setting may follow Stop. Submission stays disarmed until explicit reset or successful reconnection; overlapping callers share the Stop outcome, and neither cancellation nor lease release proves the motor stopped.
+  - **Stop outcome:** The firmware handles requests in the order received, so a command sent just before Stop may briefly take effect; no queued setting may follow Stop. Success preserves prior arming, failure disarms, overlapping callers share the Stop outcome, and neither cancellation nor lease release proves the motor stopped.
   - **Simulator path:** The same Runtime chain calls `SimulatedDevice.WriteCommandAsync(command)` -> `SimulatedDevice.EncodeCommand(command)` -> simulator protocol connection.
 
 - **Read cached or live state:**
@@ -176,11 +176,14 @@ visibility, and specified behavior is required, not an implementation suggestion
 - `set <pattern> <speed> <stroke> <depth> <sensation>` asks the device to run patterns, then submits one complete settings value; all five arguments are required.
   - Pattern is a `StrokePattern` ID (0..6) or case-insensitive name; each remaining argument is independently a whole-number percentage between 0 and 100. Decimal and exponent forms are rejected.
   - When the device is homing or waiting for its speed knob to reach zero, no settings are sent and the prompt stays armed.
-- `stop` sends emergency Stop immediately, discards queued commands, and disarms command submission.
+- `stop` sends emergency Stop immediately and discards pending settings. Success preserves current arming, so another `set` does not require `reset`; failure disarms.
 - `reset` enables command submission without sending previous settings.
 - `status` reads the device's live state and displays it with armed status, preserving fractional effective speed.
 - `help` lists commands; `help <command>` displays command-specific help, with argument order, pattern choices, and percentage ranges available through `help set`.
 - `quit` sends Stop, waits for it to finish, then exits after cleanup.
+- Commands execute one at a time. The next command is not read until the current submission and terminal responses complete; physical motion can continue until stopped.
+- The prompt persists command history in the current user's application-data directory. Recalled commands require explicit submission.
+- Ctrl+C while an operation is pending cancels it and issues Stop; at other times it starts normal exit and cleanup.
 
 ### Command results
 

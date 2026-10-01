@@ -2,7 +2,6 @@ using System.CommandLine;
 
 namespace OssmSharp.Cli;
 
-// TODO: convert to HostApplicationBuilder
 internal static class Program
 {
     // Run on a background thread so async code does not wait for the macOS UI loop,

@@ -69,9 +69,9 @@ public abstract class DeviceBase : IOssmDevice
     private Task? connectionStopping;
 
     /// <summary>
-    /// Increments on every disarm so Reset can detect a disarm after it captured the version.
+    /// Increments when Stop or disarming must invalidate a Reset that captured the previous version.
     /// </summary>
-    private long disarmVersion;
+    private long interruptionVersion;
 
     /// <summary>
     /// Identifies the current connection attempt; Connect, Disconnect, and disposal increment it to supersede earlier attempts.
@@ -284,6 +284,11 @@ public abstract class DeviceBase : IOssmDevice
         lock (sync)
         {
             EnsureConnected();
+            if (stop is { IsCompleted: false })
+            {
+                throw new InvalidOperationException("Settings submission was interrupted by Stop; submit again after it completes.");
+            }
+
             if (!armed)
             {
                 throw new InvalidOperationException("Commands are disarmed; explicitly reset before submitting settings.");
@@ -370,7 +375,6 @@ public abstract class DeviceBase : IOssmDevice
     /// <inheritdoc />
     public Task EmergencyStopAsync(CancellationToken cancellationToken = default)
     {
-        bool changed;
         TaskCompletionSource? started = null;
         Task result;
         lock (sync)
@@ -387,7 +391,7 @@ public abstract class DeviceBase : IOssmDevice
             }
 
             cancellationToken.ThrowIfCancellationRequested();
-            changed = DisarmLocked();
+            InterruptLocked();
             if (connecting)
             {
                 connection++;
@@ -400,11 +404,6 @@ public abstract class DeviceBase : IOssmDevice
                 started = new(TaskCreationOptions.RunContinuationsAsynchronously);
                 result = stop = started.Task;
             }
-        }
-
-        if (changed)
-        {
-            NotifyStateChanged();
         }
 
         if (started is not null)
@@ -427,7 +426,7 @@ public abstract class DeviceBase : IOssmDevice
                 throw new InvalidOperationException("Reset was interrupted by disarming or Stop; explicitly reset again after it completes.");
             }
 
-            version = disarmVersion;
+            version = interruptionVersion;
         }
 
         return ExecuteAsync(
@@ -436,7 +435,7 @@ public abstract class DeviceBase : IOssmDevice
             bool changed;
             lock (sync)
             {
-                if (stop is { IsCompleted: false } || version != disarmVersion)
+                if (stop is { IsCompleted: false } || version != interruptionVersion)
                 {
                     throw new InvalidOperationException("Reset was interrupted by disarming or Stop; explicitly reset again after it completes.");
                 }
@@ -768,12 +767,17 @@ public abstract class DeviceBase : IOssmDevice
         }
     }
 
+    private void InterruptLocked()
+    {
+        interruptionVersion++;
+        CancelPending();
+    }
+
     private bool DisarmLocked()
     {
         var changed = armed;
         armed = false;
-        disarmVersion++;
-        CancelPending();
+        InterruptLocked();
         return changed;
     }
 
@@ -910,6 +914,7 @@ public abstract class DeviceBase : IOssmDevice
         }
         catch (Exception exception)
         {
+            Disarm();
             completion.TrySetException(exception);
         }
     }

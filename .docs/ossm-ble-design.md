@@ -22,7 +22,8 @@ device testing or proof of compatibility with every firmware release.
   sensation request; distinguish completion, supersession, cancellation, and
   partial failure without claiming physical motion.
 - **Observe or stop:** cached reads return last known state; live reads require a
-  new observation. Unexpected changes and Stop disarm and discard pending settings.
+  new observation. Stop discards pending settings and preserves current arming on
+  success; operational failures disarm.
 - **Disconnect or dispose:** disconnect preserves client reuse; disposal is
   terminal. Both await issued I/O and cleanup. Failed setup remains disarmed.
 

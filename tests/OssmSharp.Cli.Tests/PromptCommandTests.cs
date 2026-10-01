@@ -10,7 +10,7 @@ namespace OssmSharp.Cli.Tests;
 public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDisposable
 {
     private readonly CommandTestContext context = new();
-    private readonly CommandInput input = new();
+    private readonly PromptInput input = new();
     private readonly StringWriter output = new();
     private readonly StringWriter error = new();
     private readonly RecordingLogger<PromptCommand> logger = new();
@@ -20,7 +20,12 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
     {
         mocks.AddType(context.Discovery);
         mocks.AddType<Func<string, IOssmDevice>>(identifier => createDevice(identifier));
-        mocks.AddType<Func<IOssmDevice, IPromptHandler>>(device => new PromptHandler(device, input, output, error));
+        mocks.AddType(new PromptHandlerFactory(
+            input,
+            output,
+            error,
+            new PromptConsole(output, error),
+            new PromptInterruptState()));
         mocks.AddKeyedType<TextWriter>("error", error);
         mocks.AddType<ILogger<PromptCommand>>(logger);
     };
@@ -30,7 +35,6 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
         try
         {
             context.Dispose();
-            input.Dispose();
             output.Dispose();
             error.Dispose();
         }
@@ -69,7 +73,7 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
         context.Advertise("Device-A", "First OSSM");
         context.Advertise("Device-B", "Second OSSM");
         await input.NextReadAsync(TestContext.Current.CancellationToken);
-        input.Send("quit");
+        input.SendLine("quit");
 
         (await run).Should().Be(0);
         selectedIdentifiers.Should().Equal("Device-A");
@@ -158,7 +162,7 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
         }
         finally
         {
-            input.Send("quit");
+            input.SendLine("quit");
             await run;
         }
 
@@ -221,7 +225,7 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
                 Disconnect = () => Task.FromException(new IOException("disconnect failed")),
             };
             createDevice = _ => device;
-            input.Send("quit");
+            input.SendLine("quit");
 
             (await Component.RunAsync("Device-A", TestContext.Current.CancellationToken)).Should().Be(1);
             device.Disconnects.Should().Be(1);
@@ -244,7 +248,7 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
         await using var device = new TestDevice();
         device.Write = (_, _) => device.Writes.Count == 1 ? Task.FromException(failure) : Task.CompletedTask;
         createDevice = _ => device;
-        input.Send("quit");
+        input.SendLine("quit");
 
         (await Component.RunAsync("Device-A", TestContext.Current.CancellationToken)).Should().Be(1);
 
@@ -265,7 +269,7 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
             await using var device = new TestDevice();
             device.Write = (_, _) => device.Writes.Count == 2 ? Task.FromException(failure) : Task.CompletedTask;
             createDevice = _ => device;
-            input.Send("quit");
+            input.SendLine("quit");
 
             (await Component.RunAsync("Device-A", TestContext.Current.CancellationToken)).Should().Be(1);
 
@@ -314,7 +318,7 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
             }
             else
             {
-                input.Send("quit");
+                input.SendLine("quit");
             }
 
             await entered.Task.WaitAsync(TestContext.Current.CancellationToken);
@@ -323,7 +327,7 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
         finally
         {
             release.TrySetResult();
-            input.Send("quit");
+            input.SendLine("quit");
             await run;
         }
 

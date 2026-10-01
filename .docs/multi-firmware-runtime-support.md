@@ -63,7 +63,7 @@ mapping is resolved, and no silent pattern substitution is permitted.
 - **`OssmSharp.Runtime`**
   - **`IOssmDevice.cs`** - extends `IAsyncDisposable`; shared lifecycle contract only.
     - **ConnectAsync:** Establish the connection and initial observation without arming or sending motion settings.
-    - **EmergencyStopAsync:** Disarm, discard pending submissions, and execute firmware Stop after issued I/O settles, remaining disarmed on failure or cancellation.
+    - **EmergencyStopAsync:** Discard pending submissions and execute firmware Stop after issued I/O settles. Success preserves the current arming state; failure disarms.
     - **ResetAsync:** Explicitly arm without restoring settings, rejecting resets interrupted by concurrent Stop or disarming.
     - **IsArmed (property):** Indicate whether explicit caller reset has enabled submission.
     - **StateChanged (event):** Notify consumers when arming or firmware-owned last known state changes.
@@ -225,13 +225,13 @@ mapping is resolved, and no silent pattern substitution is permitted.
       Note over Oem,Bluetooth: Notifications may arrive during any stage<br/>DecodeState -> UpdateState -> DetectExternalChange<br/>Unexplained changes invoke Runtime.Disarm, then NotifyStateChanged<br/>Consumers receive StateChanged
   ```
 
-- **Stop and remain disarmed:**
+- **Stop while preserving arming on success:**
   - **Input:** `stop` while settings may still be pending or executing.
   - **Consumer intent:** `PromptHandler.Stop` -> `IOssmDevice.EmergencyStopAsync` (`DeviceBase` implementation).
-  - **Execution:** `DeviceBase.Disarm` -> `DeviceBase.CancelPending` -> `DeviceBase.ExecuteAsync` waits for issued I/O -> `OssmDevice.StopCoreAsync`.
+  - **Execution:** `DeviceBase` interrupts pending settings, invalidates queued Reset, and sends Stop without waiting for an earlier response.
   - **OEM primitive and transport:** `OssmDevice.Expect` records speed zero -> `OssmDevice.WriteCommandAsync` -> `Request.Encode` -> Shiny Bluetooth write.
-  - **Return:** Stop write settles -> CLI displays success and disarmed status; only explicit reset permits new submissions.
-  - **Failure or cancellation:** Stop failure propagates; cancellation may prevent an unissued Stop, but neither outcome rearms the device or recalls issued I/O.
+  - **Return:** Stop write settles -> CLI displays success and accepts another submission without Reset when the device was already armed.
+  - **Failure or cancellation:** Stop failure propagates and disarms. Cancellation before Stop starts prevents the write; neither outcome recalls issued I/O.
 
     ```mermaid
     sequenceDiagram
@@ -244,9 +244,8 @@ mapping is resolved, and no silent pattern substitution is permitted.
       Note over CLI: PromptHandler.Stop<br/>Settings may be pending or executing
       Note over Runtime,Oem: Base and override on the same device instance
       CLI->>Runtime: IOssmDevice.EmergencyStopAsync()
-      Runtime->>Runtime: Disarm() then CancelPending()
-      Note over Runtime: Submission is disarmed immediately<br/>Unissued settings are discarded
-      Runtime->>Runtime: ExecuteAsync() waits for issued I/O
+      Runtime->>Runtime: Interrupt pending settings and queued Reset
+      Note over Runtime: Current arming is preserved<br/>Unissued settings are discarded
 
       alt Stop is issued
         Runtime->>Oem: StopCoreAsync()
@@ -254,10 +253,10 @@ mapping is resolved, and no silent pattern substitution is permitted.
         Oem->>Bluetooth: Request.Encode(command) and write speed zero
         Bluetooth-->>Oem: Stop I/O settles with success or failure
         Oem-->>Runtime: Completion or propagated error
-        Runtime-->>CLI: Stop outcome. Submission remains disarmed
+        Runtime-->>CLI: Stop outcome. Success preserves prior arming; failure disarms
       else Cancellation prevents the unissued Stop
         Runtime-->>CLI: Cancellation. No Stop write issued
       end
 
-      Note over CLI,Bluetooth: Neither failure nor cancellation recalls issued I/O or rearms submission<br/>Only explicit reset permits new submissions. Reset sends no motion settings
+      Note over CLI,Bluetooth: Neither failure nor cancellation recalls issued I/O<br/>Successful Stop never rearms an already-disarmed device
     ```

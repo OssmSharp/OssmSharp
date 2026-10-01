@@ -174,7 +174,7 @@ public sealed class OssmDeviceTests
     }
 
     [Fact]
-    public async Task StopSendsLeasedSpeedZeroAndDisarms()
+    public async Task StopSendsLeasedSpeedZeroAndPreservesArming()
     {
         using var context = new BleTestContext();
         var token = TestContext.Current.CancellationToken;
@@ -186,7 +186,7 @@ public sealed class OssmDeviceTests
         stop["path"]!.GetValue<string>().Should().Be("motion.speed");
         stop["args"]!["value"]!.GetValue<double>().Should().Be(0);
         stop["lease"]!.GetValue<uint>().Should().Be(42);
-        device.IsArmed.Should().BeFalse();
+        device.IsArmed.Should().BeTrue();
     }
 
     [Fact]

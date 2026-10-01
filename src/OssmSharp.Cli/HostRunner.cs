@@ -25,6 +25,7 @@ internal static class HostRunner
             builder.Logging.ClearProviders();
             builder.Logging.AddConsole(options => options.LogToStandardErrorThreshold = LogLevel.Trace);
             builder.Logging.AddFilter("Microsoft.Hosting.Lifetime", LogLevel.Warning);
+            builder.Services.AddSingleton<IHostLifetime, CommandHostLifetime>();
 #if MACOS
             Shiny.BleServiceCollectionExtensions.AddBluetoothLE(
                 builder.Services,
@@ -32,7 +33,7 @@ internal static class HostRunner
 #endif
             builder.Services.AddOemRuntime();
             var console = PromptConsole.FromConsole(output, error);
-            builder.Services.AddSingleton<IPromptConsole>(console);
+            builder.Services.AddSingleton(console);
             builder.Services.AddCliCommands(output, error);
             if (ReferenceEquals(error, Console.Error))
             {

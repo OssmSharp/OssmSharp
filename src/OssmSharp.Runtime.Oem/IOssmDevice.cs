@@ -21,7 +21,8 @@ public interface IOssmDevice : IAsyncDisposable
     /// Gets whether settings submission is armed by successful connection or explicit reset.
     /// </summary>
     /// <remarks>
-    /// Stop, operation failure, disconnection, connection failure, and disposal disarm submission.
+    /// A successful Stop preserves the current arming state. Stop failure, operation failure, disconnection,
+    /// connection failure, and disposal disarm submission.
     /// Valid control observations update last known state without arming, disarming, or cancelling settings.
     /// </remarks>
     bool IsArmed { get; }
@@ -72,7 +73,7 @@ public interface IOssmDevice : IAsyncDisposable
     /// Supersession, Stop, and cancellation abandon earlier response waits after issued transfers settle;
     /// those assignments may still take effect even when they are not counted as confirmed writes.
     /// </remarks>
-    /// <exception cref="InvalidOperationException">The device is not connected, is disarmed, or is not ready to run patterns; no settings were sent.</exception>
+    /// <exception cref="InvalidOperationException">The device is not connected, is disarmed, Stop is in progress, or the device is not ready to run patterns; no settings were sent.</exception>
     /// <exception cref="DeviceWriteException">A write failed; the exception retains known partial progress.</exception>
     /// <exception cref="IOException">Asking the device to run patterns failed; no settings were sent and submission is disarmed.</exception>
     Task<SetResult> SetAsync(MotionSettings settings, CancellationToken cancellationToken = default);
@@ -90,14 +91,14 @@ public interface IOssmDevice : IAsyncDisposable
     Task<DeviceState?> GetStateAsync(bool bypassCache = false, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Disarms immediately, discards settings not yet sent, and sends speed zero ahead of queued requests.
+    /// Discards settings not yet sent and sends speed zero ahead of queued requests without changing arming on success.
     /// </summary>
     /// <returns>Completion of the Stop write; failures propagate and leave submission disarmed.</returns>
     /// <remarks>
     /// Stop waits for an issued GATT transfer, not an earlier terminal response or live read.
     /// A command sent just before Stop may still briefly take effect; Stop completion does not confirm physical motion.
     /// During connection setup, Stop ends the attempt without sending a command. Concurrent callers share an in-progress Stop.
-    /// Stop does not require arming. Submission stays disarmed until explicit reset or successful reconnection.
+    /// Stop does not require arming. Success preserves the current arming state; failure disarms submission.
     /// Cancellation is checked before starting Stop; once started, its write runs to completion.
     /// </remarks>
     Task EmergencyStopAsync(CancellationToken cancellationToken = default);

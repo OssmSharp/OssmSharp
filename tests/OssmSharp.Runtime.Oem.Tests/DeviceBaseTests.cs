@@ -349,7 +349,7 @@ public sealed class DeviceBaseTests
         await set;
         await stop;
 
-        device.IsArmed.Should().BeFalse();
+        device.IsArmed.Should().BeTrue();
         device.Writes.Should().Equal(new DeviceCommand(DeviceControl.Pattern, 1), new DeviceCommand(DeviceControl.Speed, 0));
     }
 
@@ -369,7 +369,7 @@ public sealed class DeviceBaseTests
         {
             var reset = () => device.ResetAsync(token);
             await reset.Should().ThrowAsync<InvalidOperationException>().WithMessage("*Stop*");
-            device.IsArmed.Should().BeFalse();
+            device.IsArmed.Should().BeTrue();
             stop.IsCompleted.Should().BeFalse();
         }
         finally
@@ -380,7 +380,7 @@ public sealed class DeviceBaseTests
             await setting;
         }
 
-        device.IsArmed.Should().BeFalse();
+        device.IsArmed.Should().BeTrue();
         device.Writes.Should().Equal(new DeviceCommand(DeviceControl.Pattern, 1), new DeviceCommand(DeviceControl.Speed, 0));
     }
 
@@ -567,8 +567,8 @@ public sealed class DeviceBaseTests
 
         await device.EmergencyStopAsync(token);
 
-        notifications.Should().Be(5);
-        device.IsArmed.Should().BeFalse();
+        notifications.Should().Be(4);
+        device.IsArmed.Should().BeTrue();
     }
 
     [Fact]
@@ -782,12 +782,68 @@ public sealed class DeviceBaseTests
         await device.ConnectAsync(token);
         device.IsArmed.Should().BeTrue();
         await device.EmergencyStopAsync(token);
-        device.IsArmed.Should().BeFalse();
+        device.IsArmed.Should().BeTrue();
         await device.ResetAsync(token);
 
         device.IsArmed.Should().BeTrue();
         device.Writes.Should().Equal(new DeviceCommand(DeviceControl.Speed, 0));
         device.Reads.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task SuccessfulStopPreservesArmingAndAllowsNextSetWithoutReset()
+    {
+        await using var device = new TestDevice();
+        var token = TestContext.Current.CancellationToken;
+        await device.ConnectAsync(token);
+        var settings = new MotionSettings(StrokePattern.StopNGo, 20, 30, 40, 50);
+
+        await device.EmergencyStopAsync(token);
+        var result = await device.SetAsync(settings, token);
+
+        device.IsArmed.Should().BeTrue();
+        result.Should().Be(new SetResult(SetStatus.Completed, 5));
+        device.Writes.Should().Equal(
+            new[] { new DeviceCommand(DeviceControl.Speed, 0) }.Concat(settings.ToCommands()));
+    }
+
+    [Fact]
+    public async Task SetDuringStopIsRejectedWithoutDisarming()
+    {
+        await using var device = new TestDevice();
+        var token = TestContext.Current.CancellationToken;
+        await device.ConnectAsync(token);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        device.Write = (_, _) => release.Task;
+        var stop = device.EmergencyStopAsync(token);
+
+        try
+        {
+            var set = () => device.SetAsync(new(StrokePattern.StopNGo, 20, 30, 40, 50), token);
+            await set.Should().ThrowAsync<InvalidOperationException>().WithMessage("*Stop*");
+            device.IsArmed.Should().BeTrue();
+        }
+        finally
+        {
+            release.TrySetResult();
+            await stop;
+        }
+    }
+
+    [Fact]
+    public async Task SuccessfulStopDoesNotRearmDisarmedDevice()
+    {
+        await using var device = new TestDevice();
+        var token = TestContext.Current.CancellationToken;
+        await device.ConnectAsync(token);
+        device.Read = _ => Task.FromException<DeviceState>(new IOException("Read failed."));
+        var read = () => device.GetStateAsync(true, token);
+        await read.Should().ThrowAsync<IOException>();
+
+        await device.EmergencyStopAsync(token);
+
+        device.IsArmed.Should().BeFalse();
+        device.Writes.Should().Equal(new DeviceCommand(DeviceControl.Speed, 0));
     }
 
     [Fact]
@@ -852,7 +908,7 @@ public sealed class DeviceBaseTests
         {
             await device.EmergencyStopAsync(token);
 
-            device.IsArmed.Should().BeFalse();
+            device.IsArmed.Should().BeTrue();
             set.IsCompleted.Should().BeFalse();
             device.Writes.Should().Equal(new DeviceCommand(DeviceControl.Pattern, 1), new DeviceCommand(DeviceControl.Speed, 0));
         }

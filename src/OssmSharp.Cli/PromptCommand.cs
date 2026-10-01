@@ -8,20 +8,20 @@ public sealed class PromptCommand
 {
     private readonly IDeviceDiscovery discovery;
     private readonly Func<string, IOssmDevice> createDevice;
-    private readonly Func<IOssmDevice, IPromptHandler> createPrompt;
+    private readonly PromptHandlerFactory promptFactory;
     private readonly TextWriter error;
     private readonly ILogger<PromptCommand> logger;
 
     internal PromptCommand(
         IDeviceDiscovery discovery,
         Func<string, IOssmDevice> createDevice,
-        Func<IOssmDevice, IPromptHandler> createPrompt,
+        PromptHandlerFactory promptFactory,
         [FromKeyedServices("error")] TextWriter error,
         ILogger<PromptCommand> logger)
     {
         this.discovery = discovery;
         this.createDevice = createDevice;
-        this.createPrompt = createPrompt;
+        this.promptFactory = promptFactory;
         this.error = error;
         this.logger = logger;
     }
@@ -54,7 +54,7 @@ public sealed class PromptCommand
             cancellationToken.ThrowIfCancellationRequested();
             logger.PromptConnected();
             await error.WriteLineAsync(CliStrings.Connected).ConfigureAwait(false);
-            exitCode = await createPrompt(device).RunAsync(cancellationToken).ConfigureAwait(false);
+            exitCode = await promptFactory.Create(device).RunAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

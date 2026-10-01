@@ -13,14 +13,13 @@ internal static class CliStrings
     internal const string PercentageHelp = "Whole-number percentage from 0 to 100.";
     internal const string SetHelp = "Set the device's motion.";
     internal const string StopHelp = "Stop the device and drop pending commands.";
-    internal const string ResetHelp = "Allow settings commands after a stop.";
+    internal const string ResetHelp = "Rearm settings after a disarming failure.";
     internal const string StatusHelp = "Read the device's live state.";
     internal const string HelpHelp = "Show command help.";
     internal const string QuitHelp = "Stop the device and exit.";
     internal const string HelpArgument = "Command to describe.";
     internal const string OversizedInput = "Command must be 4096 characters or less. Entire line discarded.";
     internal const string DisarmedSet = "Device is disarmed. Run reset before set.";
-    internal const string QueueFull = "Command queue is full. Wait and retry; stop is still available.";
     internal const string Cancellation = "Cancelled. Waiting for pending work and cleanup.";
     internal const string SessionEnded = "Session ended. Run OssmSharp.Cli prompt to reconnect.";
     internal const string StopProgress = "Sending stop command...";
