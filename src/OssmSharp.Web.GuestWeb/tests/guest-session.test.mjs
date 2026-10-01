@@ -89,6 +89,37 @@ async function createGuest(invoke = async () => ({ ok: true }), url = "https://g
   };
 }
 
+test("stroke-relative speed sends velocity percentages and retains the selected cadence", async () => {
+  const browser = await createGuest();
+  for (const [speed, stroke, depth, expectedSpeed] of [
+    [50, 10, 10, 5],
+    [50, 80, 100, 40],
+    [50, 10, 80, 5],
+    [100, 100, 100, 100],
+    [0, 10, 20, 0],
+    [30, 1, 1, 0],
+    [100, 1, 1, 1],
+  ]) {
+    for (const [name, value] of Object.entries({ depth, stroke, speed })) {
+      const input = browser.element(`[data-input="${name}"]`);
+      input.value = String(value);
+      input.dispatchEvent(new Event("input"));
+    }
+    const count = browser.calls("SubmitSettings").length;
+    browser.click("[data-send-button]");
+    await setImmediate();
+    const command = browser.calls("SubmitSettings").at(-1).payload;
+    assert.deepEqual([command.speed, command.stroke, command.depth], [expectedSpeed, stroke, depth]);
+    const display = browser.calls("UpdateDisplay").at(-1).payload;
+    assert.equal(display.selected.speed, speed);
+    assert.equal(display.sent.speed, expectedSpeed);
+    browser.click("[data-send-button]");
+    await setImmediate();
+    assert.equal(browser.calls("SubmitSettings").length, count + 1);
+  }
+  browser.guest.dispose();
+});
+
 test("unknown outcome pauses queued and new sends until an acknowledged recovery Stop", async () => {
   let completeSubmission;
   let completeStop;

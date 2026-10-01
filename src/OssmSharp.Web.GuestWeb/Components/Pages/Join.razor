@@ -29,8 +29,8 @@ else
     <div class="guest-interface rw-stack">
       <InlineNotification Variant="@SessionMessageVariant" CssClass="guest-session-message" Role="status">
         @SessionMessage</InlineNotification>
-        <PatternPreview Speed="@_display.Selected.Speed" Stroke="@_display.Selected.Stroke" Depth="@_display.Selected.Depth"
-                        Sensation="@_display.Selected.Sensation" />
+        <PatternPreview Speed="@(_display.Selected.Speed * _display.Selected.Stroke / 100)"
+                        Stroke="@_display.Selected.Stroke" Depth="@_display.Selected.Depth" Sensation="@_display.Selected.Sensation" />
         <RwCard role="region" aria-label="Requested settings">
           <div slot="heading" class="rw-card-heading">
             <h2>Settings</h2>

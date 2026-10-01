@@ -93,6 +93,7 @@ class Controls {
     this.joined = false;
     this.destroyed = false;
     this.sent = null;
+    this.sentSelection = null;
     this.current = null;
     this.stopQueued = false;
     this.recoveryRequired = false;
@@ -145,7 +146,8 @@ class Controls {
     this.commandQueue = this.commandQueue
       .then(async () => {
         if (generation !== this.commandGeneration || !this.canSend() || !this.changed(settings)) return;
-        const reply = await this.reference.invokeMethodAsync("SubmitSettings", settings);
+        const command = { ...settings, speed: Math.floor((settings.speed * settings.stroke) / 100) };
+        const reply = await this.reference.invokeMethodAsync("SubmitSettings", command);
         if (this.destroyed) return;
         if (reply?.code === "outcome-unknown") {
           this.recoveryRequired = true;
@@ -155,7 +157,8 @@ class Controls {
         } else if (generation !== this.commandGeneration) {
           return;
         } else if (reply?.ok) {
-          this.sent = settings;
+          this.sent = command;
+          this.sentSelection = settings;
           this.error = null;
         } else {
           this.error = "Settings were rejected. Check the values and try again.";
@@ -165,11 +168,12 @@ class Controls {
       .catch(() => this.connectionLost());
   }
   changed(settings) {
-    return !this.sent || Object.keys(settings).some((key) => settings[key] !== this.sent[key]);
+    return !this.sentSelection || Object.keys(settings).some((key) => settings[key] !== this.sentSelection[key]);
   }
   disarm() {
     this.autoSendToggle.checked = false;
     this.sent = null;
+    this.sentSelection = null;
   }
   requestStop() {
     this.disarm();

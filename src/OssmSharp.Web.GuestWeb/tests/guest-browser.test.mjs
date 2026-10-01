@@ -41,9 +41,19 @@ function guestState(overrides = {}) {
 
 function deviceState(overrides = {}) {
   return {
-    pattern: 0, speed: 93, stroke: 91, depth: 89, sensation: 87,
-    isArmed: true, connectionFailed: false, isConnected: false, isConnecting: false,
-    name: null, identifier: null, connectedAt: null, transmittedSettings: null,
+    pattern: 0,
+    speed: 93,
+    stroke: 91,
+    depth: 89,
+    sensation: 87,
+    isArmed: true,
+    connectionFailed: false,
+    isConnected: false,
+    isConnecting: false,
+    name: null,
+    identifier: null,
+    connectedAt: null,
+    transmittedSettings: null,
     ...overrides,
   };
 }
@@ -60,7 +70,10 @@ function userState(device = null) {
 
 function newAdminSession(state = userState()) {
   return {
-    state, reads: 0, calls: [], pending: new Map(),
+    state,
+    reads: 0,
+    calls: [],
+    pending: new Map(),
     received: new Map(["Connect", "AllowGuest", "Stop", "EndGuest"].map((name) => [name, Promise.withResolvers()])),
   };
 }
@@ -271,73 +284,84 @@ for (const [pendingCommand, method, label] of [
   ["AllowGuest", "Stop", "Stop"],
   ["AllowGuest", "EndGuest", "End guest"],
 ]) {
-  test(`admin ${label} bypasses pending ${pendingCommand === "Connect" ? "Connect" : "Allow"} and bounds duplicate safety commands`, { timeout: 25_000 }, async () => {
-    const adminOrigin = await getAdminOrigin();
-    const context = await browser.newContext();
-    adminSession = newAdminSession();
-    const waitForCommand = async (name) => {
-      const received = adminSession.received.get(name);
-      const deadline = setTimeout(() => received.reject(new Error(`${name} did not reach the fake peer while ${pendingCommand} was pending`)), 5_000);
+  test(
+    `admin ${label} bypasses pending ${pendingCommand === "Connect" ? "Connect" : "Allow"} and bounds duplicate safety commands`,
+    { timeout: 25_000 },
+    async () => {
+      const adminOrigin = await getAdminOrigin();
+      const context = await browser.newContext();
+      adminSession = newAdminSession();
+      const waitForCommand = async (name) => {
+        const received = adminSession.received.get(name);
+        const deadline = setTimeout(
+          () => received.reject(new Error(`${name} did not reach the fake peer while ${pendingCommand} was pending`)),
+          5_000,
+        );
+        try {
+          await received.promise;
+        } finally {
+          clearTimeout(deadline);
+        }
+      };
       try {
-        await received.promise;
+        const page = await context.newPage();
+        page.setDefaultTimeout(5_000);
+        await page.goto(adminOrigin);
+        await page.getByTestId("user-controls").waitFor({ state: "visible" });
+        const connect = page.getByRole("button", { name: pendingCommand === "Connect" ? "Connect device" : "Allow control", exact: true });
+        const stop = page.getByRole("button", { name: "Stop", exact: true });
+        const endGuest = page.getByRole("button", { name: "End guest", exact: true });
+        await connect.click();
+        await waitForCommand(pendingCommand);
+        await page.waitForFunction(
+          (name) => [...document.querySelectorAll("button")].some((button) => button.textContent.trim() === name && button.disabled),
+          pendingCommand === "Connect" ? "Connect device" : "Allow control",
+        );
+        assert.equal(await stop.isEnabled(), true, "Stop must stay enabled while the normal command awaits its response");
+        assert.equal(await endGuest.isEnabled(), true, "End guest must stay enabled while the normal command awaits its response");
+        assert.deepEqual(
+          await page.locator(".preview-settings dd").allTextContents(),
+          ["Unknown", "Unknown", "Unknown", "Unknown"],
+          "pending commands must not invent sent settings",
+        );
+        const button = page.getByRole("button", { name: label, exact: true });
+        await button.click();
+        await waitForCommand(method);
+        await page.waitForFunction(
+          (name) =>
+            [...document.querySelectorAll("button")].some((element) => element.textContent.trim().replace(/\s+/g, " ") === name && element.disabled),
+          label,
+        );
+        await button.evaluate((element) => {
+          element.click();
+          element.click();
+        });
+        adminSession.pending.get(method)();
+        adminSession.pending.delete(method);
+        await page.waitForFunction(
+          (name) =>
+            [...document.querySelectorAll("button")].some((element) => element.textContent.trim().replace(/\s+/g, " ") === name && !element.disabled),
+          label,
+        );
+        assert.equal(await connect.isDisabled(), true, "Safety completion must not clear the pending normal command state");
+        assert.equal(await page.getByRole("button", { name: "Reset", exact: true }).count(), 0);
+        assert.deepEqual(adminSession.calls, [pendingCommand, method]);
+        adminSession.pending.get(pendingCommand)();
+        adminSession.pending.delete(pendingCommand);
+        await page.waitForFunction(
+          (name) => [...document.querySelectorAll("button")].some((button) => button.textContent.trim() === name && !button.disabled),
+          pendingCommand === "Connect" ? "Connect device" : "Allow control",
+        );
+        if (pendingCommand === "Connect") {
+          await page.getByRole("alert").filter({ hasText: "Device connection is not confirmed." }).waitFor();
+        }
       } finally {
-        clearTimeout(deadline);
+        for (const reply of adminSession.pending.values()) reply();
+        await context.close();
+        adminSession = null;
       }
-    };
-    try {
-      const page = await context.newPage();
-      page.setDefaultTimeout(5_000);
-      await page.goto(adminOrigin);
-      await page.getByTestId("user-controls").waitFor({ state: "visible" });
-      const connect = page.getByRole("button", { name: pendingCommand === "Connect" ? "Connect device" : "Allow control", exact: true });
-      const stop = page.getByRole("button", { name: "Stop", exact: true });
-      const endGuest = page.getByRole("button", { name: "End guest", exact: true });
-      await connect.click();
-      await waitForCommand(pendingCommand);
-      await page.waitForFunction((name) =>
-        [...document.querySelectorAll("button")].some((button) => button.textContent.trim() === name && button.disabled),
-        pendingCommand === "Connect" ? "Connect device" : "Allow control",
-      );
-      assert.equal(await stop.isEnabled(), true, "Stop must stay enabled while the normal command awaits its response");
-      assert.equal(await endGuest.isEnabled(), true, "End guest must stay enabled while the normal command awaits its response");
-      assert.deepEqual(await page.locator(".preview-settings dd").allTextContents(), ["Unknown", "Unknown", "Unknown", "Unknown"], "pending commands must not invent sent settings");
-      const button = page.getByRole("button", { name: label, exact: true });
-      await button.click();
-      await waitForCommand(method);
-      await page.waitForFunction(
-        (name) =>
-          [...document.querySelectorAll("button")].some((element) => element.textContent.trim().replace(/\s+/g, " ") === name && element.disabled),
-        label,
-      );
-      await button.evaluate((element) => {
-        element.click();
-        element.click();
-      });
-      adminSession.pending.get(method)();
-      adminSession.pending.delete(method);
-      await page.waitForFunction(
-        (name) =>
-          [...document.querySelectorAll("button")].some((element) => element.textContent.trim().replace(/\s+/g, " ") === name && !element.disabled),
-        label,
-      );
-      assert.equal(await connect.isDisabled(), true, "Safety completion must not clear the pending normal command state");
-      assert.equal(await page.getByRole("button", { name: "Reset", exact: true }).count(), 0);
-      assert.deepEqual(adminSession.calls, [pendingCommand, method]);
-      adminSession.pending.get(pendingCommand)();
-      adminSession.pending.delete(pendingCommand);
-      await page.waitForFunction((name) =>
-        [...document.querySelectorAll("button")].some((button) => button.textContent.trim() === name && !button.disabled),
-        pendingCommand === "Connect" ? "Connect device" : "Allow control",
-      );
-      if (pendingCommand === "Connect") {
-        await page.getByRole("alert").filter({ hasText: "Device connection is not confirmed." }).waitFor();
-      }
-    } finally {
-      for (const reply of adminSession.pending.values()) reply();
-      await context.close();
-      adminSession = null;
-    }
-  });
+    },
+  );
 }
 
 async function openAdmin(state) {
@@ -382,7 +406,10 @@ test("admin connection widget distinguishes unknown, disconnected, connecting an
       ["Connected", { isConnected: true, isArmed: false }],
     ]) {
       adminSession.state = userState(deviceState(overrides));
-      await page.waitForFunction((expected) => document.querySelector('[data-testid="device-connection-status"]')?.textContent === expected, expected);
+      await page.waitForFunction(
+        (expected) => document.querySelector('[data-testid="device-connection-status"]')?.textContent === expected,
+        expected,
+      );
       assert.equal(await status.innerText(), expected);
       assert.equal(await page.getByTestId("device-duration").innerText(), "Unknown", "missing connection completion time must not be invented");
     }
@@ -424,13 +451,17 @@ test("admin completed connection shows metadata and a JS duration without server
     assert.equal(await page.getByText("Device connected.", { exact: true }).count(), 0);
     assert.equal(await page.getByText("Device connection requested.", { exact: true }).count(), 0);
     assert.equal(await page.evaluate(() => window.adminIntervals.size), 0);
-    const connectedAt = new Date(await page.evaluate(() => Date.now()) - 3_661_000).toISOString();
-    adminSession.state = userState(deviceState({
-      isConnected: true, isArmed: false, connectedAt,
-      name: "Test device with a deliberately long descriptive name",
-      identifier: "isolated-device-" + "1234567890".repeat(10),
-      transmittedSettings: { pattern: 4, speed: 27, stroke: 38, depth: 49, sensation: 61 },
-    }));
+    const connectedAt = new Date((await page.evaluate(() => Date.now())) - 3_661_000).toISOString();
+    adminSession.state = userState(
+      deviceState({
+        isConnected: true,
+        isArmed: false,
+        connectedAt,
+        name: "Test device with a deliberately long descriptive name",
+        identifier: "isolated-device-" + "1234567890".repeat(10),
+        transmittedSettings: { pattern: 4, speed: 27, stroke: 38, depth: 49, sensation: 61 },
+      }),
+    );
     adminSession.pending.get("Connect")();
     adminSession.pending.delete("Connect");
     const completedNotice = page.getByRole("status").filter({ hasText: "Device connected." });
@@ -455,7 +486,10 @@ test("admin completed connection shows metadata and a JS duration without server
     assert.equal(Date.parse(await duration.getAttribute("data-connected-at")), Date.parse(connectedAt));
     assert.equal(adminSession.state.device.connectedAt, connectedAt);
     assert.equal(await page.evaluate(() => window.adminIntervals.size), 1);
-    for (const viewport of [{ width: 1280, height: 800 }, { width: 390, height: 844 }]) {
+    for (const viewport of [
+      { width: 1280, height: 800 },
+      { width: 390, height: 844 },
+    ]) {
       await page.setViewportSize(viewport);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
       assert.equal(await page.getByRole("button", { name: "Stop", exact: true }).isVisible(), true);
@@ -483,7 +517,9 @@ test("admin completed connection shows metadata and a JS duration without server
     assert.equal(await page.evaluate(() => window.adminIntervals.size), 0, "removing the timer element must release its interval");
     assert.deepEqual(errors, []);
   } catch (error) {
-    assert.fail(`${error.message}\nRendered UI: ${await page.locator("main").innerText()}\nPeer reads: ${adminSession.reads}\nBrowser errors: ${JSON.stringify(errors)}`);
+    assert.fail(
+      `${error.message}\nRendered UI: ${await page.locator("main").innerText()}\nPeer reads: ${adminSession.reads}\nBrowser errors: ${JSON.stringify(errors)}`,
+    );
   } finally {
     await closeAdmin(context);
   }
@@ -506,16 +542,131 @@ test("admin sent settings never substitute observed values or defaults for parti
       [{ pattern: 5, speed: 28, stroke: 36, depth: 47, sensation: 59 }, ["28%", "36%", "47%", "59%"], 1, 1],
     ]) {
       adminSession.state = userState({ ...adminSession.state.device, transmittedSettings: settings });
-      await page.waitForFunction((expected) => JSON.stringify([...document.querySelectorAll(".preview-settings dd")].map((element) => element.textContent)) === JSON.stringify(expected), expected);
+      await page.waitForFunction(
+        (expected) =>
+          JSON.stringify([...document.querySelectorAll(".preview-settings dd")].map((element) => element.textContent)) === JSON.stringify(expected),
+        expected,
+      );
       assert.deepEqual(await values.allTextContents(), expected);
       assert.equal(await page.locator(".preview-range").count(), range);
       assert.equal(await page.locator(".preview-carriage animate").count(), animation);
-      assert.equal(await page.getByTestId("preview-pattern").innerText(), settings.pattern === null ? "Unknown" : settings.pattern === 0 ? "Simple stroke" : "Pattern 5");
+      assert.equal(
+        await page.getByTestId("preview-pattern").innerText(),
+        settings.pattern === null ? "Unknown" : settings.pattern === 0 ? "Simple stroke" : "Pattern 5",
+      );
     }
     assert.deepEqual(adminSession.calls, [], "displaying transmissions must not issue commands");
     assert.deepEqual(errors, []);
   } finally {
     await closeAdmin(context);
+  }
+});
+
+test("admin preview derives timing only from transmitted velocity and stroke", async () => {
+  const { context, page, errors } = await openAdmin(userState(deviceState({ isConnected: true })));
+  try {
+    for (const [speed, stroke, depth, duration] of [
+      [5, 10, 10, "0.8s"],
+      [40, 80, 100, "0.8s"],
+      [5, 10, 80, "0.8s"],
+      [50, 10, 80, "0.08s"],
+      [0, 10, 80, null],
+      [5, 0, 80, null],
+      [5, 10, 0, null],
+    ]) {
+      adminSession.state = userState({ ...adminSession.state.device, transmittedSettings: { pattern: 0, speed, stroke, depth, sensation: 50 } });
+      await page.waitForFunction(
+        (expected) =>
+          JSON.stringify([...document.querySelectorAll(".preview-settings dd")].map((element) => element.textContent)) === JSON.stringify(expected),
+        [`${speed}%`, `${stroke}%`, `${depth}%`, "50%"],
+      );
+      const animation = page.locator(".preview-carriage animate");
+      assert.equal(await animation.count(), duration === null ? 0 : 1);
+      if (duration !== null) assert.equal(await animation.getAttribute("dur"), duration);
+    }
+    adminSession.state = userState({
+      ...adminSession.state.device,
+      transmittedSettings: { pattern: 0, speed: 5, stroke: 10, depth: 20, sensation: 50 },
+    });
+    await page.waitForFunction(() => document.querySelector(".preview-carriage animate")?.getAttribute("dur") === "0.8s");
+    for (const viewport of [
+      { width: 1280, height: 800 },
+      { width: 390, height: 844 },
+    ]) {
+      await page.setViewportSize(viewport);
+      const positions = await page.locator(".preview-rail").evaluate((rail) => {
+        rail.pauseAnimations();
+        rail.setCurrentTime(0.1);
+        const first = rail.querySelector(".preview-carriage").cx.animVal.value;
+        rail.setCurrentTime(0.3);
+        const second = rail.querySelector(".preview-carriage").cx.animVal.value;
+        rail.unpauseAnimations();
+        return [first, second];
+      });
+      assert.ok(Math.abs(positions[1] - positions[0]) > 1, "the carriage must visibly move within its transmitted range");
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+      if (process.env.GUEST_SCREENSHOT_DIR) {
+        await page.screenshot({ path: join(process.env.GUEST_SCREENSHOT_DIR, `ossm-speed-preview-${viewport.width}.png`), fullPage: true });
+      }
+    }
+    assert.deepEqual(adminSession.calls, [], "preview timing must not send commands");
+    assert.deepEqual(errors, []);
+  } finally {
+    await closeAdmin(context);
+  }
+});
+
+test("guest speed scales with stroke length without multiplying by depth", async () => {
+  const context = await browser.newContext();
+  const invitation = "stroke-relative-speed";
+  const session = { renewals: 0, submissions: [], state: guestState() };
+  sessions.set(invitation, session);
+  try {
+    const { page, errors } = await openGuest(context, invitation);
+    for (const [speed, stroke, depth, expectedSpeed] of [
+      [50, 10, 10, 5],
+      [50, 80, 100, 40],
+      [50, 10, 80, 5],
+      [100, 100, 100, 100],
+      [0, 10, 20, 0],
+      [30, 1, 1, 0],
+      [100, 1, 1, 1],
+    ]) {
+      await page.evaluate(
+        ({ speed, stroke, depth }) => {
+          for (const [name, value] of Object.entries({ depth, stroke, speed })) {
+            const input = document.querySelector(`[data-input="${name}"]`);
+            input.value = String(value);
+            input.dispatchEvent(new Event("input", { bubbles: true }));
+          }
+        },
+        { speed, stroke, depth },
+      );
+      const count = session.submissions.length;
+      await page.locator("[data-send-button]").click();
+      await page.waitForFunction(
+        ({ expectedSpeed, stroke, depth }) =>
+          document.querySelector('[data-sent="speed"]')?.textContent === String(expectedSpeed) &&
+          document.querySelector('[data-sent="stroke"]')?.textContent === String(stroke) &&
+          document.querySelector('[data-sent="depth"]')?.textContent === String(depth),
+        { expectedSpeed, stroke, depth },
+      );
+      assert.equal(session.submissions.length, count + 1);
+      const submitted = session.submissions.at(-1);
+      assert.deepEqual([submitted.speed, submitted.stroke, submitted.depth], [expectedSpeed, stroke, depth]);
+      assert.equal(await page.locator('[data-input="speed"]').inputValue(), String(speed), "the selected cadence must remain unchanged");
+      const animation = page.locator(".preview-carriage animate");
+      assert.equal(await animation.count(), expectedSpeed > 0 ? 1 : 0);
+      if (expectedSpeed > 0) {
+        assert.equal(await animation.getAttribute("dur"), `${Number(((0.4 * stroke) / expectedSpeed).toFixed(4))}s`);
+      }
+      await page.locator("[data-send-button]").click();
+      assert.equal(session.submissions.length, count + 1, "unchanged selection must not resend its converted command");
+    }
+    assert.deepEqual(errors, []);
+  } finally {
+    await context.close();
+    sessions.delete(invitation);
   }
 });
 
@@ -532,7 +683,7 @@ test("deadline-free permission recovers after revoke, Allow and rearm without au
       input.dispatchEvent(new Event("input", { bubbles: true }));
     });
     await page.locator("[data-auto-send]").check();
-    await page.waitForFunction(() => document.querySelector('[data-sent="speed"]')?.textContent === "30");
+    await page.waitForFunction(() => document.querySelector('[data-sent="speed"]')?.textContent === "3");
     assert.equal(session.submissions.length, 1);
     session.state = guestState({ controlAllowed: false });
     await page.waitForFunction(
@@ -552,7 +703,7 @@ test("deadline-free permission recovers after revoke, Allow and rearm without au
     assert.equal(session.submissions.length, 1, "regrant and rearm must not submit the saved selection");
     assert.equal(await page.locator("[data-auto-send]").isChecked(), false);
     await page.locator("[data-send-button]").click();
-    await page.waitForFunction(() => document.querySelector('[data-sent="speed"]')?.textContent === "30");
+    await page.waitForFunction(() => document.querySelector('[data-sent="speed"]')?.textContent === "3");
     assert.equal(session.submissions.length, 2, "the same selection must be deliberately sendable after regrant");
     assert.equal(session.renewals, 0);
     assert.equal(await page.getByTestId("guest-disconnected").isVisible(), false);
@@ -589,8 +740,8 @@ test("guest Stop preserves permission and only acknowledged Stop permits deliber
       input.dispatchEvent(new Event("input", { bubbles: true }));
     });
     await page.locator("[data-auto-send]").check();
-    await page.waitForFunction(() => document.querySelector('[data-sent="speed"]')?.textContent === "30");
-    await page.waitForFunction(() => document.querySelector('[data-current="speed"]')?.textContent === "30");
+    await page.waitForFunction(() => document.querySelector('[data-sent="speed"]')?.textContent === "3");
+    await page.waitForFunction(() => document.querySelector('[data-current="speed"]')?.textContent === "3");
     await requestGuestStop(page, session);
     await page.waitForFunction(() => document.querySelector("[data-send-button]")?.disabled === true);
     assert.equal(session.stops, 1);
@@ -607,7 +758,7 @@ test("guest Stop preserves permission and only acknowledged Stop permits deliber
     assert.equal(session.state.canResumeAfterStop, true);
     assert.equal(session.submissions.length, 1, "Stop acknowledgement must not automatically resend");
     await page.locator("[data-send-button]").click();
-    await page.waitForFunction(() => document.querySelector('[data-sent="speed"]')?.textContent === "30");
+    await page.waitForFunction(() => document.querySelector('[data-sent="speed"]')?.textContent === "3");
     assert.equal(session.submissions.length, 2);
     assert.equal(session.stops, 2);
     assert.equal(session.renewals, 0);
@@ -740,10 +891,13 @@ test("API transport loss displays recovery and persistently disables browser sub
     assert.match(await notice.textContent(), /Connection lost.*invitation link again/s);
     assert.equal(await page.evaluate(() => sessionStorage.getItem("ossm-guest-connection-lost")), "true");
     const freshLayout = await page.request.get(`${origin}/join`);
-    await notice.evaluate((element, html) => {
-      const replacement = new DOMParser().parseFromString(html, "text/html").querySelector('[data-testid="guest-disconnected"]');
-      element.replaceWith(document.importNode(replacement, true));
-    }, await freshLayout.text());
+    await notice.evaluate(
+      (element, html) => {
+        const replacement = new DOMParser().parseFromString(html, "text/html").querySelector('[data-testid="guest-disconnected"]');
+        element.replaceWith(document.importNode(replacement, true));
+      },
+      await freshLayout.text(),
+    );
     assert.equal(await notice.isVisible(), true, "a fresh layout render must not hide the persistent recovery notice");
     const before = submissions.length;
     await page.evaluate(async () => {

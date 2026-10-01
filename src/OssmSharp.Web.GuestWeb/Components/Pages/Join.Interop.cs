@@ -22,7 +22,7 @@ public partial class Join
     /// <summary>
     /// Validates and submits complete guest settings from the untrusted browser.
     /// </summary>
-    /// <param name="settings">The complete browser-selected settings.</param>
+    /// <param name="settings">The complete firmware settings, including the browser-converted velocity percentage.</param>
     /// <returns>The accepted reply code, or a rejection or unknown-outcome code.</returns>
     [JSInvokable]
     public async Task<BrowserReply> SubmitSettings(BrowserSettings settings)

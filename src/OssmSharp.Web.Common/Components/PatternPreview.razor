@@ -10,7 +10,7 @@
         {
             <rect class="preview-range" x="@RangeStart" y="18" width="@RangeWidth" height="10" rx="2" />
             <circle class="preview-carriage" cx="@RangeMidpoint" cy="23" r="7">
-                @if (Animate && BoundedSpeed > 0)
+                @if (Animate && BoundedSpeed > 0 && BoundedStroke > 0 && BoundedDepth > 0)
                 {
                     <animate attributeName="cx" values="@AnimationValues" dur="@AnimationDuration" repeatCount="indefinite" />
                 }
@@ -58,7 +58,7 @@
     private string RangeWidth => Format(Math.Max(1, End - Start));
     private string RangeMidpoint => Format(Mid);
     private string AnimationValues => $"{Format(Start)};{Format(End)};{Format(Start)}";
-    private string AnimationDuration => FormattableString.Invariant($"{2.2 - BoundedSpeed * .018:0.##}s");
+    private string AnimationDuration => FormattableString.Invariant($"{0.4 * BoundedStroke / BoundedSpeed:0.####}s");
     private string PreviewLabel => $"{PatternLabel} preview at {Value(BoundedSpeed)} speed, {Value(BoundedStroke)} stroke, {Value(BoundedDepth)} depth, and {Value(BoundedSensation)} sensation";
 
     private static int? Bound(int? value) => value is { } known ? Math.Clamp(known, 0, 100) : null;
