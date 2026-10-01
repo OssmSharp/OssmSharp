@@ -4,9 +4,11 @@ namespace OssmSharp.Cli;
 
 internal sealed class PrettyPromptConsole(TextWriter output, TextWriter error) : IConsole
 {
+    private const string CompletionReservation = "\n\n\n\u001b[3A";
     private static readonly ConsoleKeyInfo InterruptKey = new('\0', ConsoleKey.C, shift: false, alt: false, control: true);
     private readonly IConsole system = new SystemConsole();
     private CancellationToken cancellationToken;
+    private bool completionRowAdjustmentPending;
 
     internal PrettyPromptConsole(TextWriter output, TextWriter error, IConsole system)
         : this(output, error)
@@ -24,7 +26,20 @@ internal sealed class PrettyPromptConsole(TextWriter output, TextWriter error) :
 
     public int BufferWidth => system.BufferWidth;
 
-    public int WindowHeight => system.WindowHeight;
+    public int WindowHeight
+    {
+        get
+        {
+            var height = system.WindowHeight;
+            if (completionRowAdjustmentPending)
+            {
+                completionRowAdjustmentPending = false;
+                return height + 3;
+            }
+
+            return height;
+        }
+    }
 
     public int WindowTop => system.WindowTop;
 
@@ -68,9 +83,18 @@ internal sealed class PrettyPromptConsole(TextWriter output, TextWriter error) :
 
     public void ShowCursor() => system.ShowCursor();
 
-    public void Write(string? value) => output.Write(value);
+    public void Write(string? value) => Write(value.AsSpan());
 
-    public void Write(ReadOnlySpan<char> value) => output.Write(value);
+    public void Write(ReadOnlySpan<char> value)
+    {
+        if (value.StartsWith(CompletionReservation, StringComparison.Ordinal))
+        {
+            value = value[CompletionReservation.Length..];
+            completionRowAdjustmentPending = true;
+        }
+
+        output.Write(value);
+    }
 
     public void WriteError(string? value) => error.Write(value);
 

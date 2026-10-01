@@ -49,22 +49,44 @@ public sealed class PrettyPromptInputTests
         constructions.Should().Be(1);
     }
 
-    [Fact]
-    public async Task ReservesMinimumSpaceForUnusedCompletionPane()
+    [Theory]
+    [InlineData(4, 0)]
+    [InlineData(4, 3)]
+    [InlineData(12, 5)]
+    [InlineData(12, 11)]
+    [InlineData(40, 39)]
+    [InlineData(100, 99)]
+    public async Task RepeatedReadsDoNotReserveBlankRows(int height, int cursorTop)
     {
         var directory = Directory.CreateTempSubdirectory("OssmSharp-layout-");
         try
         {
             using var output = new StringWriter();
+            var terminal = new PrettyPromptTestConsole(
+                [Key('h', ConsoleKey.H), Key('\r', ConsoleKey.Enter), Key('h', ConsoleKey.H), Key('\r', ConsoleKey.Enter)],
+                reportKeysAvailable: true)
+            {
+                WindowHeight = height,
+                CursorTop = cursorTop,
+            };
             var console = new PrettyPromptConsole(
                 output,
                 TextWriter.Null,
-                new PrettyPromptTestConsole([Key('\r', ConsoleKey.Enter)], reportKeysAvailable: true));
+                terminal);
             await using var input = new PrettyPromptInput(console, Path.Combine(directory.FullName, "history"));
 
-            await input.ReadAsync(TestContext.Current.CancellationToken);
+            for (var readIndex = 0; readIndex < 2; readIndex++)
+            {
+                output.GetStringBuilder().Clear();
 
-            output.ToString().TakeWhile(character => character == '\n').Should().HaveCount(3);
+                var result = await input.ReadAsync(TestContext.Current.CancellationToken);
+
+                result.Text.Should().Be("h");
+                var rendered = output.ToString();
+                rendered.Count(character => character == '\n').Should().Be(1);
+                Assert.DoesNotMatch(@"\u001b\[[0-9;]*[ABHfST]", rendered);
+                console.WindowHeight.Should().Be(height);
+            }
         }
         finally
         {

@@ -15,11 +15,11 @@ internal sealed class PrettyPromptTestConsole(
         remove { }
     }
 
-    public int CursorTop => 0;
+    public int CursorTop { get; set; }
 
     public int BufferWidth => 120;
 
-    public int WindowHeight => 40;
+    public int WindowHeight { get; set; } = 40;
 
     public int WindowTop => 0;
 
