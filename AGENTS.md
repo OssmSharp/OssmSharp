@@ -2,7 +2,7 @@ Use these terms instead:
 - qualification -> readiness
 - report -> last known state
 - disabled -> disarmed, when referring to when the device detects unexpected motion or is stopped by the caller.
-- stock -> oem, when referring to the real device.
+- stock -> oem, in code and internal technical prose.
 
 
 **Pattern-specific policy does not belong in the device library.**
@@ -13,7 +13,7 @@ The device firmware accepts patterns and arguments. The library will not directl
 
 Before creating or changing tests, check whether MockerTestBase<T> supports the SUT. If it does, the test class must inherit from and use it.
 
-Do not include any referneces to OEM in user-facing prose.
+User-facing prose must not describe the device as OEM.
 
 Use only OssmSharp OEM runtime source and documentation; treat ossm-rs as out of scope.
 
