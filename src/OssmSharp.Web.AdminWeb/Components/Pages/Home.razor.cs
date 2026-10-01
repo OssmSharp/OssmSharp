@@ -14,6 +14,7 @@ public partial class Home
     private bool _busy;
     private bool _safetyBusy;
     private bool _connecting;
+    private bool _connectionLost;
 
     [Inject] private UserControlClient Control { get; set; } = null!;
     [Inject] private IJSRuntime Js { get; set; } = null!;
@@ -111,7 +112,7 @@ public partial class Home
             exception is ControlClientException or ControlClientUnknownOutcomeException)
         {
             _loaded = true;
-            _state = null;
+            _connectionLost = true;
             _notice.Show("Unable to connect to the user service. Reload the page.", true);
             await InvokeAsync(StateHasChanged);
         }
@@ -120,7 +121,7 @@ public partial class Home
     private Task AllowGuest() => RunAsync(Control.AllowGuestAsync, "Guest control allowed.");
     private Task Stop() => RunAsync(Control.StopAsync, "Stop requested.", safety: true);
     private Task EndGuest() => RunAsync(Control.EndGuestAsync, "Guest session ended.", safety: true);
-    private Task Connect() => RunAsync(Control.ConnectAsync, "Device connected.", confirmConnection: true);
+    private Task Connect() => RunAsync(Control.ConnectAsync, null, confirmConnection: true);
 
     private async Task Copy()
     {
@@ -129,7 +130,7 @@ public partial class Home
         _notice.CopyCompleted(await _module.InvokeAsync<bool>("copy", InvitationText));
     }
 
-    private async Task RunAsync(Func<CancellationToken, Task<ControlResponse>> command, string message, bool safety = false, bool confirmConnection = false)
+    private async Task RunAsync(Func<CancellationToken, Task<ControlResponse>> command, string? message, bool safety = false, bool confirmConnection = false)
     {
         if (_safetyBusy || (!safety && _busy))
             return;

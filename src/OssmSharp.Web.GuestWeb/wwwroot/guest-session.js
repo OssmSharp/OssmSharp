@@ -75,6 +75,7 @@ export function restoreDisconnected() {
 function showDisconnect() {
   document.documentElement.dataset.guestConnectionLost = "true";
   guestRoot?.setAttribute("data-connection-lost", "true");
+  document.querySelector(".preview-rail")?.pauseAnimations();
   document.querySelector("main > [data-testid='guest-disconnected']")?.removeAttribute("hidden");
 }
 

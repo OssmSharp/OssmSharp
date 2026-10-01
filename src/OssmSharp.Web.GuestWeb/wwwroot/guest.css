@@ -46,7 +46,6 @@ main:focus { outline: none; }
 .auto-send { flex: 0 0 auto; white-space: nowrap; }
 .send-status { color: var(--rw-muted); font-size: .8rem; }
 
-.guest-session[data-connection-lost] .guest-interface { filter: grayscale(1); }
 .guest-session[data-connection-lost] .guest-session-message { display: none; }
 .guest-session[data-connection-lost] [data-browser-alert] { display: none; }
 main > [data-testid="guest-disconnected"] { display: none; }

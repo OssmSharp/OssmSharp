@@ -26,11 +26,12 @@ else
     <InlineNotification Variant="danger" Role="alert" data-browser-alert hidden="@(_display.Error is null)">
       @_display.Error
     </InlineNotification>
-    <div class="guest-interface rw-stack">
+    <div class="guest-interface connection-sensitive rw-stack">
       <InlineNotification Variant="@SessionMessageVariant" CssClass="guest-session-message" Role="status">
         @SessionMessage</InlineNotification>
         <PatternPreview Speed="@(_display.Selected.Speed * _display.Selected.Stroke / 100)"
-                        Stroke="@_display.Selected.Stroke" Depth="@_display.Selected.Depth" Sensation="@_display.Selected.Sensation" />
+                        Stroke="@_display.Selected.Stroke" Depth="@_display.Selected.Depth" Sensation="@_display.Selected.Sensation"
+                        Animate="@(!_connectionLost && _status?.Device is { IsConnected: true, IsConnecting: false, ConnectionFailed: false })" />
         <RwCard role="region" aria-label="Requested settings">
           <div slot="heading" class="rw-card-heading">
             <h2>Settings</h2>

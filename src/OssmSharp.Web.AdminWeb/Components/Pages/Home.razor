@@ -3,7 +3,7 @@
 @implements IAsyncDisposable
 
 <PageTitle>User controls</PageTitle>
-<ControlLayout Label="User controls">
+<ControlLayout Label="User controls" ConnectionLost="@(_connectionLost || _state?.Device?.ConnectionFailed == true)">
   <ChildContent>
     @if (_state is null)
     {
@@ -19,7 +19,7 @@
         <InlineNotification Variant="@(_notice.IsError ? "danger" : "success")"
                             Role="@(_notice.IsError ? "alert" : "status")">@message</InlineNotification>
       }
-      <div class="user-grid">
+          <div class="user-grid connection-sensitive">
         <RwCard class="user-status" data-testid="user-controls" role="region" aria-labelledby="controls-heading">
           <div slot="heading" class="rw-card-heading user-status-heading">
             <h2 id="controls-heading">Controls</h2>
@@ -73,10 +73,10 @@
                             OnClick="Copy" aria-label="@_notice.CopyLabel">@_notice.CopyLabel</RwButton>
                 </div>
               </RwCard>
-              <PatternPreview Title="Sent settings" Pattern="@_state.Device?.TransmittedSettings?.Pattern"
+              <PatternPreview Title="Last settings" Pattern="@_state.Device?.TransmittedSettings?.Pattern"
                               Speed="@_state.Device?.TransmittedSettings?.Speed" Stroke="@_state.Device?.TransmittedSettings?.Stroke"
                               Depth="@_state.Device?.TransmittedSettings?.Depth" Sensation="@_state.Device?.TransmittedSettings?.Sensation"
-                              Animate="@(_state.Device is { IsConnected: true, IsConnecting: false })" />
+                              Animate="@(!_connectionLost && _state.Device is { IsConnected: true, IsConnecting: false, ConnectionFailed: false })" />
             </div>
           }
         </ChildContent>

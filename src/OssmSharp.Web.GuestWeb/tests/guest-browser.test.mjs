@@ -34,7 +34,7 @@ function guestState(overrides = {}) {
     controlAllowed: true,
     controlExpiresAt: null,
     canResumeAfterStop: false,
-    device: { pattern: 0, speed: 0, stroke: 10, depth: 20, sensation: 50, isArmed: true, connectionFailed: false },
+    device: { pattern: 0, speed: 0, stroke: 10, depth: 20, sensation: 50, isArmed: true, connectionFailed: false, isConnected: true },
     ...overrides,
   };
 }
@@ -320,8 +320,8 @@ for (const [pendingCommand, method, label] of [
         assert.equal(await stop.isEnabled(), true, "Stop must stay enabled while the normal command awaits its response");
         assert.equal(await endGuest.isEnabled(), true, "End guest must stay enabled while the normal command awaits its response");
         assert.deepEqual(
-          await page.locator(".preview-settings dd").allTextContents(),
-          ["Unknown", "Unknown", "Unknown", "Unknown"],
+          await page.locator(".preview-rail").getAttribute("aria-label"),
+          "Unknown preview at Unknown speed, Unknown stroke, Unknown depth, and Unknown sensation",
           "pending commands must not invent sent settings",
         );
         const button = page.getByRole("button", { name: label, exact: true });
@@ -411,6 +411,7 @@ test("admin connection widget distinguishes unknown, disconnected, connecting an
         expected,
       );
       assert.equal(await status.innerText(), expected);
+      assert.equal(await page.locator(".user-grid").evaluate((element) => getComputedStyle(element).filter), overrides.connectionFailed ? "grayscale(1)" : "none");
       assert.equal(await page.getByTestId("device-duration").innerText(), "Unknown", "missing connection completion time must not be invented");
     }
     adminSession.state = userState(deviceState());
@@ -464,14 +465,13 @@ test("admin completed connection shows metadata and a JS duration without server
     );
     adminSession.pending.get("Connect")();
     adminSession.pending.delete("Connect");
-    const completedNotice = page.getByRole("status").filter({ hasText: "Device connected." });
-    await completedNotice.waitFor();
+    await page.waitForFunction(() => document.querySelector('[data-testid="device-connection-status"]')?.textContent === "Connected");
+    assert.equal(await page.getByText("Device connected.", { exact: true }).count(), 0, "the connection pill must not be duplicated by a notice");
     assert.equal(await page.getByTestId("device-connection-status").innerText(), "Connected");
     assert.equal(await page.getByTestId("device-name").innerText(), adminSession.state.device.name);
     assert.equal(await page.getByTestId("device-identifier").innerText(), adminSession.state.device.identifier);
     await page.waitForFunction(() => /^01:01:\d{2}$/.test(document.querySelector('[data-testid="device-duration"]')?.textContent));
     assert.equal(await page.locator(".preview-carriage animate").count(), 1, "connectivity, not arming, permits the preview animation");
-    await completedNotice.waitFor({ state: "hidden" });
     const duration = page.getByTestId("device-duration");
     const before = await duration.innerText();
     const frameCount = frames.length;
@@ -508,7 +508,7 @@ test("admin completed connection shows metadata and a JS duration without server
     assert.equal(await duration.innerText(), "Unknown");
     assert.equal(await page.evaluate(() => window.adminIntervals.size), 0);
     assert.equal(await page.locator(".preview-carriage animate").count(), 0);
-    assert.deepEqual(await page.locator(".preview-settings dd").allTextContents(), ["27%", "38%", "49%", "61%"]);
+    assert.equal(await page.locator(".preview-rail").getAttribute("aria-label"), "Pattern 4 preview at 27% speed, 38% stroke, 49% depth, and 61% sensation");
     adminSession.state = userState({ ...adminSession.state.device, isConnected: true, connectedAt });
     await page.waitForFunction(() => document.querySelector('[data-testid="device-duration"]')?.dataset.connectedAt);
     assert.equal(await page.evaluate(() => window.adminIntervals.size), 1);
@@ -528,11 +528,11 @@ test("admin completed connection shows metadata and a JS duration without server
 test("admin sent settings never substitute observed values or defaults for partial transmissions", async () => {
   const { context, page, errors } = await openAdmin(userState(deviceState({ isConnected: true })));
   try {
-    const values = page.locator(".preview-settings dd");
-    assert.deepEqual(await values.allTextContents(), ["Unknown", "Unknown", "Unknown", "Unknown"]);
+    const preview = page.locator(".preview-rail");
+    assert.equal(await preview.getAttribute("aria-label"), "Unknown preview at Unknown speed, Unknown stroke, Unknown depth, and Unknown sensation");
     assert.equal(await page.getByTestId("preview-pattern").innerText(), "Unknown");
     assert.equal(await page.locator(".preview-range, .preview-carriage").count(), 0);
-    assert.equal(await page.getByRole("heading", { name: "Sent settings", exact: true }).count(), 1);
+    assert.equal(await page.getByRole("heading", { name: "Last settings", exact: true }).count(), 1);
     for (const [settings, expected, range, animation] of [
       [{ pattern: null, speed: 17, stroke: null, depth: null, sensation: null }, ["17%", "Unknown", "Unknown", "Unknown"], 0, 0],
       [{ pattern: null, speed: 17, stroke: null, depth: 47, sensation: null }, ["17%", "Unknown", "47%", "Unknown"], 0, 0],
@@ -542,12 +542,10 @@ test("admin sent settings never substitute observed values or defaults for parti
       [{ pattern: 5, speed: 28, stroke: 36, depth: 47, sensation: 59 }, ["28%", "36%", "47%", "59%"], 1, 1],
     ]) {
       adminSession.state = userState({ ...adminSession.state.device, transmittedSettings: settings });
-      await page.waitForFunction(
-        (expected) =>
-          JSON.stringify([...document.querySelectorAll(".preview-settings dd")].map((element) => element.textContent)) === JSON.stringify(expected),
-        expected,
-      );
-      assert.deepEqual(await values.allTextContents(), expected);
+      const patternLabel = settings.pattern === null ? "Unknown" : settings.pattern === 0 ? "Simple stroke" : "Pattern 5";
+      const label = `${patternLabel} preview at ${expected[0]} speed, ${expected[1]} stroke, ${expected[2]} depth, and ${expected[3]} sensation`;
+      await page.waitForFunction((label) => document.querySelector(".preview-rail")?.getAttribute("aria-label") === label, label);
+      assert.equal(await preview.getAttribute("aria-label"), label);
       assert.equal(await page.locator(".preview-range").count(), range);
       assert.equal(await page.locator(".preview-carriage animate").count(), animation);
       assert.equal(
@@ -559,6 +557,26 @@ test("admin sent settings never substitute observed values or defaults for parti
     assert.deepEqual(errors, []);
   } finally {
     await closeAdmin(context);
+  }
+});
+
+test("user and guest previews omit stats and user names the last settings", async () => {
+  const admin = await openAdmin(userState(deviceState({ isConnected: true })));
+  try {
+    assert.equal(await admin.page.locator(".preview-settings").count(), 0);
+    assert.equal(await admin.page.getByRole("heading", { name: "Last settings", exact: true }).count(), 1);
+    assert.deepEqual(admin.errors, []);
+  } finally {
+    await closeAdmin(admin.context);
+  }
+  const context = await browser.newContext();
+  try {
+    const guest = await openGuest(context, "preview-without-stats");
+    assert.equal(await guest.page.locator(".preview-settings").count(), 0);
+    assert.equal(await guest.page.locator(".preview-rail").count(), 1);
+    assert.deepEqual(guest.errors, []);
+  } finally {
+    await context.close();
   }
 });
 
@@ -575,11 +593,8 @@ test("admin preview derives timing only from transmitted velocity and stroke", a
       [5, 10, 0, null],
     ]) {
       adminSession.state = userState({ ...adminSession.state.device, transmittedSettings: { pattern: 0, speed, stroke, depth, sensation: 50 } });
-      await page.waitForFunction(
-        (expected) =>
-          JSON.stringify([...document.querySelectorAll(".preview-settings dd")].map((element) => element.textContent)) === JSON.stringify(expected),
-        [`${speed}%`, `${stroke}%`, `${depth}%`, "50%"],
-      );
+      const label = `Simple stroke preview at ${speed}% speed, ${stroke}% stroke, ${depth}% depth, and 50% sensation`;
+      await page.waitForFunction((label) => document.querySelector(".preview-rail")?.getAttribute("aria-label") === label, label);
       const animation = page.locator(".preview-carriage animate");
       assert.equal(await animation.count(), duration === null ? 0 : 1);
       if (duration !== null) assert.equal(await animation.getAttribute("dur"), duration);
@@ -875,6 +890,92 @@ test("same-document invite link bypasses Blazor navigation without disclosing it
     );
   } finally {
     await context.close();
+  }
+});
+
+test("shared disconnect presentation pauses user and guest previews and keeps notices inline", async () => {
+  for (const role of ["user", "guest"]) {
+    const context = role === "user" ? null : await browser.newContext();
+    const view = role === "user"
+      ? await openAdmin(userState(deviceState({ isConnected: true, transmittedSettings: { pattern: 0, speed: 5, stroke: 10, depth: 20, sensation: 50 } })))
+      : await openGuest(context, "preview-disconnect");
+    try {
+      const { page } = view;
+      if (role === "guest") {
+        await page.locator('[data-input="speed"]').evaluate((input) => {
+          input.value = "50";
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+        });
+      }
+      await page.locator(".preview-carriage animate").waitFor({ state: "attached" });
+      assert.equal(await page.locator(".preview-rail").evaluate((rail) => rail.animationsPaused()), false);
+      await page.evaluate(() => {
+        const notice = document.getElementById("components-reconnect-modal");
+        notice.classList.remove("components-reconnect-hide");
+        notice.classList.add("components-reconnect-failed");
+        notice.dispatchEvent(new CustomEvent("components-reconnect-state-changed", { detail: { state: "failed" } }));
+      });
+      const notice = role === "user" ? page.locator(".rw-reconnect-failed") : page.getByTestId("guest-disconnected");
+      await notice.waitFor({ state: "visible" });
+      assert.equal(await page.locator(".preview-rail").evaluate((rail) => rail.animationsPaused()), true);
+      assert.equal(await page.locator(".connection-sensitive").evaluate((element) => getComputedStyle(element).filter), "grayscale(1)");
+      assert.equal(await notice.evaluate((element) => getComputedStyle(element).position), "static");
+      if (role === "guest") assert.equal(await page.locator("[data-send-button]").isDisabled(), true);
+      for (const viewport of [{ width: 1280, height: 800 }, { width: 390, height: 844 }]) {
+        await page.setViewportSize(viewport);
+        const notification = await notice.boundingBox();
+        const main = await page.locator("main").boundingBox();
+        assert.ok(notification.x >= main.x && notification.x + notification.width <= main.x + main.width + 1);
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+        if (process.env.GUEST_SCREENSHOT_DIR) {
+          await page.screenshot({ path: join(process.env.GUEST_SCREENSHOT_DIR, `ossm-${role}-disconnected-${viewport.width}.png`), fullPage: true });
+        }
+      }
+      assert.deepEqual(view.errors, []);
+    } finally {
+      if (role === "user") await closeAdmin(view.context);
+      else await context.close();
+    }
+  }
+});
+
+test("user API loss retains a greyscale last state with a standard inline notice", async () => {
+  const { context, page, errors } = await openAdmin(userState(deviceState({ isConnected: true, transmittedSettings: { pattern: 0, speed: 5, stroke: 10, depth: 20, sensation: 50 } })));
+  try {
+    assert.equal(await page.locator(".preview-carriage animate").count(), 1);
+    for (const socket of sockets.clients) socket.close(1000);
+    const notice = page.getByRole("alert").filter({ hasText: "Unable to connect to the user service." });
+    await notice.waitFor({ state: "visible" });
+    assert.equal(await page.getByTestId("device-connection").count(), 1);
+    assert.equal(await page.locator(".user-grid").evaluate((element) => getComputedStyle(element).filter), "grayscale(1)");
+    assert.equal(await page.locator(".preview-carriage animate").count(), 0);
+    assert.equal(await notice.evaluate((element) => getComputedStyle(element).position), "static");
+    assert.deepEqual(errors, []);
+  } finally {
+    await closeAdmin(context);
+  }
+});
+
+test("guest device connection loss stops the selected preview", async () => {
+  const context = await browser.newContext();
+  const invitation = "preview-device-loss";
+  const session = { state: guestState() };
+  sessions.set(invitation, session);
+  try {
+    const { page, errors } = await openGuest(context, invitation);
+    await page.locator('[data-input="speed"]').evaluate((input) => {
+      input.value = "50";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await page.locator(".preview-carriage animate").waitFor({ state: "attached" });
+    session.state.device = { ...session.state.device, isConnected: false, connectionFailed: true };
+    await page.locator(".preview-carriage animate").waitFor({ state: "detached" });
+    assert.equal(await page.locator("[data-send-button]").isDisabled(), true);
+    assert.equal(await page.locator(".preview-rail").count(), 1);
+    assert.deepEqual(errors, []);
+  } finally {
+    await context.close();
+    sessions.delete(invitation);
   }
 });
 

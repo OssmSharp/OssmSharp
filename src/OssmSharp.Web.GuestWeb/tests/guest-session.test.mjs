@@ -15,6 +15,10 @@ class Element extends EventTarget {
   max = "100";
   checked = false;
   disabled = false;
+  paused = false;
+  pauseAnimations() {
+    this.paused = true;
+  }
   setAttribute(name, value) {
     this.attributes.set(name, String(value));
   }
@@ -264,6 +268,7 @@ test("interop failure persistently disconnects and later state cannot enable sen
   await setImmediate();
   assert.equal(browser.storage.get(disconnectedKey), "true");
   assert.equal(browser.document.documentElement.dataset.guestConnectionLost, "true");
+  assert.equal(browser.element(".preview-rail").paused, true);
   browser.guest.updateState({ joined: true, ready: true });
   browser.click("[data-send-button]");
   await setImmediate();
