@@ -1,4 +1,5 @@
 using AwesomeAssertions;
+using Microsoft.Extensions.Logging;
 using OssmSharp.Runtime.Oem;
 using Xunit;
 
@@ -6,6 +7,216 @@ namespace OssmSharp.Runtime.Oem.Tests;
 
 public sealed class DeviceBaseTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AbandonedSpeedResponseDoesNotBecomeConfirmed(bool superseded)
+    {
+        await using var device = new TestDevice();
+        var token = TestContext.Current.CancellationToken;
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(token);
+        await device.ConnectAsync(token);
+        var pending = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        device.Write = (command, writeToken) => command is { Control: DeviceControl.Speed, Value: 20 }
+            ? pending.Task.WaitAsync(writeToken) : Task.CompletedTask;
+        var original = device.SetAsync(new(0, 20, 30, 40, 50), cancellation.Token);
+        try
+        {
+            Assert.False(original.IsCompleted);
+            Assert.Equal(new TransmittedControls(0, null, 30, 40, 50), device.Transmitted);
+            if (superseded)
+            {
+                await device.SetAsync(new(StrokePattern.RoboStroke, 60, 70, 80, 90), token);
+            }
+            else
+            {
+                await cancellation.CancelAsync();
+            }
+
+            var result = await original;
+            Assert.Equal(superseded ? SetStatus.Superseded : SetStatus.Cancelled, result.Status);
+            Assert.Equal(4, result.CommandsWritten);
+            Assert.Equal(
+                superseded ? new TransmittedControls(2, 60, 70, 80, 90)
+                    : new TransmittedControls(0, null, 30, 40, 50), device.Transmitted);
+        }
+        finally
+        {
+            pending.TrySetResult();
+            await original;
+        }
+    }
+
+    [Fact]
+    public async Task FailedStopRetainsPreviouslyConfirmedSpeed()
+    {
+        await using var device = new TestDevice();
+        var token = TestContext.Current.CancellationToken;
+        await device.ConnectAsync(token);
+        await device.SetAsync(new(0, 20, 30, 40, 50), token);
+        device.Write = (_, _) => Task.FromException(new IOException("Stop failed."));
+        try
+        {
+            await Assert.ThrowsAsync<IOException>(() => device.EmergencyStopAsync(token));
+            Assert.Equal(new TransmittedControls(0, 20, 30, 40, 50), device.Transmitted);
+            Assert.False(device.IsArmed);
+        }
+        finally
+        {
+            device.Write = null;
+        }
+    }
+
+    [Fact]
+    public async Task ConfirmedControlsDoNotUseObservationsAndResetOnReconnect()
+    {
+        await using var device = new TestDevice();
+        var token = TestContext.Current.CancellationToken;
+        Assert.False(device.IsConnected);
+        await device.ConnectAsync(token);
+        Assert.True(device.IsConnected);
+        Assert.Null(device.Transmitted);
+        device.Observe(new(StrokePattern.SimpleStroke, 80, 70, 60, 50));
+        Assert.Null(device.Transmitted);
+
+        await device.SetAsync(new(StrokePattern.SimpleStroke, 20, 30, 40, 50), token);
+        Assert.Equal(new TransmittedControls(0, 20, 30, 40, 50), device.Transmitted);
+        await device.EmergencyStopAsync(token);
+        Assert.Equal(0, device.Transmitted?.Speed);
+        await device.DisconnectAsync(token);
+        Assert.False(device.IsConnected);
+        await device.ConnectAsync(token);
+        Assert.Null(device.Transmitted);
+    }
+
+    [Fact]
+    public async Task FailedWriteExposesOnlyConfirmedPrefix()
+    {
+        await using var device = new TestDevice();
+        var token = TestContext.Current.CancellationToken;
+        await device.ConnectAsync(token);
+        device.Write = (command, _) => command.Control == DeviceControl.Depth
+            ? Task.FromException(new IOException("Write failed.")) : Task.CompletedTask;
+        try
+        {
+            var error = await Assert.ThrowsAsync<DeviceWriteException>(() => device.SetAsync(new(0, 20, 30, 40, 50), token));
+            Assert.Equal(2, error.CommandsWritten);
+            Assert.Equal(new TransmittedControls(0, null, 30, null, null), device.Transmitted);
+        }
+        finally
+        {
+            device.Write = null;
+        }
+    }
+
+    [Fact]
+    public async Task UnconfirmedSpeedDoesNotAppearAndLateResponseCannotOverwriteStop()
+    {
+        await using var device = new TestDevice();
+        var token = TestContext.Current.CancellationToken;
+        await device.ConnectAsync(token);
+        var pending = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        device.Write = (command, _) => command is { Control: DeviceControl.Speed, Value: > 0 }
+            ? pending.Task : Task.CompletedTask;
+        var set = device.SetAsync(new(0, 20, 30, 40, 50), token);
+        try
+        {
+            Assert.False(set.IsCompleted);
+            Assert.Null(device.Transmitted?.Speed);
+            await device.EmergencyStopAsync(token);
+            Assert.Equal(0, device.Transmitted?.Speed);
+        }
+        finally
+        {
+            pending.TrySetResult();
+            await set;
+        }
+
+        Assert.Equal(0, device.Transmitted?.Speed);
+    }
+
+    [Fact]
+    public async Task LifecycleAndApiCallsLogAtInformationWhileCommandsLogAtDebug()
+    {
+        var logger = new RecordingLogger<DeviceBase>();
+        await using var device = new TestDevice(logger);
+        var token = TestContext.Current.CancellationToken;
+        var settings = new MotionSettings(StrokePattern.SimpleStroke, 20, 30, 40, 50);
+
+        await device.ConnectAsync(token);
+        var result = await device.SetAsync(settings, token);
+        await device.EmergencyStopAsync(token);
+        await device.DisconnectAsync(token);
+
+        Assert.Equal(SetStatus.Completed, result.Status);
+        Assert.Equal(
+            ["connecting", "connected", "disconnecting", "disconnected"],
+            logger.Entries.Where(entry => entry.Id.Id == 18 && entry.Level == LogLevel.Information)
+                .Select(entry => entry.StructuredState.Single(field => field.Key == "ConnectionState").Value));
+        Assert.Equal(
+            ["Set", "Stop"],
+            logger.Entries.Where(entry => entry.Id.Id == 17 && entry.Level == LogLevel.Information)
+                .Select(entry => entry.StructuredState.Single(field => field.Key == "Operation").Value));
+        var finished = Assert.Single(logger.Entries, entry => entry.Id.Id == 19);
+        Assert.Equal(LogLevel.Information, finished.Level);
+        Assert.Contains(finished.StructuredState, field => field.Key == "Status" && Equals(field.Value, SetStatus.Completed));
+        Assert.Contains(finished.StructuredState, field => field.Key == "CommandsWritten" && Equals(field.Value, result.CommandsWritten));
+        Assert.Contains(logger.Entries, entry => entry.Id.Id == 20 && entry.Level == LogLevel.Information);
+        Assert.Equal(
+            settings.ToCommands().Select(command => command.Control),
+            logger.Entries.Where(entry => entry.Id.Id == 21 && entry.Level == LogLevel.Debug)
+                .Select(entry => (DeviceControl)entry.StructuredState.Single(field => field.Key == "Control").Value!));
+        Assert.Equal(result.CommandsWritten, logger.Entries.Count(entry => entry.Id.Id == 22 && entry.Level == LogLevel.Debug));
+        Assert.DoesNotContain(logger.Entries, entry => entry.Level == LogLevel.Information && entry.Id.Id is 14 or 21 or 22);
+    }
+
+    [Fact]
+    public async Task PendingInitialObservationLogsWaitWithoutConnectedState()
+    {
+        var logger = new RecordingLogger<DeviceBase>();
+        var observation = new TaskCompletionSource<DeviceState>(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var device = new TestDevice(logger) { Read = _ => observation.Task };
+        var connect = device.ConnectAsync(TestContext.Current.CancellationToken);
+        try
+        {
+            Assert.False(connect.IsCompleted);
+            Assert.Contains(logger.Entries, entry => entry.Level == LogLevel.Debug && entry.Id.Id == 14
+                && entry.Message.Contains("waiting for initial motion observation", StringComparison.Ordinal));
+            Assert.DoesNotContain(logger.Entries, entry => entry.Id.Id == 18
+                && entry.StructuredState.Any(field => field.Key == "ConnectionState" && Equals(field.Value, "connected")));
+        }
+        finally
+        {
+            observation.TrySetResult(device.LiveState);
+            await connect;
+        }
+
+        Assert.Contains(logger.Entries, entry => entry.Level == LogLevel.Information && entry.Id.Id == 18
+            && entry.StructuredState.Any(field => field.Key == "ConnectionState" && Equals(field.Value, "connected")));
+    }
+
+    [Fact]
+    public async Task FailedStopLogsCallAndFailureWithoutCompletion()
+    {
+        var logger = new RecordingLogger<DeviceBase>();
+        await using var device = new TestDevice(logger);
+        var token = TestContext.Current.CancellationToken;
+        await device.ConnectAsync(token);
+        var failure = new IOException("Write failed.");
+        device.Write = (_, _) => Task.FromException(failure);
+        try
+        {
+            Assert.Same(failure, await Assert.ThrowsAsync<IOException>(() => device.EmergencyStopAsync(token)));
+            Assert.Contains(logger.Entries, entry => entry.Id.Id == 17 && entry.Level == LogLevel.Information);
+            Assert.Contains(logger.Entries, entry => entry.Id.Id == 2 && entry.Level == LogLevel.Error && entry.Exception == failure);
+            Assert.DoesNotContain(logger.Entries, entry => entry.Id.Id == 20);
+        }
+        finally
+        {
+            device.Write = null;
+        }
+    }
+
     [Fact]
     public async Task DisconnectPreservesClientAndReconnectArmsFreshStateWithoutReplay()
     {

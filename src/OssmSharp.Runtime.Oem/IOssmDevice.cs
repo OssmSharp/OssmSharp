@@ -17,6 +17,16 @@ public interface IOssmDevice : IAsyncDisposable
     /// </remarks>
     event EventHandler? StateChanged;
 
+    /// <summary>Gets whether connection setup has completed and the connection remains open.</summary>
+    bool IsConnected { get; }
+
+    /// <summary>Gets the selected peripheral's name when available.</summary>
+    string? Name { get; }
+
+    /// <summary>Gets confirmed assignments for the current connection, independently of observations.</summary>
+    /// <remarks>Cleared when a new connection starts. Null means no assignment has been confirmed.</remarks>
+    TransmittedControls? Transmitted { get; }
+
     /// <summary>
     /// Gets whether settings submission is armed by successful connection or explicit reset.
     /// </summary>

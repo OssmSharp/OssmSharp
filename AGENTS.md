@@ -3,7 +3,7 @@ Use these terms instead:
 - report -> last known state
 - disabled -> disarmed, when referring to when the device detects unexpected motion or is stopped by the caller.
 - stock -> oem, in code and internal technical prose.
-
+- operator -> user
 
 **Pattern-specific policy does not belong in the device library.**
 
@@ -18,3 +18,10 @@ User-facing prose must not describe the device as OEM.
 Use only OssmSharp OEM runtime source and documentation; treat ossm-rs as out of scope.
 
 Current project wiring does not establish intended service ownership. Each executable must have verified dependencies and standalone startup. AppHost composition and project references do not necessarily indicate required coupling.
+
+## Logging
+
+In OssmSharp.Device.Oem OssmDevice and DeviceBase:
+- Connection state changes and api calls must be logged and at the information level
+- Commands and step logged at the debug level.
+- Add logging proactively but not overwhelmingly.

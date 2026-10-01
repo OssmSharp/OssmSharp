@@ -1,5 +1,6 @@
 using AwesomeAssertions;
 using Microsoft.Extensions.Options;
+using Moq;
 using OssmSharp.Runtime.Oem;
 using Shiny.BluetoothLE;
 using Xunit;
@@ -8,6 +9,42 @@ namespace OssmSharp.Runtime.Oem.Tests;
 
 public sealed class BleServiceCollectionExtensionsTests
 {
+    [Theory]
+    [InlineData("")]
+    [InlineData(" ")]
+    public async Task FactoryRequiresCallerSelectedIdentifierWithoutDiscovery(string identifier)
+    {
+        using var context = new BleTestContext();
+        var services = new ServiceCollection();
+        services.AddSingleton(context.Manager.Object);
+        services.AddOemRuntime();
+        await using var provider = services.BuildServiceProvider();
+        var factory = provider.GetRequiredService<Func<string, DeviceBase>>();
+
+        Assert.Throws<ArgumentException>(() => factory(identifier));
+
+        context.Manager.Verify(manager => manager.Scan(It.IsAny<ScanConfig>()), Times.Never);
+        Assert.Empty(context.Requests);
+        context.Peripheral.Verify(peripheral => peripheral.Connect(It.IsAny<ConnectionConfig>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task UnknownExplicitIdentifierDoesNotFallBackToDiscovery()
+    {
+        using var context = new BleTestContext();
+        var services = new ServiceCollection();
+        services.AddSingleton(context.Manager.Object);
+        services.AddOemRuntime();
+        await using var provider = services.BuildServiceProvider();
+        await using var device = provider.GetRequiredService<Func<string, DeviceBase>>()("unavailable-device");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => device.ConnectAsync(TestContext.Current.CancellationToken));
+
+        context.Manager.Verify(manager => manager.GetKnownPeripheral("unavailable-device"), Times.Once);
+        context.Manager.Verify(manager => manager.Scan(It.IsAny<ScanConfig>()), Times.Never);
+        Assert.Empty(context.Requests);
+    }
+
     [Fact]
     public async Task RegistersDiscoveryAndCallerOwnedDeviceFactoryWithoutConnecting()
     {

@@ -51,7 +51,7 @@ public sealed class OssmDevice : DeviceBase
     private readonly IBleManager manager;
 
     /// <summary>
-    /// The identifier of the current device (opaque, but typically a GUID).
+    /// The caller-selected platform identifier retained for reconnection.
     /// </summary>
     private readonly string identifier;
 
@@ -176,6 +176,18 @@ public sealed class OssmDevice : DeviceBase
         this.options = options.Value;
     }
 
+    /// <inheritdoc />
+    public override string? Name
+    {
+        get
+        {
+            lock (sync)
+            {
+                return peripheral?.Name;
+            }
+        }
+    }
+
     internal static void PeripheralStateChanged(IPeripheral peripheral)
     {
         if (peripheral.Status == ConnectionState.Disconnected && Owners.TryGetValue(peripheral, out var owner))
@@ -189,6 +201,7 @@ public sealed class OssmDevice : DeviceBase
     protected override async Task ConnectCoreAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        logger.ConnectionSetupStage("requesting bluetooth access");
         var access = await manager.RequestAccessAsync().ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
         if (access != AccessState.Available)
@@ -196,6 +209,7 @@ public sealed class OssmDevice : DeviceBase
             throw new InvalidOperationException($"Bluetooth access is {access}. Enable bluetooth and grant the application bluetooth permission.");
         }
 
+        logger.ConnectionSetupStage("resolving peripheral after bluetooth access was granted");
         var selected = manager.GetKnownPeripheral(identifier)
             ?? throw new InvalidOperationException("The selected bluetooth device is unavailable. Discover devices again before connecting.");
         if (selected.Status != ConnectionState.Disconnected)
@@ -240,17 +254,23 @@ public sealed class OssmDevice : DeviceBase
             }
         }, exception => Fail(current, exception)));
         Volatile.Write(ref connectIssued, true);
+        logger.ConnectionSetupStage("connecting peripheral");
         await selected.ConnectAsync(new ConnectionConfig(AutoConnect: false), cancellationToken).ConfigureAwait(false);
+        logger.ConnectionSetupStage("reading protocol information");
         var protocolInfo = await selected.ReadCharacteristic(BleProtocolConstants.Service, BleProtocolConstants.ProtocolInfo).ToTask().ConfigureAwait(false);
         ValidateProtocolInfo(protocolInfo.Data);
+        logger.ConnectionSetupStage("subscribing to responses");
         await SubscribeAsync(current, selected, owned, BleProtocolConstants.Response, "response", true, HandleResponse, cancellationToken).ConfigureAwait(false);
+        logger.ConnectionSetupStage("subscribing to motion observations");
         await SubscribeAsync(current, selected, owned, BleProtocolConstants.SensorStream, "sensor stream", false, HandleMotionObservation, cancellationToken).ConfigureAwait(false);
+        logger.ConnectionSetupStage("acquiring control lease");
         lock (sync)
         {
             leaseMaintenance = MaintainLeaseAsync(current, acquired, stopping.Token);
         }
 
         await acquired.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+        logger.ConnectionSetupStage("starting motion stream");
         await StartMotionStreamAsync(current, cancellationToken).ConfigureAwait(false);
     }
 
@@ -587,10 +607,14 @@ public sealed class OssmDevice : DeviceBase
 
             for (var attempt = 1; ; attempt++)
             {
+                logger.RequestSending(id, operation, path, attempt);
                 await WriteRequestAsync(current, selected, payload, priority, cancellationToken).ConfigureAwait(false);
+                logger.RequestTransferred(id, operation, attempt);
                 try
                 {
-                    return await response.Task.WaitAsync(options.ResponseTimeout, timeProvider, cancellationToken).ConfigureAwait(false);
+                    var terminalResponse = await response.Task.WaitAsync(options.ResponseTimeout, timeProvider, cancellationToken).ConfigureAwait(false);
+                    logger.RequestCompleted(id, terminalResponse.Ok);
+                    return terminalResponse;
                 }
                 catch (TimeoutException) when (attempt < options.MaximumRequestAttempts)
                 {
@@ -683,6 +707,7 @@ public sealed class OssmDevice : DeviceBase
             }
         }
 
+        logger.RequestResponseReceived(response.Id, response.Stage, response.Ok);
         // Accepted requests remain pending until a terminal stage.
         if (response.Stage == "completed" && response.Ok)
         {

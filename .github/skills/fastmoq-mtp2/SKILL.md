@@ -70,7 +70,7 @@ repository's MTP-only contract.
   tracked collaborators; follow existing tests and the installed package's
   documentation rather than guessing APIs.
 - Keep pure value/parser tests direct. Retain deterministic clock, delayed-I/O,
-  and simulator fakes where they prove behavior better than mocks.
+  and device fakes where they prove behavior better than mocks.
 - Write behavioral tests before implementation. For regressions, prove the test
   fails for the intended reason, then fix the behavior and rerun that scope.
 
@@ -79,14 +79,14 @@ repository's MTP-only contract.
 Run from the repository root in PowerShell, replacing the project as needed:
 
 ```powershell
-dotnet test --project tests/OssmSharp.Web.Application.Tests/OssmSharp.Web.Application.Tests.csproj
+dotnet test --project tests/OssmSharp.Web.Api.Tests/OssmSharp.Web.Api.Tests.csproj
 ```
 
 Use `--project`, not a positional project path. Add MTP/xUnit options directly
 to `dotnet test`; an extra `--` is not required in .NET 10 MTP mode, though it
 can explicitly delimit forwarded arguments. `dotnet run` still uses `--` to
 forward arguments, for example:
-`dotnet run --project tests/OssmSharp.Web.Application.Tests/OssmSharp.Web.Application.Tests.csproj -- -?`.
+`dotnet run --project tests/OssmSharp.Web.Api.Tests/OssmSharp.Web.Api.Tests.csproj -- -?`.
 
 Replace the illustrative names below with real test names:
 
@@ -112,7 +112,7 @@ switching runners or suppressing them.
 ## Configuration and troubleshooting
 
 - Use
-  `dotnet test --project tests/OssmSharp.Web.Application.Tests/OssmSharp.Web.Application.Tests.csproj -?`
+  `dotnet test --project tests/OssmSharp.Web.Api.Tests/OssmSharp.Web.Api.Tests.csproj -?`
   to inspect the options registered by that project's installed framework and
   extensions. For an unrecognized option, check this help and resolved versions
   before changing packages.

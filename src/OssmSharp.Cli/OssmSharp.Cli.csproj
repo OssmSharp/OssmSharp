@@ -5,7 +5,9 @@
     <TargetFrameworks>$(BaseTargetFramework)</TargetFrameworks>
     <TargetFrameworks Condition="'$(NativeTargetFramework)' != ''">
       $(TargetFrameworks);$(NativeTargetFramework)</TargetFrameworks>
-    <SupportedOSPlatformVersion Condition="$([MSBuild]::IsOSPlatform('OSX'))">26.0</SupportedOSPlatformVersion>
+  </PropertyGroup>
+  <PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'macos'">
+    <NoWarn>$(NoWarn);XCODE_27_0_PREVIEW</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../OssmSharp.Runtime.Oem/OssmSharp.Runtime.Oem.csproj" />

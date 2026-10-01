@@ -1,0 +1,13 @@
+<header class="rw-page-header">
+    <span class="site-label">@Label</span>
+    @HeaderContent
+</header>
+<main class="rw-page" tabindex="-1" aria-label="@Label">
+    @ChildContent
+</main>
+
+@code {
+    [Parameter] public string Label { get; set; } = "Controls";
+    [Parameter] public RenderFragment? HeaderContent { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

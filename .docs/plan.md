@@ -4,7 +4,6 @@
 - **Bluetooth:** Shiny.BluetoothLE 5.7.2 — access Windows/macOS Bluetooth APIs.
 - **Hardware:** Device and firmware - execute commands and own motor behavior and safety.
 - **Wire protocol:** [RAD BLE v1](https://github.com/researchanddesire/rad-ble/blob/main/protocol/rad-ble-v1.json) - the supported Bluetooth protocol for discovery, requests, responses, control leases, and telemetry.
-- **Simulator:** `ossm-rs` / `ossm-motion` and the simulator process — communicate with and test against the real simulator.
 - **CLI parsing:** System.CommandLine 2.0.12 — parse commands and options, and generate help.
 - **Hosting:** Microsoft.Extensions.Hosting 10.0.12 — manage executable composition and lifecycle.
 - **Logging:** Microsoft.Extensions.Logging.Abstractions 10.0.12 — provide standard `ILogger<T>` diagnostics.
@@ -19,12 +18,8 @@
   - **Framework:** .NET 10.
   - **Package:** Shiny.BluetoothLE 5.7.2.
   - **Runtime connection:** Device firmware over RAD BLE v1.
-- **`OssmSharp.Runtime.Simulator`**
-  - **Project reference:** `OssmSharp.Runtime.Oem`.
-  - **Runtime connection:** Externally owned simulator over its existing protocol.
 - **`OssmSharp.Cli`**
   - **Project reference:** `OssmSharp.Runtime.Oem`.
-  - **Project reference:** `OssmSharp.Runtime.Simulator`.
 
 ## Projects, files, and functions
 
@@ -32,8 +27,8 @@ This is the concrete implementation contract. Every listed member, its ownership
 visibility, and specified behavior is required, not an implementation suggestion.
 
 - **Consumer layer:** Runtime accepts complete motion settings and owns their translation, sequencing, supersession, state, and arming.
-- **Command layer:** Runtime defines individual control assignments; Bluetooth and Simulator providers encode and send one assignment per call.
-- **Transport layer:** The Bluetooth provider owns RAD requests, responses, leases, and streams through Shiny; Simulator retains its protocol connection.
+- **Command layer:** Runtime defines individual control assignments; the Bluetooth provider encodes and sends one assignment per call.
+- **Transport layer:** The Bluetooth provider owns RAD requests, responses, leases, and streams through Shiny.
 
 ### Types and members
 
@@ -100,17 +95,6 @@ visibility, and specified behavior is required, not an implementation suggestion
   - **`ServiceCollectionExtensions.cs`**
     - **Register:** Register discovery and a factory accepting a discovered device identifier and returning DeviceBase.
 
-- **`OssmSharp.Runtime.Simulator`**
-  - **`SimulatedDevice.cs`** — extends `DeviceBase`; supplies simulator protocol operations while inheriting all settings execution from Runtime.
-    - **ConnectCoreAsync (protected override):** Open a fresh simulator connection and establish observations without starting its process or sending settings; leave arming to DeviceBase.
-    - **WriteCommandAsync(command) (protected override):** Encode and send one DeviceCommand through the simulator protocol without accepting or decomposing MotionSettings.
-    - **EncodeCommand(command) (private):** Encode one DeviceCommand into a simulator protocol request.
-    - **ReadStateAsync (protected override):** Request live simulator state and decode it into DeviceState.
-    - **DecodeState (private):** Decode simulator control values into DeviceState, surfacing malformed responses as errors.
-    - **DisconnectCoreAsync (protected override):** Close per-connection resources without terminating the externally owned simulator process or preventing reconnection by this client.
-  - **`ServiceCollectionExtensions.cs`**
-    - **Register:** Register the simulator implementation and its endpoint configuration.
-
 - **`OssmSharp.Cli`**
   - **`Program.cs`**
     - **Main:** Parse list or prompt arguments, configure dependencies, invoke the selected operation, and return its exit code.
@@ -137,7 +121,6 @@ visibility, and specified behavior is required, not an implementation suggestion
   - **Reusable disconnect:** Library caller -> `IOssmDevice.DisconnectAsync` -> disarm and abandon pending work -> `OssmDevice.WriteCommandAsync(command)` sends or joins Stop after the current GATT send -> `OssmDevice.DisconnectCoreAsync`; the client remains reusable.
   - **Reconnect:** Library caller -> `IOssmDevice.ConnectAsync` on the same instance -> finish previous cleanup if needed -> `OssmDevice.ConnectCoreAsync` -> new lease and subscriptions -> fresh initial controls -> rearm submission without replaying settings.
   - **Cleanup:** On prompt exit or connection failure, `Program.PromptAsync` -> `IOssmDevice.DisposeAsync` -> disarm and abandon pending work -> `OssmDevice.WriteCommandAsync(command)` sends or joins Stop while connected and leased -> `OssmDevice.DisconnectCoreAsync` -> stream stop, lease release, and Bluetooth teardown; cleanup still runs if Stop fails, and disposal prevents reuse.
-  - **Simulator path:** Use the same interface calls on `SimulatedDevice`, with `SimulatedDevice.ConnectCoreAsync` and `SimulatedDevice.DisconnectCoreAsync`; reconnection never restarts the simulator process.
 
 - **Submit settings or Stop:**
   - **Input:** Settings require a connected, armed device and one complete `MotionSettings` value; Stop does not require arming.
@@ -148,7 +131,6 @@ visibility, and specified behavior is required, not an implementation suggestion
   - **Outcome:** Every assignment must complete successfully; firmware owns motor behavior and safety, and protocol completion does not confirm physical motion.
   - **Stop:** `PromptHandler.Stop` or `PromptHandler.Quit` -> `IOssmDevice.EmergencyStopAsync` -> `DeviceBase.CancelPending` -> `OssmDevice.WriteCommandAsync(command)` -> `OssmDevice.SendRequestAsync` sends speed zero next after the current GATT write, without waiting for its terminal response or a live read.
   - **Stop outcome:** The firmware handles requests in the order received, so a command sent just before Stop may briefly take effect; no queued setting may follow Stop. Success preserves prior arming, failure disarms, overlapping callers share the Stop outcome, and neither cancellation nor lease release proves the motor stopped.
-  - **Simulator path:** The same Runtime chain calls `SimulatedDevice.WriteCommandAsync(command)` -> `SimulatedDevice.EncodeCommand(command)` -> simulator protocol connection.
 
 - **Read cached or live state:**
   - **Input:** The consumer requests status with or without cache bypass.
@@ -158,7 +140,6 @@ visibility, and specified behavior is required, not an implementation suggestion
   - **Observation policy:** Changed controls update last known state only; they do not disarm submission, discard queued commands, or trigger Stop.
   - **Failure:** Invalid controls, lost stream, or lost lease -> `DeviceBase.SetFaulted`; compact State alone neither replaces controls nor constitutes malformed motion telemetry.
   - **Outcome:** Return the requested state and display it alongside `IOssmDevice.IsArmed`; cached reads require no I/O, and live read failures surface as errors.
-  - **Simulator path:** `SimulatedDevice.ReadStateAsync` -> simulator protocol request -> `SimulatedDevice.DecodeState` -> `DeviceBase.UpdateState`.
 
 ## Command-line prompt
 

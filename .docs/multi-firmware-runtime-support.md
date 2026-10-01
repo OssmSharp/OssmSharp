@@ -10,7 +10,6 @@ to implement before its firmware contract is selected.
 - **Platform:** .NET 10 - runtime and standard libraries.
 - **Bluetooth:** Shiny.BluetoothLE 5.7.2 - access Windows/macOS Bluetooth APIs.
 - **Hardware:** OEM device and firmware - execute patterns and own motor behavior and safety.
-- **Simulator:** `ossm-rs` / `ossm-motion` - externally owned simulator with an unverified OEM compatibility mapping.
 - **CLI parsing:** System.CommandLine 2.0.12 - parse commands and generate help.
 - **Hosting:** Microsoft.Extensions.Hosting 10.0.12 - compose the CLI and own its lifecycle.
 - **Logging:** Microsoft.Extensions.Logging.Abstractions 10.0.12 - provide operational diagnostics through `ILogger<T>`.
@@ -51,12 +50,6 @@ The separate Primitives project disappears: its types belong to the OEM
 contract. Firmware packages never reference each other. Transport implementations
 remain in their firmware package unless independent packaging becomes necessary.
 Shared lifecycle does not make pattern identities or settings interchangeable.
-
-Simulator placement depends on verified semantics, not matching argument names
-or pattern numbers. An OEM-compatible adapter belongs with OEM; a different
-contract belongs in a sibling package. Neither client owns the simulator
-process. No simulator interface or implementation is prescribed before that
-mapping is resolved, and no silent pattern substitution is permitted.
 
 ## Projects, files, and functions
 

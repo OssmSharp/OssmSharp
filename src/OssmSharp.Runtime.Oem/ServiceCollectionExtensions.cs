@@ -43,8 +43,7 @@ public static class ServiceCollectionExtensions
         // TODO: make a better factory method.
         services.AddSingleton<Func<string, DeviceBase>>(
             provider => identifier => new OssmDevice(
-                provider.GetRequiredService<IBleManager>(),
-                identifier,
+                provider.GetRequiredService<IBleManager>(), identifier,
                 provider.GetRequiredService<TimeProvider>(),
                 provider.GetRequiredService<ILogger<DeviceBase>>(),
                 provider.GetRequiredService<IOptions<OssmDeviceOptions>>()));

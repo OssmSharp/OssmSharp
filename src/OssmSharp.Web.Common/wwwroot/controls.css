@@ -1,0 +1,81 @@
+* { box-sizing: border-box; }
+
+body {
+    margin: 0;
+    min-height: 100vh;
+}
+
+body.rw-theme {
+    color-scheme: var(--rw-color-scheme);
+    font-family: var(--rw-font);
+    color: var(--rw-text);
+    background: var(--rw-background);
+    line-height: 1.5;
+}
+
+[hidden] { display: none !important; }
+h1, h2, h3, p { margin: 0; }
+h1 { font-size: clamp(1.5rem, 5vw, 2.25rem); line-height: 1.2; }
+a { color: var(--rw-secondary); }
+a:focus-visible { outline: 2px solid var(--rw-focus); outline-offset: 3px; }
+
+.site-label { font-size: 1.4rem; font-weight: 700; }
+
+.rw-page-header {
+    width: 100%;
+    max-width: 1000px;
+    margin-inline: auto;
+    padding-inline: clamp(1rem, 3vw, 2rem);
+}
+
+.rw-page-header { margin-block: 1.5rem 0; }
+.rw-page { max-width: 1000px; margin-block: 1.25rem 2rem; }
+.rw-inline-notification { inline-size: 100%; }
+[slot="heading"], [slot="heading"] h2 { font-size: 1.1rem; }
+
+.visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+
+.preview-heading {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: .8rem;
+}
+
+.preview-rail { display: block; width: 100%; height: 86px; overflow: visible; }
+.preview-track { fill: none; stroke: var(--rw-border); stroke-width: 1.5; }
+.preview-ticks { stroke: var(--rw-border); stroke-width: 1; }
+.preview-range { fill: color-mix(in srgb, var(--rw-secondary) 24%, transparent); stroke: var(--rw-secondary); stroke-width: 1; }
+.preview-carriage {
+    fill: var(--rw-success);
+    stroke: var(--rw-background);
+    stroke-width: 1.5;
+}
+.preview-settings { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .75rem; margin: 0; }
+.preview-settings div { min-width: 0; }
+.preview-settings dt { color: var(--rw-muted); font-size: .75rem; }
+.preview-settings dd { margin: 0; font-size: 1rem; font-variant-numeric: tabular-nums; }
+.hint { font-size: .85rem; color: var(--rw-muted); line-height: 1.5; }
+.card-footer { display: grid; gap: .8rem; }
+
+@media (max-width: 480px) {
+    .preview-settings { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .preview-carriage animate { display: none; }
+}
+
+@media (forced-colors: active) {
+    .preview-track, .preview-ticks, .preview-range { stroke: CanvasText; }
+    .preview-range { fill: Canvas; }
+    .preview-carriage { fill: Highlight; stroke: CanvasText; }
+}

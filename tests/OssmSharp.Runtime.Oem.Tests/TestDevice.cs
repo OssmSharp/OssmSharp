@@ -1,9 +1,10 @@
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using OssmSharp.Runtime.Oem;
 
 namespace OssmSharp.Runtime.Oem.Tests;
 
-internal sealed class TestDevice() : DeviceBase(NullLogger<DeviceBase>.Instance)
+internal sealed class TestDevice(ILogger<DeviceBase>? logger = null) : DeviceBase(logger ?? NullLogger<DeviceBase>.Instance)
 {
     public List<DeviceCommand> Writes { get; } = [];
 

@@ -1,10 +1,19 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/OssmSharp.AppHost/OssmSharp.AppHost.csproj" />
     <Project Path="src/OssmSharp.Cli/OssmSharp.Cli.csproj" />
     <Project Path="src/OssmSharp.Runtime.Oem/OssmSharp.Runtime.Oem.csproj" />
+    <Project Path="src/OssmSharp.Web.AdminWeb/OssmSharp.Web.AdminWeb.csproj" />
+    <Project Path="src/OssmSharp.Web.Api/OssmSharp.Web.Api.csproj" />
+    <Project Path="src/OssmSharp.Web.Client/OssmSharp.Web.Client.csproj" />
+    <Project Path="src/OssmSharp.Web.Common/OssmSharp.Web.Common.csproj" />
+    <Project Path="src/OssmSharp.Web.Contracts/OssmSharp.Web.Contracts.csproj" />
+    <Project Path="src/OssmSharp.Web.GuestWeb/OssmSharp.Web.GuestWeb.csproj" />
+    <Project Path="src/OssmSharp.Web.ServiceDefaults/OssmSharp.Web.ServiceDefaults.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/OssmSharp.Cli.Tests/OssmSharp.Cli.Tests.csproj" />
     <Project Path="tests/OssmSharp.Runtime.Oem.Tests/OssmSharp.Runtime.Oem.Tests.csproj" />
+    <Project Path="tests/OssmSharp.Web.Api.Tests/OssmSharp.Web.Api.Tests.csproj" />
   </Folder>
 </Solution>

@@ -22,7 +22,10 @@ internal sealed class PrettyPromptInput : IPromptInput, IAsyncDisposable
             persistentHistoryFilepath,
             new EndOfInputCallbacks(endOfInput),
             console,
-            new PromptConfiguration(prompt: CliStrings.Prompt));
+            new PromptConfiguration(
+                prompt: CliStrings.Prompt,
+                minCompletionItemsCount: 1,
+                maxCompletionItemsCount: 1));
     }
 
     internal PrettyPromptInput(IPrompt prompt)

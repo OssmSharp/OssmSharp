@@ -1,0 +1,15 @@
+<RwAlert class="@NotificationClass" Variant="@Variant" role="@Role" @attributes="AdditionalAttributes">
+    @ChildContent
+</RwAlert>
+
+@code {
+    [Parameter] public string Variant { get; set; } = "info";
+    [Parameter] public string Role { get; set; } = "status";
+    [Parameter] public string? CssClass { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter(CaptureUnmatchedValues = true)] public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private string NotificationClass => string.IsNullOrWhiteSpace(CssClass)
+        ? "rw-inline-notification"
+        : $"rw-inline-notification {CssClass}";
+}

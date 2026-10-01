@@ -30,4 +30,46 @@ internal static partial class Log
 
     [LoggerMessage(10, LogLevel.Debug, "Control lease renewal did not complete within its {RenewalDeadlineMilliseconds} ms deadline.")]
     public static partial void LeaseRenewalExpired(this ILogger logger, double renewalDeadlineMilliseconds);
+
+    [LoggerMessage(11, LogLevel.Debug, "Device operation {Operation} started.")]
+    public static partial void OperationStarted(this ILogger logger, string operation);
+
+    [LoggerMessage(12, LogLevel.Debug, "Device operation {Operation} completed.")]
+    public static partial void OperationCompleted(this ILogger logger, string operation);
+
+    [LoggerMessage(13, LogLevel.Information, "Device connection setup was cancelled; awaiting cleanup.")]
+    public static partial void ConnectionCancelled(this ILogger logger);
+
+    [LoggerMessage(14, LogLevel.Debug, "Bluetooth connection setup: {Stage}.")]
+    public static partial void ConnectionSetupStage(this ILogger logger, string stage);
+
+    [LoggerMessage(15, LogLevel.Debug, "Device request {RequestId} for {Operation}: GATT transfer {Attempt} completed; awaiting terminal response.")]
+    public static partial void RequestTransferred(this ILogger logger, uint requestId, string operation, int attempt);
+
+    [LoggerMessage(16, LogLevel.Trace, "Device request {RequestId} received response stage {Stage} with success {Success}.")]
+    public static partial void RequestResponseReceived(this ILogger logger, uint requestId, string stage, bool success);
+
+    [LoggerMessage(17, LogLevel.Information, "Device API {Operation} called.")]
+    public static partial void ApiCalled(this ILogger logger, string operation);
+
+    [LoggerMessage(18, LogLevel.Information, "Device connection state: {ConnectionState}.")]
+    public static partial void ConnectionStateChanged(this ILogger logger, string connectionState);
+
+    [LoggerMessage(19, LogLevel.Information, "Device Set finished with status {Status}; {CommandsWritten} commands written.")]
+    public static partial void SettingsFinished(this ILogger logger, SetStatus status, int commandsWritten);
+
+    [LoggerMessage(20, LogLevel.Information, "Device Stop command completed; commands remain disarmed.")]
+    public static partial void StopCompleted(this ILogger logger);
+
+    [LoggerMessage(21, LogLevel.Debug, "Writing device setting {Control} with value {Value}.")]
+    public static partial void CommandStarted(this ILogger logger, DeviceControl control, int value);
+
+    [LoggerMessage(22, LogLevel.Debug, "Device setting {Control} write completed.")]
+    public static partial void CommandCompleted(this ILogger logger, DeviceControl control);
+
+    [LoggerMessage(23, LogLevel.Debug, "Sending device request {RequestId} for {Operation} at {Path}, attempt {Attempt}.")]
+    public static partial void RequestSending(this ILogger logger, uint requestId, string operation, string? path, int attempt);
+
+    [LoggerMessage(24, LogLevel.Debug, "Device request {RequestId} received its terminal response with success {Success}.")]
+    public static partial void RequestCompleted(this ILogger logger, uint requestId, bool success);
 }

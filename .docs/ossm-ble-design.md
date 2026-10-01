@@ -79,11 +79,10 @@ version, stream identity, and required controls; never substitute defaults or
 cached success for invalid live data.
 
 Composition is proposed, not adopted: a concrete device coordinator could use an
-`IDeviceAdapter` implemented separately for Bluetooth and the simulator. Shared
-code owns arming, supersession, and last known state; adapters own protocol
-translation and whole-request versus split-write execution. Split writes must
-check cancellation before issuance, register expected changes, and await issued
-I/O. The simulator process remains externally owned.
+`IDeviceAdapter` implemented for Bluetooth. Shared code owns arming,
+supersession, and last known state; the adapter owns protocol translation and
+split-write execution. Split writes must check cancellation before issuance,
+register expected changes, and await issued I/O.
 
 Retaining the current inheritance hooks is the smaller migration alternative;
 both structures must enforce the same behavior. Reject a generic byte-transport

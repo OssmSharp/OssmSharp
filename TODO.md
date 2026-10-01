@@ -1,1 +1,9 @@
-- Check for usage of modern .NET memory and span constructs.
+- remove the "device connected" notification (it already has the status pill)
+- guest ui:
+  - when connection is lost, disable the pattern preview
+  - remove the stats row immediately below the pattern preview
+- user ui:
+ - the "connection lost" notification is supposed to be same as the "device connected" style only a different colour. this behaviour suggests that it's bespoke and it shouldn't be.
+ - when the connection is lost, make the UI greyscale. reuse the css without copying as the guest ui
+ - remove the stats row immediately below the pattern preview
+ - rename "Sent settings" to "Last settings"

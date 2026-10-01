@@ -1,0 +1,15 @@
+<Project Sdk="Aspire.AppHost.Sdk/13.6.0">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AspireUseCliBundle>true</AspireUseCliBundle>
+    <UserSecretsId>6be0f685-59d8-4235-abbe-fc73260e3a34</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../OssmSharp.Web.AdminWeb/OssmSharp.Web.AdminWeb.csproj" />
+    <ProjectReference Include="../OssmSharp.Web.Api/OssmSharp.Web.Api.csproj" />
+    <ProjectReference Include="../OssmSharp.Web.GuestWeb/OssmSharp.Web.GuestWeb.csproj" />
+  </ItemGroup>
+
+</Project>

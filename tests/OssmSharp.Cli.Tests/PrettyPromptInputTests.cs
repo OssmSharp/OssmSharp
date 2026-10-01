@@ -50,6 +50,29 @@ public sealed class PrettyPromptInputTests
     }
 
     [Fact]
+    public async Task ReservesMinimumSpaceForUnusedCompletionPane()
+    {
+        var directory = Directory.CreateTempSubdirectory("OssmSharp-layout-");
+        try
+        {
+            using var output = new StringWriter();
+            var console = new PrettyPromptConsole(
+                output,
+                TextWriter.Null,
+                new PrettyPromptTestConsole([Key('\r', ConsoleKey.Enter)], reportKeysAvailable: true));
+            await using var input = new PrettyPromptInput(console, Path.Combine(directory.FullName, "history"));
+
+            await input.ReadAsync(TestContext.Current.CancellationToken);
+
+            output.ToString().TakeWhile(character => character == '\n').Should().HaveCount(3);
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task ControlDOnEmptyInputReturnsEndOfInput()
     {
         var directory = Directory.CreateTempSubdirectory("OssmSharp-eof-");

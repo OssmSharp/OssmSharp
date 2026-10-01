@@ -1,0 +1,10 @@
+@inherits LayoutComponentBase
+
+<ControlLayout Label="Guest controls">
+    <ChildContent>
+        <InlineNotification Variant="danger" Role="alert" data-testid="guest-disconnected">
+            Connection lost. Open the invitation link again.
+        </InlineNotification>
+        @Body
+    </ChildContent>
+</ControlLayout>

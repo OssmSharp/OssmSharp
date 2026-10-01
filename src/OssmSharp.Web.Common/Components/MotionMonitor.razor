@@ -1,0 +1,59 @@
+@using System.Diagnostics
+
+<RwCard class="pattern-preview" role="region" aria-label="@PreviewLabel">
+    <div slot="heading" class="rw-card-heading preview-heading">
+        <h2>Pattern preview</h2>
+        <RwBadge Variant="neutral" data-testid="preview-pattern">@PatternName</RwBadge>
+    </div>
+    <svg class="preview-rail" viewBox="0 0 200 46" role="img" aria-label="@PreviewLabel">
+        <path class="preview-track" d="M5 23H195 M5 15V31 M195 15V31" />
+        <path class="preview-ticks" d="M52.5 18V28 M100 18V28 M147.5 18V28" />
+        <rect class="preview-range" x="@RangeStart" y="18" width="@RangeWidth" height="10" rx="2" />
+        <circle class="preview-carriage preview-pattern-@BoundedPattern @(BoundedSpeed == 0 ? "preview-stopped" : null)"
+                cx="0" cy="23" r="7" style="@AnimationStyle" />
+    </svg>
+    <dl class="preview-settings" data-testid="preview-settings">
+        <div><dt>Speed</dt><dd>@BoundedSpeed%</dd></div>
+        <div><dt>Stroke</dt><dd>@BoundedStroke%</dd></div>
+        <div><dt>Depth</dt><dd>@BoundedDepth%</dd></div>
+        <div><dt>Sensation</dt><dd>@BoundedSensation%</dd></div>
+    </dl>
+</RwCard>
+
+@code {
+    [Parameter] public int Pattern { get; set; }
+    [Parameter] public int Speed { get; set; }
+    [Parameter] public int Stroke { get; set; }
+    [Parameter] public int Depth { get; set; }
+    [Parameter] public int Sensation { get; set; }
+
+    private int BoundedPattern => Math.Clamp(Pattern, 0, 6);
+    private int BoundedSpeed => Math.Clamp(Speed, 0, 100);
+    private int BoundedStroke => Math.Clamp(Stroke, 0, 100);
+    private int BoundedDepth => Math.Clamp(Depth, 0, 100);
+    private int BoundedSensation => Math.Clamp(Sensation, 0, 100);
+    private double Start => 5 + (100 - BoundedDepth) * 1.9;
+    private double EffectiveStroke => BoundedPattern == 6
+        ? BoundedStroke * (1 - BoundedSensation / 200d)
+        : BoundedStroke;
+    private double End => Math.Min(195, Start + EffectiveStroke * 1.9);
+    private double Mid => (Start + End) / 2;
+    private string RangeStart => Format(Start);
+    private string RangeWidth => Format(Math.Max(1, End - Start));
+    private string AnimationStyle => FormattableString.Invariant(
+        $"--preview-start:{Start / 2:0.##}%;--preview-quarter:{(Start + (End - Start) * .25) / 2:0.##}%;--preview-mid:{Mid / 2:0.##}%;--preview-three-quarter:{(Start + (End - Start) * .75) / 2:0.##}%;--preview-end:{End / 2:0.##}%;--preview-duration:{2.2 - BoundedSpeed * .018:0.##}s");
+    private string PreviewLabel => $"{PatternName} preview at {BoundedSpeed}% speed, {BoundedStroke}% stroke, {BoundedDepth}% depth, and {BoundedSensation}% sensation";
+    private string PatternName => BoundedPattern switch
+    {
+        0 => "Simple stroke",
+        1 => "Teasing pounding",
+        2 => "Robo stroke",
+        3 => "Half and half",
+        4 => "Deeper",
+        5 => "Stop and go",
+        6 => "Insist",
+        _ => throw new UnreachableException()
+    };
+
+    private static string Format(double value) => value.ToString("0.##", CultureInfo.InvariantCulture);
+}

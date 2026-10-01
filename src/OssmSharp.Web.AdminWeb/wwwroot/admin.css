@@ -1,0 +1,14 @@
+.user-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: stretch; gap: 1rem; }
+.user-grid > rw-card { min-width: 0; }
+.user-grid > rw-card::part(card) { height: 100%; }
+.user-status-heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: .4rem; }
+.user-status-heading rw-badge { margin-left: auto; }
+.invite-row rw-input { flex: 1 1 12rem; min-width: 0; }
+.connection-details { display: grid; gap: .5rem; }
+.connection-details dt { color: var(--rw-muted); font-size: .85rem; }
+.connection-details dd { margin: 0; overflow-wrap: anywhere; }
+[data-testid="device-duration"] { font-variant-numeric: tabular-nums; }
+
+@media (max-width: 680px) {
+    .user-grid { grid-template-columns: 1fr; }
+}

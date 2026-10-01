@@ -1,0 +1,67 @@
+<RwCard class="pattern-preview" role="region" aria-label="@PreviewLabel">
+    <div slot="heading" class="rw-card-heading preview-heading">
+        <h2>@Title</h2>
+        <RwBadge Variant="neutral" data-testid="preview-pattern">@PatternLabel</RwBadge>
+    </div>
+    <svg class="preview-rail" viewBox="0 0 200 46" role="img" aria-label="@PreviewLabel">
+        <path class="preview-track" d="M5 23H195 M5 15V31 M195 15V31" />
+        <path class="preview-ticks" d="M52.5 18V28 M100 18V28 M147.5 18V28" />
+        @if (BoundedStroke is not null && BoundedDepth is not null)
+        {
+            <rect class="preview-range" x="@RangeStart" y="18" width="@RangeWidth" height="10" rx="2" />
+            <circle class="preview-carriage" cx="@RangeMidpoint" cy="23" r="7">
+                @if (Animate && BoundedSpeed > 0)
+                {
+                    <animate attributeName="cx" values="@AnimationValues" dur="@AnimationDuration" repeatCount="indefinite" />
+                }
+            </circle>
+        }
+    </svg>
+    <dl class="preview-settings" data-testid="preview-settings">
+        <div>
+            <dt>Speed</dt>
+            <dd>@Value(BoundedSpeed)</dd>
+        </div>
+        <div>
+            <dt>Stroke</dt>
+            <dd>@Value(BoundedStroke)</dd>
+        </div>
+        <div>
+            <dt>Depth</dt>
+            <dd>@Value(BoundedDepth)</dd>
+        </div>
+        <div>
+            <dt>Sensation</dt>
+            <dd>@Value(BoundedSensation)</dd>
+        </div>
+    </dl>
+</RwCard>
+
+@code {
+    [Parameter] public string Title { get; set; } = "Pattern preview";
+    [Parameter] public int? Pattern { get; set; } = 0;
+    [Parameter] public int? Speed { get; set; }
+    [Parameter] public int? Stroke { get; set; }
+    [Parameter] public int? Depth { get; set; }
+    [Parameter] public int? Sensation { get; set; }
+    [Parameter] public bool Animate { get; set; } = true;
+
+    private string PatternLabel => Pattern switch { null => "Unknown", 0 => "Simple stroke", _ => $"Pattern {Pattern}" };
+    private int? BoundedSpeed => Bound(Speed);
+    private int? BoundedStroke => Bound(Stroke);
+    private int? BoundedDepth => Bound(Depth);
+    private int? BoundedSensation => Bound(Sensation);
+    private double Start => 5 + (100 - BoundedDepth!.Value) * 1.9;
+    private double End => Math.Min(195, Start + BoundedStroke!.Value * 1.9);
+    private double Mid => (Start + End) / 2;
+    private string RangeStart => Format(Start);
+    private string RangeWidth => Format(Math.Max(1, End - Start));
+    private string RangeMidpoint => Format(Mid);
+    private string AnimationValues => $"{Format(Start)};{Format(End)};{Format(Start)}";
+    private string AnimationDuration => FormattableString.Invariant($"{2.2 - BoundedSpeed * .018:0.##}s");
+    private string PreviewLabel => $"{PatternLabel} preview at {Value(BoundedSpeed)} speed, {Value(BoundedStroke)} stroke, {Value(BoundedDepth)} depth, and {Value(BoundedSensation)} sensation";
+
+    private static int? Bound(int? value) => value is { } known ? Math.Clamp(known, 0, 100) : null;
+    private static string Value(int? value) => value is { } known ? $"{known}%" : "Unknown";
+    private static string Format(double value) => value.ToString("0.##", CultureInfo.InvariantCulture);
+}

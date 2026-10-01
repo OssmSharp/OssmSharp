@@ -48,6 +48,10 @@ public abstract class DeviceBase : IOssmDevice
     /// </summary>
     private DeviceState? state;
 
+    private TransmittedControls? transmitted;
+    private long writeSequence;
+    private long confirmedSpeedSequence;
+
     /// <summary>
     /// Connection failure retained with its stack trace until a successful reconnection.
     /// </summary>
@@ -117,6 +121,33 @@ public abstract class DeviceBase : IOssmDevice
     public event EventHandler? StateChanged;
 
     /// <inheritdoc />
+    public bool IsConnected
+    {
+        get
+        {
+            lock (sync)
+            {
+                return connected;
+            }
+        }
+    }
+
+    /// <inheritdoc />
+    public virtual string? Name => null;
+
+    /// <inheritdoc />
+    public TransmittedControls? Transmitted
+    {
+        get
+        {
+            lock (sync)
+            {
+                return transmitted;
+            }
+        }
+    }
+
+    /// <inheritdoc />
     public bool IsArmed
     {
         get
@@ -155,18 +186,21 @@ public abstract class DeviceBase : IOssmDevice
             attempt = ++connection;
         }
 
+        logger.OperationStarted("connect");
         await CleanupAsync().ConfigureAwait(false);
         CancellationTokenSource session;
         lock (sync)
         {
             ThrowIfInterrupted(attempt);
             connecting = true;
+            transmitted = null;
             cleanupPending = true;
             connectionCancellation = session = new();
             connectionStopping = null;
         }
 
         using var attemptCancellation = CancellationTokenSource.CreateLinkedTokenSource(token, session.Token);
+        logger.ConnectionStateChanged("connecting");
         try
         {
             await ConnectCoreAsync(attemptCancellation.Token).ConfigureAwait(false);
@@ -179,6 +213,7 @@ public abstract class DeviceBase : IOssmDevice
             }
 
             attemptCancellation.Token.ThrowIfCancellationRequested();
+            logger.ConnectionSetupStage("waiting for initial motion observation");
             UpdateState(await ReadStateAsync(attemptCancellation.Token).WaitAsync(attemptCancellation.Token).ConfigureAwait(false));
             lock (sync)
             {
@@ -195,6 +230,8 @@ public abstract class DeviceBase : IOssmDevice
                 armed = true;
             }
 
+            logger.OperationCompleted("connect");
+            logger.ConnectionStateChanged("connected");
             NotifyStateChanged();
             return true;
         }
@@ -211,7 +248,11 @@ public abstract class DeviceBase : IOssmDevice
                 reported = ReferenceEquals(connectionError, providerFailure?.SourceException);
             }
 
-            if (connectionError is not OperationCanceledException && !reported)
+            if (connectionError is OperationCanceledException)
+            {
+                logger.ConnectionCancelled();
+            }
+            else if (!reported)
             {
                 logger.OperationFailed("connect", connectionError);
             }
@@ -279,6 +320,7 @@ public abstract class DeviceBase : IOssmDevice
     public async Task<SetResult> SetAsync(MotionSettings settings, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(settings);
+        logger.ApiCalled("Set");
         using var pendingCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         SettingsSubmission current;
         lock (sync)
@@ -296,6 +338,7 @@ public abstract class DeviceBase : IOssmDevice
 
             if (cancellationToken.IsCancellationRequested)
             {
+                logger.SettingsFinished(SetStatus.Cancelled, 0);
                 return new(SetStatus.Cancelled, 0);
             }
 
@@ -304,10 +347,12 @@ public abstract class DeviceBase : IOssmDevice
 
         try
         {
-            return await ExecuteAsync(
+            var result = await ExecuteAsync(
                 _ => ApplySettingsAsync(current),
                 requiresConnection: true,
                 cancellationToken: current.PendingCancellation.Token).ConfigureAwait(false);
+            logger.SettingsFinished(result.Status, result.CommandsWritten);
+            return result;
         }
         catch (OperationCanceledException) when (current.PendingCancellation.IsCancellationRequested || disposing)
         {
@@ -318,6 +363,7 @@ public abstract class DeviceBase : IOssmDevice
                     current.Status = SetStatus.Cancelled;
                 }
 
+                logger.SettingsFinished(current.Status, current.CommandsWritten);
                 return current.Result;
             }
         }
@@ -375,6 +421,7 @@ public abstract class DeviceBase : IOssmDevice
     /// <inheritdoc />
     public Task EmergencyStopAsync(CancellationToken cancellationToken = default)
     {
+        logger.ApiCalled("Stop");
         TaskCompletionSource? started = null;
         Task result;
         lock (sync)
@@ -444,6 +491,7 @@ public abstract class DeviceBase : IOssmDevice
                 armed = true;
             }
 
+            logger.OperationCompleted("reset");
             if (changed)
             {
                 NotifyStateChanged();
@@ -663,14 +711,18 @@ public abstract class DeviceBase : IOssmDevice
 
         foreach (var command in current.Settings.ToCommands())
         {
+            long sequence;
             lock (sync)
             {
                 if (IsDiscardedLocked(current))
                 {
                     return current.Result;
                 }
+
+                sequence = ++writeSequence;
             }
 
+            logger.CommandStarted(command.Control, command.Value);
             if (!await TryStepAsync(
                 current,
                 () => WriteCommandAsync(command, current.PendingCancellation.Token),
@@ -679,7 +731,9 @@ public abstract class DeviceBase : IOssmDevice
                 return current.Result;
             }
 
+            logger.CommandCompleted(command.Control);
             current.CommandsWritten++;
+            RecordTransmitted(command, sequence);
         }
 
         lock (sync)
@@ -829,6 +883,8 @@ public abstract class DeviceBase : IOssmDevice
             stopping = connectionStopping;
         }
 
+        logger.OperationStarted("connection cleanup");
+        logger.ConnectionStateChanged("disconnecting");
         List<Exception> failures = [];
         try
         {
@@ -873,6 +929,7 @@ public abstract class DeviceBase : IOssmDevice
             stop = null;
         }
 
+        logger.ConnectionStateChanged("disconnected");
         if (failures.Count > 1)
         {
             throw new AggregateException("Cancellation and Stop failed.", failures);
@@ -882,6 +939,8 @@ public abstract class DeviceBase : IOssmDevice
         {
             ExceptionDispatchInfo.Capture(failures[0]).Throw();
         }
+
+        logger.OperationCompleted("connection cleanup");
     }
 
     /// <summary>
@@ -922,9 +981,18 @@ public abstract class DeviceBase : IOssmDevice
     private async Task WriteStopAsync()
     {
         var command = new DeviceCommand(DeviceControl.Speed, 0);
+        long sequence;
+        lock (sync)
+        {
+            sequence = ++writeSequence;
+        }
+        logger.OperationStarted("Stop");
         try
         {
             await WriteCommandAsync(command, CancellationToken.None).ConfigureAwait(false);
+            RecordTransmitted(command, sequence);
+            logger.OperationCompleted("Stop");
+            logger.StopCompleted();
         }
         catch (Exception exception)
         {
@@ -951,6 +1019,33 @@ public abstract class DeviceBase : IOssmDevice
             {
                 logger.SubscriberFailed(exception);
             }
+        }
+    }
+
+    private void RecordTransmitted(DeviceCommand command, long sequence)
+    {
+        lock (sync)
+        {
+            var previous = transmitted ?? new();
+            if (command.Control == DeviceControl.Speed)
+            {
+                if (sequence < confirmedSpeedSequence)
+                {
+                    return;
+                }
+
+                confirmedSpeedSequence = sequence;
+            }
+
+            transmitted = command.Control switch
+            {
+                DeviceControl.Pattern => previous with { Pattern = command.Value },
+                DeviceControl.Speed => previous with { Speed = command.Value },
+                DeviceControl.Stroke => previous with { Stroke = command.Value },
+                DeviceControl.Depth => previous with { Depth = command.Value },
+                DeviceControl.Sensation => previous with { Sensation = command.Value },
+                _ => previous
+            };
         }
     }
 

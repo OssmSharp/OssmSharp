@@ -5,6 +5,7 @@ using System.Reactive.Subjects;
 using System.Text;
 using System.Text.Json.Nodes;
 using FastMoq;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
@@ -66,6 +67,8 @@ internal sealed class BleTestContext : IDisposable
 
     public OssmDeviceOptions? DeviceOptions { get; set; }
 
+    public ILogger<DeviceBase> Logger { get; set; } = NullLogger<DeviceBase>.Instance;
+
     public BehaviorSubject<ConnectionState> Status { get; } = new(ConnectionState.Disconnected);
 
     public Subject<BleException> ConnectionFailures { get; } = new();
@@ -122,8 +125,8 @@ internal sealed class BleTestContext : IDisposable
         && request["path"]!.GetValue<string>().StartsWith("motion.", StringComparison.Ordinal);
 
     public OssmDevice CreateDevice() => DeviceOptions is null
-        ? new(Manager.Object, "device-1", Clock, NullLogger<DeviceBase>.Instance)
-        : new(Manager.Object, "device-1", Clock, NullLogger<DeviceBase>.Instance, Options.Create(DeviceOptions));
+        ? new(Manager.Object, "device-1", Clock, Logger)
+        : new(Manager.Object, "device-1", Clock, Logger, Options.Create(DeviceOptions));
 
     public List<JsonObject> RequestsFor(string operation, string? pathPrefix = null)
     {

@@ -1,0 +1,71 @@
+@page "/"
+@rendermode InteractiveServer
+@implements IAsyncDisposable
+
+<PageTitle>User controls</PageTitle>
+<ControlLayout Label="User controls">
+  <ChildContent>
+    @if (_state is null)
+    {
+      <InlineNotification Variant="@(_loaded ? "danger" : "info")" Role="@(_loaded ? "alert" : "status")">
+        @(_notice.Message ?? (_loaded ? "Unable to connect to the user service. Reload the page." : "Connecting..."))
+      </InlineNotification>
+    }
+    else
+    {
+      <h1 class="visually-hidden">User controls</h1>
+      @if (_notice.Message is { } message)
+      {
+        <InlineNotification Variant="@(_notice.IsError ? "danger" : "success")"
+                            Role="@(_notice.IsError ? "alert" : "status")">@message</InlineNotification>
+      }
+      <div class="user-grid">
+        <RwCard class="user-status" data-testid="user-controls" role="region" aria-labelledby="controls-heading">
+          <div slot="heading" class="rw-card-heading user-status-heading">
+            <h2 id="controls-heading">Controls</h2>
+            <RwBadge Variant="@GuestVariant" data-testid="guest-status">@GuestStatus</RwBadge>
+          </div>
+          <div class="rw-actions">
+            <RwButton Type="button" Variant="success" Disabled="@(_busy || _safetyBusy || !_state.GuestJoined)"
+                      OnClick="AllowGuest">
+              Allow control</RwButton>
+            <RwButton Type="button" Variant="danger" Disabled="@_safetyBusy" OnClick="Stop">Stop</RwButton>
+            <RwButton Type="button" Variant="danger" Disabled="@(_safetyBusy || !_state.GuestJoined)" OnClick="EndGuest">
+              End guest</RwButton>
+          </div>
+        </RwCard>
+        <RwCard data-testid="device-connection" role="region" aria-labelledby="connection-heading">
+          <div slot="heading" class="rw-card-heading user-status-heading">
+            <h2 id="connection-heading">Device connection</h2>
+            <RwBadge Variant="@ConnectionVariant" data-testid="device-connection-status" role="status">@ConnectionStatus</RwBadge>
+          </div>
+          <dl class="connection-details">
+            <div><dt>Name</dt><dd data-testid="device-name">@(_state.Device?.Name ?? "Unknown")</dd></div>
+            <div><dt>ID</dt><dd data-testid="device-identifier">@(_state.Device?.Identifier ?? "Unknown")</dd></div>
+            <div><dt>Connected duration</dt><dd data-testid="device-duration"
+                data-connected-at="@(_state.Device is { IsConnected: true, IsConnecting: false } ? _state.Device.ConnectedAt?.ToString("O") : null)">Unknown</dd></div>
+          </dl>
+          <RwButton Type="button" Variant="secondary" Disabled="@(_busy || _safetyBusy || _state.Device is { IsConnecting: true } or { IsConnected: true })"
+                    OnClick="Connect">Connect device</RwButton>
+        </RwCard>
+        <RwCard data-testid="guest-invitation-card" role="region" aria-labelledby="invite-heading">
+          <div slot="heading" class="rw-card-heading">
+            <h2 id="invite-heading">Invite a guest</h2>
+          </div>
+          <div class="invite-row rw-controls-row">
+            <rw-input>
+              <input slot="control" id="guest-invitation" type="text" aria-label="Guest invitation"
+                     data-testid="invitation-link" readonly value="@InvitationText" />
+            </rw-input>
+            <RwButton class="rw-feedback-button" Type="button" Variant="@(_notice.IsCopied ? "success" : "secondary")"
+                      OnClick="Copy" aria-label="@_notice.CopyLabel">@_notice.CopyLabel</RwButton>
+          </div>
+        </RwCard>
+        <PatternPreview Title="Sent settings" Pattern="@_state.Device?.TransmittedSettings?.Pattern"
+                        Speed="@_state.Device?.TransmittedSettings?.Speed" Stroke="@_state.Device?.TransmittedSettings?.Stroke"
+                        Depth="@_state.Device?.TransmittedSettings?.Depth" Sensation="@_state.Device?.TransmittedSettings?.Sensation"
+                        Animate="@(_state.Device is { IsConnected: true, IsConnecting: false })" />
+      </div>
+    }
+  </ChildContent>
+</ControlLayout>

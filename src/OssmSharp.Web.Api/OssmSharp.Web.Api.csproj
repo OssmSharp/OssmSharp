@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework />
+    <TargetFrameworks>$(BaseTargetFramework)</TargetFrameworks>
+    <TargetFrameworks Condition="'$(NativeTargetFramework)' != ''">$(NativeTargetFramework);$(BaseTargetFramework)</TargetFrameworks>
+    <EnableConfigurationBindingGenerator>true</EnableConfigurationBindingGenerator>
+  </PropertyGroup>
+  <PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'macos'">
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <RunWithOpen>false</RunWithOpen>
+    <NoWarn>$(NoWarn);XCODE_27_0_PREVIEW</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../OssmSharp.Runtime.Oem/OssmSharp.Runtime.Oem.csproj" />
+    <ProjectReference Include="../OssmSharp.Web.Contracts/OssmSharp.Web.Contracts.csproj" />
+    <ProjectReference Include="../OssmSharp.Web.ServiceDefaults/OssmSharp.Web.ServiceDefaults.csproj" />
+    <Using Include="OssmSharp.Web.Api.Authentication" />
+    <Using Include="OssmSharp.Web.Api.Hosting" />
+    <Using Include="OssmSharp.Web.Api.SignalR" />
+    <Using Include="OssmSharp.Web.Contracts" />
+    <Using Include="OssmSharp.Web.ServiceDefaults" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Update="appsettings.json" Link="appsettings.json" />
+    <InternalsVisibleTo Include="OssmSharp.Web.Api.Tests" />
+  </ItemGroup>
+</Project>
