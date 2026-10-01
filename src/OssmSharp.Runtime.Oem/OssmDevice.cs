@@ -718,6 +718,7 @@ public sealed class OssmDevice : DeviceBase
                 lease = token;
             }
 
+            logger.LeaseAcquired(lifetime.TotalMilliseconds);
             acquired.TrySetResult();
         }
         catch (Exception exception)
@@ -741,11 +742,13 @@ public sealed class OssmDevice : DeviceBase
 
             requested = timeProvider.GetUtcNow();
             var renewal = SendRequestAsync(current, "control.renew", null, null, leased: true, stopping);
+            logger.LeaseRenewalStarted((expires - timeProvider.GetUtcNow()).TotalMilliseconds);
             try
             {
                 var remaining = expires - timeProvider.GetUtcNow();
                 // Issued renewal is bounded by lease expiry, not by disconnect.
                 lifetime = ReadLeaseLifetime((await renewal.WaitAsync(remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero, timeProvider, CancellationToken.None).ConfigureAwait(false)).Result);
+                logger.LeaseRenewed((timeProvider.GetUtcNow() - requested).TotalMilliseconds, lifetime.TotalMilliseconds);
             }
             catch (OperationCanceledException) when (stopping.IsCancellationRequested)
             {
@@ -753,6 +756,11 @@ public sealed class OssmDevice : DeviceBase
             }
             catch (Exception exception)
             {
+                if (exception is TimeoutException)
+                {
+                    logger.LeaseRenewalExpired((expires - requested).TotalMilliseconds);
+                }
+
                 Fail(current, exception is TimeoutException
                     ? new IOException("The control lease expired before renewal completed; control ownership is lost.")
                     : new IOException("Control lease renewal failed; control ownership is lost.", exception));
