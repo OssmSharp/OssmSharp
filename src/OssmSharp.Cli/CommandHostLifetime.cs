@@ -1,5 +1,5 @@
-using Microsoft.Extensions.Hosting;
 using System.Runtime.InteropServices;
+using Microsoft.Extensions.Hosting;
 
 namespace OssmSharp.Cli;
 
