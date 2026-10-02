@@ -12,6 +12,7 @@
   ],
   "settings": {
     "powershell.cwd": "ossm-web-controls",
+    "dotnet.defaultSolution": "OssmSharp/OssmSharp.slnx",
   },
   "extensions": {
     "recommendations": ["rust-lang.rust-analyzer"],
