@@ -135,7 +135,7 @@ async function getAdminOrigin() {
   adminOrigin = `http://127.0.0.1:${adminPort}`;
   await startHost(adminProject, adminArtifact, {
     OSSM__Admin__AdminPort: String(adminPort),
-    OSSM__Admin__GuestOrigin: origin,
+    OSSM__Admin__GuestHostname: origin,
     OSSM__ControlClient__CommandTimeoutSeconds: "30",
   });
   return adminOrigin;
@@ -449,7 +449,7 @@ test("local AdminWeb builds public invitation links and rejects public requests"
   await new Promise((resolve) => reservation.close(resolve));
   await startHost(adminProject, adminArtifact, {
     OSSM__Admin__AdminPort: String(port),
-    OSSM__Admin__GuestOrigin: externalOrigin,
+    OSSM__Admin__GuestHostname: externalOrigin,
   });
   const context = await browser.newContext();
   try {

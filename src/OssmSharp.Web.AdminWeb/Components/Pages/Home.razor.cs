@@ -22,7 +22,7 @@ public partial class Home
     [Inject] private IOptions<AdminOptions> Options { get; set; } = null!;
 
     private string InvitationText =>
-        $"{Options.Value.GuestOrigin.TrimEnd('/')}/join#invite={Uri.EscapeDataString(_state!.Invitation.Token)}";
+        $"{Options.Value.GuestHostname.TrimEnd('/')}/join#invite={Uri.EscapeDataString(_state!.Invitation.Token)}";
     private string GuestStatus => _state switch
     {
         { GuestJoined: false } => "No guest",

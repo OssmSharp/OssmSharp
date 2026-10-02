@@ -54,7 +54,7 @@ var admin = builder.AddProject<Projects.OssmSharp_Web_AdminWeb>("admin")
         "OSSM__ControlClient__ControlOrigin",
         ReferenceExpression.Create($"http://127.0.0.1:{control.GetEndpoint("http").Property(EndpointProperty.Port)}"))
     .WithEnvironment("OSSM__ControlClient__ServiceKey", adminServiceKey)
-    .WithEnvironment("OSSM__Admin__GuestOrigin", invitationOrigin)
+    .WithEnvironment("OSSM__Admin__GuestHostname", invitationOrigin)
     .WithUrls(context =>
     {
         var origin = $"http://127.0.0.1:{context.GetEndpoint("http")!.Port}";

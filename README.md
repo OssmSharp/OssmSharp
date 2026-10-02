@@ -37,12 +37,15 @@ For standalone hosts, configure:
 | Host | Settings |
 | --- | --- |
 | GuestWeb | `OSSM__Guest__GuestPort=5001`, `OSSM__Guest__Hostname=https://guest.example`, `OSSM__ControlClient__ControlOrigin=http://127.0.0.1:5003` |
-| AdminWeb | `OSSM__Admin__AdminPort=5002`, `OSSM__Admin__GuestOrigin=https://guest.example`, the same control origin, and `OSSM__ControlClient__ServiceKey` |
+| AdminWeb | `OSSM__Admin__AdminPort=5002`, `OSSM__Admin__GuestHostname=https://guest.example`, the same control origin, and `OSSM__ControlClient__ServiceKey` |
 | API | `ASPNETCORE_URLS=http://127.0.0.1:5003` and `OSSM__Control__AdminWebServiceKey` matching AdminWeb's key |
 
 Use a random canonical Base64url-encoded 32-byte administrator key. AppHost
 generates it automatically. Keep standalone API and AdminWeb listeners private.
 GuestWeb always listens on IPv4 loopback; listener overrides are rejected.
+
+AdminWeb rejects invitation URLs with paths, credentials, queries, or fragments.
+HTTPS is required except for loopback HTTP URLs.
 
 GuestWeb's server-side API connection authenticates with `Authorization: Bearer
 <invitation>`, not a shared guest service key. Authentication does not consume the
