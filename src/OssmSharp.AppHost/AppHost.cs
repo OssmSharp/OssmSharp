@@ -6,7 +6,7 @@ var builder = DistributedApplication.CreateBuilder(args);
 
 var adminServiceKey = builder.AddParameter("admin-web-service-key", NewToken, secret: true);
 var deviceIdentifier = builder.AddParameter("device-identifier", () => builder.Configuration["Parameters:device-identifier"] ?? string.Empty);
-var guestPublicOrigin = builder.Configuration["Parameters:guest-public-origin"] ?? string.Empty;
+var guestHostname = builder.Configuration["Parameters:guest-hostname"] ?? string.Empty;
 var guestPort = builder.Configuration.GetValue<int?>("Parameters:guest-port");
 
 var controlFramework = OperatingSystem.IsMacOS()
@@ -28,7 +28,7 @@ var guest = builder.AddProject<Projects.OssmSharp_Web_GuestWeb>("guest")
     .WithHttpEndpoint(port: guestPort, env: "OSSM__Guest__GuestPort", isProxied: false)
     .WithEndpoint("http", endpoint => endpoint.TargetHost = "127.0.0.1")
     .WithHttpHealthCheck("/health")
-    .WithEnvironment("OSSM__Guest__Hostname", guestPublicOrigin)
+    .WithEnvironment("OSSM__Guest__Hostname", guestHostname)
     .WithEnvironment(
         "OSSM__ControlClient__ControlOrigin",
         ReferenceExpression.Create($"http://127.0.0.1:{control.GetEndpoint("http").Property(EndpointProperty.Port)}"))
@@ -37,13 +37,13 @@ var guest = builder.AddProject<Projects.OssmSharp_Web_GuestWeb>("guest")
         var origin = $"http://127.0.0.1:{context.GetEndpoint("http")!.Port}";
         context.Urls.Clear();
         context.Urls.Add(new ResourceUrlAnnotation { Url = origin, DisplayText = "Guest (local only)" });
-        if (guestPublicOrigin.Length != 0)
-            context.Urls.Add(new ResourceUrlAnnotation { Url = guestPublicOrigin, DisplayText = "Guest (reverse proxy)" });
+        if (guestHostname.Length != 0)
+            context.Urls.Add(new ResourceUrlAnnotation { Url = guestHostname, DisplayText = "Guest (reverse proxy)" });
     });
 
-var invitationOrigin = guestPublicOrigin.Length == 0
+var invitationOrigin = guestHostname.Length == 0
     ? ReferenceExpression.Create($"http://127.0.0.1:{guest.GetEndpoint("http").Property(EndpointProperty.Port)}")
-    : ReferenceExpression.Create($"{guestPublicOrigin}");
+    : ReferenceExpression.Create($"{guestHostname}");
 
 var admin = builder.AddProject<Projects.OssmSharp_Web_AdminWeb>("admin")
     .WithEnvironment("DOTNET_ENVIRONMENT", "Development")
