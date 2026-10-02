@@ -9,7 +9,6 @@ try {
     guest = await import(new URL(controller, document.baseURI).href);
     await Blazor.start({ circuit: connection.circuit });
     guest.restoreDisconnected();
-    connection.ready();
 } catch {
     guest?.disconnect();
     connection.failed();

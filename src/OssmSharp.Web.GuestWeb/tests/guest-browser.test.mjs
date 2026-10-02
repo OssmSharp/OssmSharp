@@ -635,6 +635,7 @@ test("admin connection widget distinguishes unknown, disconnected, connecting an
 test("admin completed connection shows metadata and a JS duration without server renders", async () => {
   const { context, page, errors, frames } = await openAdmin(userState(deviceState()));
   try {
+    assert.equal(await page.getByText("Connecting...", { exact: true }).count(), 0, "connection state belongs in the device pill");
     await page.evaluate(() => {
       window.adminIntervals = new Set();
       const set = window.setInterval;
@@ -653,6 +654,7 @@ test("admin completed connection shows metadata and a JS duration without server
     await adminSession.received.get("Connect").promise;
     adminSession.state = userState(deviceState({ isConnecting: true }));
     await page.waitForFunction(() => document.querySelector('[data-testid="device-connection-status"]')?.textContent === "Connecting");
+    assert.equal(await page.getByText("Connecting...", { exact: true }).count(), 0, "connecting must not add a separate notice");
     assert.equal(await page.getByText("Device connected.", { exact: true }).count(), 0);
     assert.equal(await page.getByText("Device connection requested.", { exact: true }).count(), 0);
     assert.equal(await page.evaluate(() => window.adminIntervals.size), 0);
@@ -670,6 +672,7 @@ test("admin completed connection shows metadata and a JS duration without server
     adminSession.pending.get("Connect")();
     adminSession.pending.delete("Connect");
     await page.waitForFunction(() => document.querySelector('[data-testid="device-connection-status"]')?.textContent === "Connected");
+    assert.equal(await page.getByText("Connecting...", { exact: true }).count(), 0, "connecting must not remain after connection");
     assert.equal(await page.getByText("Device connected.", { exact: true }).count(), 0, "the connection pill must not be duplicated by a notice");
     assert.equal(await page.getByTestId("device-connection-status").innerText(), "Connected");
     assert.equal(await page.getByTestId("device-name").innerText(), adminSession.state.device.name);

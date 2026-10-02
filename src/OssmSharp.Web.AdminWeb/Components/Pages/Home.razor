@@ -7,9 +7,12 @@
   <ChildContent>
     @if (_state is null)
     {
-      <InlineNotification Variant="@(_loaded ? "danger" : "info")" Role="@(_loaded ? "alert" : "status")">
-        @(_notice.Message ?? (_loaded ? "Unable to connect to the user service. Reload the page." : "Connecting..."))
-      </InlineNotification>
+      @if (_loaded)
+      {
+        <InlineNotification Variant="danger" Role="alert">
+          @(_notice.Message ?? "Unable to connect to the user service. Reload the page.")
+        </InlineNotification>
+      }
     }
     else
     {

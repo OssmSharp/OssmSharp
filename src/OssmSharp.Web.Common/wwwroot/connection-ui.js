@@ -15,7 +15,6 @@ export function initialize(onConnectionDown) {
   document.addEventListener(
     "components-reconnect-state-changed",
     (event) => {
-      document.getElementById("app-boot-status").hidden = true;
       if (event.detail.state !== "hide") connectionDown();
     },
     { capture: true },
@@ -24,11 +23,7 @@ export function initialize(onConnectionDown) {
     circuit: {
       reconnectionOptions: { maxRetries: 0 },
     },
-    ready() {
-      document.getElementById("app-boot-status").hidden = true;
-    },
     failed() {
-      document.getElementById("app-boot-status").hidden = true;
       connectionDown();
       const reconnect = document.getElementById("components-reconnect-modal");
       reconnect.classList.remove("components-reconnect-hide");

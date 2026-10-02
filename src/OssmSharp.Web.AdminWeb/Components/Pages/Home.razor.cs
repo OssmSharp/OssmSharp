@@ -118,7 +118,7 @@ public partial class Home
         }
     }
 
-    private Task AllowGuest() => RunAsync(Control.AllowGuestAsync, "Guest control allowed.");
+    private Task AllowGuest() => RunAsync(Control.AllowGuestAsync, null);
     private Task Stop() => RunAsync(Control.StopAsync, "Stop requested.", safety: true);
     private Task EndGuest() => RunAsync(Control.EndGuestAsync, "Guest session ended.", safety: true);
     private Task Connect() => RunAsync(Control.ConnectAsync, null, confirmConnection: true);
