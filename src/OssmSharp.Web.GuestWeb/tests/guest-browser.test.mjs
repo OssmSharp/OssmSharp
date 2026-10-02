@@ -1,13 +1,15 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdtemp, rm } from "node:fs/promises";
-import { createServer } from "node:http";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { createServer, request as httpRequest } from "node:http";
+import { createServer as createHttpsServer } from "node:https";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 
 const require = createRequire(process.env.PLAYWRIGHT_MODULE ?? import.meta.url);
 const { chromium } = require("playwright");
@@ -17,6 +19,7 @@ const artifact = fileURLToPath(new URL("../../../.artifacts/bin/ossmsharp.web.gu
 const adminProject = fileURLToPath(new URL("../../OssmSharp.Web.AdminWeb/", import.meta.url));
 const adminArtifact = fileURLToPath(new URL("../../../.artifacts/bin/ossmsharp.web.adminweb/debug/OssmSharp.Web.AdminWeb.dll", import.meta.url));
 const invitations = [];
+const handshakes = [];
 const submissions = [];
 const sessions = new Map();
 const hosts = [];
@@ -27,6 +30,10 @@ let adminSession;
 let home;
 let peer;
 let sockets;
+let proxy;
+let publicOrigin;
+let proxyOrigin;
+const proxySockets = new Set();
 
 function guestState(overrides = {}) {
   return {
@@ -137,6 +144,11 @@ async function getAdminOrigin() {
 before(async () => {
   peer = createServer((request, response) => {
     if (request.url.startsWith("/hubs/control/v2/negotiate")) {
+      handshakes.push(request.headers.authorization);
+      if (request.headers.authorization === "Bearer rejected-invite") {
+        response.writeHead(401).end();
+        return;
+      }
       response.writeHead(200, { "Content-Type": "application/json" });
       response.end(
         JSON.stringify({
@@ -151,8 +163,10 @@ before(async () => {
     }
   });
   sockets = new WebSocketServer({ server: peer });
-  sockets.on("connection", (socket) => {
+  sockets.on("connection", (socket, request) => {
+    handshakes.push(request.headers.authorization);
     let session;
+    socket.on("close", () => session?.closed?.resolve());
     socket.on("message", (data) => {
       for (const text of data.toString().split("\u001e").filter(Boolean)) {
         const message = JSON.parse(text);
@@ -228,8 +242,12 @@ before(async () => {
   await new Promise((resolve) => reservation.close(resolve));
   origin = `http://127.0.0.1:${guestPort}`;
   home = await mkdtemp(join(tmpdir(), "ossm-guest-test-"));
-  await startHost(project, artifact, { OSSM__Guest__GuestPort: String(guestPort) });
-  browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
+  await startHost(project, artifact, { OSSM__Guest__GuestPort: String(guestPort), OSSM__ControlClient__ServiceKey: "" });
+  browser = await chromium.launch({
+    headless: true,
+    executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE,
+    args: ["--host-resolver-rules=MAP guest.test 127.0.0.1", "--no-proxy-server"],
+  });
 });
 
 after(async () => {
@@ -244,13 +262,15 @@ after(async () => {
       clearTimeout(deadline);
     }
     for (const socket of sockets?.clients ?? []) socket.terminate();
+    for (const socket of proxySockets) socket.destroy();
+    if (proxy) await new Promise((resolve) => proxy.close(resolve));
     if (sockets) await new Promise((resolve) => sockets.close(resolve));
     if (peer) await new Promise((resolve) => peer.close(resolve));
     if (home) await rm(home, { recursive: true, force: true });
   }
 });
 
-async function openGuest(context, invitation, ready = true) {
+async function openGuest(context, invitation, ready = true, guestOrigin = origin) {
   const page = await context.newPage();
   page.setDefaultTimeout(10_000);
   const frames = [];
@@ -260,11 +280,192 @@ async function openGuest(context, invitation, ready = true) {
     if (message.type() === "error") errors.push(message.text());
   });
   page.on("websocket", (socket) => socket.on("framesent", ({ payload }) => frames.push(Buffer.from(payload))));
-  await page.goto(`${origin}/join#invite=${invitation}`);
+  await page.goto(`${guestOrigin}/join#invite=${invitation}`);
   await page.waitForFunction((expected) => document.querySelector("[data-send-button]")?.disabled === !expected, ready);
   assert.equal(new URL(page.url()).hash, "");
   return { page, frames, errors };
 }
+
+async function getPublicOrigin() {
+  if (publicOrigin) return publicOrigin;
+  const key = join(home, "proxy.key");
+  const cert = join(home, "proxy.pem");
+  await promisify(execFile)("openssl", [
+    "req",
+    "-x509",
+    "-newkey",
+    "rsa:2048",
+    "-nodes",
+    "-days",
+    "1",
+    "-subj",
+    "/CN=127.0.0.1",
+    "-keyout",
+    key,
+    "-out",
+    cert,
+  ]);
+  const reservation = createServer();
+  const guestPort = await listen(reservation);
+  await new Promise((resolve) => reservation.close(resolve));
+  const target = `http://127.0.0.1:${guestPort}`;
+  const options = (request) => ({ method: request.method, headers: { ...request.headers, "x-forwarded-proto": "https" } });
+  proxy = createHttpsServer({ key: await readFile(key), cert: await readFile(cert) }, (request, response) => {
+    const upstream = httpRequest(new URL(request.url, target), options(request), (incoming) => {
+      response.writeHead(incoming.statusCode, incoming.headers);
+      incoming.pipe(response);
+    });
+    upstream.on("error", () => response.destroy());
+    request.pipe(upstream);
+  });
+  proxy.on("connection", (socket) => {
+    proxySockets.add(socket);
+    socket.on("close", () => proxySockets.delete(socket));
+  });
+  proxy.on("upgrade", (request, socket, head) => {
+    const upstream = httpRequest(new URL(request.url, target), options(request));
+    upstream.on("upgrade", (response, connection, incomingHead) => {
+      socket.write(`HTTP/1.1 ${response.statusCode} ${response.statusMessage}\r\n`);
+      for (let index = 0; index < response.rawHeaders.length; index += 2) {
+        socket.write(`${response.rawHeaders[index]}: ${response.rawHeaders[index + 1]}\r\n`);
+      }
+      socket.write("\r\n");
+      if (incomingHead.length) socket.write(incomingHead);
+      if (head.length) connection.write(head);
+      connection.on("error", () => socket.destroy());
+      socket.on("error", () => connection.destroy());
+      socket.on("close", () => connection.destroy());
+      connection.pipe(socket).pipe(connection);
+    });
+    upstream.on("response", (response) => {
+      response.resume();
+      socket.end(`HTTP/1.1 ${response.statusCode} ${response.statusMessage}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
+    });
+    upstream.on("error", () => socket.destroy());
+    upstream.end();
+  });
+  const port = await listen(proxy);
+  proxyOrigin = `https://127.0.0.1:${port}`;
+  publicOrigin = `https://guest.test:${port}`;
+  await startHost(project, artifact, {
+    OSSM__Guest__GuestPort: String(guestPort),
+    OSSM__Guest__Hostname: publicOrigin,
+    OSSM__ControlClient__ServiceKey: "",
+  });
+  return publicOrigin;
+}
+
+test("HTTPS reverse proxy carries guest circuits and invitation-authenticated API traffic", async () => {
+  const externalOrigin = await getPublicOrigin();
+  const context = await browser.newContext({ ignoreHTTPSErrors: true });
+  try {
+    const start = handshakes.length;
+    const { page, frames, errors } = await openGuest(context, "public-test-invite", true, externalOrigin);
+    assert.deepEqual(handshakes.slice(start), ["Bearer public-test-invite", "Bearer public-test-invite"]);
+    assert.equal(
+      frames.some((frame) => frame.includes("#invite=")),
+      false,
+    );
+    const response = await page.request.get(`${proxyOrigin}/join`, { headers: { Host: new URL(externalOrigin).host } });
+    assert.match(response.headers()["content-security-policy"], new RegExp(`wss://${new URL(externalOrigin).host}`));
+    assert.equal(response.headers()["referrer-policy"], "no-referrer");
+    assert.equal(response.headers()["x-frame-options"], "DENY");
+    const submitted = submissions.length;
+    await page.locator("[data-send-button]").click();
+    await page.waitForFunction(() => document.querySelector("[data-send-status]")?.textContent.includes("selection sent"));
+    assert.equal(submissions.length, submitted + 1);
+    await page.getByRole("button", { name: "Leave session" }).click();
+    await page.getByTestId("guest-ended").waitFor({ state: "visible" });
+    assert.deepEqual(errors, []);
+  } finally {
+    await context.close();
+  }
+});
+
+test("public reverse proxy rejects mismatched and missing origins, including WebSocket upgrades", async () => {
+  const externalOrigin = await getPublicOrigin();
+  const context = await browser.newContext({ ignoreHTTPSErrors: true });
+  try {
+    for (const headers of [{}, { Origin: "https://evil.example" }, { Origin: origin }]) {
+      const response = await context.request.post(`${proxyOrigin}/_blazor/negotiate?negotiateVersion=1`, {
+        headers: { ...headers, Host: new URL(externalOrigin).host },
+      });
+      assert.equal(response.status(), 403);
+    }
+    const upgrade = await context.request.get(`${proxyOrigin}/_blazor`, {
+      headers: {
+        Host: new URL(externalOrigin).host,
+        Connection: "Upgrade",
+        Upgrade: "websocket",
+        "Sec-WebSocket-Version": "13",
+        "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==",
+      },
+    });
+    assert.equal(upgrade.status(), 403);
+    const localSpoof = await context.request.get(`${origin}/join`, { headers: { Host: new URL(externalOrigin).host, "X-Forwarded-Proto": "https" } });
+    assert.equal(localSpoof.status(), 400);
+  } finally {
+    await context.close();
+  }
+});
+
+test("rejected invitation authentication keeps invalid-invitation presentation", async () => {
+  const context = await browser.newContext({ ignoreHTTPSErrors: true });
+  try {
+    const page = await context.newPage();
+    await page.goto(`${await getPublicOrigin()}/join#invite=rejected-invite`);
+    await page.getByTestId("guest-invalid").waitFor({ state: "visible" });
+    assert.equal(new URL(page.url()).hash, "");
+    assert.equal(await page.getByTestId("guest-disconnected").isVisible(), false);
+  } finally {
+    await context.close();
+  }
+});
+
+test("public browser circuit loss closes its API connection and disables control", async () => {
+  const externalOrigin = await getPublicOrigin();
+  const invitation = "public-circuit-loss";
+  const session = { state: guestState(), closed: Promise.withResolvers() };
+  sessions.set(invitation, session);
+  const context = await browser.newContext({ ignoreHTTPSErrors: true });
+  const deadline = setTimeout(() => session.closed.reject(new Error("Guest circuit did not close its API connection")), 10_000);
+  try {
+    const { page } = await openGuest(context, invitation, true, externalOrigin);
+    for (const socket of proxySockets) socket.destroy();
+    await session.closed.promise;
+    await page.getByTestId("guest-disconnected").waitFor({ state: "visible" });
+    assert.equal(await page.locator("[data-send-button]").isDisabled(), true);
+  } finally {
+    clearTimeout(deadline);
+    await context.close();
+    sessions.delete(invitation);
+  }
+});
+
+test("local AdminWeb builds public invitation links and rejects public requests", async () => {
+  const externalOrigin = await getPublicOrigin();
+  const reservation = createServer();
+  const port = await listen(reservation);
+  await new Promise((resolve) => reservation.close(resolve));
+  await startHost(adminProject, adminArtifact, {
+    OSSM__Admin__AdminPort: String(port),
+    OSSM__Admin__GuestOrigin: externalOrigin,
+  });
+  const context = await browser.newContext();
+  try {
+    const page = await context.newPage();
+    await page.goto(`http://127.0.0.1:${port}`);
+    const link = page.getByTestId("invitation-link");
+    await link.waitFor({ state: "visible" });
+    assert.equal(await link.inputValue(), `${externalOrigin}/join#invite=isolated-admin-invite`);
+    const response = await context.request.get(`http://127.0.0.1:${port}`, {
+      headers: { Host: new URL(externalOrigin).host, "X-Forwarded-Proto": "https", Origin: externalOrigin },
+    });
+    assert.equal(response.status(), 400);
+  } finally {
+    await context.close();
+  }
+});
 
 async function requestGuestStop(page, session) {
   const received = Promise.withResolvers();
@@ -411,7 +612,10 @@ test("admin connection widget distinguishes unknown, disconnected, connecting an
         expected,
       );
       assert.equal(await status.innerText(), expected);
-      assert.equal(await page.locator(".user-grid").evaluate((element) => getComputedStyle(element).filter), overrides.connectionFailed ? "grayscale(1)" : "none");
+      assert.equal(
+        await page.locator(".user-grid").evaluate((element) => getComputedStyle(element).filter),
+        overrides.connectionFailed ? "grayscale(1)" : "none",
+      );
       assert.equal(await page.getByTestId("device-duration").innerText(), "Unknown", "missing connection completion time must not be invented");
     }
     adminSession.state = userState(deviceState());
@@ -508,7 +712,10 @@ test("admin completed connection shows metadata and a JS duration without server
     assert.equal(await duration.innerText(), "Unknown");
     assert.equal(await page.evaluate(() => window.adminIntervals.size), 0);
     assert.equal(await page.locator(".preview-carriage animate").count(), 0);
-    assert.equal(await page.locator(".preview-rail").getAttribute("aria-label"), "Pattern 4 preview at 27% speed, 38% stroke, 49% depth, and 61% sensation");
+    assert.equal(
+      await page.locator(".preview-rail").getAttribute("aria-label"),
+      "Pattern 4 preview at 27% speed, 38% stroke, 49% depth, and 61% sensation",
+    );
     adminSession.state = userState({ ...adminSession.state.device, isConnected: true, connectedAt });
     await page.waitForFunction(() => document.querySelector('[data-testid="device-duration"]')?.dataset.connectedAt);
     assert.equal(await page.evaluate(() => window.adminIntervals.size), 1);
@@ -896,9 +1103,12 @@ test("same-document invite link bypasses Blazor navigation without disclosing it
 test("shared disconnect presentation pauses user and guest previews and keeps notices inline", async () => {
   for (const role of ["user", "guest"]) {
     const context = role === "user" ? null : await browser.newContext();
-    const view = role === "user"
-      ? await openAdmin(userState(deviceState({ isConnected: true, transmittedSettings: { pattern: 0, speed: 5, stroke: 10, depth: 20, sensation: 50 } })))
-      : await openGuest(context, "preview-disconnect");
+    const view =
+      role === "user"
+        ? await openAdmin(
+            userState(deviceState({ isConnected: true, transmittedSettings: { pattern: 0, speed: 5, stroke: 10, depth: 20, sensation: 50 } })),
+          )
+        : await openGuest(context, "preview-disconnect");
     try {
       const { page } = view;
       if (role === "guest") {
@@ -921,7 +1131,10 @@ test("shared disconnect presentation pauses user and guest previews and keeps no
       assert.equal(await page.locator(".connection-sensitive").evaluate((element) => getComputedStyle(element).filter), "grayscale(1)");
       assert.equal(await notice.evaluate((element) => getComputedStyle(element).position), "static");
       if (role === "guest") assert.equal(await page.locator("[data-send-button]").isDisabled(), true);
-      for (const viewport of [{ width: 1280, height: 800 }, { width: 390, height: 844 }]) {
+      for (const viewport of [
+        { width: 1280, height: 800 },
+        { width: 390, height: 844 },
+      ]) {
         await page.setViewportSize(viewport);
         const notification = await notice.boundingBox();
         const main = await page.locator("main").boundingBox();
@@ -940,7 +1153,9 @@ test("shared disconnect presentation pauses user and guest previews and keeps no
 });
 
 test("user API loss retains a greyscale last state with a standard inline notice", async () => {
-  const { context, page, errors } = await openAdmin(userState(deviceState({ isConnected: true, transmittedSettings: { pattern: 0, speed: 5, stroke: 10, depth: 20, sensation: 50 } })));
+  const { context, page, errors } = await openAdmin(
+    userState(deviceState({ isConnected: true, transmittedSettings: { pattern: 0, speed: 5, stroke: 10, depth: 20, sensation: 50 } })),
+  );
   try {
     assert.equal(await page.locator(".preview-carriage animate").count(), 1);
     for (const socket of sockets.clients) socket.close(1000);

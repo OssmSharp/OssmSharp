@@ -17,23 +17,45 @@ public sealed class GuestControlClient(ControlHubConnectionFactory factory, Micr
     /// <summary>Gets the current guest-visible session state.</summary>
     public async Task<GuestSessionState> GetStateAsync(CancellationToken cancellationToken = default)
     {
-        await EnsureStartedAsync(cancellationToken);
+        await WaitForStartAsync();
         return await _connection.InvokeAsync<GuestSessionState>("GetGuestState", [], cancellationToken);
     }
 
-    /// <summary>Redeems one invitation for this connection.</summary>
+    /// <summary>
+    /// Joins this connection using a guest invitation.
+    /// </summary>
+    /// <param name="invitationToken">The invitation token: up to 128 ASCII letters, digits, hyphens, or underscores.</param>
+    /// <returns>The join result. Control still needs local approval.</returns>
+    /// <exception cref="ControlClientException">The invitation is invalid, the API rejects the join, or the connection fails.</exception>
+    /// <exception cref="ArgumentException">The invitation is null, empty, or whitespace.</exception>
+    /// <remarks>
+    /// This call starts the connection. Connection or API join failures close it, including cancellation.
+    /// To rejoin, use a new client and invitation.
+    /// </remarks>
     public async Task<ControlResponse> JoinAsync(string invitationToken, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(invitationToken);
-        await EnsureStartedAsync(cancellationToken);
-        return await InvokeControlAsync("Join", [new GuestJoinRequest(NewCorrelation(), invitationToken)], cancellationToken);
+        if (invitationToken.Length > 128
+            || invitationToken.Any(character => !char.IsAsciiLetterOrDigit(character) && character is not ('-' or '_')))
+            throw new ControlClientException("invalid-invitation");
+        lock (_startSync)
+            _startTask ??= _connection.StartAsync(cancellationToken, invitationToken);
+        try
+        {
+            return await InvokeControlAsync("Join", [new GuestJoinRequest(NewCorrelation(), invitationToken)], cancellationToken);
+        }
+        catch
+        {
+            await _connection.DisposeAsync();
+            throw;
+        }
     }
 
     /// <summary>Submits one complete settings request.</summary>
     public async Task<SettingsResponse> SubmitAsync(SettingsRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        await EnsureStartedAsync(cancellationToken);
+        await WaitForStartAsync();
         return await _connection.InvokeAsync<SettingsResponse>("Submit", [request], cancellationToken);
     }
 
@@ -61,18 +83,18 @@ public sealed class GuestControlClient(ControlHubConnectionFactory factory, Micr
         object?[] arguments,
         CancellationToken cancellationToken)
     {
-        await EnsureStartedAsync(cancellationToken);
+        await WaitForStartAsync();
         var response = await _connection.InvokeAsync<ControlResponse>(method, arguments, cancellationToken);
         if (!response.Accepted)
             throw new ControlClientException(response.Code);
         return response;
     }
 
-    private Task EnsureStartedAsync(CancellationToken cancellationToken)
+    private Task WaitForStartAsync()
     {
         lock (_startSync)
         {
-            return _startTask ??= _connection.StartAsync(cancellationToken);
+            return _startTask ?? throw new ControlClientException("guest-not-joined");
         }
     }
 }

@@ -26,7 +26,7 @@ public static class GuestApplication
 
         var app = builder.Build();
         app.UseWebSockets();
-        app.UseLocalBoundary(app.Services.GetRequiredService<IOptions<GuestOptions>>().Value.GuestPort, RetroWidgetAssets.InlineStyleHashes);
+        app.UseGuestAccessPolicy(app.Services.GetRequiredService<IOptions<GuestOptions>>().Value, RetroWidgetAssets.InlineStyleHashes);
         app.UseStaticFiles();
         app.UseAntiforgery();
         app.MapStaticAssets();

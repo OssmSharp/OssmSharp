@@ -1,4 +1,60 @@
+## Remote Guest Access
 
+GuestWeb supports a same-machine HTTPS reverse proxy, including Tailscale and
+Cloudflare Tunnel. Expose **only GuestWeb**, not AdminWeb or the control API.
+The friend still needs an invitation, and the local user must allow control.
+
+Add these AppHost parameters in
+[appsettings.Development.json](src/OssmSharp.AppHost/appsettings.Development.json):
+
+```json
+{
+	"Parameters": {
+		"guest-public-origin": "https://guest.example",
+		"guest-port": 5001
+	}
+}
+```
+
+Restart AppHost, then configure the tunnel to forward HTTPS and WebSockets to
+`http://127.0.0.1:5001`. Keep the browser's public `Host` and `Origin`, and forward
+`X-Forwarded-Proto: https`. Do not rewrite the Host to the loopback target.
+Share the invitation link from the local AdminWeb page.
+
+[Tailscale Serve](https://tailscale.com/kb/1242/tailscale-serve) requires the friend
+to be on your tailnet; Funnel provides public access. For Cloudflare, route the
+public hostname to the loopback target and set
+[`httpHostHeader`](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/configure-tunnels/origin-parameters/)
+to the public authority if the tunnel rewrites Host.
+
+The public origin must be HTTPS with no path, credentials, query, or fragment.
+Root hosting is supported, not a subpath. Restart when the public URL changes.
+Without `guest-public-origin`, access remains local-only. The guest port is
+optional, but a fixed port keeps the tunnel target stable.
+
+For standalone hosts, configure:
+
+| Host | Settings |
+| --- | --- |
+| GuestWeb | `OSSM__Guest__GuestPort=5001`, `OSSM__Guest__Hostname=https://guest.example`, `OSSM__ControlClient__ControlOrigin=http://127.0.0.1:5003` |
+| AdminWeb | `OSSM__Admin__AdminPort=5002`, `OSSM__Admin__GuestOrigin=https://guest.example`, the same control origin, and `OSSM__ControlClient__ServiceKey` |
+| API | `ASPNETCORE_URLS=http://127.0.0.1:5003` and `OSSM__Control__AdminWebServiceKey` matching AdminWeb's key |
+
+Use a random canonical Base64url-encoded 32-byte administrator key. AppHost
+generates it automatically. Keep standalone API and AdminWeb listeners private.
+GuestWeb always listens on IPv4 loopback; listener overrides are rejected.
+
+GuestWeb's server-side API connection authenticates with `Authorization: Bearer
+<invitation>`, not a shared guest service key. Authentication does not consume the
+invitation; Join consumes it atomically and binds that connection. Rotation blocks
+replay without terminating the admitted connection. Control remains separately
+approved and is revoked on Leave, End guest, or disconnect.
+
+Remove obsolete `OSSM:Control:GuestWebServiceKey` and GuestWeb's
+`OSSM:ControlClient:ServiceKey` from old configurations. There is no legacy guest
+key fallback. The API destination stays fixed in server configuration; invitations
+and browser headers never select it. Guest identity proves invitation possession,
+not a named personal account.
 
 ## Web Speed Control
 

@@ -6,7 +6,6 @@ namespace OssmSharp.Web.Api.Tests;
 public sealed class ControlServiceOptionsValidatorTests
 {
     private const string AdminKey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
-    private const string GuestKey = "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBE";
 
     [Theory]
     [InlineData("")]
@@ -22,15 +21,15 @@ public sealed class ControlServiceOptionsValidatorTests
     }
 
     [Fact]
-    public void EqualServiceKeysFailValidation()
+    public void MissingAdminServiceKeyFailsValidation()
     {
         var options = ValidOptions();
-        options.GuestWebServiceKey = AdminKey;
+        options.AdminWebServiceKey = string.Empty;
 
         var result = new ControlServiceOptionsValidator().Validate(null, options);
 
         Assert.True(result.Failed);
-        Assert.Contains(result.Failures, failure => failure.Contains("must be distinct", StringComparison.Ordinal));
+        Assert.Contains(result.Failures, failure => failure.Contains("AdminWebServiceKey", StringComparison.Ordinal));
     }
 
     [Theory]
@@ -53,7 +52,6 @@ public sealed class ControlServiceOptionsValidatorTests
         KeepAliveSeconds = 1,
         ClientTimeoutSeconds = 2,
         GuestControlCheckMilliseconds = 100,
-        AdminWebServiceKey = AdminKey,
-        GuestWebServiceKey = GuestKey
+        AdminWebServiceKey = AdminKey
     };
 }

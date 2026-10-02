@@ -27,6 +27,7 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
     private bool _shuttingDown;
     private string _invitationToken;
     private byte[] _invitationHash;
+    private string _invitationId = Guid.NewGuid().ToString("N");
     private string? _guestConnectionId;
     private bool _guestControlAllowed;
     private bool _guestStopped;
@@ -104,7 +105,14 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
     }
 
     /// <inheritdoc />
-    public ControlResponse JoinGuest(string connectionId, GuestJoinRequest request)
+    public string? AuthenticateInvitation(string? token)
+    {
+        lock (_sync)
+            return !_shuttingDown && CapabilityTokens.Matches(_invitationHash, token) ? _invitationId : null;
+    }
+
+    /// <inheritdoc />
+    public ControlResponse JoinGuest(string connectionId, string? invitationId, GuestJoinRequest request)
     {
         if (!ValidCorrelation(request.Correlation))
         {
@@ -118,7 +126,8 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
                 return Rejected(request.Correlation, GuestAlreadyJoined);
             }
 
-            if (!CapabilityTokens.Matches(_invitationHash, request.InvitationToken))
+            if (!string.Equals(_invitationId, invitationId, StringComparison.Ordinal)
+                || !CapabilityTokens.Matches(_invitationHash, request.InvitationToken))
             {
                 return Rejected(request.Correlation, InvalidInvitation);
             }
@@ -778,6 +787,7 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
         CryptographicOperations.ZeroMemory(_invitationHash);
         _invitationToken = CapabilityTokens.NewToken();
         _invitationHash = CapabilityTokens.Hash(_invitationToken);
+        _invitationId = Guid.NewGuid().ToString("N");
     }
 
 }

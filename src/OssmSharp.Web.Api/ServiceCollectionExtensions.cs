@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
@@ -42,7 +43,7 @@ public static class ServiceCollectionExtensions
     }
 
     /// <summary>
-    /// Registers authentication for the separately configured AdminWeb and GuestWeb service keys.
+    /// Adds authentication using the administrator key or a guest invitation.
     /// </summary>
     /// <param name="services">The host service collection to configure.</param>
     /// <returns>The service collection for further registration.</returns>
@@ -51,7 +52,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ServiceKeyAuthenticator>();
         services.AddAuthentication()
             .AddScheme<ServiceKeyAuthenticationOptions, ServiceKeyAuthenticationHandler>(
-                ServiceKeyAuthenticationDefaults.Scheme, static _ => { });
+                ServiceKeyAuthenticationDefaults.Scheme, static _ => { })
+            .AddScheme<AuthenticationSchemeOptions, InvitationAuthenticationHandler>(
+                InvitationAuthenticationHandler.SchemeName, static _ => { });
         return services;
     }
 
@@ -69,11 +72,11 @@ public static class ServiceCollectionExtensions
                 .RequireAuthenticatedUser()
                 .RequireRole(ControlServiceRoles.AdminWeb));
             options.AddPolicy(ControlServicePolicies.GuestWeb, policy => policy
-                .AddAuthenticationSchemes(ServiceKeyAuthenticationDefaults.Scheme)
+                .AddAuthenticationSchemes(InvitationAuthenticationHandler.SchemeName)
                 .RequireAuthenticatedUser()
                 .RequireRole(ControlServiceRoles.GuestWeb));
             options.AddPolicy(ControlServicePolicies.Service, policy => policy
-                .AddAuthenticationSchemes(ServiceKeyAuthenticationDefaults.Scheme)
+                .AddAuthenticationSchemes(ServiceKeyAuthenticationDefaults.Scheme, InvitationAuthenticationHandler.SchemeName)
                 .RequireAuthenticatedUser()
                 .RequireRole(ControlServiceRoles.AdminWeb, ControlServiceRoles.GuestWeb));
         });

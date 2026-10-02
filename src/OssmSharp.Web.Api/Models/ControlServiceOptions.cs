@@ -28,23 +28,12 @@ public sealed class ControlServiceOptions : IValidatableObject
     [Required, RegularExpression(@"\A[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]\z")]
     public string AdminWebServiceKey { get; set; } = string.Empty;
 
-    /// <summary>Gets or sets the guest-facing server's distinct private service key.</summary>
-    [Required, RegularExpression(@"\A[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]\z")]
-    public string GuestWebServiceKey { get; set; } = string.Empty;
-
     /// <inheritdoc />
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext) =>
         ValidateRelationships();
 
     internal IEnumerable<ValidationResult> ValidateRelationships()
     {
-        if (string.Equals(AdminWebServiceKey, GuestWebServiceKey, StringComparison.Ordinal))
-        {
-            yield return new(
-                "AdminWebServiceKey and GuestWebServiceKey must be distinct.",
-                [nameof(AdminWebServiceKey), nameof(GuestWebServiceKey)]);
-        }
-
         if (ClientTimeoutSeconds < KeepAliveSeconds * 2)
         {
             yield return new(

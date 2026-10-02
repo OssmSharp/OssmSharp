@@ -289,7 +289,7 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>
         ended.Accepted.Should().BeTrue();
         var replacementInvitation = (await Component.GetUserStateAsync(
             TestContext.Current.CancellationToken)).Invitation;
-        Component.JoinGuest("guest-2", new("join-2", replacementInvitation.Token)).Accepted.Should().BeTrue();
+        JoinGuest("guest-2", new("join-2", replacementInvitation.Token)).Accepted.Should().BeTrue();
         var stopsAfterReplacement = Device.Stops;
 
         await Component.GuestDisconnectedAsync("guest-1");
@@ -394,7 +394,7 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>
     [Fact]
     public async Task InvalidInvitationDoesNotAdmitGuest()
     {
-        var response = Component.JoinGuest("guest-1", new("join-1", new string('x', 43)));
+        var response = JoinGuest("guest-1", new("join-1", new string('x', 43)));
 
         response.Should().Be(new ControlResponse("join-1", "invalid-invitation", false));
         var state = await Component.GetGuestStateAsync(
@@ -408,9 +408,9 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>
     {
         var invitation = (await Component.GetUserStateAsync(
             TestContext.Current.CancellationToken)).Invitation;
-        Component.JoinGuest("guest-1", new("join-1", invitation.Token)).Accepted.Should().BeTrue();
+        JoinGuest("guest-1", new("join-1", invitation.Token)).Accepted.Should().BeTrue();
 
-        var response = Component.JoinGuest("guest-2", new("join-2", invitation.Token));
+        var response = JoinGuest("guest-2", new("join-2", invitation.Token));
 
         response.Should().Be(new ControlResponse("join-2", "guest-already-joined", false));
         (await Component.GetGuestStateAsync(
@@ -445,7 +445,7 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>
             TestContext.Current.CancellationToken)).Invitation;
 
         var leave = await Component.LeaveGuestAsync("guest-1", "leave-1");
-        var replacement = Component.JoinGuest("guest-2", new("join-2", replacementInvitation.Token));
+        var replacement = JoinGuest("guest-2", new("join-2", replacementInvitation.Token));
 
         leave.Accepted.Should().BeTrue();
         replacement.Should().Be(new ControlResponse("join-2", "joined", true));
@@ -468,7 +468,7 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>
     {
         var invitation = (await Component.GetUserStateAsync(
             TestContext.Current.CancellationToken)).Invitation;
-        Component.JoinGuest("guest-1", new("join-1", invitation.Token)).Accepted.Should().BeTrue();
+        JoinGuest("guest-1", new("join-1", invitation.Token)).Accepted.Should().BeTrue();
 
         var response = await Component.SubmitAsync(
             "guest-1",
@@ -518,13 +518,13 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>
             TestContext.Current.CancellationToken)).Invitation;
 
         var leave = Component.LeaveGuestAsync("guest-1", "leave-1");
-        var replacement = Component.JoinGuest("guest-2", new("join-2", replacementInvitation.Token));
+        var replacement = JoinGuest("guest-2", new("join-2", replacementInvitation.Token));
 
         leave.IsCompleted.Should().BeFalse();
         replacement.Should().Be(new ControlResponse("join-2", "guest-already-joined", false));
         Device.PendingStop.SetResult();
         (await leave).Accepted.Should().BeTrue();
-        Component.JoinGuest("guest-2", new("join-3", replacementInvitation.Token)).Accepted.Should().BeTrue();
+        JoinGuest("guest-2", new("join-3", replacementInvitation.Token)).Accepted.Should().BeTrue();
     }
 
     [Fact]
@@ -547,7 +547,7 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>
             Assert.True(state.Joined);
             Assert.False(state.ControlAllowed);
             Assert.False((await Component.AllowGuestAsync("allow-2", TestContext.Current.CancellationToken)).Accepted);
-            Assert.False(Component.JoinGuest("guest-2", new("join-2", invitation.Token)).Accepted);
+            Assert.False(JoinGuest("guest-2", new("join-2", invitation.Token)).Accepted);
             Assert.False(connect.IsCompleted);
             Assert.Equal(1, Device.Stops);
         }
@@ -560,7 +560,7 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>
 
         Assert.Equal(new ControlResponse("connect-1", "connected", true), await connect);
         Assert.Equal(2, Device.Stops);
-        Assert.True(Component.JoinGuest("guest-2", new("join-3", invitation.Token)).Accepted);
+        Assert.True(JoinGuest("guest-2", new("join-3", invitation.Token)).Accepted);
         await Component.ExpireGuestAsync();
         Assert.Equal(2, Device.Stops);
     }
@@ -631,7 +631,7 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>
         Assert.Equal(new ControlResponse("connect-1", failureCode, false), await connect);
         Assert.Equal(1, Device.Stops);
         Assert.False((await Component.AllowGuestAsync("allow-2", TestContext.Current.CancellationToken)).Accepted);
-        Assert.False(Component.JoinGuest("guest-2", new("join-2", invitation.Token)).Accepted);
+        Assert.False(JoinGuest("guest-2", new("join-2", invitation.Token)).Accepted);
         await Assert.ThrowsAsync<IOException>(Component.ExpireGuestAsync);
         Assert.Equal(2, Device.Stops);
 
@@ -639,7 +639,7 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>
         Device.StopException = null;
         Assert.True((await Component.ConnectAsync("connect-2", TestContext.Current.CancellationToken)).Accepted);
         Assert.Equal(3, Device.Stops);
-        Assert.True(Component.JoinGuest("guest-2", new("join-3", invitation.Token)).Accepted);
+        Assert.True(JoinGuest("guest-2", new("join-3", invitation.Token)).Accepted);
     }
 
     [Theory]
@@ -661,7 +661,7 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>
             Assert.Equal(2, Device.Stops);
             Assert.True((await Component.GetUserStateAsync(TestContext.Current.CancellationToken)).GuestJoined);
             Assert.False((await Component.AllowGuestAsync("allow-2", TestContext.Current.CancellationToken)).Accepted);
-            Assert.False(Component.JoinGuest("guest-2", new("join-2", invitation.Token)).Accepted);
+            Assert.False(JoinGuest("guest-2", new("join-2", invitation.Token)).Accepted);
         }
         finally
         {
@@ -671,11 +671,11 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>
 
         Assert.Equal(new ControlResponse("connect-1", failureCode, false), await connect);
         Assert.False((await Component.AllowGuestAsync("allow-3", TestContext.Current.CancellationToken)).Accepted);
-        Assert.False(Component.JoinGuest("guest-2", new("join-3", invitation.Token)).Accepted);
+        Assert.False(JoinGuest("guest-2", new("join-3", invitation.Token)).Accepted);
         Device.PendingStop = null;
         await Component.ExpireGuestAsync();
         Assert.Equal(3, Device.Stops);
-        Assert.True(Component.JoinGuest("guest-2", new("join-4", invitation.Token)).Accepted);
+        Assert.True(JoinGuest("guest-2", new("join-4", invitation.Token)).Accepted);
     }
 
     [Fact]
@@ -736,6 +736,38 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>
         Assert.True((await Component.GetGuestStateAsync("guest-1", TestContext.Current.CancellationToken)).ControlAllowed);
     }
 
+    [Fact]
+    public async Task AuthenticationDoesNotConsumeInvitationAndJoinDoesNotGrantControl()
+    {
+        var invitation = (await Component.GetUserStateAsync(TestContext.Current.CancellationToken)).Invitation;
+        var identity = Component.AuthenticateInvitation(invitation.Token);
+
+        Assert.NotNull(identity);
+        Assert.NotEqual(invitation.Token, identity);
+        Assert.Equal(identity, Component.AuthenticateInvitation(invitation.Token));
+        Assert.True(Component.JoinGuest("guest-1", identity, new("join-1", invitation.Token)).Accepted);
+        Assert.Null(Component.AuthenticateInvitation(invitation.Token));
+        var state = await Component.GetGuestStateAsync("guest-1", TestContext.Current.CancellationToken);
+        Assert.True(state.Joined);
+        Assert.False(state.ControlAllowed);
+    }
+
+    [Fact]
+    public async Task StaleIdentityCannotRedeemFreshInvitation()
+    {
+        var invitation = (await Component.GetUserStateAsync(TestContext.Current.CancellationToken)).Invitation;
+        var identity = Component.AuthenticateInvitation(invitation.Token);
+        Assert.True(Component.JoinGuest("guest-1", identity, new("join-1", invitation.Token)).Accepted);
+        Assert.True((await Component.LeaveGuestAsync("guest-1", "leave-1")).Accepted);
+        var fresh = (await Component.GetUserStateAsync(TestContext.Current.CancellationToken)).Invitation;
+
+        var stale = Component.JoinGuest("guest-2", identity, new("join-2", fresh.Token));
+
+        Assert.Equal("invalid-invitation", stale.Code);
+        Assert.False(stale.Accepted);
+        Assert.True(JoinGuest("guest-3", new("join-3", fresh.Token)).Accepted);
+    }
+
     private static Exception ConnectionFailure(string code) => code switch
     {
         "cancelled" => new OperationCanceledException(),
@@ -748,8 +780,11 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>
     {
         var invitation = (await Component.GetUserStateAsync(
             TestContext.Current.CancellationToken)).Invitation;
-        Component.JoinGuest(connectionId, new("join-1", invitation.Token)).Accepted.Should().BeTrue();
+        JoinGuest(connectionId, new("join-1", invitation.Token)).Accepted.Should().BeTrue();
         (await Component.AllowGuestAsync("allow-1", TestContext.Current.CancellationToken)).Accepted.Should().BeTrue();
         return invitation;
     }
+
+    private ControlResponse JoinGuest(string connectionId, GuestJoinRequest request) =>
+        Component.JoinGuest(connectionId, Component.AuthenticateInvitation(request.InvitationToken), request);
 }

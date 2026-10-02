@@ -10,7 +10,7 @@ namespace OssmSharp.Web.Api.SignalR;
 public static class ControlHubEndpointRouteBuilderExtensions
 {
     /// <summary>
-    /// Maps the WebSocket-only v2 control hub with trusted-service authentication.
+    /// Maps the v2 WebSocket hub for administrators and invited guests.
     /// </summary>
     /// <param name="endpoints">The service endpoint builder.</param>
     /// <returns>The mapped hub endpoint for further conventions.</returns>
@@ -22,8 +22,7 @@ public static class ControlHubEndpointRouteBuilderExtensions
             options.Transports = HttpTransportType.WebSockets)
             .RequireAuthorization(new AuthorizeAttribute
             {
-                Policy = ControlServicePolicies.Service,
-                AuthenticationSchemes = ServiceKeyAuthenticationDefaults.Scheme
+                Policy = ControlServicePolicies.Service
             });
     }
 }

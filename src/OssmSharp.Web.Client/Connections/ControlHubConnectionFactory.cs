@@ -40,6 +40,23 @@ public sealed class ControlHubConnectionFactory
     /// <returns>A separate authenticated hub connection owned by its caller.</returns>
     public HubConnection Create()
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(_options.ServiceKey);
+        return Create($"ServiceKey {_options.ServiceKey}");
+    }
+
+    /// <summary>
+    /// Creates a guest connection using an invitation.
+    /// </summary>
+    /// <param name="invitationToken">The guest's invitation, sent only to the configured API.</param>
+    /// <returns>A connection the caller must dispose. It does not reconnect automatically.</returns>
+    public HubConnection CreateForGuest(string invitationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(invitationToken);
+        return Create($"Bearer {invitationToken}");
+    }
+
+    private HubConnection Create(string authorization)
+    {
         var origin = new Uri(_options.ControlOrigin, UriKind.Absolute);
         var hub = new Uri(origin, "/hubs/control/v2");
         return new HubConnectionBuilder()
@@ -47,7 +64,7 @@ public sealed class ControlHubConnectionFactory
             {
                 connection.Transports = HttpTransportType.WebSockets;
                 connection.SkipNegotiation = false;
-                connection.Headers.Add("Authorization", $"ServiceKey {_options.ServiceKey}");
+                connection.Headers.Add("Authorization", authorization);
             })
             .WithServerTimeout(TimeSpan.FromSeconds(_options.ServerTimeoutSeconds))
             .WithKeepAliveInterval(TimeSpan.FromSeconds(_options.KeepAliveSeconds))

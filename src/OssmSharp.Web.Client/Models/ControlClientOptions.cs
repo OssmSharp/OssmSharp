@@ -12,9 +12,9 @@ public sealed class ControlClientOptions : IValidatableObject
     public string ControlOrigin { get; set; } = "";
 
     /// <summary>
-    /// Gets or sets the service-to-service authentication key; never expose it to browsers.
+    /// Gets or sets the administrator service key. Guest clients reject a configured key.
     /// </summary>
-    [Required, RegularExpression(@"\A[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]\z")]
+    [RegularExpression(@"\A[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]\z")]
     public string ServiceKey { get; set; } = "";
 
     /// <summary>

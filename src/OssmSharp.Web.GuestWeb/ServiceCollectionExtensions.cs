@@ -12,7 +12,7 @@ public static class ServiceCollectionExtensions
     /// <returns>The service collection for further registration.</returns>
     public static IServiceCollection AddGuestSession(this IServiceCollection services)
     {
-        services.AddControlClient("OSSM:ControlClient");
+        services.AddGuestControlClient("OSSM:ControlClient");
         services.AddScoped<CircuitHandler, GuestCircuitHandler>();
         return services;
     }

@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using OssmSharp.Web.Api.Control;
@@ -21,7 +22,8 @@ public sealed class ControlHub(IControlSession session) : Hub
 
     /// <summary>Admits the calling guest using an invitation.</summary>
     [Authorize(Policy = ControlServicePolicies.GuestWeb)]
-    public ControlResponse Join(GuestJoinRequest request) => session.JoinGuest(Context.ConnectionId, request);
+    public ControlResponse Join(GuestJoinRequest request) =>
+        session.JoinGuest(Context.ConnectionId, Context.User?.FindFirstValue(ClaimTypes.NameIdentifier), request);
 
     /// <summary>Submits complete settings for the calling guest.</summary>
     [Authorize(Policy = ControlServicePolicies.GuestWeb)]

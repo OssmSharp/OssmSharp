@@ -16,14 +16,34 @@ public static class ServiceCollectionExtensions
     /// <returns>The same service collection for further registration.</returns>
     public static IServiceCollection AddControlClient(this IServiceCollection services, string configurationSection)
     {
+        AddClientOptions(services, configurationSection, guest: false);
+        services.AddScoped<UserControlClient>();
+        return services;
+    }
+
+    /// <summary>
+    /// Adds a guest client that connects only after receiving an invitation.
+    /// </summary>
+    /// <param name="services">The service collection.</param>
+    /// <param name="configurationSection">The settings section for the API URL and connection timings, without a service key.</param>
+    /// <returns>The service collection.</returns>
+    public static IServiceCollection AddGuestControlClient(this IServiceCollection services, string configurationSection)
+    {
+        AddClientOptions(services, configurationSection, guest: true);
+        services.AddScoped<GuestControlClient>();
+        return services;
+    }
+
+    private static void AddClientOptions(IServiceCollection services, string configurationSection, bool guest)
+    {
         ArgumentException.ThrowIfNullOrWhiteSpace(configurationSection);
         services.AddOptions<ControlClientOptions>()
             .BindConfiguration(configurationSection, options => options.ErrorOnUnknownConfiguration = true)
             .ValidateDataAnnotations()
+            .Validate(
+                options => guest ? string.IsNullOrEmpty(options.ServiceKey) : !string.IsNullOrWhiteSpace(options.ServiceKey),
+                guest ? "Guest clients must not configure a ServiceKey." : "Administrator clients require a ServiceKey.")
             .ValidateOnStart();
         services.AddSingleton<ControlHubConnectionFactory>();
-        services.AddScoped<UserControlClient>();
-        services.AddScoped<GuestControlClient>();
-        return services;
     }
 }

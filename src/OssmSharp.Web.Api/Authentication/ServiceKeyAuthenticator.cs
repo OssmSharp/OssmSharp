@@ -10,18 +10,16 @@ namespace OssmSharp.Web.Api.Authentication;
 public sealed class ServiceKeyAuthenticator : IDisposable
 {
     private byte[] _adminWebKeyHash;
-    private byte[] _guestWebKeyHash;
 
     /// <summary>
     /// Creates a validator from startup-validated service-key configuration.
     /// </summary>
-    /// <param name="options">The distinct admin and guest service keys to hash.</param>
+    /// <param name="options">The administrator service key settings.</param>
     /// <exception cref="ArgumentNullException">The configuration is null.</exception>
     public ServiceKeyAuthenticator(IOptions<ControlServiceOptions> options)
     {
         ArgumentNullException.ThrowIfNull(options);
         _adminWebKeyHash = CapabilityTokens.Hash(options.Value.AdminWebServiceKey);
-        _guestWebKeyHash = CapabilityTokens.Hash(options.Value.GuestWebServiceKey);
     }
 
     /// <summary>
@@ -40,14 +38,9 @@ public sealed class ServiceKeyAuthenticator : IDisposable
             return null;
 
         var key = value[prefix.Length..];
-        var adminMatches = CapabilityTokens.Matches(_adminWebKeyHash, key);
-        var guestMatches = CapabilityTokens.Matches(_guestWebKeyHash, key);
-        return (adminMatches, guestMatches) switch
-        {
-            (true, false) => new("admin-web", ControlServiceRoles.AdminWeb),
-            (false, true) => new("guest-web", ControlServiceRoles.GuestWeb),
-            _ => null
-        };
+        return CapabilityTokens.Matches(_adminWebKeyHash, key)
+            ? new("admin-web", ControlServiceRoles.AdminWeb)
+            : null;
     }
 
     /// <summary>
@@ -56,8 +49,6 @@ public sealed class ServiceKeyAuthenticator : IDisposable
     public void Dispose()
     {
         System.Security.Cryptography.CryptographicOperations.ZeroMemory(_adminWebKeyHash);
-        System.Security.Cryptography.CryptographicOperations.ZeroMemory(_guestWebKeyHash);
         _adminWebKeyHash = [];
-        _guestWebKeyHash = [];
     }
 }

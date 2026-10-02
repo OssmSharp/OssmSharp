@@ -13,8 +13,21 @@ public interface IControlSession
     /// <summary>Returns state visible to the specified guest connection.</summary>
     Task<GuestSessionState> GetGuestStateAsync(string connectionId, CancellationToken cancellationToken);
 
-    /// <summary>Admits the specified connection using an invitation.</summary>
-    ControlResponse JoinGuest(string connectionId, GuestJoinRequest request);
+    /// <summary>
+    /// Checks an invitation token without redeeming it.
+    /// </summary>
+    /// <param name="token">The invitation token to check.</param>
+    /// <returns>The invitation ID, not the token, or <see langword="null"/> if invalid or shutting down.</returns>
+    string? AuthenticateInvitation(string? token);
+
+    /// <summary>
+    /// Joins a guest only if the authenticated invitation and token match the current invitation.
+    /// </summary>
+    /// <param name="connectionId">The guest connection ID.</param>
+    /// <param name="invitationId">The invitation ID from the authenticated connection, not the request.</param>
+    /// <param name="request">The invitation token and request correlation ID.</param>
+    /// <returns>The join result. Success replaces the invitation but does not enable control.</returns>
+    ControlResponse JoinGuest(string connectionId, string? invitationId, GuestJoinRequest request);
 
     /// <summary>Re-arms when needed, then allows the admitted guest to submit settings until revoked.</summary>
     Task<ControlResponse> AllowGuestAsync(string correlation, CancellationToken cancellationToken);

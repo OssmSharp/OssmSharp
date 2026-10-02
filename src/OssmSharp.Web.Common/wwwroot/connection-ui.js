@@ -12,10 +12,14 @@ export function initialize(onConnectionDown) {
     for (const rail of document.querySelectorAll(".preview-rail")) rail.pauseAnimations();
     onConnectionDown?.();
   }
-  document.addEventListener("components-reconnect-state-changed", (event) => {
-    document.getElementById("app-boot-status").hidden = true;
-    if (event.detail.state !== "hide") connectionDown();
-  }, { capture: true });
+  document.addEventListener(
+    "components-reconnect-state-changed",
+    (event) => {
+      document.getElementById("app-boot-status").hidden = true;
+      if (event.detail.state !== "hide") connectionDown();
+    },
+    { capture: true },
+  );
   return {
     circuit: {
       reconnectionOptions: { maxRetries: 0 },

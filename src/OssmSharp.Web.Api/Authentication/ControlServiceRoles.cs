@@ -1,7 +1,7 @@
 namespace OssmSharp.Web.Api.Authentication;
 
 /// <summary>
-/// Defines trusted service identity roles for the API boundary.
+/// Defines roles for administrators and guests authenticated with an invitation.
 /// </summary>
 public static class ControlServiceRoles
 {
@@ -11,7 +11,7 @@ public static class ControlServiceRoles
     public const string AdminWeb = "AdminWeb";
 
     /// <summary>
-    /// Gets the role for the restricted guest web host.
+    /// Gets the role for guests authenticated with an invitation.
     /// </summary>
-    public const string GuestWeb = "GuestWeb";
+    public const string GuestWeb = "Guest";
 }

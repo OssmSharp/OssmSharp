@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.HostFiltering;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -48,7 +49,18 @@ public static class ServiceCollectionExtensions
         services.AddOptions<GuestOptions>()
             .BindConfiguration("OSSM:Guest", options => options.ErrorOnUnknownConfiguration = true)
             .ValidateDataAnnotations()
+            .Validate<IConfiguration>(
+                (_, configuration) =>
+                    !configuration.GetSection("Kestrel").Exists()
+                    && !configuration.GetValue<bool>(WebHostDefaults.PreferHostingUrlsKey),
+                "Guest listener overrides are not supported. Use OSSM:Guest:GuestPort for the 127.0.0.1 listener.")
             .ValidateOnStart();
+        services.AddOptions<HostFilteringOptions>().Configure<IOptions<GuestOptions>>((filter, options) =>
+        {
+            filter.AllowedHosts = options.Value.Hostname.Length == 0
+                ? ["127.0.0.1"]
+                : ["127.0.0.1", new Uri(options.Value.Hostname).Host];
+        });
         return services;
     }
 

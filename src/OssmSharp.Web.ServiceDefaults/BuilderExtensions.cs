@@ -1,13 +1,16 @@
+using System.Net;
 using System.Text;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Hosting;
 using OpenTelemetry;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
+using OssmSharp.Web.ServiceDefaults.Models;
 
 namespace OssmSharp.Web.ServiceDefaults;
 
@@ -92,7 +95,38 @@ public static class BuilderExtensions
     /// <param name="port">The port expected in the loopback host and origin.</param>
     /// <param name="styleHashes">Canonical Base64 SHA-256 hashes of inline styles permitted by the content security policy.</param>
     /// <exception cref="ArgumentException">A style hash is not a canonical Base64 SHA-256 digest.</exception>
-    public static void UseLocalBoundary(this IApplicationBuilder app, int port, IReadOnlyList<string>? styleHashes = null)
+    public static void UseLocalAccessPolicy(this IApplicationBuilder app, int port, IReadOnlyList<string>? styleHashes = null)
+        => UseAccessPolicy(app, port, null, styleHashes);
+
+    /// <summary>
+    /// Allows local access and access through the configured HTTPS reverse proxy.
+    /// </summary>
+    /// <param name="app">The guest app's request pipeline.</param>
+    /// <param name="options">The validated guest port and public URL settings.</param>
+    /// <param name="styleHashes">The allowed SHA-256 style hashes, encoded as canonical Base64.</param>
+    /// <remarks>
+    /// Trusts <c>X-Forwarded-Proto</c> from one proxy at <c>127.0.0.1</c>.
+    /// Forwarded host names, user identities, and client IP addresses are ignored.
+    /// </remarks>
+    public static void UseGuestAccessPolicy(this IApplicationBuilder app, GuestOptions options, IReadOnlyList<string>? styleHashes = null)
+    {
+        var publicOrigin = options.Hostname.Length == 0 ? null : new Uri(options.Hostname).GetLeftPart(UriPartial.Authority);
+        if (publicOrigin is not null)
+        {
+            var forwarded = new ForwardedHeadersOptions
+            {
+                ForwardedHeaders = ForwardedHeaders.XForwardedProto,
+                ForwardLimit = 1
+            };
+            forwarded.KnownIPNetworks.Clear();
+            forwarded.KnownProxies.Clear();
+            forwarded.KnownProxies.Add(IPAddress.Loopback);
+            app.UseForwardedHeaders(forwarded);
+        }
+        UseAccessPolicy(app, options.GuestPort, publicOrigin, styleHashes);
+    }
+
+    private static void UseAccessPolicy(IApplicationBuilder app, int port, string? publicOrigin, IReadOnlyList<string>? styleHashes)
     {
         var styles = new StringBuilder("'self'");
         Span<byte> digest = stackalloc byte[32];
@@ -106,11 +140,17 @@ public static class BuilderExtensions
         app.UseExceptionHandler();
         var host = $"127.0.0.1:{port}";
         var origin = $"http://{host}";
+        var publicHost = publicOrigin is null ? null : new Uri(publicOrigin).Authority;
         var policy = $"default-src 'self'; script-src 'self'; style-src {styles}; connect-src 'self' ws://{host}; img-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'";
+        var publicPolicy = publicOrigin is null ? null : policy.Replace($"ws://{host}", $"wss://{publicHost}", StringComparison.Ordinal);
         app.Use(async (context, next) =>
         {
-            if (!string.Equals(context.Request.Host.Value, host, StringComparison.OrdinalIgnoreCase) ||
-                context.Connection.RemoteIpAddress is not { } address || !System.Net.IPAddress.IsLoopback(address))
+            var local = string.Equals(context.Request.Host.Value, host, StringComparison.OrdinalIgnoreCase);
+            var proxied = publicHost is not null
+                && string.Equals(context.Request.Host.Value, publicHost, StringComparison.OrdinalIgnoreCase)
+                && context.Request.IsHttps;
+            if ((!local && !proxied)
+                || context.Connection.RemoteIpAddress is not { } address || !IPAddress.IsLoopback(address))
             {
                 context.Response.StatusCode = StatusCodes.Status403Forbidden;
                 return;
@@ -119,7 +159,8 @@ public static class BuilderExtensions
             var suppliedOrigin = context.Request.Headers.Origin.ToString();
             var needsOrigin = context.WebSockets.IsWebSocketRequest ||
                 context.Request.Method is not ("GET" or "HEAD" or "OPTIONS");
-            if ((needsOrigin || suppliedOrigin.Length > 0) && !suppliedOrigin.Equals(origin, StringComparison.Ordinal))
+            var expectedOrigin = local ? origin : publicOrigin;
+            if ((needsOrigin || suppliedOrigin.Length > 0) && !suppliedOrigin.Equals(expectedOrigin, StringComparison.Ordinal))
             {
                 context.Response.StatusCode = StatusCodes.Status403Forbidden;
                 return;
@@ -129,7 +170,7 @@ public static class BuilderExtensions
             context.Response.Headers["X-Content-Type-Options"] = "nosniff";
             context.Response.Headers["X-Frame-Options"] = "DENY";
             context.Response.Headers.CacheControl = "no-store";
-            context.Response.Headers["Content-Security-Policy"] = policy;
+            context.Response.Headers["Content-Security-Policy"] = local ? policy : publicPolicy;
             await next(context);
         });
     }

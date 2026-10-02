@@ -4,7 +4,7 @@ builder.Services.AddAdminConfiguration().AddLocalBlazor().AddControlClient("OSSM
 builder.WebHost.UseStaticWebAssets();
 
 await using var app = builder.Build();
-app.UseLocalBoundary(app.Services.GetRequiredService<IOptions<AdminOptions>>().Value.AdminPort, RetroWidgetAssets.InlineStyleHashes);
+app.UseLocalAccessPolicy(app.Services.GetRequiredService<IOptions<AdminOptions>>().Value.AdminPort, RetroWidgetAssets.InlineStyleHashes);
 app.UseStaticFiles();
 app.UseAntiforgery();
 app.MapStaticAssets();

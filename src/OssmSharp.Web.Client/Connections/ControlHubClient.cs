@@ -36,7 +36,7 @@ internal sealed class ControlHubClient(ControlHubConnectionFactory factory, IOpt
     /// <summary>
     /// Starts the authenticated connection once.
     /// </summary>
-    internal async Task StartAsync(CancellationToken cancellationToken)
+    internal async Task StartAsync(CancellationToken cancellationToken, string? invitationToken = null)
     {
         if (!TryEnterOperation())
             throw new InvalidOperationException("The control connection has already closed.");
@@ -46,7 +46,7 @@ internal sealed class ControlHubClient(ControlHubConnectionFactory factory, IOpt
             if (Interlocked.CompareExchange(ref _state, -1, 0) != 0)
                 throw new InvalidOperationException("The control connection has already started or closed.");
 
-            var connection = factory.Create();
+            var connection = invitationToken is null ? factory.Create() : factory.CreateForGuest(invitationToken);
             _connectionTask = Task.FromResult(connection);
             connection.Closed += OnClosedAsync;
             try
@@ -61,6 +61,9 @@ internal sealed class ControlHubClient(ControlHubConnectionFactory factory, IOpt
                 connection.Closed -= OnClosedAsync;
                 _connectionTask = null;
                 await connection.DisposeAsync();
+                if (invitationToken is not null
+                    && error.GetBaseException() is HttpRequestException { StatusCode: System.Net.HttpStatusCode.Unauthorized })
+                    throw new ControlClientException("invalid-invitation", error);
                 if (error is HttpRequestException or System.Net.WebSockets.WebSocketException or IOException
                     || error is AggregateException aggregate
                     && aggregate.InnerExceptions.All(exception => exception is TransportFailedException))
