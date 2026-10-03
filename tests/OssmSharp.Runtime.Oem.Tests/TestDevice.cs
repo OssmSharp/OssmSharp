@@ -6,11 +6,11 @@ namespace OssmSharp.Runtime.Oem.Tests;
 
 internal sealed class TestDevice(ILogger<DeviceBase>? logger = null) : DeviceBase(logger ?? NullLogger<DeviceBase>.Instance)
 {
-    public List<DeviceCommand> Writes { get; } = [];
+    public List<FirmwareCommand> Writes { get; } = [];
 
     public DeviceState LiveState { get; set; } = new(new MotionSettings(0, 0, 0, 0, 0));
 
-    public Func<DeviceCommand, CancellationToken, Task>? Write { get; set; }
+    public Func<FirmwareCommand, CancellationToken, Task>? Write { get; set; }
 
     public Func<CancellationToken, Task<DeviceState>>? Read { get; set; }
 
@@ -56,7 +56,7 @@ internal sealed class TestDevice(ILogger<DeviceBase>? logger = null) : DeviceBas
         return Disconnect?.Invoke() ?? Task.CompletedTask;
     }
 
-    private protected override Task WriteCommandAsync(DeviceCommand command, CancellationToken cancellationToken)
+    private protected override Task WriteCommandAsync(FirmwareCommand command, CancellationToken cancellationToken)
     {
         Writes.Add(command);
         return Write?.Invoke(command, cancellationToken) ?? Task.CompletedTask;

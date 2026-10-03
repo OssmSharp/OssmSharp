@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using OssmSharp.Runtime.Oem.Protocol;
 
 namespace OssmSharp.Runtime.Oem;
 
@@ -61,11 +62,11 @@ internal static partial class Log
     [LoggerMessage(20, LogLevel.Information, "Device Stop command completed; commands remain disarmed.")]
     public static partial void StopCompleted(this ILogger logger);
 
-    [LoggerMessage(21, LogLevel.Debug, "Writing device setting {Control} with value {Value}.")]
-    public static partial void CommandStarted(this ILogger logger, DeviceControl control, int value);
+    [LoggerMessage(21, LogLevel.Debug, "Writing device setting {Setting} with value {Value}.")]
+    public static partial void CommandStarted(this ILogger logger, FirmwareSetting setting, int value);
 
-    [LoggerMessage(22, LogLevel.Debug, "Device setting {Control} write completed.")]
-    public static partial void CommandCompleted(this ILogger logger, DeviceControl control);
+    [LoggerMessage(22, LogLevel.Debug, "Device setting {Setting} write completed.")]
+    public static partial void CommandCompleted(this ILogger logger, FirmwareSetting setting);
 
     [LoggerMessage(23, LogLevel.Debug, "Sending device request {RequestId} for {Operation} at {Path}, attempt {Attempt}.")]
     public static partial void RequestSending(this ILogger logger, uint requestId, string operation, string? path, int attempt);

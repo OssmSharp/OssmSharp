@@ -70,13 +70,13 @@ public sealed record MotionSettings
 
     internal int DesiredDeviceVelocityPercent => Speed * Stroke / 100;
 
-    internal DeviceCommand[] ToCommands() =>
+    internal FirmwareCommand[] ToCommands() =>
     [
-        new(DeviceControl.Pattern, (int)Pattern),
-        new(DeviceControl.Stroke, Stroke),
-        new(DeviceControl.Depth, Depth),
-        new(DeviceControl.Sensation, Sensation),
-        new(DeviceControl.Speed, DesiredDeviceVelocityPercent),
+        new(FirmwareSetting.Pattern, (int)Pattern),
+        new(FirmwareSetting.Stroke, Stroke),
+        new(FirmwareSetting.Depth, Depth),
+        new(FirmwareSetting.Sensation, Sensation),
+        new(FirmwareSetting.Speed, DesiredDeviceVelocityPercent),
     ];
 
     internal static bool IsValidPattern(StrokePattern value) => Enum.IsDefined(value);

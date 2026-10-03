@@ -3,7 +3,7 @@ namespace OssmSharp.Runtime.Oem;
 /// <summary>
 /// Identifies a requested motion control, not a motor position or a motion-safety decision.
 /// </summary>
-public enum DeviceControl
+public enum DeviceSetting
 {
     /// <summary>
     /// Selects the stroke pattern.

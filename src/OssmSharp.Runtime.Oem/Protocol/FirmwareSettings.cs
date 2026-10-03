@@ -8,7 +8,7 @@ namespace OssmSharp.Runtime.Oem.Protocol;
 /// <param name="Stroke">The confirmed stroke assignment, or null when none is confirmed.</param>
 /// <param name="Depth">The confirmed depth assignment, or null when none is confirmed.</param>
 /// <param name="Sensation">The confirmed sensation assignment, or null when none is confirmed.</param>
-internal sealed record DeviceSettings(
+internal sealed record FirmwareSettings(
     int? Pattern = null,
     int? DeviceVelocityPercent = null,
     int? Stroke = null,

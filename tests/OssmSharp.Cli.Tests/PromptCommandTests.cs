@@ -79,7 +79,7 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
         selectedIdentifiers.Should().Equal("Device-A");
         context.Scans.Should().Be(1);
         device.IsArmed.Should().BeFalse();
-        device.Writes.Should().Equal(new DeviceCommand(DeviceControl.Speed, 0), new DeviceCommand(DeviceControl.Speed, 0));
+        device.Writes.Should().Equal(new DeviceCommand(DeviceSetting.Speed, 0), new DeviceCommand(DeviceSetting.Speed, 0));
         device.Disconnects.Should().Be(1);
         error.ToString().Should().Contain("Connected. Type 'help' for commands.").And.NotContain("Armed:");
     }
@@ -170,7 +170,7 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
         context.Scans.Should().Be(identifier is null ? 1 : 0);
         selectedIdentifiers.Should().Equal(identifier ?? "Device-A");
         device.Disconnects.Should().Be(1);
-        device.Writes.Should().Equal(new DeviceCommand(DeviceControl.Speed, 0), new DeviceCommand(DeviceControl.Speed, 0));
+        device.Writes.Should().Equal(new DeviceCommand(DeviceSetting.Speed, 0), new DeviceCommand(DeviceSetting.Speed, 0));
         output.ToString().Should().Contain("OK stop").And.NotContain("OK set");
         error.ToString().Should().Contain("Connected. Type 'help' for commands.").And.Contain("Sending stop command...")
             .And.NotContain("ERROR").And.NotContain("Armed:");
@@ -229,7 +229,7 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
 
             (await Component.RunAsync("Device-A", TestContext.Current.CancellationToken)).Should().Be(1);
             device.Disconnects.Should().Be(1);
-            device.Writes.Should().Equal(new DeviceCommand(DeviceControl.Speed, 0), new DeviceCommand(DeviceControl.Speed, 0));
+            device.Writes.Should().Equal(new DeviceCommand(DeviceSetting.Speed, 0), new DeviceCommand(DeviceSetting.Speed, 0));
             error.ToString().Should().Contain("Connected. Type 'help' for commands.").And.Contain("ERROR device cleanup: disconnect failed")
                 .And.NotContain("ERROR prompt").And.NotContain("Armed:");
         }
@@ -252,7 +252,7 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
 
         (await Component.RunAsync("Device-A", TestContext.Current.CancellationToken)).Should().Be(1);
 
-        device.Writes.Should().Equal(new DeviceCommand(DeviceControl.Speed, 0), new DeviceCommand(DeviceControl.Speed, 0));
+        device.Writes.Should().Equal(new DeviceCommand(DeviceSetting.Speed, 0), new DeviceCommand(DeviceSetting.Speed, 0));
         device.Disconnects.Should().Be(1);
         error.ToString().Should().Contain("ERROR stop: Stop failed during quit.").And.NotContain("ERROR device cleanup");
         output.ToString().Should().NotContain("OK stop");
@@ -273,7 +273,7 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
 
             (await Component.RunAsync("Device-A", TestContext.Current.CancellationToken)).Should().Be(1);
 
-            device.Writes.Should().Equal(new DeviceCommand(DeviceControl.Speed, 0), new DeviceCommand(DeviceControl.Speed, 0));
+            device.Writes.Should().Equal(new DeviceCommand(DeviceSetting.Speed, 0), new DeviceCommand(DeviceSetting.Speed, 0));
             device.Disconnects.Should().Be(1);
             output.ToString().Should().Contain("OK stop");
             error.ToString().Should().Contain("ERROR device cleanup: Stop failed during disposal.").And.NotContain("ERROR stop:");
@@ -334,8 +334,8 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
         (await run).Should().Be(0);
         device.Disconnects.Should().Be(1);
         device.Writes.Should().Equal(cancel
-            ? [new DeviceCommand(DeviceControl.Speed, 0)]
-            : [new DeviceCommand(DeviceControl.Speed, 0), new DeviceCommand(DeviceControl.Speed, 0)]);
+            ? [new DeviceCommand(DeviceSetting.Speed, 0)]
+            : [new DeviceCommand(DeviceSetting.Speed, 0), new DeviceCommand(DeviceSetting.Speed, 0)]);
         error.ToString().Should().NotContain("ERROR");
         error.ToString().Split(Environment.NewLine).Count(line => line == "Cancelled. Waiting for pending work and cleanup.")
             .Should().Be(cancel ? 1 : 0);

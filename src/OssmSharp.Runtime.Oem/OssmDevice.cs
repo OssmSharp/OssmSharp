@@ -51,11 +51,6 @@ public sealed class OssmDevice : DeviceBase
     /// </summary>
     private readonly IBleManager manager;
 
-    /// <summary>
-    /// The caller-selected platform identifier retained for reconnection.
-    /// </summary>
-    private readonly string identifier;
-
     private readonly TimeProvider timeProvider;
     private readonly ILogger logger;
     private readonly OssmDeviceOptions options;
@@ -164,14 +159,13 @@ public sealed class OssmDevice : DeviceBase
     /// <param name="logger">The operational logger for Runtime's execution owner.</param>
     /// <param name="options">The request retry and terminal-response wait limits.</param>
     public OssmDevice(IBleManager manager, string identifier, TimeProvider timeProvider, ILogger<DeviceBase> logger, IOptions<OssmDeviceOptions> options)
-        : base(logger)
+        : base(identifier, logger)
     {
         ArgumentNullException.ThrowIfNull(manager);
         ArgumentException.ThrowIfNullOrWhiteSpace(identifier);
         ArgumentNullException.ThrowIfNull(timeProvider);
         ArgumentNullException.ThrowIfNull(options);
         this.manager = manager;
-        this.identifier = identifier;
         this.timeProvider = timeProvider;
         this.logger = logger;
         this.options = options.Value;
@@ -211,7 +205,7 @@ public sealed class OssmDevice : DeviceBase
         }
 
         logger.ConnectionSetupStage("resolving peripheral after bluetooth access was granted");
-        var selected = manager.GetKnownPeripheral(identifier)
+        var selected = manager.GetKnownPeripheral(DeviceId)
             ?? throw new InvalidOperationException("The selected bluetooth device is unavailable. Discover devices again before connecting.");
         if (selected.Status != ConnectionState.Disconnected)
         {
@@ -425,16 +419,16 @@ public sealed class OssmDevice : DeviceBase
     }
 
     /// <inheritdoc />
-    private protected override Task WriteCommandAsync(DeviceCommand command, CancellationToken cancellationToken)
+    private protected override Task WriteCommandAsync(FirmwareCommand command, CancellationToken cancellationToken)
     {
-        var path = command.Control switch
+        var path = command.Setting switch
         {
-            DeviceControl.Pattern => "motion.pattern",
-            DeviceControl.Speed => "motion.speed",
-            DeviceControl.Stroke => "motion.stroke",
-            DeviceControl.Depth => "motion.depth",
-            DeviceControl.Sensation => "motion.sensation",
-            _ => throw new ArgumentOutOfRangeException(nameof(command), command.Control, "Unknown firmware control."),
+            FirmwareSetting.Pattern => "motion.pattern",
+            FirmwareSetting.Speed => "motion.speed",
+            FirmwareSetting.Stroke => "motion.stroke",
+            FirmwareSetting.Depth => "motion.depth",
+            FirmwareSetting.Sensation => "motion.sensation",
+            _ => throw new ArgumentOutOfRangeException(nameof(command), command.Setting, "Unknown firmware control."),
         };
         long current;
         lock (sync)

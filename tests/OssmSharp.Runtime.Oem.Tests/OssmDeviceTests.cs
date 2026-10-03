@@ -145,7 +145,7 @@ public sealed class OssmDeviceTests
             .Should().Equal("motion.pattern", "motion.stroke", "motion.depth", "motion.sensation", "motion.speed");
         writes.Select(request => request["args"]!["value"]!.GetValue<int>()).Should().Equal((int)pattern, stroke, depth, sensation, expectedDeviceVelocityPercent);
         writes.Should().OnlyContain(request => request["lease"]!.GetValue<uint>() == 42);
-        Assert.Equal(new DeviceSettings((int)pattern, expectedDeviceVelocityPercent, stroke, depth, sensation), device.Transmitted);
+        Assert.Equal(new FirmwareSettings((int)pattern, expectedDeviceVelocityPercent, stroke, depth, sensation), device.Transmitted);
         device.IsArmed.Should().BeTrue();
     }
 
@@ -171,7 +171,7 @@ public sealed class OssmDeviceTests
         var error = (await set.Should().ThrowAsync<DeviceWriteException>()).Which;
 
         error.CommandsWritten.Should().Be(1);
-        error.Command.Should().Be(new DeviceCommand(DeviceControl.Stroke, 30));
+        error.Command.Should().Be(new DeviceCommand(DeviceSetting.Stroke, 30));
         error.InnerException.Should().BeOfType<IOException>().Which.Message.Should().Contain("invalid_value");
         context.RequestsFor("setting.write", "motion.").Should().HaveCount(2);
         device.IsArmed.Should().BeFalse();
@@ -482,7 +482,7 @@ public sealed class OssmDeviceTests
             await set;
         }
 
-        Assert.Equal(new DeviceSettings(2, 42, 80, 0, 100), device.Transmitted);
+        Assert.Equal(new FirmwareSettings(2, 42, 80, 0, 100), device.Transmitted);
         Assert.Equal(50, (await device.GetStateAsync(cancellationToken: token))?.Speed);
     }
 

@@ -21,7 +21,7 @@ public sealed class DeviceWriteException : IOException
         CommandsWritten = commandsWritten;
     }
 
-    internal DeviceWriteException(DeviceCommand command, int commandsWritten, Exception innerException)
+    internal DeviceWriteException(FirmwareCommand command, int commandsWritten, Exception innerException)
         : this(commandsWritten, innerException)
     {
         Command = command;
@@ -32,5 +32,5 @@ public sealed class DeviceWriteException : IOException
     /// </summary>
     public int CommandsWritten { get; }
 
-    internal DeviceCommand Command { get; }
+    internal FirmwareCommand Command { get; }
 }

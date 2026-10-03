@@ -49,7 +49,7 @@ public abstract class DeviceBase : IOssmDevice
     /// </summary>
     private DeviceState? state;
 
-    private DeviceSettings? transmitted;
+    private FirmwareSettings? transmitted;
     private long writeSequence;
     private long confirmedSpeedSequence;
 
@@ -111,10 +111,13 @@ public abstract class DeviceBase : IOssmDevice
     /// <summary>
     /// Initializes the execution owner without connecting or arming.
     /// </summary>
+    /// <param name="deviceId"></param>
     /// <param name="logger">The host-owned operational logger.</param>
-    protected DeviceBase(ILogger<DeviceBase> logger)
+    protected DeviceBase(string deviceId, ILogger<DeviceBase> logger)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(deviceId);
         ArgumentNullException.ThrowIfNull(logger);
+        this.DeviceId = deviceId;
         this.logger = logger;
     }
 
@@ -135,6 +138,10 @@ public abstract class DeviceBase : IOssmDevice
 
     /// <inheritdoc />
     public virtual string? Name => null;
+
+
+    /// <inheritdoc />
+    public string DeviceId { get; private init; }
 
     /// <inheritdoc />
     public bool IsArmed
@@ -160,7 +167,7 @@ public abstract class DeviceBase : IOssmDevice
         }
     }
 
-    internal DeviceSettings? Transmitted
+    internal FirmwareSettings? Transmitted
     {
         get
         {
@@ -645,7 +652,7 @@ public abstract class DeviceBase : IOssmDevice
     /// Do not interpret patterns or accept complete settings here.
     /// </remarks>
     /// <returns>Completion of the issued transfer and, unless abandoned, its terminal response.</returns>
-    private protected abstract Task WriteCommandAsync(DeviceCommand command, CancellationToken cancellationToken);
+    private protected abstract Task WriteCommandAsync(FirmwareCommand command, CancellationToken cancellationToken);
 
     private async Task<T> ExecuteAsync<T>(Func<CancellationToken, Task<T>> operation, bool requiresConnection = false, CancellationToken connectionToken = default, CancellationToken cancellationToken = default)
     {
@@ -722,7 +729,7 @@ public abstract class DeviceBase : IOssmDevice
                 sequence = ++writeSequence;
             }
 
-            logger.CommandStarted(command.Control, command.Value);
+            logger.CommandStarted(command.Setting, command.Value);
             if (!await TryStepAsync(
                 current,
                 () => WriteCommandAsync(command, current.PendingCancellation.Token),
@@ -731,7 +738,7 @@ public abstract class DeviceBase : IOssmDevice
                 return current.Result;
             }
 
-            logger.CommandCompleted(command.Control);
+            logger.CommandCompleted(command.Setting);
             current.CommandsWritten++;
             RecordTransmitted(command, sequence);
         }
@@ -980,7 +987,7 @@ public abstract class DeviceBase : IOssmDevice
 
     private async Task WriteStopAsync()
     {
-        var command = new DeviceCommand(DeviceControl.Speed, 0);
+        var command = new FirmwareCommand(FirmwareSetting.Speed, 0);
         long sequence;
         lock (sync)
         {
@@ -1022,12 +1029,12 @@ public abstract class DeviceBase : IOssmDevice
         }
     }
 
-    private void RecordTransmitted(DeviceCommand command, long sequence)
+    private void RecordTransmitted(FirmwareCommand command, long sequence)
     {
         lock (sync)
         {
             var previous = transmitted ?? new();
-            if (command.Control == DeviceControl.Speed)
+            if (command.Setting == FirmwareSetting.Speed)
             {
                 if (sequence < confirmedSpeedSequence)
                 {
@@ -1037,13 +1044,13 @@ public abstract class DeviceBase : IOssmDevice
                 confirmedSpeedSequence = sequence;
             }
 
-            transmitted = command.Control switch
+            transmitted = command.Setting switch
             {
-                DeviceControl.Pattern => previous with { Pattern = command.Value },
-                DeviceControl.Speed => previous with { DeviceVelocityPercent = command.Value },
-                DeviceControl.Stroke => previous with { Stroke = command.Value },
-                DeviceControl.Depth => previous with { Depth = command.Value },
-                DeviceControl.Sensation => previous with { Sensation = command.Value },
+                FirmwareSetting.Pattern => previous with { Pattern = command.Value },
+                FirmwareSetting.Speed => previous with { DeviceVelocityPercent = command.Value },
+                FirmwareSetting.Stroke => previous with { Stroke = command.Value },
+                FirmwareSetting.Depth => previous with { Depth = command.Value },
+                FirmwareSetting.Sensation => previous with { Sensation = command.Value },
                 _ => previous
             };
         }

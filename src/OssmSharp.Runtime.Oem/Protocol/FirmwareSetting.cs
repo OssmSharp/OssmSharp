@@ -1,6 +1,6 @@
 namespace OssmSharp.Runtime.Oem.Protocol;
 
-internal enum DeviceControl
+internal enum FirmwareSetting
 {
     Pattern,
 
