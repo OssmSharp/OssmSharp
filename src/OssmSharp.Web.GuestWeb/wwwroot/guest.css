@@ -19,8 +19,9 @@
 }
 
 .slider-markers { width: 26px; height: calc(100% - 1.25rem); overflow: visible; flex-shrink: 0; }
-.current-marker { stroke: var(--rw-success); stroke-width: 2; }
-.sent-marker { stroke: var(--rw-warning); stroke-width: 1.5; stroke-dasharray: 3 2; }
+.current-marker, .sent-marker { stroke-width: 2; vector-effect: non-scaling-stroke; }
+.current-marker { stroke: var(--rw-success); }
+.sent-marker { stroke: var(--rw-warning); stroke-dasharray: 3 2; }
 
 .rw-slider.vertical-range {
     writing-mode: vertical-lr;
@@ -43,8 +44,9 @@
 main:focus { outline: none; }
 
 .send-bar { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: .8rem; }
+.send-options { display: flex; flex: 1 1 20rem; justify-content: space-between; align-items: center; gap: .8rem; }
 .auto-send { flex: 0 0 auto; grid-template-columns: max-content max-content; white-space: nowrap; }
-.send-status { color: var(--rw-muted); font-size: .8rem; }
+.send-status { color: var(--rw-muted); font-size: .8rem; margin-inline-end: auto; }
 
 .guest-session[data-connection-lost] .guest-session-message { display: none; }
 .guest-session[data-connection-lost] [data-browser-alert] { display: none; }

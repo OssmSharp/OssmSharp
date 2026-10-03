@@ -20,7 +20,7 @@
       <h1 class="visually-hidden">User controls</h1>
       @if (_notice.Message is { } message)
       {
-        <InlineNotification Variant="@(_notice.IsError ? "danger" : "success")"
+        <InlineNotification Variant="@(_notice.IsError ? "danger" : _noticeVariant)"
                             Role="@(_notice.IsError ? "alert" : "status")">@message</InlineNotification>
       }
       <div class="user-grid connection-sensitive"
@@ -87,7 +87,7 @@
         <PatternPreview Title="Last settings" Pattern="@_state.Device?.TransmittedSettings?.Pattern"
                         Speed="@_state.Device?.TransmittedSettings?.Speed" Stroke="@_state.Device?.TransmittedSettings?.Stroke"
                         Depth="@_state.Device?.TransmittedSettings?.Depth" Sensation="@_state.Device?.TransmittedSettings?.Sensation"
-                        Animate="@(!_connectionLost && _state.Device is { IsConnected: true, IsConnecting: false })" />
+                        Animate="@(!_previewStopped && !_connectionLost && _state.Device is { IsConnected: true, IsConnecting: false })" />
       </div>
     }
   </ChildContent>

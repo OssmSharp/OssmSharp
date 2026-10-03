@@ -29,9 +29,13 @@ else
     <InlineNotification Variant="danger" Role="alert" data-browser-alert hidden="@(_display.Error is null)">
       @_display.Error
     </InlineNotification>
-    <div class="guest-interface connection-sensitive device-sensitive rw-stack">
+    @if (_status is not { ControlAllowed: true })
+    {
       <InlineNotification Variant="@SessionMessageVariant" CssClass="guest-session-message" Role="status">
-        @SessionMessage</InlineNotification>
+        @SessionMessage
+      </InlineNotification>
+    }
+    <div class="guest-interface connection-sensitive device-sensitive rw-stack">
         <PatternPreview Speed="@_display.Selected.Speed" Stroke="@_display.Selected.Stroke" Depth="@_display.Selected.Depth"
                         Sensation="@_display.Selected.Sensation"
                         Animate="@(!_connectionLost && _status?.Device is { IsConnected: true, IsConnecting: false })" />
@@ -56,19 +60,21 @@ else
           </div>
           <div slot="footer" class="card-footer">
             <div class="send-bar">
-              <rw-toggle class="auto-send">
-                <input slot="control" id="guest-auto-send" type="checkbox" data-auto-send disabled="@(!Ready)" />
-                <label slot="label" for="guest-auto-send">Auto send</label>
-              </rw-toggle>
+              <div class="send-options">
+                @if (Ready)
+                {
+                  <p data-send-status class="send-status" role="status">@_display.Status</p>
+                }
+                <rw-toggle class="auto-send">
+                  <input slot="control" id="guest-auto-send" type="checkbox" data-auto-send disabled="@(!Ready)" />
+                  <label slot="label" for="guest-auto-send">Auto send</label>
+                </rw-toggle>
+              </div>
               <RwButton Type="button" Variant="success" data-send-button Disabled="@(!Ready)" aria-label="Send"
                         title="Send the selected settings">Send</RwButton>
               <RwButton Type="button" Variant="danger" data-stop-button Disabled="@_connectionLost" aria-label="Stop"
                         title="Stop motion and pause control">Stop</RwButton>
             </div>
-            @if (Ready)
-            {
-              <p data-send-status class="send-status" role="status">@_display.Status</p>
-            }
           </div>
         </RwCard>
         <div class="rw-actions">

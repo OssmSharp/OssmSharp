@@ -15,6 +15,9 @@ public partial class Home
     private bool _safetyBusy;
     private bool _connecting;
     private bool _connectionLost;
+    private bool _previewStopped;
+    private DeviceSettingsSnapshot? _stoppedSettings;
+    private string _noticeVariant = "success";
 
     [Inject] private UserControlClient Control { get; set; } = null!;
     [Inject] private IJSRuntime Js { get; set; } = null!;
@@ -96,6 +99,8 @@ public partial class Home
             do
             {
                 var state = await Control.GetStateAsync(_lifetime.Token);
+                if (_previewStopped && !_safetyBusy && state.Device?.TransmittedSettings != _stoppedSettings)
+                    _previewStopped = false;
                 if (!_loaded || _state != state || renderedMessage != _notice.Message || renderedCopyLabel != _notice.CopyLabel)
                 {
                     _state = state;
@@ -119,7 +124,7 @@ public partial class Home
     }
 
     private Task AllowGuest() => RunAsync(Control.AllowGuestAsync, null);
-    private Task Stop() => RunAsync(Control.StopAsync, "Stop requested.", safety: true);
+    private Task Stop() => RunAsync(Control.StopAsync, "Stopping ...", safety: true, stopPreview: true);
     private Task EndGuest() => RunAsync(Control.EndGuestAsync, "Guest session ended.", safety: true);
     private Task Connect() => RunAsync(Control.ConnectAsync, null, confirmConnection: true);
 
@@ -130,7 +135,7 @@ public partial class Home
         _notice.CopyCompleted(await _module.InvokeAsync<bool>("copy", InvitationText));
     }
 
-    private async Task RunAsync(Func<CancellationToken, Task<ControlResponse>> command, string? message, bool safety = false, bool confirmConnection = false)
+    private async Task RunAsync(Func<CancellationToken, Task<ControlResponse>> command, string? message, bool safety = false, bool confirmConnection = false, bool stopPreview = false)
     {
         if (_safetyBusy || (!safety && _busy))
             return;
@@ -141,11 +146,21 @@ public partial class Home
             _busy = true;
             _connecting = confirmConnection;
         }
+        _noticeVariant = stopPreview ? "warning" : "success";
+        if (stopPreview)
+        {
+            _previewStopped = true;
+            _stoppedSettings = _state?.Device?.TransmittedSettings;
+            _notice.Show(message);
+            await InvokeAsync(StateHasChanged);
+        }
         try
         {
             await command(_lifetime.Token);
             if (!safety || !_busy)
                 _state = await Control.GetStateAsync(_lifetime.Token);
+            if (stopPreview)
+                _stoppedSettings = _state?.Device?.TransmittedSettings;
             if (confirmConnection && _state?.Device?.IsConnected != true)
                 _notice.Show("Device connection is not confirmed. Check the connection state.", true);
             else

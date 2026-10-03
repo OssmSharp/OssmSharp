@@ -30,19 +30,17 @@ public partial class Join
     {
         Joined: true,
         ControlAllowed: true,
-        Device: { ConnectionFailed: false } device
+        Device: { IsConnected: true, IsConnecting: false, ConnectionFailed: false } device
     } && (device.IsArmed || _status.CanResumeAfterStop);
     private double? DeviceSpeed => _status?.Device?.Speed;
     private string SessionMessage => _status switch
     {
         { Joined: false } => "Session ended.",
-        { ControlAllowed: true } => "Control enabled.",
         { Joined: true } => "Waiting for the user to allow control.",
         _ => "Opening invite..."
     };
     private string SessionMessageVariant => _status switch
     {
-        { ControlAllowed: true } => "success",
         { Joined: true } => "warning",
         _ => "danger"
     };
@@ -130,6 +128,7 @@ public partial class Join
             {
                 _connectionLost = true;
                 _joined = false;
+                _display = _display with { Selected = _display.Selected with { Speed = 0 }, Sent = null };
                 await BrowserCallAsync("disconnect");
                 StateHasChanged();
             });

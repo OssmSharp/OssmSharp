@@ -204,6 +204,7 @@ test("control revocation cancels queued auto sends and regrant requires delibera
   browser.element('[data-input="speed"]').dispatchEvent(new Event("input"));
   browser.guest.updateState({ joined: true, ready: false });
   assert.equal(autoSend.checked, false);
+  assert.equal(browser.element('[data-input="speed"]').value, "0");
   assert.equal(browser.element("[data-send-button]").disabled, true);
   completeRequest({ ok: true });
   await setImmediate();
@@ -219,6 +220,24 @@ test("control revocation cancels queued auto sends and regrant requires delibera
   assert.equal(browser.calls("SubmitSettings").length, 2);
   completeRequest({ ok: true });
   await setImmediate();
+  browser.guest.dispose();
+});
+
+test("focus loss and a hidden tab retain motion and selection until page exit", async () => {
+  const browser = await createGuest();
+  browser.click("[data-send-button]");
+  await setImmediate();
+  browser.window.dispatchEvent(new Event("blur"));
+  browser.document.visibilityState = "hidden";
+  browser.document.dispatchEvent(new Event("visibilitychange"));
+  await setImmediate();
+  assert.equal(browser.calls("StopRun").length, 0);
+  assert.equal(browser.element('[data-input="speed"]').value, "30");
+  assert.equal(browser.calls("UpdateDisplay").at(-1).payload.sent.speed, 30);
+  browser.window.dispatchEvent(new Event("pagehide"));
+  await setImmediate();
+  assert.equal(browser.calls("StopRun").length, 1);
+  assert.equal(browser.element('[data-input="speed"]').value, "0");
   browser.guest.dispose();
 });
 
@@ -272,6 +291,7 @@ test("interop failure persistently disconnects and later state cannot enable sen
   assert.equal(browser.storage.get(disconnectedKey), "true");
   assert.equal(browser.document.documentElement.dataset.guestConnectionLost, "true");
   assert.equal(browser.element(".preview-rail").paused, true);
+  assert.equal(browser.element('[data-input="speed"]').value, "0");
   browser.guest.updateState({ joined: true, ready: true });
   browser.click("[data-send-button]");
   await setImmediate();

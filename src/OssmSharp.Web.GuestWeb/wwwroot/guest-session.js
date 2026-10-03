@@ -110,10 +110,6 @@ class Controls {
         this.render();
         if (this.autoSendToggle.checked) this.commitSelection();
       });
-    this.on(window, "blur", () => this.requestStop());
-    this.on(document, "visibilitychange", () => {
-      if (document.visibilityState !== "visible") this.requestStop();
-    });
     this.on(window, "pagehide", () => this.requestStop());
     this.constrainStroke();
     this.render();
@@ -172,6 +168,8 @@ class Controls {
   }
   disarm() {
     this.autoSendToggle.checked = false;
+    this.inputs.speed.value = "0";
+    this.root.querySelector('[data-value="speed"]').textContent = "0";
     this.sent = null;
     this.sentSelection = null;
   }
