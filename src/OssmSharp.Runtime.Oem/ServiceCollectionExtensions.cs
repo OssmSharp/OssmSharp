@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using OssmSharp.Runtime.Oem.Protocol;
 using Shiny.BluetoothLE;
 
 namespace OssmSharp.Runtime.Oem;

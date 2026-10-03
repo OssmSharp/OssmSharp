@@ -1,7 +1,7 @@
 namespace OssmSharp.Runtime.Oem;
 
 /// <summary>
-/// Identifies why a settings submission finished. The state of the machine may not reflect the result if part of the command was executed.
+/// Identifies why a settings request finished. The state of the machine may not reflect the result if part of the command was executed.
 /// </summary>
 public enum SetStatus
 {
@@ -11,7 +11,7 @@ public enum SetStatus
     Completed,
 
     /// <summary>
-    /// A newer submission replaced commands not yet sent.
+    /// A newer request replaced commands not yet sent.
     /// </summary>
     Superseded,
 

@@ -4,10 +4,8 @@ using System.Security.Claims;
 using FastMoq;
 using FastMoq.Extensions;
 using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.AspNetCore.SignalR.Client;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using OssmSharp.Runtime.Oem;
@@ -46,8 +44,24 @@ public sealed class InvitationConnectionTests : MockerTestBase<GuestControlClien
         try { await Component.DisposeAsync(); }
         finally
         {
-            await _session.DisposeAsync();
-            base.Dispose();
+            try
+            {
+                await _session.DisposeAsync();
+            }
+            finally
+            {
+                try
+                {
+                    if (_device.Disposals == 0)
+                    {
+                        await _device.DisposeAsync();
+                    }
+                }
+                finally
+                {
+                    base.Dispose();
+                }
+            }
         }
     }
 

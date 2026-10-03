@@ -1,6 +1,5 @@
 using System.Reactive.Subjects;
 using Microsoft.Extensions.Logging;
-using Shiny.BluetoothLE;
 using Xunit;
 
 namespace OssmSharp.Runtime.Oem.Tests;

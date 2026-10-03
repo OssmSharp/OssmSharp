@@ -53,7 +53,7 @@ pattern and session ID. It excludes timestamp, position and buffer. Therefore:
 
 The BLE loop dequeues a command, invokes `ble_click`, and stores `ok:<command>`
 in the state characteristic. That acknowledgement is cached and is not notified.
-It proves FIFO submission only; it does not prove that the resulting motion
+It proves FIFO request only; it does not prove that the resulting motion
 settings were observed or applied.
 
 The state payload has no public command ID or sample sequence. Tests must not

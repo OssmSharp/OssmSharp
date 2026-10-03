@@ -1,15 +1,22 @@
+using OssmSharp.Runtime.Oem.Protocol;
+
 namespace OssmSharp.Runtime.Oem;
 
 /// <summary>
-/// Carries complete firmware settings, validating basic ranges without interpreting patterns.
+/// Carries requested motion settings, validating basic ranges without interpreting patterns.
 /// </summary>
+/// <remarks>
+/// Speed is an integer percentage, not physical speed or strokes per minute. Transmission uses
+/// floor(Speed * Stroke / 100) as raw velocity. Zero speed or stroke,
+/// or a result below one percent, sends zero. Depth and sensation do not affect this conversion.
+/// </remarks>
 public sealed record MotionSettings
 {
     /// <summary>
     /// Initializes a complete set of control arguments. Construction sends nothing.
     /// </summary>
     /// <param name="pattern">A defined firmware stroke pattern.</param>
-    /// <param name="speed">The speed argument from zero through 100 percent.</param>
+    /// <param name="speed">The requested speed (as an integer percentage) from zero through 100; 50 means 50%, not 0.5.</param>
     /// <param name="stroke">The stroke argument from zero through 100 percent.</param>
     /// <param name="depth">The depth argument from zero through 100 percent.</param>
     /// <param name="sensation">The sensation argument from zero through 100 percent.</param>
@@ -38,8 +45,12 @@ public sealed record MotionSettings
     public StrokePattern Pattern { get; }
 
     /// <summary>
-    /// Gets the speed argument as a percentage.
+    /// Gets the requested speed as an integer percentage from zero through 100.
     /// </summary>
+    /// <remarks>
+    /// Firmware velocity is rounded down to floor(Speed * Stroke / 100). For example, 53% speed
+    /// at 10% stroke sends 5% firmware velocity, giving 50% current speed at that stroke.
+    /// </remarks>
     public int Speed { get; }
 
     /// <summary>
@@ -57,13 +68,15 @@ public sealed record MotionSettings
     /// </summary>
     public int Sensation { get; }
 
+    internal int DesiredDeviceVelocityPercent => Speed * Stroke / 100;
+
     internal DeviceCommand[] ToCommands() =>
     [
         new(DeviceControl.Pattern, (int)Pattern),
         new(DeviceControl.Stroke, Stroke),
         new(DeviceControl.Depth, Depth),
         new(DeviceControl.Sensation, Sensation),
-        new(DeviceControl.Speed, Speed),
+        new(DeviceControl.Speed, DesiredDeviceVelocityPercent),
     ];
 
     internal static bool IsValidPattern(StrokePattern value) => Enum.IsDefined(value);

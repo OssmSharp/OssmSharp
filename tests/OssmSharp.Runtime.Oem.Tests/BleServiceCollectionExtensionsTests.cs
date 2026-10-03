@@ -1,7 +1,6 @@
 using AwesomeAssertions;
 using Microsoft.Extensions.Options;
 using Moq;
-using OssmSharp.Runtime.Oem;
 using Shiny.BluetoothLE;
 using Xunit;
 

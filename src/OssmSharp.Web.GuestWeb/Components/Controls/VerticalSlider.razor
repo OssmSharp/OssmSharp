@@ -1,30 +1,30 @@
 <div class="vertical-slider" data-slider="@Name" data-state="@State">
-    <div class="slider-heading">
-        <label for="@($"guest-{Name}")">@Label</label>
-        <output for="@($"guest-{Name}")" data-value="@Name">@SelectedValue</output>
-    </div>
-    <div class="slider-well">
-        <svg class="slider-markers" viewBox="0 0 26 100" preserveAspectRatio="none" aria-hidden="true">
-            <line class="current-marker" data-current-marker="@Name" x1="0" x2="24" y1="100" y2="100" hidden />
-            <line class="sent-marker" data-sent-marker="@Name" x1="0" x2="24" y1="100" y2="100" hidden />
-        </svg>
-        <input class="rw-slider vertical-range" id="@($"guest-{Name}")" data-input="@Name" type="range" min="@Minimum"
-               max="@Maximum" value="@InitialValue" step="1" aria-orientation="vertical" />
-    </div>
-    <div class="setting-values">
-        <span>Sent <strong data-sent="@Name">@(SentValue?.ToString() ?? "--")</strong></span>
-        <span>Current <strong data-current="@Name">@(CurrentValue?.ToString() ?? "--")</strong></span>
-    </div>
+  <div class="slider-heading">
+    <label for="@($"guest-{Name}")">@Label</label>
+    <output for="@($"guest-{Name}")" data-value="@Name">@SelectedValue</output>
+  </div>
+  <div class="slider-well">
+    <svg class="slider-markers" viewBox="0 0 26 100" preserveAspectRatio="none" aria-hidden="true">
+      <line class="current-marker" data-current-marker="@Name" x1="0" x2="24" y1="100" y2="100" hidden />
+      <line class="sent-marker" data-sent-marker="@Name" x1="0" x2="24" y1="100" y2="100" hidden />
+    </svg>
+    <input class="rw-slider vertical-range" id="@($"guest-{Name}")" data-input="@Name" type="range" min="@Minimum"
+           max="@Maximum" value="@InitialValue" step="1" aria-orientation="vertical" />
+  </div>
+  <div class="setting-values">
+    <span>Sent <strong data-sent="@Name">@(SentValue?.ToString() ?? "--")</strong></span>
+    <span>Current <strong data-current="@Name">@(CurrentValue?.ToString() ?? "--")</strong></span>
+  </div>
 </div>
 
 @code {
-    [Parameter, EditorRequired] public string Name { get; set; } = "";
-    [Parameter, EditorRequired] public string Label { get; set; } = "";
-    [Parameter] public int Minimum { get; set; }
-    [Parameter] public int Maximum { get; set; } = 100;
-    [Parameter] public int InitialValue { get; set; }
-    [Parameter] public int SelectedValue { get; set; }
-    [Parameter] public int? SentValue { get; set; }
-    [Parameter] public int? CurrentValue { get; set; }
-    private string State => SentValue is null || SelectedValue != SentValue ? "unsent" : "sent";
+  [Parameter, EditorRequired] public string Name { get; set; } = "";
+  [Parameter, EditorRequired] public string Label { get; set; } = "";
+  [Parameter] public int Minimum { get; set; }
+  [Parameter] public int Maximum { get; set; } = 100;
+  [Parameter] public int InitialValue { get; set; }
+  [Parameter] public int SelectedValue { get; set; }
+  [Parameter] public int? SentValue { get; set; }
+  [Parameter] public double? CurrentValue { get; set; }
+  private string State => SentValue is null || SelectedValue != SentValue ? "unsent" : "sent";
 }

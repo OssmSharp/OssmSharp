@@ -1,7 +1,7 @@
-namespace OssmSharp.Runtime.Oem;
+namespace OssmSharp.Runtime.Oem.Protocol;
 
 /// <summary>
-/// Tracks one in-flight settings submission so a later submission or disarm can end it early.
+/// Tracks one in-flight settings request so a later request or disarm can end it early.
 /// </summary>
 /// <remarks>
 /// The submitting call owns and disposes <see cref="PendingCancellation"/>. Other members are
@@ -9,7 +9,7 @@ namespace OssmSharp.Runtime.Oem;
 /// </remarks>
 /// <param name="settings">The settings being written.</param>
 /// <param name="pendingCancellation">The source that stops remaining writes when cancelled.</param>
-internal sealed class SettingsSubmission(MotionSettings settings, CancellationTokenSource pendingCancellation)
+internal sealed class SetOperationContext(MotionSettings settings, CancellationTokenSource pendingCancellation)
 {
     /// <summary>
     /// Gets the settings being written.
@@ -25,7 +25,7 @@ internal sealed class SettingsSubmission(MotionSettings settings, CancellationTo
     public CancellationTokenSource PendingCancellation { get; } = pendingCancellation;
 
     /// <summary>
-    /// Gets or sets why the submission finished; <see cref="SetStatus.Completed"/> until another result is recorded.
+    /// Gets or sets why the request finished; <see cref="SetStatus.Completed"/> until another result is recorded.
     /// </summary>
     public SetStatus Status { get; set; } = SetStatus.Completed;
 

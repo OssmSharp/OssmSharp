@@ -250,12 +250,12 @@ public sealed class PromptHandlerTests
             new DeviceCommand(DeviceControl.Stroke, 50),
             new DeviceCommand(DeviceControl.Depth, 50),
             new DeviceCommand(DeviceControl.Sensation, 25),
-            new DeviceCommand(DeviceControl.Speed, 20),
+            new DeviceCommand(DeviceControl.Speed, 10),
             new DeviceCommand(DeviceControl.Pattern, 6),
             new DeviceCommand(DeviceControl.Stroke, 0),
             new DeviceCommand(DeviceControl.Depth, 50),
             new DeviceCommand(DeviceControl.Sensation, 25),
-            new DeviceCommand(DeviceControl.Speed, 100),
+            new DeviceCommand(DeviceControl.Speed, 0),
             new DeviceCommand(DeviceControl.Speed, 0),
             new DeviceCommand(DeviceControl.Speed, 0));
         device.Reads.Should().Be(2);
@@ -264,9 +264,10 @@ public sealed class PromptHandlerTests
             .And.Contain("'bogus'").And.NotContain("Armed:");
         output.ToString().Should().Contain("OK reset: ready for settings.")
             .And.Contain("OK set: settings sent.")
-            .And.Contain("OK status: pattern=0 speed=0")
+            .And.Contain("OK status: pattern=0 speed=Unknown")
             .And.NotContain("cached")
             .And.Contain("set <pattern> <speed> <stroke> <depth> <sensation>")
+            .And.Contain("Speed (as an integer percentage)")
             .And.Contain("0=SimpleStroke, 1=TeasingPounding, 2=RoboStroke, 3=HalfNHalf, 4=Deeper, 5=StopNGo, 6=Insist")
             .And.Contain("OK stop").And.NotContain("Armed:");
     }
@@ -401,7 +402,7 @@ public sealed class PromptHandlerTests
                     return release.Task;
                 }
 
-                if (command == new DeviceCommand(DeviceControl.Speed, 30))
+                if (command == new DeviceCommand(DeviceControl.Speed, 18))
                 {
                     completed.TrySetResult();
                 }
@@ -441,12 +442,12 @@ public sealed class PromptHandlerTests
             new DeviceCommand(DeviceControl.Stroke, 50),
             new DeviceCommand(DeviceControl.Depth, 50),
             new DeviceCommand(DeviceControl.Sensation, 25),
-            new DeviceCommand(DeviceControl.Speed, 20),
+            new DeviceCommand(DeviceControl.Speed, 10),
             new DeviceCommand(DeviceControl.Pattern, 1),
             new DeviceCommand(DeviceControl.Stroke, 60),
             new DeviceCommand(DeviceControl.Depth, 40),
             new DeviceCommand(DeviceControl.Sensation, 35),
-            new DeviceCommand(DeviceControl.Speed, 30),
+            new DeviceCommand(DeviceControl.Speed, 18),
             new DeviceCommand(DeviceControl.Speed, 0));
         output.ToString().Should().Contain("OK set: settings sent.").And.NotContain("SUPERSEDED");
     }
@@ -484,7 +485,7 @@ public sealed class PromptHandlerTests
 
         (await new PromptHandler(device, input, output, error).RunAsync(TestContext.Current.CancellationToken)).Should().Be(1);
         device.IsArmed.Should().BeFalse();
-        error.ToString().Should().Contain("ERROR set: Could not send Depth after 2 commands: write failed. Settings may be partially applied.");
+        error.ToString().Should().Contain("ERROR set: Could not send settings after 2 completed writes. Settings may be partially applied.");
         output.ToString().Should().NotContain("OK set");
     }
 
@@ -503,12 +504,18 @@ public sealed class PromptHandlerTests
         error.ToString().Should().Contain("ERROR status").And.Contain("read failed");
     }
 
-    [Fact]
-    public async Task StatusAlwaysReadsLiveState()
+    [Theory]
+    [InlineData(1.5, 2, "75%")]
+    [InlineData(2.5, 20, "12.5%")]
+    [InlineData(40, 10, "400%")]
+    [InlineData(0, 10, "0%")]
+    [InlineData(5, 0, "Unknown")]
+    [InlineData(0, 0, "Unknown")]
+    public async Task StatusAlwaysReadsLiveState(double velocity, int stroke, string expectedSpeed)
     {
         await using var device = new TestDevice { LiveState = new(new(StrokePattern.Deeper, 5, 6, 7, 8)) };
         await device.ConnectAsync(TestContext.Current.CancellationToken);
-        device.LiveState = new(StrokePattern.Insist, 1.5, 2, 3, 4);
+        device.LiveState = new(StrokePattern.Insist, velocity, stroke, 3, 4);
         var input = new PromptInput("status", "quit");
         using var output = new StringWriter();
         using var error = new StringWriter();
@@ -516,7 +523,7 @@ public sealed class PromptHandlerTests
         (await new PromptHandler(device, input, output, error).RunAsync(TestContext.Current.CancellationToken)).Should().Be(0);
 
         device.Reads.Should().Be(2);
-        output.ToString().Should().Contain("OK status: pattern=6 speed=1.5 stroke=2 depth=3 sensation=4.");
+        output.ToString().Should().Contain($"OK status: pattern=6 speed={expectedSpeed} stroke={stroke} depth=3 sensation=4.");
     }
 
     [Theory]

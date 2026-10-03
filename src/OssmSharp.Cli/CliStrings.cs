@@ -11,10 +11,11 @@ internal static class CliStrings
     internal const string RedirectedInput = "Run prompt in a terminal without piping or redirecting stdin.";
     internal const string UsageHint = "Run OssmSharp.Cli --help for usage.";
     internal const string PercentageHelp = "Whole-number percentage from 0 to 100.";
+    internal const string SpeedHelp = "Speed (as an integer percentage) from 0 to 100 (50 means 50%). Raw velocity depends on speed and stroke and is rounded down. Zero speed or stroke sends zero raw velocity. This is not physical speed or strokes per minute.";
     internal const string SetHelp = "Set the device's motion.";
     internal const string StopHelp = "Stop the device and drop pending commands.";
     internal const string ResetHelp = "Rearm settings after a disarming failure.";
-    internal const string StatusHelp = "Read the device's live state.";
+    internal const string StatusHelp = "Read the device's live state. Speed preserves decimals and values above 100%, and is Unknown at zero stroke.";
     internal const string HelpHelp = "Show command help.";
     internal const string QuitHelp = "Stop the device and exit.";
     internal const string HelpArgument = "Command to describe.";
@@ -58,7 +59,7 @@ internal static class CliStrings
     internal static string ResetCompleted(string success, string reset) => $"{success}OK{reset} reset: ready for settings.";
 
     internal static string Status(DeviceState state, string success, string reset) =>
-        FormattableString.Invariant($"{success}OK{reset} status: pattern={state.Pattern:D} speed={state.Speed} stroke={state.Stroke} depth={state.Depth} sensation={state.Sensation}.");
+        FormattableString.Invariant($"{success}OK{reset} status: pattern={state.Pattern:D} speed={state.Speed?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "Unknown"}{(state.Speed is null ? "" : "%")} stroke={state.Stroke} depth={state.Depth} sensation={state.Sensation}.");
 
     internal static string SetInterrupted(SetResult result, string warning, string reset) =>
         FormattableString.Invariant($"{warning}{(result.Status == SetStatus.Superseded ? "SUPERSEDED" : "CANCELLED")}{reset} set: {result.CommandsWritten} commands sent; they may still take effect.");
@@ -67,5 +68,5 @@ internal static class CliStrings
         $"{warning}CANCELLED{reset} {operation}: pending work cancelled; sent commands may still take effect.";
 
     internal static string WriteFailure(DeviceWriteException exception) =>
-        FormattableString.Invariant($"Could not send {exception.Command.Control} after {exception.CommandsWritten} commands: {exception.InnerException?.Message ?? exception.Message}. Settings may be partially applied.");
+        FormattableString.Invariant($"Could not send settings after {exception.CommandsWritten} completed writes. Settings may be partially applied.");
 }

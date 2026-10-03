@@ -2,6 +2,7 @@ using System.Reactive.Linq;
 using AwesomeAssertions;
 using Microsoft.Extensions.Time.Testing;
 using Moq;
+using OssmSharp.Runtime.Oem.Protocol;
 using Shiny.BluetoothLE;
 using Xunit;
 

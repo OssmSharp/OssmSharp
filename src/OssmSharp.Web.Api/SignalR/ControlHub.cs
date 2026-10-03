@@ -2,7 +2,6 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using OssmSharp.Web.Api.Control;
-using OssmSharp.Web.Contracts;
 
 namespace OssmSharp.Web.Api.SignalR;
 

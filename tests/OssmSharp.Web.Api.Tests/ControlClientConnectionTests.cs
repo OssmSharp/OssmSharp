@@ -1,7 +1,6 @@
 using FastMoq;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using OssmSharp.Web.Client.Clients;
@@ -17,13 +16,6 @@ public sealed class ControlClientConnectionTests : MockerTestBase<UserControlCli
     private static readonly string[] TransferFormats = ["Text", "Binary"];
     private ControlClientOptions _options = null!;
 
-    [Fact]
-    public void ResetIsNotExposedAsAUserCommand()
-    {
-        Assert.Null(typeof(OssmSharp.Web.Api.SignalR.ControlHub).GetMethod("Reset"));
-        Assert.Null(typeof(UserControlClient).GetMethod("ResetAsync"));
-    }
-
     protected override Action<Mocker> SetupMocksAction => mocks =>
     {
         _options = new() { ControlOrigin = "http://127.0.0.1:1", ServiceKey = new string('A', 43) };
@@ -31,6 +23,13 @@ public sealed class ControlClientConnectionTests : MockerTestBase<UserControlCli
         mocks.AddType<IOptions<ControlClientOptions>>(options);
         mocks.AddType(new ControlHubConnectionFactory(options));
     };
+
+    [Fact]
+    public void ResetIsNotExposedAsAUserCommand()
+    {
+        Assert.Null(typeof(OssmSharp.Web.Api.SignalR.ControlHub).GetMethod("Reset"));
+        Assert.Null(typeof(UserControlClient).GetMethod("ResetAsync"));
+    }
 
     [Theory]
     [InlineData(StatusCodes.Status401Unauthorized)]

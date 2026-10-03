@@ -1,15 +1,21 @@
-namespace OssmSharp.Runtime.Oem;
+namespace OssmSharp.Runtime.Oem.Protocol;
 
 /// <summary>
 /// Assigns one value to one firmware control without interpreting pattern behavior.
 /// </summary>
-public readonly record struct DeviceCommand
+/// <remarks>
+/// This is a raw transport assignment, not requested motion settings. <see cref="DeviceControl.Speed"/>
+/// assigns raw velocity, not speed; no conversion is performed here.
+/// Use <see cref="MotionSettings"/> to request speed (as an integer percentage). Percentages are not physical speed
+/// or strokes per minute.
+/// </remarks>
+internal readonly record struct DeviceCommand
 {
     /// <summary>
     /// Initializes a validated control assignment.
     /// </summary>
     /// <param name="control">The firmware control to assign.</param>
-    /// <param name="value">A defined <see cref="StrokePattern"/> value or a percentage from zero through 100.</param>
+    /// <param name="value">A defined <see cref="StrokePattern"/> value or a whole percentage from zero through 100, using 50 for 50%; for Speed, this is raw firmware velocity independent of stroke.</param>
     /// <exception cref="ArgumentOutOfRangeException">The control or value is outside its basic range.</exception>
     public DeviceCommand(DeviceControl control, int value)
     {
@@ -38,7 +44,8 @@ public readonly record struct DeviceCommand
     public DeviceControl Control { get; }
 
     /// <summary>
-    /// Gets the pattern identifier or percentage argument.
+    /// Gets the pattern identifier or raw whole-number percentage; for Speed, the firmware velocity from zero through 100.
     /// </summary>
+    /// <remarks>No speed conversion or rounding is performed on this transport value.</remarks>
     public int Value { get; }
 }

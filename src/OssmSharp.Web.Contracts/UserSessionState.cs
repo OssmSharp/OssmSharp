@@ -5,7 +5,7 @@ namespace OssmSharp.Web.Contracts;
 /// </summary>
 /// <param name="Invitation">The invitation offered to a guest.</param>
 /// <param name="GuestJoined">Whether a guest is currently admitted.</param>
-/// <param name="GuestControlAllowed">Whether the user currently permits guest settings submissions.</param>
+/// <param name="GuestControlAllowed">Whether the user currently permits guest settings requests.</param>
 /// <param name="ControlExpiresAt">Reserved for compatibility; guest permission no longer expires.</param>
 /// <param name="Device">The runtime's last known device state, if available.</param>
 public sealed record UserSessionState(

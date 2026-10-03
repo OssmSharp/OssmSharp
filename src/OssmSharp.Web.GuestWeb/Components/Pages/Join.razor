@@ -24,17 +24,17 @@ else if (!_joined && !_connectionLost)
 else
 {
   <div @ref="_root" class="guest-session rw-stack" data-connection-lost="@(_connectionLost ? "true" : null)"
-      data-device-disconnected="@((_status?.Device).IsConnectedForControls ? null : "true")"
-      data-control-waiting="@(_status is { Joined: true, ControlAllowed: false } ? "true" : null)">
+       data-device-disconnected="@(_status?.Device is { IsConnected: true, IsConnecting: false } ? null : "true")"
+       data-control-waiting="@(_status is { Joined: true, ControlAllowed: false } ? "true" : null)">
     <InlineNotification Variant="danger" Role="alert" data-browser-alert hidden="@(_display.Error is null)">
       @_display.Error
     </InlineNotification>
     <div class="guest-interface connection-sensitive device-sensitive rw-stack">
       <InlineNotification Variant="@SessionMessageVariant" CssClass="guest-session-message" Role="status">
         @SessionMessage</InlineNotification>
-        <PatternPreview Speed="@(_display.Selected.Speed * _display.Selected.Stroke / 100)"
-                        Stroke="@_display.Selected.Stroke" Depth="@_display.Selected.Depth" Sensation="@_display.Selected.Sensation"
-                        Animate="@(!_connectionLost && (_status?.Device).IsConnectedForControls)" />
+        <PatternPreview Speed="@_display.Selected.Speed" Stroke="@_display.Selected.Stroke" Depth="@_display.Selected.Depth"
+                        Sensation="@_display.Selected.Sensation"
+                        Animate="@(!_connectionLost && _status?.Device is { IsConnected: true, IsConnecting: false })" />
         <RwCard role="region" aria-label="Requested settings">
           <div slot="heading" class="rw-card-heading">
             <h2>Settings</h2>

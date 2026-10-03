@@ -1,125 +1,142 @@
+using OssmSharp.Runtime.Oem.Protocol;
+
 namespace OssmSharp.Runtime.Oem;
 
 /// <summary>
-/// Owns serialized firmware-setting submission and a reusable device connection, not motor behavior or safety.
+/// Manages a device connection and processes settings requests one at a time.
 /// </summary>
 /// <remarks>
-/// An undisposed client can reconnect after an explicit disconnect, connection loss, or failed setup.
-/// Each connection starts with fresh state and never replays earlier settings.
+/// The firmware controls motion and decides whether it is safe.
+/// The client can reconnect after a disconnect or connection failure unless it has been disposed.
+/// Each new connection reads fresh state and does not resend earlier settings.
 /// </remarks>
 public interface IOssmDevice : IAsyncDisposable
 {
     /// <summary>
-    /// Notifies subscribers when last known state or command-arming status changes.
+    /// Notifies subscribers when the last known state or permission to send settings changes.
     /// </summary>
     /// <remarks>
-    /// Subscriptions survive <see cref="DisconnectAsync"/> and reconnection, and are released by disposal.
+    /// Subscriptions remain active after disconnection and reconnection. Disposing the client removes them.
     /// </remarks>
     event EventHandler? StateChanged;
 
-    /// <summary>Gets whether connection setup has completed and the connection remains open.</summary>
+    /// <summary>
+    /// Gets whether the device connection is ready and still open.
+    /// </summary>
     bool IsConnected { get; }
 
-    /// <summary>Gets the selected peripheral's name when available.</summary>
-    string? Name { get; }
-
-    /// <summary>Gets confirmed assignments for the current connection, independently of observations.</summary>
-    /// <remarks>Cleared when a new connection starts. Null means no assignment has been confirmed.</remarks>
-    TransmittedControls? Transmitted { get; }
+    /// <summary>
+    /// Gets the device's unique identifier.
+    /// </summary>
+    string DeviceId { get; }
 
     /// <summary>
-    /// Gets whether settings submission is armed by successful connection or explicit reset.
+    /// Gets the selected device's name, or null when it is unavailable.
     /// </summary>
     /// <remarks>
-    /// A successful Stop preserves the current arming state. Stop failure, operation failure, disconnection,
-    /// connection failure, and disposal disarm submission.
-    /// Valid control observations update last known state without arming, disarming, or cancelling settings.
+    /// The name is unavailable before a device is selected, after connection cleanup,
+    /// or when the Bluetooth provider supplies no name.
+    /// </remarks>
+    string? Name { get; }
+
+    /// <summary>
+    /// Gets whether the client allows settings requests.
+    /// </summary>
+    /// <remarks>
+    /// A successful connection or <see cref="ResetAsync"/> allows requests. A successful Stop leaves this value unchanged.
+    /// A failed Stop, failed operation, disconnection, failed connection, or disposal disarms requests.
+    /// Receiving valid device state updates the last known state but does not allow, disarm, or cancel requests.
     /// </remarks>
     bool IsArmed { get; }
 
     /// <summary>
-    /// Gets the most recent connection failure, or null when none has been observed since the last successful connection.
+    /// Gets the latest connection error, or null when none has occurred since the last successful connection.
     /// </summary>
     /// <remarks>
-    /// A failure raises <see cref="StateChanged"/>, disarms, and ends the connection. Only a successful
-    /// <see cref="ConnectAsync"/> clears it; <see cref="ResetAsync"/> does not.
-    /// A null value does not establish that a connection is open.
+    /// A connection error raises <see cref="StateChanged"/>, disarms requests, and ends the connection.
+    /// A successful <see cref="ConnectAsync"/> clears the error; <see cref="ResetAsync"/> does not.
+    /// Use <see cref="IsConnected"/> to check the connection, even when this value is null.
     /// </remarks>
     Exception? ConnectionFailure { get; }
 
     /// <summary>
-    /// Connects or reconnects, establishes fresh observations and initial state, and arms submission without sending settings.
+    /// Connects to the device, reads its initial state, and allows requests without sending settings.
     /// </summary>
-    /// <returns>Completion of connection and initial observation; completes immediately when already connected.</returns>
+    /// <returns>An open connection with initial device state. Does nothing if already connected.</returns>
     /// <remarks>
-    /// Cleanup of an earlier connection finishes first; its failure propagates without opening another connection.
-    /// A failed, cancelled, or interrupted attempt releases its partial connection and remains disarmed.
-    /// Stop, disconnect, and disposal interrupt unfinished setup without sending motion settings.
+    /// Cleanup of an earlier connection must finish first. If cleanup fails, the error is returned and no new connection opens.
+    /// Failed, cancelled, or interrupted connection attempts release their resources and leave requests disarmed.
+    /// Stop, disconnect, and disposal interrupt connection setup without sending motion settings.
     /// </remarks>
     /// <exception cref="ObjectDisposedException">The client has been disposed.</exception>
     Task ConnectAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Disarms, discards settings not yet sent, sends or joins Stop when connected, and releases connection resources.
+    /// Disarms requests, drops settings not yet sent, stops the connected device, and closes the connection.
     /// </summary>
-    /// <returns>Completion of Stop and cleanup; failures propagate after cleanup, which can be retried on reconnection.</returns>
+    /// <returns>Completion of Stop and connection cleanup. Any error is returned after cleanup is attempted.</returns>
     /// <remarks>
-    /// The client, last known state, and <see cref="StateChanged"/> subscriptions are preserved for reconnection.
-    /// In-progress live reads are abandoned; issued transfers settle before their connection resources are released.
-    /// Cancellation before the call starts prevents disconnect; once started, cleanup completes regardless of cancellation.
+    /// If Stop is already running, this call waits for it instead of sending another Stop.
+    /// The client keeps its last known state and <see cref="StateChanged"/> subscriptions and can reconnect later.
+    /// Live reads are interrupted. Device transfers already started must finish before their connection resources are released.
+    /// Failed cleanup can be retried when reconnecting.
+    /// Cancellation before this call starts prevents disconnection. Once started, cleanup continues even if cancelled.
     /// </remarks>
     /// <exception cref="ObjectDisposedException">The client has been disposed.</exception>
     Task DisconnectAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Asks the device to run patterns, then submits complete settings, replacing older commands not yet sent.
+    /// Asks the device to run patterns, then sends the requested settings, replacing older commands not yet sent.
     /// </summary>
-    /// <param name="settings">The complete firmware pattern and control arguments.</param>
+    /// <param name="settings">The requested pattern, speed, stroke, depth, and sensation. Speed is an integer percentage from zero through 100.</param>
     /// <param name="cancellationToken" />
-    /// <returns>The result and count of writes confirmed by terminal responses.</returns>
+    /// <returns>The result, including why the request ended and how many writes the device confirmed.</returns>
     /// <remarks>
-    /// Entering the pattern mode can reset the device's controls before the settings are written; that reset does not disarm.
-    /// Cancellation discards commands not yet sent and returns <see cref="SetStatus.Cancelled"/>.
-    /// Supersession, Stop, and cancellation abandon earlier response waits after issued transfers settle;
-    /// those assignments may still take effect even when they are not counted as confirmed writes.
+    /// Entering pattern mode can reset the device's controls before the settings are sent. This does not disarm requests.
+    /// Completion does not confirm physical motion.
+    /// Cancellation drops commands not yet sent and returns <see cref="SetStatus.Cancelled"/>.
+    /// A newer request, Stop, or cancellation ends waits for earlier device responses after transfers already started finish.
+    /// Commands already sent may still take effect even if the result does not count them as confirmed writes.
     /// </remarks>
-    /// <exception cref="InvalidOperationException">The device is not connected, is disarmed, Stop is in progress, or the device is not ready to run patterns; no settings were sent.</exception>
-    /// <exception cref="DeviceWriteException">A write failed; the exception retains known partial progress.</exception>
-    /// <exception cref="IOException">Asking the device to run patterns failed; no settings were sent and submission is disarmed.</exception>
+    /// <exception cref="InvalidOperationException">The device is disconnected, requests are disarmed, Stop is running, or the device is not ready to run patterns. No settings were sent.</exception>
+    /// <exception cref="DeviceWriteException">A write failed. The error includes the known progress of the request.</exception>
+    /// <exception cref="IOException">Asking the device to run patterns failed; no settings were sent and requests are disarmed.</exception>
     Task<SetResult> SetAsync(MotionSettings settings, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Returns last known state or performs a serialized live read without masking read failures.
+    /// Returns the last known state or reads fresh state from the device.
     /// </summary>
-    /// <param name="bypassCache">Whether to read from the provider instead of returning last known state.</param>
+    /// <param name="bypassCache">Whether to read fresh state instead of returning the last known state.</param>
     /// <param name="cancellationToken" />
-    /// <returns>The last observation, or null when no observation has been received.</returns>
+    /// <returns>The device state, or null when no state is available.</returns>
     /// <remarks>
-    /// Cached reads remain available while disconnected. Live reads require a connection and survive Stop,
-    /// but disconnect and disposal abandon them with an exception rather than returning cached success.
+    /// The last known state remains available while disconnected.
+    /// Fresh reads require a connection and run one at a time with other device operations. Stop does not cancel them.
+    /// Read failures, disconnection, and disposal return an error rather than silently returning the last known state.
     /// </remarks>
     Task<DeviceState?> GetStateAsync(bool bypassCache = false, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Discards settings not yet sent and sends speed zero ahead of queued requests without changing arming on success.
+    /// Drops settings not yet sent and sends zero raw velocity before queued requests.
     /// </summary>
-    /// <returns>Completion of the Stop write; failures propagate and leave submission disarmed.</returns>
+    /// <returns>Completion of the Stop command. A failed command returns an error and leaves requests disarmed.</returns>
     /// <remarks>
-    /// Stop waits for an issued GATT transfer, not an earlier terminal response or live read.
-    /// A command sent just before Stop may still briefly take effect; Stop completion does not confirm physical motion.
-    /// During connection setup, Stop ends the attempt without sending a command. Concurrent callers share an in-progress Stop.
-    /// Stop does not require arming. Success preserves the current arming state; failure disarms submission.
-    /// Cancellation is checked before starting Stop; once started, its write runs to completion.
+    /// Stop waits for a device transfer already started, but not for an earlier device response or a live read.
+    /// A command sent just before Stop may still briefly take effect.
+    /// During connection setup, Stop ends the connection attempt without sending a command.
+    /// Calls made while Stop is running wait for the same Stop command.
+    /// Stop is allowed while requests are disarmed. Success leaves <see cref="IsArmed"/> unchanged; failure disarms requests.
+    /// Cancellation is checked before a new Stop starts. Once started, its command finishes even if cancelled.
     /// </remarks>
     Task EmergencyStopAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Arms submission after preceding I/O settles, without sending or restoring motion settings.
+    /// Waits for earlier I/O to finish, then enables requests without sending or restoring motion settings.
     /// </summary>
-    /// <returns>Completion of the explicit reset.</returns>
+    /// <returns>Permission to send settings requests again.</returns>
     /// <remarks>
-    /// Reset does not clear <see cref="ConnectionFailure"/> and cannot rearm during Stop.
+    /// Reset does not clear <see cref="ConnectionFailure"/> and cannot allow requests while Stop is running.
     /// </remarks>
-    /// <exception cref="InvalidOperationException">Not connected, or a concurrent Stop or operation failure invalidated the reset.</exception>
+    /// <exception cref="InvalidOperationException">The device is disconnected, Stop is running, or a Stop or operation failure interrupted the reset.</exception>
     Task ResetAsync(CancellationToken cancellationToken = default);
 }

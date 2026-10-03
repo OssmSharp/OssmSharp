@@ -1,18 +1,22 @@
 namespace OssmSharp.Runtime.Oem;
 
 /// <summary>
-/// Identifies a firmware setting, not a motor position or a motion-safety decision.
+/// Identifies a requested motion control, not a motor position or a motion-safety decision.
 /// </summary>
 public enum DeviceControl
 {
     /// <summary>
-    /// Selects the firmware pattern by its nonnegative integer identifier.
+    /// Selects the stroke pattern.
     /// </summary>
     Pattern,
 
     /// <summary>
-    /// Assigns the speed argument as a percentage.
+    /// Identifies the requested speed as an integer percentage from zero through 100.
     /// </summary>
+    /// <remarks>
+    /// Uses the same units as <see cref="MotionSettings.Speed"/>; 50 means 50%.
+    /// This percentage does not measure physical speed or strokes per minute.
+    /// </remarks>
     Speed,
 
     /// <summary>

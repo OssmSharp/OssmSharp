@@ -38,13 +38,13 @@ visibility, and specified behavior is required, not an implementation suggestion
   - **`DeviceCommand.cs`**
     - Represent one assignment to one DeviceControl, such as setting speed to 20 percent.
   - **`IOssmDevice.cs`**
-    - **ConnectAsync:** Connect or reconnect the same undisposed client, initialize fresh state, and arm submission on success without sending or replaying motion settings. Throw when Stop, disconnect, or disposal ends the attempt.
+    - **ConnectAsync:** Connect or reconnect the same undisposed client, initialize fresh state, and arm request on success without sending or replaying motion settings. Throw when Stop, disconnect, or disposal ends the attempt.
     - **DisconnectAsync:** Disarm and abandon settings and live reads; send or join Stop when connected, then clean up even if it fails while preserving reuse.
     - **SetAsync:** Submit MotionSettings and count confirmed writes; return Cancelled on Stop, disconnect, or disposal, and retain genuine failures' partial progress in DeviceWriteException.
     - **GetStateAsync(bypassCache):** Return cached state, including while disconnected, or read live state when bypassCache is true, requiring a connection and propagating read errors. Live reads without an established connection, including those abandoned by disconnect or disposal, throw.
     - **EmergencyStopAsync:** Abandon pending settings and send or join Stop without waiting for earlier responses or live reads, or end an unfinished connection attempt. Success preserves current arming; failure disarms.
     - **ResetAsync:** Arm without resending settings or clearing failures; throw when disarmed later or while Stop is in progress.
-    - **IsArmed (property):** Indicate submission arming: successful connection or explicit reset arms; successful Stop preserves current arming; Stop failure, operational failure, disconnect, and disposal disarm.
+    - **IsArmed (property):** Indicate request arming: successful connection or explicit reset arms; successful Stop preserves current arming; Stop failure, operational failure, disconnect, and disposal disarm.
     - **ConnectionFailure (property):** Expose the current connection failure; clear it only after successful connection initialization, never through reset.
     - **StateChanged (event):** Notify subscribers when the last known state or armed status changes.
     - **DisposeAsync:** Disarm and abandon settings and live reads; send or join Stop when connected, then release resources even on failure and prohibit reuse.
@@ -57,7 +57,7 @@ visibility, and specified behavior is required, not an implementation suggestion
   - **`SetResult.cs`** — public record.
     - Carry SetStatus and CommandsWritten, the count of successfully completed primitive writes, without claiming rollback or physical motion confirmation.
   - **`SetStatus.cs`** — public enum.
-    - Distinguish Completed, Superseded, and Cancelled submissions; commands already sent may have taken effect regardless of status.
+    - Distinguish Completed, Superseded, and Cancelled requests; commands already sent may have taken effect regardless of status.
   - **`DeviceState.cs`**
     - Represent complete last-observed controls without interpreting compact protocol metadata, inferring motion safety, or imposing expiry.
     - Expose observed Pattern, Speed, Stroke, Depth, and Sensation directly. Preserve fractional effective speed; require integer values for the other controls and reject malformed, missing, duplicate, or out-of-range values.
@@ -65,12 +65,12 @@ visibility, and specified behavior is required, not an implementation suggestion
 
     - **ConnectCoreAsync (protected abstract):** Establish fresh provider connectivity and subscriptions; DeviceBase arms only after initial state initialization succeeds, without sending motion settings.
     - **ExecuteAsync (private):** Serialize non-Stop I/O, abandon cancelled operation waits, and prevent queued settings from running after disarm.
-    - **Supersede (private):** Replace pending settings with the latest submission and discard older primitive commands not yet sent, letting a command already sent finish.
+    - **Supersede (private):** Replace pending settings with the latest request and discard older primitive commands not yet sent, letting a command already sent finish.
     - **CancelPending (private):** Discard pending settings and not-yet-issued writes without claiming an issued write was recalled.
     - **WriteCommandAsync(command) (protected abstract):** Send one control assignment while owning issued transport writes after abandonment; Stop awaits terminal completion without claiming physical motion.
     - **ReadStateAsync (protected abstract):** Read live device state through the provider without maintaining another state cache.
     - **DisconnectCoreAsync (protected abstract):** Release resources after Stop and issued transport writes settle, without waiting for abandoned responses; tolerate partial setup and reconnection.
-    - **UpdateState (protected):** Store incoming last known state and notify subscribers without changing arming or cancelling pending submissions.
+    - **UpdateState (protected):** Store incoming last known state and notify subscribers without changing arming or cancelling pending requests.
     - **SetFaulted (protected):** Record failure of the current connection, disarm, and discard settings not yet sent, without sending commands or permanently preventing reconnection.
 
   - **`DeviceDiscovery.cs`**
@@ -105,7 +105,7 @@ visibility, and specified behavior is required, not an implementation suggestion
     - **Set:** Parse positional settings into MotionSettings, submit through IOssmDevice, and report completion, supersession, validation errors, or partial failure with armed status.
     - **Stop:** Request emergency Stop and report its success or failure, discarded queued commands, and armed status.
     - **Reset:** Explicitly reset the device and report its result and armed status without resubmitting previous motion.
-    - **StatusAsync(bypassCache):** Display cached or live state as requested, together with whether command submission is armed.
+    - **StatusAsync(bypassCache):** Display cached or live state as requested, together with whether command request is armed.
     - **Help (private):** Display general or command-specific parser help, including argument ranges for set, and current armed status.
     - **Quit:** Stop the device, end command intake, and wait for the Stop and cleanup to finish before exiting. End of input behaves the same.
 
@@ -116,10 +116,10 @@ visibility, and specified behavior is required, not an implementation suggestion
   - **Discovery:** `Program.Main` -> Bluetooth `ServiceCollectionExtensions.Register` -> `Program.PromptAsync` -> `DeviceDiscovery.ScanAsync` -> Shiny Bluetooth scan.
   - **Connection:** `Program.PromptAsync` selects the explicit identifier or sole discovered device -> registered factory returns `DeviceBase` -> `IOssmDevice.ConnectAsync` -> `OssmDevice.ConnectCoreAsync` -> Shiny connection, Protocol Info validation, and awaited subscriptions.
   - **Initialization:** `OssmDevice.MaintainLeaseAsync` -> `OssmDevice.SendRequestAsync` -> `Request.Encode` -> `control.acquire`; `OssmDevice.StartMotionStreamAsync` -> the same request path -> `stream.start` on `motion.speed`.
-  - **Initial controls:** `IOssmDevice.ConnectAsync` -> `OssmDevice.ReadStateAsync` -> next valid motion observation -> `OssmDevice.DecodeState` -> `DeviceBase.UpdateState`; successful initialization arms submission without sending motion settings.
+  - **Initial controls:** `IOssmDevice.ConnectAsync` -> `OssmDevice.ReadStateAsync` -> next valid motion observation -> `OssmDevice.DecodeState` -> `DeviceBase.UpdateState`; successful initialization arms request without sending motion settings.
   - **Outcome:** After connection succeeds, `Program.PromptAsync` passes the device as `IOssmDevice` to `PromptHandler.RunAsync`; ambiguous discovery exits without connecting.
   - **Reusable disconnect:** Library caller -> `IOssmDevice.DisconnectAsync` -> disarm and abandon pending work -> `OssmDevice.WriteCommandAsync(command)` sends or joins Stop after the current GATT send -> `OssmDevice.DisconnectCoreAsync`; the client remains reusable.
-  - **Reconnect:** Library caller -> `IOssmDevice.ConnectAsync` on the same instance -> finish previous cleanup if needed -> `OssmDevice.ConnectCoreAsync` -> new lease and subscriptions -> fresh initial controls -> rearm submission without replaying settings.
+  - **Reconnect:** Library caller -> `IOssmDevice.ConnectAsync` on the same instance -> finish previous cleanup if needed -> `OssmDevice.ConnectCoreAsync` -> new lease and subscriptions -> fresh initial controls -> rearm request without replaying settings.
   - **Cleanup:** On prompt exit or connection failure, `Program.PromptAsync` -> `IOssmDevice.DisposeAsync` -> disarm and abandon pending work -> `OssmDevice.WriteCommandAsync(command)` sends or joins Stop while connected and leased -> `OssmDevice.DisconnectCoreAsync` -> stream stop, lease release, and Bluetooth teardown; cleanup still runs if Stop fails, and disposal prevents reuse.
 
 - **Submit settings or Stop:**
@@ -137,7 +137,7 @@ visibility, and specified behavior is required, not an implementation suggestion
   - **Cached chain:** `PromptHandler.StatusAsync(false)` -> `IOssmDevice.GetStateAsync(false)` -> last known state.
   - **Live chain:** `PromptHandler.StatusAsync(true)` -> `IOssmDevice.GetStateAsync(true)` -> `DeviceBase.ExecuteAsync` -> `OssmDevice.ReadStateAsync` -> subsequent Sensor Stream frame -> `OssmDevice.HandleMotionObservation` -> `OssmDevice.DecodeState` -> `DeviceBase.UpdateState`.
   - **Asynchronous feedback:** Sensor Stream frame -> `OssmDevice.HandleMotionObservation` -> `OssmDevice.DecodeState` -> `DeviceBase.UpdateState` -> `IOssmDevice.StateChanged`, including while no commands are pending.
-  - **Observation policy:** Changed controls update last known state only; they do not disarm submission, discard queued commands, or trigger Stop.
+  - **Observation policy:** Changed controls update last known state only; they do not disarm request, discard queued commands, or trigger Stop.
   - **Failure:** Invalid controls, lost stream, or lost lease -> `DeviceBase.SetFaulted`; compact State alone neither replaces controls nor constitutes malformed motion telemetry.
   - **Outcome:** Return the requested state and display it alongside `IOssmDevice.IsArmed`; cached reads require no I/O, and live read failures surface as errors.
 
@@ -150,7 +150,7 @@ visibility, and specified behavior is required, not an implementation suggestion
 - Multiple matching devices cause an error and exit without connecting; the message directs the user to `OssmSharp.Cli list`.
 - `OssmSharp.Cli list` prints device identifiers and names without connecting; `OssmSharp.Cli prompt --device <id>` connects only to that selection.
 - No matching device, an unavailable selected identifier, or a Bluetooth failure produces an actionable error and exits without opening the prompt.
-- Successful connection arms command submission without sending or replaying motion settings; `reset` is needed only to rearm a connected client after disarming.
+- Successful connection arms command request without sending or replaying motion settings; `reset` is needed only to rearm a connected client after disarming.
 
 ### Prompt commands
 
@@ -158,12 +158,12 @@ visibility, and specified behavior is required, not an implementation suggestion
   - Pattern is a `StrokePattern` ID (0..6) or case-insensitive name; each remaining argument is independently a whole-number percentage between 0 and 100. Decimal and exponent forms are rejected.
   - When the device is homing or waiting for its speed knob to reach zero, no settings are sent and the prompt stays armed.
 - `stop` sends emergency Stop immediately and discards pending settings. Success preserves current arming, so another `set` does not require `reset`; failure disarms.
-- `reset` enables command submission without sending previous settings.
+- `reset` enables command request without sending previous settings.
 - `status` reads the device's live state and displays it with armed status, preserving fractional effective speed.
 - `help` lists commands; `help <command>` displays command-specific help, with argument order, pattern choices, and percentage ranges available through `help set`.
 - `quit` sends Stop, waits for it to finish, then exits after cleanup.
-- Commands execute one at a time. The next command is not read until the current submission and terminal responses complete; physical motion can continue until stopped.
-- The prompt persists command history in the current user's application-data directory. Recalled commands require explicit submission.
+- Commands execute one at a time. The next command is not read until the current request and terminal responses complete; physical motion can continue until stopped.
+- The prompt persists command history in the current user's application-data directory. Recalled commands require explicit request.
 - Ctrl+C while an operation is pending cancels it and issues Stop; at other times it starts normal exit and cleanup.
 
 ### Command results
@@ -232,7 +232,7 @@ These ideas are deferred and are not part of the current implementation contract
 
 ### Observation-triggered Auto-disarm
 
-Consider disarming submission and discarding unissued settings after an unexplained control change.
+Consider disarming request and discarding unissued settings after an unexplained control change.
 Control values alone cannot identify who changed them. This requires distinguishing external changes
 from delayed feedback on this client's writes and firmware mode-entry resets, without treating
 knob-scaled effective speed as an external change. The current design exposes observations through

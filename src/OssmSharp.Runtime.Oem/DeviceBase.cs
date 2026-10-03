@@ -1,5 +1,6 @@
 using System.Runtime.ExceptionServices;
 using Microsoft.Extensions.Logging;
+using OssmSharp.Runtime.Oem.Protocol;
 
 namespace OssmSharp.Runtime.Oem;
 
@@ -9,12 +10,12 @@ namespace OssmSharp.Runtime.Oem;
 /// <remarks>
 /// Lifecycle transitions are serialized with device I/O, except that Stop does not wait for an earlier response or live read.
 /// Providers must own issued transfers through settlement even when a response wait is abandoned.
-/// Only observations update last known state; writes do not confirm physical motion.
+/// Only observations update last known state.
 /// </remarks>
 public abstract class DeviceBase : IOssmDevice
 {
     /// <summary>
-    /// Protects lifecycle, submission, and last known state from concurrent calls and provider callbacks.
+    /// Protects lifecycle, request, and last known state from concurrent calls and provider callbacks.
     /// </summary>
     private readonly Lock sync = new();
 
@@ -39,16 +40,16 @@ public abstract class DeviceBase : IOssmDevice
     private Task? stop;
 
     /// <summary>
-    /// Latest accepted settings submission; newer submissions supersede its unsent commands.
+    /// Latest accepted settings request; newer requests supersede its unsent commands.
     /// </summary>
-    private SettingsSubmission? submission;
+    private SetOperationContext? request;
 
     /// <summary>
     /// Last observed controls, retained across disconnection and never inferred from writes.
     /// </summary>
     private DeviceState? state;
 
-    private TransmittedControls? transmitted;
+    private DeviceSettings? transmitted;
     private long writeSequence;
     private long confirmedSpeedSequence;
 
@@ -136,18 +137,6 @@ public abstract class DeviceBase : IOssmDevice
     public virtual string? Name => null;
 
     /// <inheritdoc />
-    public TransmittedControls? Transmitted
-    {
-        get
-        {
-            lock (sync)
-            {
-                return transmitted;
-            }
-        }
-    }
-
-    /// <inheritdoc />
     public bool IsArmed
     {
         get
@@ -167,6 +156,17 @@ public abstract class DeviceBase : IOssmDevice
             lock (sync)
             {
                 return providerFailure?.SourceException;
+            }
+        }
+    }
+
+    internal DeviceSettings? Transmitted
+    {
+        get
+        {
+            lock (sync)
+            {
+                return transmitted;
             }
         }
     }
@@ -322,13 +322,13 @@ public abstract class DeviceBase : IOssmDevice
         ArgumentNullException.ThrowIfNull(settings);
         logger.ApiCalled("Set");
         using var pendingCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        SettingsSubmission current;
+        SetOperationContext current;
         lock (sync)
         {
             EnsureConnected();
             if (stop is { IsCompleted: false })
             {
-                throw new InvalidOperationException("Settings submission was interrupted by Stop; submit again after it completes.");
+                throw new InvalidOperationException("Settings request was interrupted by Stop; submit again after it completes.");
             }
 
             if (!armed)
@@ -371,9 +371,9 @@ public abstract class DeviceBase : IOssmDevice
         {
             lock (sync)
             {
-                if (ReferenceEquals(submission, current))
+                if (ReferenceEquals(request, current))
                 {
-                    submission = null;
+                    request = null;
                 }
             }
         }
@@ -550,27 +550,14 @@ public abstract class DeviceBase : IOssmDevice
     protected abstract Task ConnectCoreAsync(CancellationToken cancellationToken);
 
     /// <summary>
-    /// Sends one primitive assignment and awaits the provider's completion semantics.
-    /// </summary>
-    /// <param name="command">The already validated firmware control assignment.</param>
-    /// <param name="cancellationToken" />
-    /// <remarks>
-    /// A cancelled setting may abandon its terminal response, but its issued transfer must settle before this hook returns.
-    /// Stop uses an uncancellable token and awaits its terminal response without waiting for an earlier response or live read.
-    /// Do not interpret patterns or accept complete settings here.
-    /// </remarks>
-    /// <returns>Completion of the issued transfer and, unless abandoned, its terminal response; not confirmation of physical motion.</returns>
-    protected abstract Task WriteCommandAsync(DeviceCommand command, CancellationToken cancellationToken);
-
-    /// <summary>
-    /// Asks the firmware to run patterns before a submission writes its controls.
+    /// Asks the firmware to run patterns before a request writes its controls.
     /// </summary>
     /// <param name="cancellationToken" />
     /// <returns>Whether the firmware now runs patterns; false when it is waiting, for example for homing or its speed knob.</returns>
     /// <remarks>
-    /// Called once per submission, so it must succeed without effect when patterns already run.
+    /// Called once per request, so it must succeed without effect when patterns already run.
     /// Cancellation follows <see cref="WriteCommandAsync"/>.
-    /// The firmware decides whether motion is safe to start; completion does not confirm physical motion.
+    /// The firmware decides whether motion is safe to start.
     /// </remarks>
     protected abstract Task<bool> PreparePatternAsync(CancellationToken cancellationToken);
 
@@ -647,6 +634,19 @@ public abstract class DeviceBase : IOssmDevice
         }
     }
 
+    /// <summary>
+    /// Sends one primitive assignment and awaits the provider's completion semantics.
+    /// </summary>
+    /// <param name="command">The already validated firmware control assignment.</param>
+    /// <param name="cancellationToken" />
+    /// <remarks>
+    /// A cancelled setting may abandon its terminal response, but its issued transfer must settle before this hook returns.
+    /// Stop uses an uncancellable token and awaits its terminal response without waiting for an earlier response or live read.
+    /// Do not interpret patterns or accept complete settings here.
+    /// </remarks>
+    /// <returns>Completion of the issued transfer and, unless abandoned, its terminal response.</returns>
+    private protected abstract Task WriteCommandAsync(DeviceCommand command, CancellationToken cancellationToken);
+
     private async Task<T> ExecuteAsync<T>(Func<CancellationToken, Task<T>> operation, bool requiresConnection = false, CancellationToken connectionToken = default, CancellationToken cancellationToken = default)
     {
         CancellationTokenSource waiting;
@@ -683,7 +683,7 @@ public abstract class DeviceBase : IOssmDevice
         }
     }
 
-    private async Task<SetResult> ApplySettingsAsync(SettingsSubmission current)
+    private async Task<SetResult> ApplySettingsAsync(SetOperationContext current)
     {
         lock (sync)
         {
@@ -748,9 +748,9 @@ public abstract class DeviceBase : IOssmDevice
     }
 
     /// <summary>
-    /// Runs one step of a submission, returning false when the submission was discarded while the step ran.
+    /// Runs one step of a request, returning false when the request was discarded while the step ran.
     /// </summary>
-    private async Task<bool> TryStepAsync(SettingsSubmission current, Func<Task> step, Func<Exception, IOException> failure)
+    private async Task<bool> TryStepAsync(SetOperationContext current, Func<Task> step, Func<Exception, IOException> failure)
     {
         try
         {
@@ -785,7 +785,7 @@ public abstract class DeviceBase : IOssmDevice
         }
     }
 
-    private bool IsDiscardedLocked(SettingsSubmission current)
+    private bool IsDiscardedLocked(SetOperationContext current)
     {
         if (!current.PendingCancellation.IsCancellationRequested && armed && !disposing)
         {
@@ -800,24 +800,24 @@ public abstract class DeviceBase : IOssmDevice
         return true;
     }
 
-    private SettingsSubmission Supersede(MotionSettings settings, CancellationTokenSource pendingCancellation)
+    private SetOperationContext Supersede(MotionSettings settings, CancellationTokenSource pendingCancellation)
     {
-        if (submission is not null)
+        if (request is not null)
         {
-            submission.Status = SetStatus.Superseded;
-            submission.PendingCancellation.Cancel();
+            request.Status = SetStatus.Superseded;
+            request.PendingCancellation.Cancel();
         }
 
-        submission = new(settings, pendingCancellation);
-        return submission;
+        request = new(settings, pendingCancellation);
+        return request;
     }
 
     private void CancelPending()
     {
-        if (submission is not null)
+        if (request is not null)
         {
-            submission.Status = SetStatus.Cancelled;
-            submission.PendingCancellation.Cancel();
+            request.Status = SetStatus.Cancelled;
+            request.PendingCancellation.Cancel();
         }
     }
 
@@ -1040,7 +1040,7 @@ public abstract class DeviceBase : IOssmDevice
             transmitted = command.Control switch
             {
                 DeviceControl.Pattern => previous with { Pattern = command.Value },
-                DeviceControl.Speed => previous with { Speed = command.Value },
+                DeviceControl.Speed => previous with { DeviceVelocityPercent = command.Value },
                 DeviceControl.Stroke => previous with { Stroke = command.Value },
                 DeviceControl.Depth => previous with { Depth = command.Value },
                 DeviceControl.Sensation => previous with { Sensation = command.Value },

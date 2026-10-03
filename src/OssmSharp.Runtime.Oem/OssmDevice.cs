@@ -9,6 +9,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using OssmSharp.Runtime.Oem.Protocol;
 using Shiny.BluetoothLE;
 
 namespace OssmSharp.Runtime.Oem;
@@ -21,9 +22,9 @@ namespace OssmSharp.Runtime.Oem;
 /// Register the native host through the service collection extension so Shiny delivers teardown callbacks.
 /// Each connection validates the protocol, subscribes to responses and the sensor stream, acquires a control lease,
 /// and streams motion observations. Lease tokens, request identifiers, and subscriptions stay internal.
-/// Each settings submission configures direct BLE speed by turning off the firmware's physical speed-input scaling.
+/// Each settings request configures direct BLE speed by turning off the firmware's physical speed-input scaling.
 /// That configuration is not restored on Stop or disconnect. Connecting alone does not change it.
-/// A terminal response confirms firmware completion, not physical motion. Lease loss fails the connection;
+/// Lease loss fails the connection;
 /// the lease is never silently reacquired. The firmware can emit malformed JSON; such responses and motion
 /// payloads are discarded, and a request without a terminal response is resent with its original identifier
 /// a bounded number of times before the connection fails.
@@ -275,27 +276,6 @@ public sealed class OssmDevice : DeviceBase
     }
 
     /// <inheritdoc />
-    protected override Task WriteCommandAsync(DeviceCommand command, CancellationToken cancellationToken)
-    {
-        var path = command.Control switch
-        {
-            DeviceControl.Pattern => "motion.pattern",
-            DeviceControl.Speed => "motion.speed",
-            DeviceControl.Stroke => "motion.stroke",
-            DeviceControl.Depth => "motion.depth",
-            DeviceControl.Sensation => "motion.sensation",
-            _ => throw new ArgumentOutOfRangeException(nameof(command), command.Control, "Unknown firmware control."),
-        };
-        long current;
-        lock (sync)
-        {
-            current = generation;
-        }
-
-        return SendRequestAsync(current, "setting.write", path, new JsonObject { ["value"] = command.Value }, leased: true, cancellationToken);
-    }
-
-    /// <inheritdoc />
     /// <remarks>
     /// Configures direct speed control, then selects the stroke engine and checks readiness from its terminal response.
     /// Homing and preflight report not ready.
@@ -442,6 +422,27 @@ public sealed class OssmDevice : DeviceBase
 
         stopping?.Dispose();
         releaseFailure?.Throw();
+    }
+
+    /// <inheritdoc />
+    private protected override Task WriteCommandAsync(DeviceCommand command, CancellationToken cancellationToken)
+    {
+        var path = command.Control switch
+        {
+            DeviceControl.Pattern => "motion.pattern",
+            DeviceControl.Speed => "motion.speed",
+            DeviceControl.Stroke => "motion.stroke",
+            DeviceControl.Depth => "motion.depth",
+            DeviceControl.Sensation => "motion.sensation",
+            _ => throw new ArgumentOutOfRangeException(nameof(command), command.Control, "Unknown firmware control."),
+        };
+        long current;
+        lock (sync)
+        {
+            current = generation;
+        }
+
+        return SendRequestAsync(current, "setting.write", path, new JsonObject { ["value"] = command.Value }, leased: true, cancellationToken);
     }
 
     private static void ValidateProtocolInfo(byte[]? data)

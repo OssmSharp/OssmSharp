@@ -1,4 +1,4 @@
-namespace OssmSharp.Runtime.Oem;
+namespace OssmSharp.Runtime.Oem.Protocol;
 
 /// <summary>
 /// Defines the RAD BLE v1 service and characteristic UUIDs.

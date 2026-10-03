@@ -93,16 +93,17 @@ async function createGuest(invoke = async () => ({ ok: true }), url = "https://g
   };
 }
 
-test("stroke-relative speed sends velocity percentages and retains the selected cadence", async () => {
+test("speed is sent unchanged and retains the selected speed", async () => {
   const browser = await createGuest();
-  for (const [speed, stroke, depth, expectedSpeed] of [
-    [50, 10, 10, 5],
-    [50, 80, 100, 40],
-    [50, 10, 80, 5],
-    [100, 100, 100, 100],
-    [0, 10, 20, 0],
-    [30, 1, 1, 0],
-    [100, 1, 1, 1],
+  for (const [speed, stroke, depth] of [
+    [50, 10, 10],
+    [50, 80, 100],
+    [50, 10, 80],
+    [53, 10, 20],
+    [100, 100, 100],
+    [0, 10, 20],
+    [30, 1, 1],
+    [100, 1, 1],
   ]) {
     for (const [name, value] of Object.entries({ depth, stroke, speed })) {
       const input = browser.element(`[data-input="${name}"]`);
@@ -113,7 +114,7 @@ test("stroke-relative speed sends velocity percentages and retains the selected 
     browser.click("[data-send-button]");
     await setImmediate();
     const command = browser.calls("SubmitSettings").at(-1).payload;
-    assert.deepEqual([command.speed, command.stroke, command.depth], [expectedSpeed, stroke, depth]);
+    assert.deepEqual([command.speed, command.stroke, command.depth], [speed, stroke, depth]);
     const display = browser.calls("UpdateDisplay").at(-1).payload;
     assert.equal(display.selected.speed, speed);
     assert.equal(display.sent.speed, speed);
@@ -127,12 +128,12 @@ test("stroke-relative speed sends velocity percentages and retains the selected 
 });
 
 test("unknown outcome pauses queued and new sends until an acknowledged recovery Stop", async () => {
-  let completeSubmission;
+  let completeRequest;
   let completeStop;
   const browser = await createGuest(async (method) => {
     if (method === "SubmitSettings")
       return new Promise((resolve) => {
-        completeSubmission = resolve;
+        completeRequest = resolve;
       });
     if (method === "StopRun")
       return new Promise((resolve) => {
@@ -143,7 +144,7 @@ test("unknown outcome pauses queued and new sends until an acknowledged recovery
   await setImmediate();
   browser.element('[data-input="speed"]').value = "40";
   browser.click("[data-send-button]");
-  completeSubmission({ ok: false, code: "outcome-unknown" });
+  completeRequest({ ok: false, code: "outcome-unknown" });
   await setImmediate();
   assert.equal(browser.calls("SubmitSettings").length, 1, "queued work must not follow an unknown outcome");
   assert.equal(browser.element("[data-send-button]").disabled, true);
@@ -167,7 +168,7 @@ test("unknown outcome pauses queued and new sends until an acknowledged recovery
   browser.click("[data-send-button]");
   await setImmediate();
   assert.equal(browser.calls("SubmitSettings").length, 2);
-  completeSubmission({ ok: true });
+  completeRequest({ ok: true });
   await setImmediate();
   browser.guest.dispose();
 });
@@ -186,12 +187,12 @@ test("identical explicit Send is allowed after Stop and re-enable", async () => 
   browser.guest.dispose();
 });
 
-test("control revocation cancels queued auto sends and regrant requires deliberate submission", async () => {
-  let completeSubmission;
+test("control revocation cancels queued auto sends and regrant requires deliberate request", async () => {
+  let completeRequest;
   const browser = await createGuest(async (method) => {
     if (method === "SubmitSettings")
       return new Promise((resolve) => {
-        completeSubmission = resolve;
+        completeRequest = resolve;
       });
     return { ok: true };
   });
@@ -204,7 +205,7 @@ test("control revocation cancels queued auto sends and regrant requires delibera
   browser.guest.updateState({ joined: true, ready: false });
   assert.equal(autoSend.checked, false);
   assert.equal(browser.element("[data-send-button]").disabled, true);
-  completeSubmission({ ok: true });
+  completeRequest({ ok: true });
   await setImmediate();
   assert.equal(browser.calls("SubmitSettings").length, 1, "revocation must discard already queued settings");
   assert.equal(browser.calls("UpdateDisplay").at(-1).payload.sent, null, "the late reply must not restore sent settings");
@@ -216,17 +217,17 @@ test("control revocation cancels queued auto sends and regrant requires delibera
   browser.click("[data-send-button]");
   await setImmediate();
   assert.equal(browser.calls("SubmitSettings").length, 2);
-  completeSubmission({ ok: true });
+  completeRequest({ ok: true });
   await setImmediate();
   browser.guest.dispose();
 });
 
-test("late submission reply cannot restore the duplicate baseline after Stop", async () => {
-  let completeSubmission;
+test("late request reply cannot restore the duplicate baseline after Stop", async () => {
+  let completeRequest;
   const browser = await createGuest(async (method) => {
     if (method === "SubmitSettings")
       return new Promise((resolve) => {
-        completeSubmission = resolve;
+        completeRequest = resolve;
       });
     return { ok: true };
   });
@@ -234,14 +235,14 @@ test("late submission reply cannot restore the duplicate baseline after Stop", a
   await setImmediate();
   browser.click("[data-stop-button]");
   await setImmediate();
-  assert.equal(browser.calls("StopRun").length, 1, "Stop must bypass the pending settings submission");
-  completeSubmission({ ok: true });
+  assert.equal(browser.calls("StopRun").length, 1, "Stop must bypass the pending settings request");
+  completeRequest({ ok: true });
   await setImmediate();
   browser.guest.updateState({ joined: true, ready: true });
   browser.click("[data-send-button]");
   await setImmediate();
   assert.equal(browser.calls("SubmitSettings").length, 2);
-  completeSubmission({ ok: true });
+  completeRequest({ ok: true });
   await setImmediate();
   browser.guest.dispose();
 });
@@ -309,11 +310,11 @@ test("malformed invitation fragments are scrubbed and never redeemed", async () 
 });
 
 test("a disposed controller's late failure cannot disconnect its replacement", async () => {
-  let failSubmission;
+  let failRequest;
   const browser = await createGuest(async (method) => {
     if (method === "SubmitSettings")
       return new Promise((_resolve, reject) => {
-        failSubmission = reject;
+        failRequest = reject;
       });
     return { ok: true };
   });
@@ -321,7 +322,7 @@ test("a disposed controller's late failure cannot disconnect its replacement", a
   await setImmediate();
   browser.guest.attach(browser.root, { invokeMethodAsync: async () => ({ ok: true }) });
   browser.guest.updateState({ joined: true, ready: true });
-  failSubmission(new Error("Old reference disposed"));
+  failRequest(new Error("Old reference disposed"));
   await setImmediate();
   assert.equal(browser.storage.get(disconnectedKey), undefined);
   assert.equal(browser.element("[data-send-button]").disabled, false);

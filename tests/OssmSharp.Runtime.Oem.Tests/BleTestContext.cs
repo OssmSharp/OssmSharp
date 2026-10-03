@@ -10,7 +10,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using Moq;
-using OssmSharp.Runtime.Oem;
+using OssmSharp.Runtime.Oem.Protocol;
 using Shiny.BluetoothLE;
 
 namespace OssmSharp.Runtime.Oem.Tests;

@@ -10,7 +10,7 @@
         {
             <rect class="preview-range" x="@RangeStart" y="18" width="@RangeWidth" height="10" rx="2" />
             <circle class="preview-carriage" cx="@RangeMidpoint" cy="23" r="7">
-                @if (Animate && BoundedSpeed > 0 && BoundedStroke > 0 && BoundedDepth > 0)
+                @if (Animate && Speed > 0 && BoundedStroke > 0 && BoundedDepth > 0)
                 {
                     <animate attributeName="cx" values="@AnimationValues" dur="@AnimationDuration" repeatCount="indefinite" />
                 }
@@ -22,14 +22,16 @@
 @code {
     [Parameter] public string Title { get; set; } = "Pattern preview";
     [Parameter] public int? Pattern { get; set; } = 0;
-    [Parameter] public int? Speed { get; set; }
+    /// <summary>
+    /// Gets or sets the illustrative speed; null is unknown.
+    /// </summary>
+    [Parameter] public double? Speed { get; set; }
     [Parameter] public int? Stroke { get; set; }
     [Parameter] public int? Depth { get; set; }
     [Parameter] public int? Sensation { get; set; }
     [Parameter] public bool Animate { get; set; } = true;
 
     private string PatternLabel => Pattern switch { null => "Unknown", 0 => "Simple stroke", _ => $"Pattern {Pattern}" };
-    private int? BoundedSpeed => Bound(Speed);
     private int? BoundedStroke => Bound(Stroke);
     private int? BoundedDepth => Bound(Depth);
     private int? BoundedSensation => Bound(Sensation);
@@ -40,10 +42,10 @@
     private string RangeWidth => Format(Math.Max(1, End - Start));
     private string RangeMidpoint => Format(Mid);
     private string AnimationValues => $"{Format(Start)};{Format(End)};{Format(Start)}";
-    private string AnimationDuration => FormattableString.Invariant($"{0.4 * BoundedStroke / BoundedSpeed:0.####}s");
-    private string PreviewLabel => $"{PatternLabel} preview at {Value(BoundedSpeed)} speed, {Value(BoundedStroke)} stroke, {Value(BoundedDepth)} depth, and {Value(BoundedSensation)} sensation";
+    private string AnimationDuration => FormattableString.Invariant($"{40 / Speed:0.####}s");
+    private string PreviewLabel => $"{PatternLabel} preview at {Value(Speed)} speed, {Value(BoundedStroke)} stroke, {Value(BoundedDepth)} depth, and {Value(BoundedSensation)} sensation";
 
     private static int? Bound(int? value) => value is { } known ? Math.Clamp(known, 0, 100) : null;
-    private static string Value(int? value) => value is { } known ? $"{known}%" : "Unknown";
+    private static string Value(double? value) => value is { } known ? FormattableString.Invariant($"{known}%") : "Unknown";
     private static string Format(double value) => value.ToString("0.##", CultureInfo.InvariantCulture);
 }

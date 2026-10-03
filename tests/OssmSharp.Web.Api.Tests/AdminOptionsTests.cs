@@ -1,6 +1,5 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using OssmSharp.Web.ServiceDefaults;
 using OssmSharp.Web.ServiceDefaults.Models;

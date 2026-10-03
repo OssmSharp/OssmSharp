@@ -56,24 +56,24 @@ Shared lifecycle does not make pattern identities or settings interchangeable.
 - **`OssmSharp.Runtime`**
   - **`IOssmDevice.cs`** - extends `IAsyncDisposable`; shared lifecycle contract only.
     - **ConnectAsync:** Establish the connection and initial observation without arming or sending motion settings.
-    - **EmergencyStopAsync:** Discard pending submissions and execute firmware Stop after issued I/O settles. Success preserves the current arming state; failure disarms.
+    - **EmergencyStopAsync:** Discard pending requests and execute firmware Stop after issued I/O settles. Success preserves the current arming state; failure disarms.
     - **ResetAsync:** Explicitly arm without restoring settings, rejecting resets interrupted by concurrent Stop or disarming.
-    - **IsArmed (property):** Indicate whether explicit caller reset has enabled submission.
+    - **IsArmed (property):** Indicate whether explicit caller reset has enabled request.
     - **StateChanged (event):** Notify consumers when arming or firmware-owned last known state changes.
     - **DisposeAsync (inherited):** Disarm, cancel unissued work, await issued operations, and release subscriptions and the connection, including after partial connection failure.
   - **`DeviceBase.cs`** - abstract class implementing `IOssmDevice`; non-generic execution owner.
-    - **SubmitAsync (protected):** Supersede older submissions and execute finite ordered command operations, checking cancellation and arming before issuance and awaiting each issued operation.
+    - **SubmitAsync (protected):** Supersede older requests and execute finite ordered command operations, checking cancellation and arming before issuance and awaiting each issued operation.
     - **ExecuteAsync (protected):** Serialize live reads and lifecycle I/O with writes, retain issued-work ownership, and disarm on operational failure.
-    - **Supersede (private):** Replace pending submissions and cancel older unissued operations without abandoning issued I/O.
-    - **CancelPending (private):** Discard pending submissions and unissued operations without claiming that issued I/O was recalled.
-    - **Disarm (protected):** Atomically disarm and cancel unissued submissions without issuing motion commands.
+    - **Supersede (private):** Replace pending requests and cancel older unissued operations without abandoning issued I/O.
+    - **CancelPending (private):** Discard pending requests and unissued operations without claiming that issued I/O was recalled.
+    - **Disarm (protected):** Atomically disarm and cancel unissued requests without issuing motion commands.
     - **NotifyStateChanged (protected):** Notify subscribers of arming or observation changes without caching firmware state or allowing subscriber failures to interrupt execution.
     - **ConnectCoreAsync (protected abstract):** Open the provider connection, subscribe to observations, and obtain initial state without arming.
     - **StopCoreAsync (protected abstract):** Execute firmware-specific Stop and settle issued I/O before returning, propagating errors without claiming physical motion confirmation.
     - **DisconnectAsync (protected abstract):** Release provider subscriptions and the connection after issued work settles, including after incomplete connection setup.
-  - **`Submission.cs`** - internal execution bookkeeping without firmware settings or command types.
-  - **`SubmissionResult.cs`** - completed-write count and submission outcome, not confirmation of physical motion.
-  - **`SubmissionOutcome.cs`** - distinguish completed, superseded, and cancelled submissions.
+  - **`Request.cs`** - internal execution bookkeeping without firmware settings or command types.
+  - **`RequestResult.cs`** - completed-write count and result, not confirmation of physical motion.
+  - **`RequestOutcome.cs`** - distinguish completed, superseded, and cancelled requests.
   - **`DeviceWriteException.cs`** - extends `IOException`; retain failed operation position, completed-write count, and underlying error without OEM types or rollback claims.
   - **`Log.cs`** - own shared execution diagnostics using existing structured logging conventions, excluding raw payloads and sensitive identifiers.
 
@@ -109,14 +109,14 @@ Shared lifecycle does not make pattern identities or settings interchangeable.
   - **`BleServiceCollectionExtensions.cs`**
     - **Register:** Register discovery and device creation with caller-owned disposal and standard dependency injection lifetimes.
 
-  OEM submission operations pair Expect with WriteCommandAsync only when the
+  OEM request operations pair Expect with WriteCommandAsync only when the
   shared runtime issues that command. Runtime owns ordering; OEM owns expectation
   semantics and synchronization with observations. A valid pattern identifier
   does not guarantee that a firmware version implements it. The library
   validates basic ranges and wire representation, not pattern-specific inputs.
 
 - **`OssmSharp.Runtime.SomethingElse`** - placeholder; no speculative files or functions are required.
-  - Adopt the common lifecycle only when the actual firmware supports its submission, Stop, cancellation, and cleanup guarantees.
+  - Adopt the common lifecycle only when the actual firmware supports its request, Stop, cancellation, and cleanup guarantees.
   - Own typed settings, state, and primitives; a request may produce one aggregate operation and Stop may use a dedicated command.
   - Supply firmware-specific observation interpretation without borrowing OEM control-expectation rules.
   - Replace the placeholder name and specify members only after selecting the firmware contract.
@@ -174,7 +174,7 @@ Shared lifecycle does not make pattern identities or settings interchangeable.
       Runtime-->>CLI: Connected and disarmed
       CLI->>CLI: PromptHandler.RunAsync()
 
-      Note over CLI,Runtime: Explicit reset: PromptHandler.Reset calls IOssmDevice.ResetAsync<br/>Arms submission without sending motion settings
+      Note over CLI,Runtime: Explicit reset: PromptHandler.Reset calls IOssmDevice.ResetAsync<br/>Arms request without sending motion settings
       Note over CLI,Bluetooth: On connection failure or prompt exit: await IOssmDevice.DisposeAsync<br/>Disarm, cancel unissued work, and await issued I/O<br/>Then OssmDevice.DisconnectAsync releases subscriptions and connection
   ```
 
@@ -184,8 +184,8 @@ Shared lifecycle does not make pattern identities or settings interchangeable.
   - **OEM decomposition:** `MotionSettings.ToCommands` produces ordered OEM `DeviceCommand` assignments, not motor instructions.
   - **Execution:** `DeviceBase.SubmitAsync` -> `DeviceBase.Supersede` -> `DeviceBase.ExecuteAsync` -> each surviving operation calls `OssmDevice.Expect` then `OssmDevice.WriteCommandAsync`.
   - **Transport:** `OssmDevice.WriteCommandAsync` -> `Request.Encode` -> Shiny Bluetooth write -> OEM firmware executes its pattern.
-  - **Return:** Completed primitive writes -> `SubmissionResult` -> CLI displays outcome and armed status, without claiming verified physical motion.
-  - **Supersession or failure:** Runtime discards unissued older operations and awaits issued I/O; write errors propagate as `DeviceWriteException` with known progress and leave submission disarmed.
+  - **Return:** Completed primitive writes -> `RequestResult` -> CLI displays outcome and armed status, without claiming verified physical motion.
+  - **Supersession or failure:** Runtime discards unissued older operations and awaits issued I/O; write errors propagate as `DeviceWriteException` with known progress and leave request disarmed.
   - **Feedback:** Firmware notification -> `OssmDevice.DecodeState` -> `OssmDevice.UpdateState` -> `OssmDevice.DetectExternalChange` -> `DeviceBase.Disarm` when unexplained -> `DeviceBase.NotifyStateChanged` -> `StateChanged`.
 
   ```mermaid
@@ -204,17 +204,17 @@ Shared lifecycle does not make pattern identities or settings interchangeable.
       Oem->>Runtime: SubmitAsync(ordered command operations)
       Runtime->>Runtime: Supersede() then ExecuteAsync()
 
-      loop While commands remain and submission is active
+      loop While commands remain and request is active
           Runtime->>Oem: Expect(command) then WriteCommandAsync(command)
           Oem->>Bluetooth: Request.Encode(command) and write
           Bluetooth-->>Oem: Issued I/O settles
           Oem-->>Runtime: Command completed
       end
 
-      Runtime-->>Oem: SubmissionResult
+      Runtime-->>Oem: RequestResult
       Oem-->>CLI: Outcome and completed-write count
       Note over CLI,Runtime: Supersession or cancellation discards unissued commands only<br/>Issued I/O is awaited. Completion does not verify physical motion
-      Note over CLI,Bluetooth: A write failure stops the sequence and disarms submission<br/>DeviceWriteException preserves known progress. No rollback is implied
+      Note over CLI,Bluetooth: A write failure stops the sequence and disarms request<br/>DeviceWriteException preserves known progress. No rollback is implied
       Note over Oem,Bluetooth: Notifications may arrive during any stage<br/>DecodeState -> UpdateState -> DetectExternalChange<br/>Unexplained changes invoke Runtime.Disarm, then NotifyStateChanged<br/>Consumers receive StateChanged
   ```
 
@@ -223,7 +223,7 @@ Shared lifecycle does not make pattern identities or settings interchangeable.
   - **Consumer intent:** `PromptHandler.Stop` -> `IOssmDevice.EmergencyStopAsync` (`DeviceBase` implementation).
   - **Execution:** `DeviceBase` interrupts pending settings, invalidates queued Reset, and sends Stop without waiting for an earlier response.
   - **OEM primitive and transport:** `OssmDevice.Expect` records speed zero -> `OssmDevice.WriteCommandAsync` -> `Request.Encode` -> Shiny Bluetooth write.
-  - **Return:** Stop write settles -> CLI displays success and accepts another submission without Reset when the device was already armed.
+  - **Return:** Stop write settles -> CLI displays success and accepts another request without Reset when the device was already armed.
   - **Failure or cancellation:** Stop failure propagates and disarms. Cancellation before Stop starts prevents the write; neither outcome recalls issued I/O.
 
     ```mermaid

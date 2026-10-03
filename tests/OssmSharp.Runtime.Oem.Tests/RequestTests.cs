@@ -15,7 +15,8 @@ public sealed class RequestTests
         {
             CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("fr-FR");
 
-            var encoded = Request.Encode(7, "setting.write", "motion.speed", new Dictionary<string, int> { ["value"] = 12 }, 42);
+            var command = new DeviceCommand(DeviceControl.Speed, 12);
+            var encoded = Request.Encode(7, "setting.write", "motion.speed", new Dictionary<string, int> { ["value"] = command.Value }, 42);
 
             Encoding.UTF8.GetString(encoded).Should().Be("""{"v":1,"id":7,"op":"setting.write","path":"motion.speed","args":{"value":12},"lease":42}""");
         }

@@ -102,9 +102,9 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>
         await JoinAndAllowAsync("guest-1");
         Device.StopException = new IOException("Stop failed.");
         Assert.False((await Component.StopGuestAsync("guest-1", "stop-1")).Accepted);
-        var submission = await Component.SubmitAsync("guest-1", new("set-1", 0, 10, 20, 30, 40), TestContext.Current.CancellationToken);
-        Assert.Equal(SettingsResponseStatus.Rejected, submission.Status);
-        Assert.Equal("device-not-ready", submission.ErrorCode);
+        var request = await Component.SubmitAsync("guest-1", new("set-1", 0, 10, 20, 30, 40), TestContext.Current.CancellationToken);
+        Assert.Equal(SettingsResponseStatus.Rejected, request.Status);
+        Assert.Equal("device-not-ready", request.ErrorCode);
         Assert.Equal(0, Device.Sets);
         await Assert.ThrowsAsync<IOException>(Component.ExpireGuestAsync);
         var failedRetry = await Component.GetGuestStateAsync("guest-1", TestContext.Current.CancellationToken);
@@ -121,7 +121,7 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>
     }
 
     [Fact]
-    public async Task UserStateProjectsConnectionMetadataAndConfirmedSettingsWithoutGuestDisclosure()
+    public async Task UserStateProjectsConnectionMetadataAndRequestedSettingsWithoutGuestDisclosure()
     {
         Device.IsConnected = false;
         Device.Name = "Test device";
@@ -130,20 +130,22 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>
         Assert.Null(initial.Device.ConnectedAt);
         Assert.Null(initial.Device.TransmittedSettings);
         Device.PendingConnect = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        Device.Transmitted = new(0, 10, 20, 30, 40);
         var connect = Component.ConnectAsync("connect-1", TestContext.Current.CancellationToken);
         var connecting = await Component.GetUserStateAsync(TestContext.Current.CancellationToken);
         Assert.True(connecting.Device!.IsConnecting);
         Assert.Null(connecting.Device.ConnectedAt);
         Assert.Null(connecting.Device.TransmittedSettings);
-        Device.Transmitted = null;
         Device.IsConnected = true;
         Device.PendingConnect.SetResult();
         Assert.True((await connect).Accepted);
         var connectedAt = TimeProvider.GetUtcNow();
         TimeProvider.Advance(TimeSpan.FromMinutes(1));
         Device.State = new(new(0, 80, 70, 60, 50));
-        Device.Transmitted = new(0, 20, 30, 40, 50);
+        await JoinAndAllowAsync("guest-1");
+        Assert.Null((await Component.GetUserStateAsync(TestContext.Current.CancellationToken)).Device!.TransmittedSettings);
+        Assert.Equal(
+            SettingsResponseStatus.Completed,
+            (await Component.SubmitAsync("guest-1", new("set-1", 0, 53, 10, 40, 50), TestContext.Current.CancellationToken)).Status);
 
         var user = await Component.GetUserStateAsync(TestContext.Current.CancellationToken);
 
@@ -152,8 +154,8 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>
         Assert.Equal(connectedAt, user.Device.ConnectedAt);
         Assert.Equal("device-1", user.Device.Identifier);
         Assert.Equal("Test device", user.Device.Name);
-        Assert.Equal(new DeviceSettingsSnapshot(0, 20, 30, 40, 50), user.Device.TransmittedSettings);
-        await JoinAndAllowAsync("guest-1");
+        Assert.Equal(new DeviceSettingsSnapshot(0, 53, 10, 40, 50), user.Device.TransmittedSettings);
+        Assert.Equal(Device.State.Speed, user.Device.Speed);
         var guest = await Component.GetGuestStateAsync("guest-1", TestContext.Current.CancellationToken);
         Assert.Null(guest.Device!.Identifier);
         Assert.Null(guest.Device.Name);
@@ -164,16 +166,16 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>
     }
 
     [Fact]
-    public async Task GuestStopKeepsPermissionAndNextSubmissionRearms()
+    public async Task GuestStopKeepsPermissionAndNextRequestRearms()
     {
         await JoinAndAllowAsync("guest-1");
 
         Assert.True((await Component.StopGuestAsync("guest-1", "stop-1")).Accepted);
         Assert.True((await Component.GetGuestStateAsync("guest-1", TestContext.Current.CancellationToken)).ControlAllowed);
         Device.IsArmed = false;
-        var submission = await Component.SubmitAsync("guest-1", new("set-1", 0, 10, 20, 30, 40), TestContext.Current.CancellationToken);
+        var request = await Component.SubmitAsync("guest-1", new("set-1", 0, 10, 20, 30, 40), TestContext.Current.CancellationToken);
 
-        Assert.Equal(SettingsResponseStatus.Completed, submission.Status);
+        Assert.Equal(SettingsResponseStatus.Completed, request.Status);
         Assert.Equal(1, Device.Resets);
         Assert.Equal(1, Device.Sets);
     }
@@ -243,6 +245,102 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>
         Device.LastSettings.Should().Be(new MotionSettings(StrokePattern.RoboStroke, 20, 30, 40, 50));
     }
 
+    [Theory]
+    [InlineData(SetStatus.Cancelled)]
+    [InlineData(SetStatus.Superseded)]
+    public async Task InterruptedRequestDoesNotReplaceLastSuccessfulRequestedSelection(SetStatus status)
+    {
+        await JoinAndAllowAsync("guest-1");
+        await Component.SubmitAsync("guest-1", new("set-1", 0, 53, 10, 20, 50), TestContext.Current.CancellationToken);
+        Device.SetResult = new(status, 2);
+
+        var response = await Component.SubmitAsync("guest-1", new("set-2", 0, 80, 40, 50, 60), TestContext.Current.CancellationToken);
+
+        Assert.Equal(status == SetStatus.Cancelled ? SettingsResponseStatus.Cancelled : SettingsResponseStatus.Superseded, response.Status);
+        Assert.Equal(2, response.CommandsWritten);
+        Assert.Equal(
+            new DeviceSettingsSnapshot(0, 53, 10, 20, 50),
+            (await Component.GetUserStateAsync(TestContext.Current.CancellationToken)).Device!.TransmittedSettings);
+    }
+
+    [Fact]
+    public async Task PendingAndFailedRequestAndStopRetainLastSuccessfulRequestedSelection()
+    {
+        await JoinAndAllowAsync("guest-1");
+        await Component.SubmitAsync("guest-1", new("set-1", 0, 53, 10, 20, 50), TestContext.Current.CancellationToken);
+        Device.PendingSet = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        var request = Component.SubmitAsync("guest-1", new("set-2", 0, 80, 40, 50, 60), TestContext.Current.CancellationToken);
+        try
+        {
+            Assert.False(request.IsCompleted);
+            Assert.Equal(
+                new DeviceSettingsSnapshot(0, 53, 10, 20, 50),
+                (await Component.GetUserStateAsync(TestContext.Current.CancellationToken)).Device!.TransmittedSettings);
+        }
+        finally
+        {
+            Device.PendingSet.TrySetException(new DeviceWriteException(2, new IOException("Write failed.")));
+        }
+
+        var response = await request;
+        Assert.Equal(SettingsResponseStatus.Failed, response.Status);
+        Assert.Equal(2, response.CommandsWritten);
+        Assert.Equal("device-write-failed", response.ErrorCode);
+        Assert.True((await Component.StopGuestAsync("guest-1", "stop-1")).Accepted);
+        Assert.True((await Component.GetGuestStateAsync("guest-1", TestContext.Current.CancellationToken)).CanResumeAfterStop);
+        Assert.Equal(
+            new DeviceSettingsSnapshot(0, 53, 10, 20, 50),
+            (await Component.GetUserStateAsync(TestContext.Current.CancellationToken)).Device!.TransmittedSettings);
+    }
+
+    [Fact]
+    public async Task OlderCompletionCannotOverwriteNewerSuccessfulRequestedSelection()
+    {
+        await JoinAndAllowAsync("guest-1");
+        var olderCompletion = new TaskCompletionSource<SetResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var newerCompletion = new TaskCompletionSource<SetResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        Device.PendingSet = olderCompletion;
+        var older = Component.SubmitAsync("guest-1", new("set-1", 0, 53, 10, 20, 50), TestContext.Current.CancellationToken);
+        Device.PendingSet = newerCompletion;
+        var newer = Component.SubmitAsync("guest-1", new("set-2", 0, 80, 40, 50, 60), TestContext.Current.CancellationToken);
+        try
+        {
+            newerCompletion.SetResult(new(SetStatus.Completed, 5));
+            Assert.Equal(SettingsResponseStatus.Completed, (await newer).Status);
+            olderCompletion.SetResult(new(SetStatus.Completed, 5));
+            Assert.Equal(SettingsResponseStatus.Completed, (await older).Status);
+            Assert.Equal(
+                new DeviceSettingsSnapshot(0, 80, 40, 50, 60),
+                (await Component.GetUserStateAsync(TestContext.Current.CancellationToken)).Device!.TransmittedSettings);
+        }
+        finally
+        {
+            olderCompletion.TrySetResult(new(SetStatus.Cancelled, 0));
+            newerCompletion.TrySetResult(new(SetStatus.Cancelled, 0));
+            await Task.WhenAll(older, newer);
+        }
+    }
+
+    [Theory]
+    [InlineData(1.5, 2, 75.0)]
+    [InlineData(2.5, 20, 12.5)]
+    [InlineData(40, 10, 400.0)]
+    [InlineData(0, 10, 0.0)]
+    [InlineData(5, 0, null)]
+    [InlineData(0, 0, null)]
+    public async Task DeviceSnapshotPreservesRuntimeSpeed(double velocity, int stroke, double? expectedSpeed)
+    {
+        Device.State = new(StrokePattern.SimpleStroke, velocity, stroke, 20, 50);
+        await JoinAndAllowAsync("guest-1");
+
+        var guest = await Component.GetGuestStateAsync("guest-1", TestContext.Current.CancellationToken);
+        var user = await Component.GetUserStateAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(expectedSpeed, guest.Device!.Speed);
+        Assert.Equal(expectedSpeed, user.Device!.Speed);
+        Assert.Null(user.Device.TransmittedSettings);
+    }
+
     [Fact]
     public async Task PermissionCheckDoesNotExpireOrStopRuntime()
     {
@@ -306,7 +404,7 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>
     {
         await JoinAndAllowAsync("guest-1");
         Device.PendingSet = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        var submission = Component.SubmitAsync(
+        var request = Component.SubmitAsync(
             "guest-1",
             new("set-1", 0, 10, 20, 30, 40),
             TestContext.Current.CancellationToken);
@@ -315,9 +413,9 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>
 
         stop.Accepted.Should().BeTrue();
         Device.Stops.Should().Be(1);
-        submission.IsCompleted.Should().BeFalse();
+        request.IsCompleted.Should().BeFalse();
         Device.PendingSet.SetResult(new(SetStatus.Superseded, 0));
-        (await submission).Status.Should().Be(SettingsResponseStatus.Superseded);
+        (await request).Status.Should().Be(SettingsResponseStatus.Superseded);
     }
 
     [Fact]
@@ -344,7 +442,6 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>
         await JoinAndAllowAsync("guest-1");
         Device.PendingSet = new(TaskCreationOptions.RunContinuationsAsynchronously);
         Device.PendingSet.SetException(new DeviceWriteException(
-            new(DeviceControl.Speed, 20),
             2,
             new IOException("write failed")));
 
@@ -464,7 +561,7 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>
     }
 
     [Fact]
-    public async Task SubmissionWithoutPermissionDoesNotInvokeRuntime()
+    public async Task RequestWithoutPermissionDoesNotInvokeRuntime()
     {
         var invitation = (await Component.GetUserStateAsync(
             TestContext.Current.CancellationToken)).Invitation;
@@ -712,20 +809,20 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>
     }
 
     [Fact]
-    public async Task GuestStopBlocksSubmissionUntilRuntimeCompletesWithoutRevokingPermission()
+    public async Task GuestStopBlocksRequestUntilRuntimeCompletesWithoutRevokingPermission()
     {
         await JoinAndAllowAsync("guest-1");
         Device.PendingStop = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         var stop = Component.StopGuestAsync("guest-1", "stop-1");
-        var submissionTask = Component.SubmitAsync(
+        var requestTask = Component.SubmitAsync(
             "guest-1",
             new("set-1", 0, 10, 20, 30, 40),
             TestContext.Current.CancellationToken);
 
-        submissionTask.IsCompleted.Should().BeTrue();
-        var submission = await submissionTask;
-        submission.Should().Be(new SettingsResponse(
+        requestTask.IsCompleted.Should().BeTrue();
+        var request = await requestTask;
+        request.Should().Be(new SettingsResponse(
             "set-1",
             SettingsResponseStatus.Rejected,
             0,

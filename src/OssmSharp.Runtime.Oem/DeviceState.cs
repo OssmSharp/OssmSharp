@@ -5,38 +5,44 @@ using System.Text.Json;
 namespace OssmSharp.Runtime.Oem;
 
 /// <summary>
-/// Contains complete last-observed firmware controls, without compact protocol metadata, expiry, or inference about physical motion or safety.
+/// Contains complete last-observed firmware controls, without compact protocol metadata or expiry.
 /// </summary>
 public sealed record DeviceState
 {
     /// <summary>
-    /// Initializes an observation of the device's control arguments.
+    /// Initializes a state representing the quantized firmware result of requested settings.
     /// </summary>
-    /// <param name="settings">The observed control arguments, not a requested motion or physical position.</param>
+    /// <param name="settings">The requested controls; firmware velocity is rounded down to floor(Speed * Stroke / 100).</param>
+    /// <exception cref="ArgumentNullException"><paramref name="settings"/> is null.</exception>
     public DeviceState(MotionSettings settings)
-        : this((settings ?? throw new ArgumentNullException(nameof(settings))).Pattern, settings.Speed, settings.Stroke, settings.Depth, settings.Sensation)
+        : this((settings ?? throw new ArgumentNullException(nameof(settings))).Pattern, settings.DesiredDeviceVelocityPercent, settings.Stroke, settings.Depth, settings.Sensation)
     {
     }
 
     /// <summary>
-    /// Initializes an observation with the firmware's effective speed, which can be fractional.
+    /// Initializes a state from raw firmware controls in one device snapshot.
     /// </summary>
     /// <param name="pattern">The observed pattern.</param>
-    /// <param name="speed">The finite effective speed from zero through 100 percent.</param>
+    /// <param name="currentDeviceVelocityPercent">The finite raw velocity from zero through 100 percent, including decimals; this is not speed.</param>
     /// <param name="stroke">The observed whole-number stroke percentage.</param>
     /// <param name="depth">The observed whole-number depth percentage.</param>
     /// <param name="sensation">The observed whole-number sensation percentage.</param>
-    /// <exception cref="ArgumentOutOfRangeException">A control is undefined, outside its range, or speed is not finite.</exception>
-    public DeviceState(StrokePattern pattern, double speed, int stroke, int depth, int sensation)
+    /// <remarks>
+    /// Percentages use 50 for 50%, not 0.5. Speed is 100 * currentDeviceVelocityPercent / stroke,
+    /// without rounding or limiting it to 100%; zero stroke gives null. Depth and sensation do not affect
+    /// the conversion. These percentages do not measure physical speed or strokes per minute.
+    /// </remarks>
+    /// <exception cref="ArgumentOutOfRangeException">A control is undefined, outside its range, or firmware velocity is not finite.</exception>
+    public DeviceState(StrokePattern pattern, double currentDeviceVelocityPercent, int stroke, int depth, int sensation)
     {
         var settings = new MotionSettings(pattern, 0, stroke, depth, sensation);
-        if (!double.IsFinite(speed) || speed is < 0 or > 100)
+        if (!double.IsFinite(currentDeviceVelocityPercent) || currentDeviceVelocityPercent is < 0 or > 100)
         {
-            throw new ArgumentOutOfRangeException(nameof(speed), speed, "Effective speed must be finite and between zero and 100.");
+            throw new ArgumentOutOfRangeException(nameof(currentDeviceVelocityPercent), currentDeviceVelocityPercent, "Firmware velocity must be finite and between zero and 100.");
         }
 
         Pattern = settings.Pattern;
-        Speed = speed;
+        CurrentDeviceVelocityPercent = currentDeviceVelocityPercent;
         Stroke = settings.Stroke;
         Depth = settings.Depth;
         Sensation = settings.Sensation;
@@ -48,9 +54,13 @@ public sealed record DeviceState
     public StrokePattern Pattern { get; }
 
     /// <summary>
-    /// Gets the effective speed percentage, including fractional physical-knob scaling.
+    /// Gets the current speed, or null when the observed stroke is zero.
     /// </summary>
-    public double Speed { get; }
+    /// <remarks>
+    /// Calculated as 100 * firmware velocity / stroke from the same snapshot. Fractional values and values
+    /// above 100% are preserved without rounding or capping. This is not physical speed or strokes per minute.
+    /// </remarks>
+    public double? Speed => Stroke == 0 ? null : 100 * CurrentDeviceVelocityPercent / Stroke;
 
     /// <summary>
     /// Gets the observed whole-number stroke percentage.
@@ -67,10 +77,12 @@ public sealed record DeviceState
     /// </summary>
     public int Sensation { get; }
 
+    internal double CurrentDeviceVelocityPercent { get; }
+
     /// <summary>
     /// Creates a device state from a JSON payload.
     /// </summary>
-    /// <param name="data">A serialized JSON object containing pattern, speed, stroke, depth, and sensation values.</param>
+    /// <param name="data">A serialized JSON object containing pattern, raw firmware speed, stroke, depth, and sensation values; speed may be fractional.</param>
     /// <returns>The device state represented by <paramref name="data"/>.</returns>
     /// <exception cref="InvalidDataException">The payload is null, empty, larger than 512 bytes, or does not contain valid control values.</exception>
     public static DeviceState FromBytes(byte[]? data) => FromBytes(data.AsMemory());
@@ -78,13 +90,15 @@ public sealed record DeviceState
     /// <summary>
     /// Parses observed firmware controls, collecting independently detectable validation errors.
     /// </summary>
-    /// <param name="data">A JSON object of at most 512 bytes containing a defined integer pattern, finite speed, and integer stroke, depth, and sensation percentages.</param>
+    /// <param name="data">A JSON object of at most 512 bytes containing a defined integer pattern, finite raw firmware speed from zero through 100, and integer stroke, depth, and sensation percentages.</param>
     /// <param name="state">The parsed state on success; otherwise, null.</param>
     /// <param name="errors">An empty list on success; otherwise, errors with JSON field names in <see cref="ValidationResult.MemberNames"/>, or "$" for payload-level errors.</param>
     /// <returns>True if the payload contains valid control values; otherwise, false.</returns>
     /// <remarks>
     /// Duplicate fields are rejected. Unknown fields are otherwise ignored. Malformed JSON, excessive nesting,
     /// invalid payload size, or a non-object root produces a payload-level error without field validation.
+    /// The speed field is raw velocity, not speed. Its decimals are preserved when
+    /// calculating <see cref="Speed"/> from the stroke in the same payload; zero stroke gives null.
     /// </remarks>
     public static bool TryFromBytes(byte[]? data, [NotNullWhen(true)] out DeviceState? state, out IReadOnlyList<ValidationResult> errors)
         => TryFromBytes(data.AsMemory(), out state, out errors);
@@ -122,7 +136,7 @@ public sealed record DeviceState
 
             var names = new HashSet<string>(StringComparer.Ordinal);
             var controls = new Dictionary<string, int>(StringComparer.Ordinal);
-            double speed = 0;
+            double currentDeviceVelocityPercent = 0;
             foreach (var property in root.EnumerateObject())
             {
                 if (!names.Add(property.Name))
@@ -147,8 +161,8 @@ public sealed record DeviceState
                 }
                 else if (property.Name == "speed")
                 {
-                    if (property.Value.ValueKind != JsonValueKind.Number || !property.Value.TryGetDouble(out speed)
-                        || !double.IsFinite(speed) || speed is < 0 or > 100)
+                    if (property.Value.ValueKind != JsonValueKind.Number || !property.Value.TryGetDouble(out currentDeviceVelocityPercent)
+                        || !double.IsFinite(currentDeviceVelocityPercent) || currentDeviceVelocityPercent is < 0 or > 100)
                     {
                         results.Add(new("Field 'speed' must be finite and between zero and 100.", ["speed"]));
                     }
@@ -183,7 +197,7 @@ public sealed record DeviceState
                 return false;
             }
 
-            state = new((StrokePattern)controls["pattern"], speed, controls["stroke"], controls["depth"], controls["sensation"]);
+            state = new((StrokePattern)controls["pattern"], currentDeviceVelocityPercent, controls["stroke"], controls["depth"], controls["sensation"]);
             return true;
         }
         catch (JsonException)

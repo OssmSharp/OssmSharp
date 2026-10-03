@@ -1,5 +1,3 @@
-using OssmSharp.Web.Contracts;
-
 namespace OssmSharp.Web.Api.Control;
 
 /// <summary>

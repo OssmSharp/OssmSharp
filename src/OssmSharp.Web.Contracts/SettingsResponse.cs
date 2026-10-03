@@ -1,7 +1,7 @@
 namespace OssmSharp.Web.Contracts;
 
 /// <summary>
-/// Reports the runtime result of one settings submission.
+/// Reports the runtime result of one settings request.
 /// </summary>
 /// <param name="Correlation">The caller-provided request identifier.</param>
 /// <param name="Status">The runtime result or API rejection category.</param>

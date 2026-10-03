@@ -32,9 +32,7 @@ public partial class Join
         ControlAllowed: true,
         Device: { ConnectionFailed: false } device
     } && (device.IsArmed || _status.CanResumeAfterStop);
-    private int? DeviceSpeed => _status?.Device is { Speed: { } speed, Stroke: { } stroke } && stroke > 0
-        ? (int)Math.Clamp(Math.Round(speed * 100 / stroke, MidpointRounding.AwayFromZero), 0, 100)
-        : null;
+    private double? DeviceSpeed => _status?.Device?.Speed;
     private string SessionMessage => _status switch
     {
         { Joined: false } => "Session ended.",

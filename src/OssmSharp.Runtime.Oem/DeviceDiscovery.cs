@@ -1,4 +1,5 @@
 using System.Reactive.Linq;
+using OssmSharp.Runtime.Oem.Protocol;
 using Shiny.BluetoothLE;
 
 namespace OssmSharp.Runtime.Oem;

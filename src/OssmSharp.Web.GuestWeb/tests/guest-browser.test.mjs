@@ -20,7 +20,7 @@ const adminProject = fileURLToPath(new URL("../../OssmSharp.Web.AdminWeb/", impo
 const adminArtifact = fileURLToPath(new URL("../../../.artifacts/bin/ossmsharp.web.adminweb/debug/OssmSharp.Web.AdminWeb.dll", import.meta.url));
 const invitations = [];
 const handshakes = [];
-const submissions = [];
+const requests = [];
 const viewports = [
   { width: 1280, height: 800 },
   { width: 390, height: 844 },
@@ -224,10 +224,10 @@ before(async () => {
             continue;
           }
           if (message.target === "Submit") {
-            submissions.push(message.arguments[0]);
+            requests.push(message.arguments[0]);
             result = { correlationId: message.arguments[0].correlationId, status: 0 };
             if (session) {
-              session.submissions.push(message.arguments[0]);
+              session.requests.push(message.arguments[0]);
               session.state = {
                 ...session.state,
                 canResumeAfterStop: false,
@@ -374,10 +374,10 @@ test("HTTPS reverse proxy carries guest circuits and invitation-authenticated AP
     assert.match(response.headers()["content-security-policy"], new RegExp(`wss://${new URL(externalOrigin).host}`));
     assert.equal(response.headers()["referrer-policy"], "no-referrer");
     assert.equal(response.headers()["x-frame-options"], "DENY");
-    const submitted = submissions.length;
+    const submitted = requests.length;
     await page.locator("[data-send-button]").click();
     await page.waitForFunction(() => document.querySelector("[data-send-status]")?.textContent.includes("selection sent"));
-    assert.equal(submissions.length, submitted + 1);
+    assert.equal(requests.length, submitted + 1);
     await page.getByRole("button", { name: "Leave session" }).click();
     await page.getByTestId("guest-ended").waitFor({ state: "visible" });
     assert.deepEqual(errors, []);
@@ -778,7 +778,7 @@ test("admin completed connection shows metadata and a JS duration without server
   }
 });
 
-test("admin sent settings never substitute observed values or defaults for partial transmissions", async () => {
+test("admin requested settings never substitute observed values or defaults for unknown selections", async () => {
   const { context, page, errors } = await openAdmin(userState(deviceState({ isConnected: true })));
   try {
     const preview = page.locator(".preview-rail");
@@ -833,14 +833,14 @@ test("user and guest previews omit stats and user names the last settings", asyn
   }
 });
 
-test("admin preview derives timing only from transmitted velocity and stroke", async () => {
+test("admin preview derives illustrative timing only from requested speed", async () => {
   const { context, page, errors } = await openAdmin(userState(deviceState({ isConnected: true })));
   try {
     for (const [speed, stroke, depth, duration] of [
-      [5, 10, 10, "0.8s"],
-      [40, 80, 100, "0.8s"],
-      [5, 10, 80, "0.8s"],
-      [50, 10, 80, "0.08s"],
+      [50, 10, 10, "0.8s"],
+      [50, 80, 100, "0.8s"],
+      [50, 10, 80, "0.8s"],
+      [100, 10, 80, "0.4s"],
       [0, 10, 80, null],
       [5, 0, 80, null],
       [5, 10, 0, null],
@@ -854,7 +854,7 @@ test("admin preview derives timing only from transmitted velocity and stroke", a
     }
     adminSession.state = userState({
       ...adminSession.state.device,
-      transmittedSettings: { pattern: 0, speed: 5, stroke: 10, depth: 20, sensation: 50 },
+      transmittedSettings: { pattern: 0, speed: 50, stroke: 10, depth: 20, sensation: 50 },
     });
     await page.waitForFunction(() => document.querySelector(".preview-carriage animate")?.getAttribute("dur") === "0.8s");
     for (const viewport of viewports) {
@@ -868,7 +868,7 @@ test("admin preview derives timing only from transmitted velocity and stroke", a
         rail.unpauseAnimations();
         return [first, second];
       });
-      assert.ok(Math.abs(positions[1] - positions[0]) > 1, "the carriage must visibly move within its transmitted range");
+      assert.ok(Math.abs(positions[1] - positions[0]) > 1, "the carriage must visibly move within its requested range");
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
       if (process.env.GUEST_SCREENSHOT_DIR) {
         await page.screenshot({ path: join(process.env.GUEST_SCREENSHOT_DIR, `ossm-speed-preview-${viewport.width}.png`), fullPage: true });
@@ -881,22 +881,23 @@ test("admin preview derives timing only from transmitted velocity and stroke", a
   }
 });
 
-test("guest speed scales with stroke length without multiplying by depth", async () => {
+test("guest speed stays unchanged through request, preview and exact current state", async () => {
   const context = await browser.newContext();
-  const invitation = "stroke-relative-speed";
-  const session = { renewals: 0, submissions: [], state: guestState() };
+  const invitation = "speed-percentage";
+  const session = { renewals: 0, requests: [], state: guestState() };
   sessions.set(invitation, session);
   try {
     const { page, errors } = await openGuest(context, invitation);
-    for (const [speed, stroke, depth, expectedSpeed] of [
-      [50, 10, 10, 5],
-      [50, 80, 100, 40],
-      [50, 10, 80, 5],
-      [25, 10, 10, 2],
+    for (const [speed, stroke, depth, currentSpeed] of [
+      [50, 10, 10, 50],
+      [50, 80, 100, 50],
+      [50, 10, 80, 50],
+      [53, 10, 10, 50],
+      [25, 10, 10, 20],
       [100, 100, 100, 100],
       [0, 10, 20, 0],
       [30, 1, 1, 0],
-      [100, 1, 1, 1],
+      [100, 1, 1, 100],
     ]) {
       await page.evaluate(
         ({ speed, stroke, depth }) => {
@@ -908,7 +909,7 @@ test("guest speed scales with stroke length without multiplying by depth", async
         },
         { speed, stroke, depth },
       );
-      const count = session.submissions.length;
+      const count = session.requests.length;
       await page.locator("[data-send-button]").click();
       await page.waitForFunction(
         ({ speed, stroke, depth }) =>
@@ -917,10 +918,10 @@ test("guest speed scales with stroke length without multiplying by depth", async
           document.querySelector('[data-sent="depth"]')?.textContent === String(depth),
         { speed, stroke, depth },
       );
-      assert.equal(session.submissions.length, count + 1);
-      const submitted = session.submissions.at(-1);
-      assert.deepEqual([submitted.speed, submitted.stroke, submitted.depth], [expectedSpeed, stroke, depth]);
-      const currentSpeed = Math.round((expectedSpeed * 100) / stroke);
+      assert.equal(session.requests.length, count + 1);
+      const submitted = session.requests.at(-1);
+      assert.deepEqual([submitted.speed, submitted.stroke, submitted.depth], [speed, stroke, depth]);
+      session.state = guestState({ device: { ...session.state.device, speed: currentSpeed, stroke } });
       await page.waitForFunction(
         (currentSpeed) => document.querySelector('[data-current="speed"]')?.textContent === String(currentSpeed),
         currentSpeed,
@@ -929,29 +930,33 @@ test("guest speed scales with stroke length without multiplying by depth", async
       assert.equal(await page.locator('[data-current-marker="speed"]').getAttribute("y1"), String(100 - currentSpeed));
       assert.match(await page.locator('[data-input="speed"]').getAttribute("aria-valuetext"), /Current value:/);
       assert.doesNotMatch(await page.locator("main").innerText(), /Last known/);
-      assert.equal(await page.locator('[data-input="speed"]').inputValue(), String(speed), "the selected cadence must remain unchanged");
+      assert.equal(await page.locator('[data-input="speed"]').inputValue(), String(speed), "the selected speed must remain unchanged");
       const animation = page.locator(".preview-carriage animate");
-      assert.equal(await animation.count(), expectedSpeed > 0 ? 1 : 0);
-      if (expectedSpeed > 0) {
-        assert.equal(await animation.getAttribute("dur"), `${Number(((0.4 * stroke) / expectedSpeed).toFixed(4))}s`);
+      assert.equal(await animation.count(), speed > 0 ? 1 : 0);
+      if (speed > 0) {
+        assert.equal(await animation.getAttribute("dur"), `${Number((40 / speed).toFixed(4))}s`);
       }
       await page.locator("[data-send-button]").click();
-      assert.equal(session.submissions.length, count + 1, "unchanged selection must not resend its converted command");
+      assert.equal(session.requests.length, count + 1, "unchanged selection must not resend its command");
     }
     for (const [speed, stroke, expected] of [
-      [5, 10, 50],
-      [2.5, 20, 13],
+      [50, 10, 50],
+      [12.5, 20, 12.5],
+      [33.333333333333336, 30, 33.333333333333336],
       [null, 10, null],
-      [5, null, null],
-      [0, 0, null],
+      [null, 0, null],
+      [50, null, 50],
       [0, 10, 0],
-      [40, 10, 100],
+      [400, 10, 400],
     ]) {
       session.state = guestState({ device: { ...session.state.device, speed, stroke } });
       await page.waitForFunction((expected) => document.querySelector('[data-current="speed"]')?.textContent === String(expected ?? "--"), expected);
       assert.equal(await page.locator('[data-current-marker="speed"]').getAttribute("hidden"), expected === null ? "" : null);
+      if (expected !== null) {
+        assert.equal(await page.locator('[data-current-marker="speed"]').getAttribute("y1"), String(100 - Math.min(100, expected)));
+      }
     }
-    session.state = guestState({ device: { ...session.state.device, speed: 5, stroke: 10 } });
+    session.state = guestState({ device: { ...session.state.device, speed: 50, stroke: 10 } });
     await page.waitForFunction(() => document.querySelector('[data-current="speed"]')?.textContent === "50");
     await page.locator('[data-input="stroke"]').evaluate((input) => {
       input.value = "1";
@@ -1015,7 +1020,7 @@ test("auto-send label fits beside its switch at desktop and mobile widths", asyn
 test("deadline-free permission recovers after revoke, Allow and rearm without automatic motion", async () => {
   const context = await browser.newContext();
   const invitation = "permission-regrant";
-  const session = { renewals: 0, submissions: [], state: guestState() };
+  const session = { renewals: 0, requests: [], state: guestState() };
   sessions.set(invitation, session);
   try {
     const { page, errors } = await openGuest(context, invitation);
@@ -1024,7 +1029,7 @@ test("deadline-free permission recovers after revoke, Allow and rearm without au
     await selectSpeed(page, 30);
     await page.locator("[data-auto-send]").check();
     await page.waitForFunction(() => document.querySelector('[data-sent="speed"]')?.textContent === "30");
-    assert.equal(session.submissions.length, 1);
+    assert.equal(session.requests.length, 1);
     session.state = guestState({ controlAllowed: false });
     await page.waitForFunction(
       () =>
@@ -1049,11 +1054,11 @@ test("deadline-free permission recovers after revoke, Allow and rearm without au
     assert.equal(await page.locator("[data-send-button]").isDisabled(), true, "Allow alone must not bypass a disarmed device");
     session.state.device.isArmed = true;
     await page.waitForFunction(() => document.querySelector("[data-send-button]")?.disabled === false);
-    assert.equal(session.submissions.length, 1, "regrant and rearm must not submit the saved selection");
+    assert.equal(session.requests.length, 1, "regrant and rearm must not submit the saved selection");
     assert.equal(await page.locator("[data-auto-send]").isChecked(), false);
     await page.locator("[data-send-button]").click();
     await page.waitForFunction(() => document.querySelector('[data-sent="speed"]')?.textContent === "30");
-    assert.equal(session.submissions.length, 2, "the same selection must be deliberately sendable after regrant");
+    assert.equal(session.requests.length, 2, "the same selection must be deliberately sendable after regrant");
     assert.equal(session.renewals, 0);
     assert.equal(await page.getByTestId("guest-disconnected").isVisible(), false);
     assert.equal(await page.evaluate(() => sessionStorage.getItem("ossm-guest-connection-lost")), null);
@@ -1077,7 +1082,7 @@ test("deadline-free permission recovers after revoke, Allow and rearm without au
 test("guest Stop preserves permission and only acknowledged Stop permits deliberate resumption", async () => {
   const context = await browser.newContext();
   const invitation = "stop-resume";
-  const session = { renewals: 0, stops: 0, submissions: [], holdStop: true, state: guestState() };
+  const session = { renewals: 0, stops: 0, requests: [], holdStop: true, state: guestState() };
   sessions.set(invitation, session);
   try {
     const { page, errors } = await openGuest(context, invitation);
@@ -1099,10 +1104,10 @@ test("guest Stop preserves permission and only acknowledged Stop permits deliber
     assert.equal(session.state.controlAllowed, true);
     assert.equal(session.state.device.isArmed, false);
     assert.equal(session.state.canResumeAfterStop, true);
-    assert.equal(session.submissions.length, 1, "Stop acknowledgement must not automatically resend");
+    assert.equal(session.requests.length, 1, "Stop acknowledgement must not automatically resend");
     await page.locator("[data-send-button]").click();
     await page.waitForFunction(() => document.querySelector('[data-sent="speed"]')?.textContent === "30");
-    assert.equal(session.submissions.length, 2);
+    assert.equal(session.requests.length, 2);
     assert.equal(session.stops, 2);
     assert.equal(session.renewals, 0);
     assert.deepEqual(errors, [], "the Stop recovery flow must not produce browser errors");
@@ -1121,7 +1126,7 @@ for (const [name, overrides] of [
   test(`permission alone cannot send with ${name}`, async () => {
     const context = await browser.newContext();
     const invitation = `readiness-${name.replaceAll(" ", "-")}`;
-    const session = { renewals: 0, submissions: [], state: guestState(overrides) };
+    const session = { renewals: 0, requests: [], state: guestState(overrides) };
     sessions.set(invitation, session);
     try {
       const { page } = await openGuest(context, invitation, false);
@@ -1131,7 +1136,7 @@ for (const [name, overrides] of [
       session.state = guestState();
       delete session.state.canResumeAfterStop;
       await page.waitForFunction(() => document.querySelector("[data-send-button]")?.disabled === false);
-      assert.equal(session.submissions.length, 0, "device recovery must not send a selection automatically");
+      assert.equal(session.requests.length, 0, "device recovery must not send a selection automatically");
     } finally {
       await context.close();
       sessions.delete(invitation);
@@ -1321,7 +1326,7 @@ test("user API loss retains a greyscale last state with a standard inline notice
 test("guest device connection loss stops and greys the selected preview until positive recovery", async () => {
   const context = await browser.newContext();
   const invitation = "preview-device-loss";
-  const session = { state: guestState(), submissions: [] };
+  const session = { state: guestState(), requests: [] };
   sessions.set(invitation, session);
   try {
     const { page, errors } = await openGuest(context, invitation);
@@ -1340,7 +1345,7 @@ test("guest device connection loss stops and greys the selected preview until po
       await page.locator(".preview-carriage animate").waitFor({ state: "attached" });
       assert.deepEqual(await filtersOnAncestors(page.locator(".pattern-preview")), []);
     }
-    assert.equal(session.submissions.length, 0, "device recovery must not submit settings");
+    assert.equal(session.requests.length, 0, "device recovery must not submit settings");
     assert.deepEqual(errors, []);
   } finally {
     await context.close();
@@ -1441,7 +1446,7 @@ test("initial API loss does not fabricate a joined guest view", async () => {
   }
 });
 
-test("API transport loss displays recovery and persistently disables browser submissions", async () => {
+test("API transport loss displays recovery and persistently disables browser requests", async () => {
   const context = await browser.newContext();
   try {
     const { page } = await openGuest(context, "transport-test-invite");
@@ -1471,7 +1476,7 @@ test("API transport loss displays recovery and persistently disables browser sub
       await freshLayout.text(),
     );
     assert.equal(await notice.isVisible(), true, "a fresh layout render must not hide the persistent recovery notice");
-    const before = submissions.length;
+    const before = requests.length;
     await page.evaluate(async () => {
       const controller = document.getElementById("guest-start").dataset.controller;
       const module = await import(new URL(controller, document.baseURI).href);
@@ -1479,7 +1484,7 @@ test("API transport loss displays recovery and persistently disables browser sub
       window.originalSend.click();
     });
     assert.equal(await page.evaluate(() => window.originalSend.disabled), true);
-    assert.equal(submissions.length, before);
+    assert.equal(requests.length, before);
     for (const viewport of viewports) {
       await page.setViewportSize(viewport);
       assert.equal(await notice.isVisible(), true);

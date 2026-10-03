@@ -16,8 +16,6 @@ internal sealed class FakeOssmDevice : IOssmDevice
 
     public string? Name { get; set; }
 
-    public TransmittedControls? Transmitted { get; set; }
-
     public Exception? ConnectionFailure { get; set; }
 
     public DeviceState? State { get; set; }

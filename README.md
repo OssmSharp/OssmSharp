@@ -59,22 +59,32 @@ key fallback. The API destination stays fixed in server configuration; invitatio
 and browser headers never select it. Guest identity proves invitation possession,
 not a named personal account.
 
-## Web Speed Control
+## Speed Control
 
-The guest's simple-stroke speed slider is stroke-relative. The browser sends
-`floor(selected speed * stroke / 100)` as the firmware velocity percentage.
-For example, 50% selected speed with a 10% stroke sends 5%. Depth positions the
-stroke; it is not an additional speed multiplier.
+The runtime, CLI, control API, sliders, and previews use speed
+percentages. Requested speed and stroke are integers in [0, 100], using
+`50` for 50%. Only `OssmSharp.Runtime.Oem` converts requested speed to firmware
+velocity: `floor(speed * stroke / 100)`. Depth and sensation do not affect it.
+Zero speed or stroke, or a calculated velocity below 1%, sends zero velocity.
+The firmware transport name remains `DeviceControl.Speed`; its value is velocity.
 
-The firmware accepts integer percentages. Converted speeds below 1% send zero
-and do not produce motion. The runtime, CLI and control API retain firmware
-velocity-percent semantics. The guest preview uses the converted selection;
-the user preview uses acknowledged transmissions. Both previews are illustrative,
-not measurements of physical position or calibrated cycle time.
+Current speed comes from velocity and stroke in the same device snapshot. The
+runtime preserves decimals and values above 100%, without rounding or clamping.
+Speed is unknown at zero device stroke. Pending selections cannot change it.
+For example, 53% requested speed at 10% stroke sends 5% firmware velocity and
+reads back as 50% current speed, not 53%. CLI status shows `%` or `Unknown`.
+
+The guest preview uses the requested selection. The user preview uses the last
+complete requested selection successfully sent by the API session, not raw
+transmitted velocity or device state. Rejected, cancelled, superseded, or partial
+requests do not replace it. Stop retains that selection. Preview timing is
+illustrative and depends on speed, not stroke length or depth.
+These percentages are not physical speed or strokes per minute; previews are not
+measurements of physical position or calibrated cycle time.
 
 This follows the firmware's [stroke timing calculation](https://github.com/KinkyMakers/OSSM-hardware/blob/b7f01bf6df1be6f3ebf17dc0e31ed64ddf4c15b7/Software/lib/StrokeEngine/src/StrokeEngine.cpp#L830).
 [OSSM-BLE-Web](https://github.com/ReadieFur/OSSM-BLE-Web/blob/main/src/OssmBleClient.ts)
-passes speed percentages through unchanged; it does not provide stroke-relative conversion.
+passes speed percentages through unchanged; it does not convert speed to raw velocity.
 
 ## Troubleshooting
 

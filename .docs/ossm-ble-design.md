@@ -17,7 +17,7 @@ device testing or proof of compatibility with every firmware release.
 ## Caller scenarios
 
 - **Connect or reconnect:** reuse an undisposed client, establish subscriptions and
-  fresh state, then arm submission without sending or replaying motion settings.
+  fresh state, then arm request without sending or replaying motion settings.
 - **Submit settings:** supply a complete pattern, speed, stroke, depth, and
   sensation request; distinguish completion, supersession, cancellation, and
   partial failure without claiming physical motion.
@@ -95,7 +95,7 @@ Do not copy client-side pattern policies or introduce legacy protocol fallback.
   `target.set` with `target.emergencyStop`. Confirm firmware effects and agree the
   public Stop contract before changing it; neither response proves physical stop.
 - **Readiness and feedback:** `setting.write` only stores values; patterns run only in the
-  stroke engine, so each submission first sends `target.set` `target.strokeEngine` and
+  stroke engine, so each request first sends `target.set` `target.strokeEngine` and
   requires `stateAfter` to be `strokeEngine.idle` or `strokeEngine.pattern`. Entering the
   engine resets stroke, depth, sensation, and speed; that reset becomes the expected
   baseline. Reported speed is the knob-scaled effective speed, so it is excluded from

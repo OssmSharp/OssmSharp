@@ -4,10 +4,10 @@ namespace OssmSharp.Web.Contracts;
 /// Describes UI session state that may be disclosed to the guest.
 /// </summary>
 /// <param name="Joined">Whether this connection is the current guest.</param>
-/// <param name="ControlAllowed">Whether the user currently permits settings submissions.</param>
+/// <param name="ControlAllowed">Whether the user currently permits settings requests.</param>
 /// <param name="ControlExpiresAt">Reserved for compatibility; permission no longer expires.</param>
 /// <param name="Device">The runtime's last known device state, if available.</param>
-/// <param name="CanResumeAfterStop">Whether a deliberate submission may re-arm after the guest's own Stop.</param>
+/// <param name="CanResumeAfterStop">Whether a deliberate request may re-arm after the guest's own Stop.</param>
 public sealed record GuestSessionState(
     bool Joined,
     bool ControlAllowed,

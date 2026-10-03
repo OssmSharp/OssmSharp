@@ -24,7 +24,7 @@
                             Role="@(_notice.IsError ? "alert" : "status")">@message</InlineNotification>
       }
       <div class="user-grid connection-sensitive"
-           data-device-disconnected="@(_state.Device.IsConnectedForControls ? null : "true")">
+           data-device-disconnected="@(_state.Device is { IsConnected: true, IsConnecting: false } ? null : "true")">
         <RwCard class="user-status device-sensitive" data-testid="user-controls" role="region"
                 aria-labelledby="controls-heading">
           <div slot="heading" class="rw-card-heading user-status-heading">
@@ -87,7 +87,7 @@
         <PatternPreview Title="Last settings" Pattern="@_state.Device?.TransmittedSettings?.Pattern"
                         Speed="@_state.Device?.TransmittedSettings?.Speed" Stroke="@_state.Device?.TransmittedSettings?.Stroke"
                         Depth="@_state.Device?.TransmittedSettings?.Depth" Sensation="@_state.Device?.TransmittedSettings?.Sensation"
-                        Animate="@(!_connectionLost && _state.Device.IsConnectedForControls)" />
+                        Animate="@(!_connectionLost && _state.Device is { IsConnected: true, IsConnecting: false })" />
       </div>
     }
   </ChildContent>

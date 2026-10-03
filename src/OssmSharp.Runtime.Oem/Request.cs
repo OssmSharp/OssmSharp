@@ -19,8 +19,7 @@ public static class Request
     /// <param name="lease">The optional control lease token.</param>
     /// <returns>The request bytes. The caller enforces the transport's message size limit.</returns>
     /// <remarks>
-    /// Values are preserved, not rounded or clamped. Firmware owns acceptance and application;
-    /// a successful write or response does not establish physical motion.
+    /// Values are preserved, not rounded or clamped. Firmware owns acceptance and application.
     /// </remarks>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="id"/> is zero.</exception>
     /// <exception cref="ArgumentException"><paramref name="operation"/> is empty.</exception>

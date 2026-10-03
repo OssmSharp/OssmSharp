@@ -4,6 +4,7 @@ using System.Reflection;
 using System.Text;
 using System.Text.Json.Nodes;
 using AwesomeAssertions;
+using OssmSharp.Runtime.Oem.Protocol;
 using Shiny.BluetoothLE;
 using Xunit;
 
@@ -109,9 +110,12 @@ public sealed class OssmDeviceTests
     }
 
     [Theory]
-    [InlineData(StrokePattern.RoboStroke, 20, 30, 40, 50)]
-    [InlineData(StrokePattern.SimpleStroke, 5, 5, 5, 5)]
-    public async Task SettingsSendLeasedWritesCompletedOnlyByTerminalResponses(StrokePattern pattern, int speed, int stroke, int depth, int sensation)
+    [InlineData(StrokePattern.RoboStroke, 20, 30, 40, 50, 6)]
+    [InlineData(StrokePattern.SimpleStroke, 5, 5, 5, 5, 0)]
+    [InlineData(StrokePattern.SimpleStroke, 53, 10, 0, 100, 5)]
+    [InlineData(StrokePattern.SimpleStroke, 100, 0, 100, 0, 0)]
+    [InlineData(StrokePattern.SimpleStroke, 0, 100, 0, 0, 0)]
+    public async Task SettingsSendLeasedWritesCompletedOnlyByTerminalResponses(StrokePattern pattern, int speed, int stroke, int depth, int sensation, int expectedDeviceVelocityPercent)
     {
         using var context = new BleTestContext();
         var token = TestContext.Current.CancellationToken;
@@ -139,8 +143,9 @@ public sealed class OssmDeviceTests
         var writes = context.RequestsFor("setting.write", "motion.");
         writes.Select(request => request["path"]!.GetValue<string>())
             .Should().Equal("motion.pattern", "motion.stroke", "motion.depth", "motion.sensation", "motion.speed");
-        writes.Select(request => request["args"]!["value"]!.GetValue<int>()).Should().Equal((int)pattern, stroke, depth, sensation, speed);
+        writes.Select(request => request["args"]!["value"]!.GetValue<int>()).Should().Equal((int)pattern, stroke, depth, sensation, expectedDeviceVelocityPercent);
         writes.Should().OnlyContain(request => request["lease"]!.GetValue<uint>() == 42);
+        Assert.Equal(new DeviceSettings((int)pattern, expectedDeviceVelocityPercent, stroke, depth, sensation), device.Transmitted);
         device.IsArmed.Should().BeTrue();
     }
 
@@ -442,9 +447,43 @@ public sealed class OssmDeviceTests
 
         context.Publish("""{"pattern":0,"speed":12.5,"stroke":50,"depth":10,"sensation":50}""");
 
-        (await live).Should().Be(new DeviceState(0, 12.5, 50, 10, 50));
+        var state = await live;
+        Assert.Equal(25, state?.Speed);
+        Assert.Equal(new DeviceState(0, 12.5, 50, 10, 50), state);
         device.IsArmed.Should().BeTrue();
         device.ConnectionFailure.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task PendingSettingsDoNotDetermineObservedSpeed()
+    {
+        using var context = new BleTestContext();
+        var token = TestContext.Current.CancellationToken;
+        await using var device = await context.ConnectAsync(token);
+        var held = new TaskCompletionSource<JsonObject>(TaskCreationOptions.RunContinuationsAsynchronously);
+        context.Write = request => BleTestContext.IsMotionWrite(request) && held.TrySetResult(request)
+            ? Observable.Return(BleTestContext.WriteResult([])) : null;
+        var set = device.SetAsync(new(StrokePattern.RoboStroke, 53, 80, 0, 100), token);
+        var first = await held.Task.WaitAsync(token);
+        try
+        {
+            Assert.False(set.IsCompleted);
+            context.Publish("""{"pattern":0,"speed":12.5,"stroke":25,"depth":99,"sensation":50}""");
+
+            var observed = await device.GetStateAsync(cancellationToken: token);
+            Assert.Equal(50, observed?.Speed);
+            Assert.Equal(25, observed?.Stroke);
+            Assert.Null(device.Transmitted);
+            Assert.True(device.IsArmed);
+        }
+        finally
+        {
+            context.Complete(first);
+            await set;
+        }
+
+        Assert.Equal(new DeviceSettings(2, 42, 80, 0, 100), device.Transmitted);
+        Assert.Equal(50, (await device.GetStateAsync(cancellationToken: token))?.Speed);
     }
 
     [Fact]
@@ -511,7 +550,9 @@ public sealed class OssmDeviceTests
         target["lease"]!.GetValue<uint>().Should().Be(42);
         context.RequestsFor("setting.write", "motion.").Should().HaveCount(5);
         device.IsArmed.Should().BeTrue();
-        (await device.GetStateAsync(cancellationToken: token)).Should().Be(new DeviceState(new(StrokePattern.RoboStroke, 1, 5, 5, 5)));
+        var observed = await device.GetStateAsync(cancellationToken: token);
+        Assert.Equal(new DeviceState(StrokePattern.RoboStroke, 1, 5, 5, 5), observed);
+        Assert.Equal(20, observed?.Speed);
     }
 
     [Fact]
@@ -611,14 +652,14 @@ public sealed class OssmDeviceTests
     }
 
     [Fact]
-    public async Task ObservedOwnWritesKeepSubmissionArmed()
+    public async Task ObservedOwnWritesKeepRequestArmed()
     {
         using var context = new BleTestContext();
         var token = TestContext.Current.CancellationToken;
         await using var device = await context.ConnectAsync(token);
         await device.SetAsync(new(0, 20, 50, 10, 50), token);
 
-        context.Publish(Controls.Replace("{0}", "20", StringComparison.Ordinal));
+        context.Publish(Controls.Replace("{0}", "10", StringComparison.Ordinal));
 
         device.IsArmed.Should().BeTrue();
         (await device.GetStateAsync(cancellationToken: token)).Should().Be(new DeviceState(new(0, 20, 50, 10, 50)));

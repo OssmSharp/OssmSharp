@@ -147,8 +147,7 @@ class Controls {
     this.commandQueue = this.commandQueue
       .then(async () => {
         if (generation !== this.commandGeneration || !this.canSend() || !this.changed(settings)) return;
-        const command = { ...settings, speed: Math.floor((settings.speed * settings.stroke) / 100) };
-        const reply = await this.reference.invokeMethodAsync("SubmitSettings", command);
+        const reply = await this.reference.invokeMethodAsync("SubmitSettings", settings);
         if (this.destroyed) return;
         if (reply?.code === "outcome-unknown") {
           this.recoveryRequired = true;
@@ -158,7 +157,7 @@ class Controls {
         } else if (generation !== this.commandGeneration) {
           return;
         } else if (reply?.ok) {
-          this.sent = command;
+          this.sent = settings;
           this.sentSelection = settings;
           this.error = null;
         } else {

@@ -1,6 +1,6 @@
 using AwesomeAssertions;
 using Microsoft.Extensions.Logging;
-using OssmSharp.Runtime.Oem;
+using OssmSharp.Runtime.Oem.Protocol;
 using Xunit;
 
 namespace OssmSharp.Runtime.Oem.Tests;
@@ -17,13 +17,13 @@ public sealed class DeviceBaseTests
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(token);
         await device.ConnectAsync(token);
         var pending = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        device.Write = (command, writeToken) => command is { Control: DeviceControl.Speed, Value: 20 }
+        device.Write = (command, writeToken) => command is { Control: DeviceControl.Speed, Value: 6 }
             ? pending.Task.WaitAsync(writeToken) : Task.CompletedTask;
         var original = device.SetAsync(new(0, 20, 30, 40, 50), cancellation.Token);
         try
         {
             Assert.False(original.IsCompleted);
-            Assert.Equal(new TransmittedControls(0, null, 30, 40, 50), device.Transmitted);
+            Assert.Equal(new DeviceSettings(0, null, 30, 40, 50), device.Transmitted);
             if (superseded)
             {
                 await device.SetAsync(new(StrokePattern.RoboStroke, 60, 70, 80, 90), token);
@@ -37,8 +37,8 @@ public sealed class DeviceBaseTests
             Assert.Equal(superseded ? SetStatus.Superseded : SetStatus.Cancelled, result.Status);
             Assert.Equal(4, result.CommandsWritten);
             Assert.Equal(
-                superseded ? new TransmittedControls(2, 60, 70, 80, 90)
-                    : new TransmittedControls(0, null, 30, 40, 50), device.Transmitted);
+                superseded ? new DeviceSettings(2, 42, 70, 80, 90)
+                    : new DeviceSettings(0, null, 30, 40, 50), device.Transmitted);
         }
         finally
         {
@@ -58,7 +58,7 @@ public sealed class DeviceBaseTests
         try
         {
             await Assert.ThrowsAsync<IOException>(() => device.EmergencyStopAsync(token));
-            Assert.Equal(new TransmittedControls(0, 20, 30, 40, 50), device.Transmitted);
+            Assert.Equal(new DeviceSettings(0, 6, 30, 40, 50), device.Transmitted);
             Assert.False(device.IsArmed);
         }
         finally
@@ -80,9 +80,9 @@ public sealed class DeviceBaseTests
         Assert.Null(device.Transmitted);
 
         await device.SetAsync(new(StrokePattern.SimpleStroke, 20, 30, 40, 50), token);
-        Assert.Equal(new TransmittedControls(0, 20, 30, 40, 50), device.Transmitted);
+        Assert.Equal(new DeviceSettings(0, 6, 30, 40, 50), device.Transmitted);
         await device.EmergencyStopAsync(token);
-        Assert.Equal(0, device.Transmitted?.Speed);
+        Assert.Equal(0, device.Transmitted?.DeviceVelocityPercent);
         await device.DisconnectAsync(token);
         Assert.False(device.IsConnected);
         await device.ConnectAsync(token);
@@ -101,7 +101,7 @@ public sealed class DeviceBaseTests
         {
             var error = await Assert.ThrowsAsync<DeviceWriteException>(() => device.SetAsync(new(0, 20, 30, 40, 50), token));
             Assert.Equal(2, error.CommandsWritten);
-            Assert.Equal(new TransmittedControls(0, null, 30, null, null), device.Transmitted);
+            Assert.Equal(new DeviceSettings(0, null, 30, null, null), device.Transmitted);
         }
         finally
         {
@@ -122,9 +122,9 @@ public sealed class DeviceBaseTests
         try
         {
             Assert.False(set.IsCompleted);
-            Assert.Null(device.Transmitted?.Speed);
+            Assert.Null(device.Transmitted?.DeviceVelocityPercent);
             await device.EmergencyStopAsync(token);
-            Assert.Equal(0, device.Transmitted?.Speed);
+            Assert.Equal(0, device.Transmitted?.DeviceVelocityPercent);
         }
         finally
         {
@@ -132,7 +132,7 @@ public sealed class DeviceBaseTests
             await set;
         }
 
-        Assert.Equal(0, device.Transmitted?.Speed);
+        Assert.Equal(0, device.Transmitted?.DeviceVelocityPercent);
     }
 
     [Fact]
@@ -870,7 +870,7 @@ public sealed class DeviceBaseTests
             new DeviceCommand(DeviceControl.Stroke, 5),
             new DeviceCommand(DeviceControl.Depth, 5),
             new DeviceCommand(DeviceControl.Sensation, 5),
-            new DeviceCommand(DeviceControl.Speed, 5));
+            new DeviceCommand(DeviceControl.Speed, 0));
         device.IsArmed.Should().BeTrue();
     }
 

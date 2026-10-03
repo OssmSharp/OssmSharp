@@ -1,4 +1,3 @@
-using Microsoft.Extensions.DependencyInjection;
 using OssmSharp.Runtime.Oem;
 using Shiny.BluetoothLE;
 using Xunit;

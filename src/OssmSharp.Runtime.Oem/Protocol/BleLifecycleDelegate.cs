@@ -1,6 +1,6 @@
 using Shiny.BluetoothLE;
 
-namespace OssmSharp.Runtime.Oem;
+namespace OssmSharp.Runtime.Oem.Protocol;
 
 /// <summary>
 /// Forwards Shiny peripheral lifecycle callbacks to their owning connections.

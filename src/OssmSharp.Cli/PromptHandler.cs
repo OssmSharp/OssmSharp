@@ -198,7 +198,7 @@ internal sealed class PromptHandler : IPromptHandler
 
     private static Argument<int> Percentage(string name) => new(name)
     {
-        Description = CliStrings.PercentageHelp,
+        Description = name == "speed" ? CliStrings.SpeedHelp : CliStrings.PercentageHelp,
         CustomParser = result =>
         {
             var value = result.Tokens.Single().Value;

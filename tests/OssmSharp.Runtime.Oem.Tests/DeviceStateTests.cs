@@ -6,6 +6,62 @@ namespace OssmSharp.Runtime.Oem.Tests;
 
 public sealed class DeviceStateTests
 {
+    [Theory]
+    [InlineData(12.5, 25, 50.0)]
+    [InlineData(12.345, 25, 49.38)]
+    [InlineData(12.5, 3, 416.6666666666667)]
+    [InlineData(100.0, 1, 10000.0)]
+    [InlineData(0.0, 100, 0.0)]
+    [InlineData(100.0, 100, 100.0)]
+    [InlineData(0.0, 0, null)]
+    [InlineData(12.5, 0, null)]
+    public void CalculatesSpeedFromFirmwareSnapshot(double currentDeviceVelocityPercent, int stroke, double? expectedSpeed)
+    {
+        var payload = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new
+        {
+            pattern = 0,
+            speed = currentDeviceVelocityPercent,
+            stroke,
+            depth = 99,
+            sensation = 100,
+        });
+
+        Assert.True(DeviceState.TryFromBytes(payload, out var state, out var errors));
+        Assert.Empty(errors);
+        Assert.Equal(expectedSpeed, state.Speed);
+        Assert.Equal(currentDeviceVelocityPercent, state.CurrentDeviceVelocityPercent);
+        Assert.Equal(new DeviceState(StrokePattern.SimpleStroke, currentDeviceVelocityPercent, stroke, 99, 100), state);
+        Assert.Equal(expectedSpeed, DeviceState.FromBytes(payload).Speed);
+    }
+
+    [Theory]
+    [InlineData(53, 10, 50.0)]
+    [InlineData(99, 1, 0.0)]
+    [InlineData(100, 1, 100.0)]
+    [InlineData(0, 100, 0.0)]
+    [InlineData(100, 0, null)]
+    [InlineData(0, 0, null)]
+    public void RepresentsQuantizedSettings(int speed, int stroke, double? expectedSpeed)
+    {
+        var state = new DeviceState(new MotionSettings(StrokePattern.SimpleStroke, speed, stroke, 0, 0));
+
+        Assert.Equal(expectedSpeed, state.Speed);
+    }
+
+    [Theory]
+    [InlineData(-1.0)]
+    [InlineData(100.001)]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    [InlineData(double.NegativeInfinity)]
+    public void RejectsInvalidFirmwareVelocity(double currentDeviceVelocityPercent)
+    {
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new DeviceState(StrokePattern.SimpleStroke, currentDeviceVelocityPercent, 100, 0, 0));
+
+        Assert.Equal("currentDeviceVelocityPercent", exception.ParamName);
+    }
+
     [Fact]
     public void ReturnsIndependentFieldErrorsWithoutCreatingState()
     {
@@ -107,7 +163,10 @@ public sealed class DeviceStateTests
     {
         var payload = Encoding.UTF8.GetBytes("""{"pattern":3,"speed":12.5,"stroke":25,"depth":99,"sensation":50}""");
 
-        DeviceState.FromBytes(payload).Should().Be(new DeviceState(StrokePattern.HalfNHalf, 12.5, 25, 99, 50));
+        var state = DeviceState.FromBytes(payload);
+
+        Assert.Equal(50, state.Speed);
+        Assert.Equal(new DeviceState(StrokePattern.HalfNHalf, 12.5, 25, 99, 50), state);
     }
 
     [Fact]

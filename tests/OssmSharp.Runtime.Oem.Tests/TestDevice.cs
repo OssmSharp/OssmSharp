@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using OssmSharp.Runtime.Oem;
+using OssmSharp.Runtime.Oem.Protocol;
 
 namespace OssmSharp.Runtime.Oem.Tests;
 
@@ -38,12 +38,6 @@ internal sealed class TestDevice(ILogger<DeviceBase>? logger = null) : DeviceBas
         return Connect?.Invoke(cancellationToken) ?? Task.CompletedTask;
     }
 
-    protected override Task WriteCommandAsync(DeviceCommand command, CancellationToken cancellationToken)
-    {
-        Writes.Add(command);
-        return Write?.Invoke(command, cancellationToken) ?? Task.CompletedTask;
-    }
-
     protected override Task<bool> PreparePatternAsync(CancellationToken cancellationToken)
     {
         Prepares++;
@@ -60,6 +54,12 @@ internal sealed class TestDevice(ILogger<DeviceBase>? logger = null) : DeviceBas
     {
         Disconnects++;
         return Disconnect?.Invoke() ?? Task.CompletedTask;
+    }
+
+    private protected override Task WriteCommandAsync(DeviceCommand command, CancellationToken cancellationToken)
+    {
+        Writes.Add(command);
+        return Write?.Invoke(command, cancellationToken) ?? Task.CompletedTask;
     }
 
 }

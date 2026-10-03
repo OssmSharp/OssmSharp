@@ -2,9 +2,7 @@ using System.Diagnostics;
 using System.Security.Cryptography;
 using Microsoft.Extensions.Options;
 using OssmSharp.Runtime.Oem;
-using OssmSharp.Web.Api.Authentication;
 using OssmSharp.Web.Api.Models;
-using OssmSharp.Web.Contracts;
 using static OssmSharp.Web.Contracts.ControlResponseCodes;
 
 namespace OssmSharp.Web.Api.Control;
@@ -36,6 +34,9 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
     private bool _clearGuestAfterStop;
     private bool _stopRequired;
     private int _pendingConnections;
+    private DeviceSettingsSnapshot? _lastSentSettings;
+    private long _requestSequence;
+    private long _lastSentSequence;
 
     /// <summary>
     /// Initializes a control session that owns one caller-selected runtime device.
@@ -723,7 +724,6 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
         var state = await device.GetStateAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
         lock (_sync)
         {
-            var transmitted = includeUserDetails && _pendingConnections == 0 && !_shuttingDown ? device.Transmitted : null;
             var connected = device.IsConnected;
             if (!connected)
             {
@@ -742,7 +742,7 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
                 includeUserDetails ? device.Name ?? _deviceName : null,
                 includeUserDetails ? _deviceIdentifier : null,
                 includeUserDetails ? _connectedAt : null,
-                transmitted is null ? null : new(transmitted.Pattern, transmitted.Speed, transmitted.Stroke, transmitted.Depth, transmitted.Sensation));
+                includeUserDetails && connected && _pendingConnections == 0 && !_shuttingDown ? _lastSentSettings : null);
         }
     }
 
@@ -755,7 +755,8 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
             await device.ResetAsync(cancellationToken).ConfigureAwait(false);
         }
 
-        Task<SetResult> submission;
+        Task<SetResult> request;
+        long sequence;
         lock (_sync)
         {
             if (!IsCurrentGuestLocked(connectionId) || !_guestControlAllowed || _stopRequired || version != _permissionVersion)
@@ -764,10 +765,21 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
             }
 
             _guestStopped = false;
-            submission = device.SetAsync(settings, cancellationToken);
+            sequence = ++_requestSequence;
+            request = device.SetAsync(settings, cancellationToken);
         }
 
-        return await submission.ConfigureAwait(false);
+        var result = await request.ConfigureAwait(false);
+        lock (_sync)
+        {
+            if (result.Status == SetStatus.Completed && sequence > _lastSentSequence)
+            {
+                _lastSentSequence = sequence;
+                _lastSentSettings = new((int)settings.Pattern, settings.Speed, settings.Stroke, settings.Depth, settings.Sensation);
+            }
+        }
+
+        return result;
     }
 
     private bool HasActiveControlLocked() => _guestControlAllowed;
