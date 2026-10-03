@@ -1,16 +1,17 @@
 @page "/join"
 @rendermode InteractiveServer
 @implements IAsyncDisposable
+@using OssmSharp.Web.Client.Models
 
 <PageTitle>Guest controls</PageTitle>
 
-@if (_connectionLost)
+@if (_connectionLost && _status is not { Joined: true })
 {
   <InlineNotification Variant="danger" Role="alert">
     Connection lost. Open the invitation link again.
   </InlineNotification>
 }
-else if (_initialized && !_joined && !_joining)
+else if (!_connectionLost && _initialized && !_joined && !_joining)
 {
   <InlineNotification Variant="danger" Role="alert" data-testid="@(_everJoined ? "guest-ended" : "guest-invalid")">
     @(_everJoined ? "Session ended. Open the invite link again to rejoin." : "This invitation is invalid or has been replaced.")
@@ -22,16 +23,17 @@ else if (!_joined && !_connectionLost)
 }
 else
 {
-  <div @ref="_root" class="guest-session rw-stack" data-connection-lost="@(_connectionLost ? "true" : null)">
+  <div @ref="_root" class="guest-session rw-stack" data-connection-lost="@(_connectionLost ? "true" : null)"
+      data-device-disconnected="@((_status?.Device).IsConnectedForControls ? null : "true")">
     <InlineNotification Variant="danger" Role="alert" data-browser-alert hidden="@(_display.Error is null)">
       @_display.Error
     </InlineNotification>
-    <div class="guest-interface connection-sensitive rw-stack">
+    <div class="guest-interface connection-sensitive device-sensitive rw-stack">
       <InlineNotification Variant="@SessionMessageVariant" CssClass="guest-session-message" Role="status">
         @SessionMessage</InlineNotification>
         <PatternPreview Speed="@(_display.Selected.Speed * _display.Selected.Stroke / 100)"
                         Stroke="@_display.Selected.Stroke" Depth="@_display.Selected.Depth" Sensation="@_display.Selected.Sensation"
-                        Animate="@(!_connectionLost && _status?.Device is { IsConnected: true, IsConnecting: false, ConnectionFailed: false })" />
+                        Animate="@(!_connectionLost && (_status?.Device).IsConnectedForControls)" />
         <RwCard role="region" aria-label="Requested settings">
           <div slot="heading" class="rw-card-heading">
             <h2>Settings</h2>
@@ -59,7 +61,7 @@ else
               </rw-toggle>
               <RwButton Type="button" Variant="success" data-send-button Disabled="@(!Ready)" aria-label="Send"
                         title="Send the selected settings">Send</RwButton>
-              <RwButton Type="button" Variant="danger" data-stop-button aria-label="Stop"
+              <RwButton Type="button" Variant="danger" data-stop-button Disabled="@_connectionLost" aria-label="Stop"
                         title="Stop motion and pause control">Stop</RwButton>
             </div>
             @if (Ready)
@@ -69,8 +71,8 @@ else
           </div>
         </RwCard>
         <div class="rw-actions">
-          <RwButton Type="button" Variant="secondary" OnClick="LeaveAsync" Disabled="@_leaving" aria-label="Leave session"
-                    title="Stop control and leave this session">Leave session</RwButton>
+          <RwButton Type="button" Variant="secondary" OnClick="LeaveAsync" Disabled="@(_leaving || _connectionLost)"
+                    aria-label="Leave session" title="Stop control and leave this session">Leave session</RwButton>
         </div>
       </div>
     </div>

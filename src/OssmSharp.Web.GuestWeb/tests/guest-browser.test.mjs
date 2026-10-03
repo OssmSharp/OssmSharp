@@ -21,6 +21,10 @@ const adminArtifact = fileURLToPath(new URL("../../../.artifacts/bin/ossmsharp.w
 const invitations = [];
 const handshakes = [];
 const submissions = [];
+const viewports = [
+  { width: 1280, height: 800 },
+  { width: 390, height: 844 },
+];
 const sessions = new Map();
 const hosts = [];
 let browser;
@@ -588,6 +592,24 @@ async function closeAdmin(context) {
   adminSession = null;
 }
 
+async function selectSpeed(page, value) {
+  await page.locator('[data-input="speed"]').evaluate((input, value) => {
+    input.value = String(value);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  }, value);
+}
+
+async function filtersOnAncestors(locator) {
+  return locator.evaluate((element) => {
+    const filters = [];
+    for (let current = element; current; current = current.parentElement) {
+      const filter = getComputedStyle(current).filter;
+      if (filter !== "none") filters.push(filter);
+    }
+    return filters;
+  });
+}
+
 test("admin connection widget distinguishes unknown, disconnected, connecting and failed states", async () => {
   const { context, page, errors } = await openAdmin(userState());
   try {
@@ -601,26 +623,47 @@ test("admin connection widget distinguishes unknown, disconnected, connecting an
     assert.doesNotMatch(await page.locator("main").innerText(), /Permission expires|Not active|Last known device status|Allow guest/);
     assert.equal(await page.locator("rw-card rw-card").count(), 0, "widgets must not nest cards");
     for (const [expected, overrides] of [
+      ["Unknown", null],
       ["Disconnected", { isArmed: true }],
       ["Connecting", { isConnecting: true, connectionFailed: true }],
       ["Failed", { connectionFailed: true }],
       ["Connected", { isConnected: true, isArmed: false }],
     ]) {
-      adminSession.state = userState(deviceState(overrides));
+      adminSession.state = userState(overrides === null ? null : deviceState(overrides));
       await page.waitForFunction(
         (expected) => document.querySelector('[data-testid="device-connection-status"]')?.textContent === expected,
         expected,
       );
       assert.equal(await status.innerText(), expected);
-      assert.equal(
-        await page.locator(".user-grid").evaluate((element) => getComputedStyle(element).filter),
-        overrides.connectionFailed ? "grayscale(1)" : "none",
+      const connected = overrides?.isConnected === true && !overrides.isConnecting && !overrides.connectionFailed;
+      await page.waitForFunction(
+        (connected) => document.querySelector(".user-grid").hasAttribute("data-device-disconnected") !== connected,
+        connected,
       );
+      assert.deepEqual(
+        await filtersOnAncestors(page.getByTestId("device-connection")),
+        [],
+        "device recovery must remain coloured, including its ancestors",
+      );
+      for (const selector of ['[data-testid="user-controls"]', '[data-testid="guest-invitation-card"]', ".pattern-preview"]) {
+        assert.deepEqual(await filtersOnAncestors(page.locator(selector)), connected ? [] : ["grayscale(1)"], `${expected}: ${selector}`);
+      }
       assert.equal(await page.getByTestId("device-duration").innerText(), "Unknown", "missing connection completion time must not be invented");
+      if (expected === "Failed") {
+        assert.equal(await page.getByRole("button", { name: "Connect device", exact: true }).isEnabled(), true);
+        for (const viewport of viewports) {
+          await page.setViewportSize(viewport);
+          assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+          if (process.env.GUEST_SCREENSHOT_DIR) {
+            await page.screenshot({ path: join(process.env.GUEST_SCREENSHOT_DIR, `ossm-admin-device-loss-${viewport.width}.png`), fullPage: true });
+          }
+        }
+      }
     }
     adminSession.state = userState(deviceState());
     await page.waitForFunction(() => document.querySelector('[data-testid="device-connection-status"]')?.textContent === "Disconnected");
-    await page.getByRole("button", { name: "Connect device", exact: true }).click();
+    await page.getByRole("button", { name: "Connect device", exact: true }).focus();
+    await page.keyboard.press("Enter");
     await adminSession.received.get("Connect").promise;
     adminSession.pending.get("Connect")({ accepted: false, code: "connection-failed" });
     adminSession.pending.delete("Connect");
@@ -693,10 +736,7 @@ test("admin completed connection shows metadata and a JS duration without server
     assert.equal(Date.parse(await duration.getAttribute("data-connected-at")), Date.parse(connectedAt));
     assert.equal(adminSession.state.device.connectedAt, connectedAt);
     assert.equal(await page.evaluate(() => window.adminIntervals.size), 1);
-    for (const viewport of [
-      { width: 1280, height: 800 },
-      { width: 390, height: 844 },
-    ]) {
+    for (const viewport of viewports) {
       await page.setViewportSize(viewport);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
       assert.equal(await page.getByRole("button", { name: "Stop", exact: true }).isVisible(), true);
@@ -722,6 +762,9 @@ test("admin completed connection shows metadata and a JS duration without server
     adminSession.state = userState({ ...adminSession.state.device, isConnected: true, connectedAt });
     await page.waitForFunction(() => document.querySelector('[data-testid="device-duration"]')?.dataset.connectedAt);
     assert.equal(await page.evaluate(() => window.adminIntervals.size), 1);
+    assert.equal(await page.locator(".preview-carriage animate").count(), 1);
+    assert.deepEqual(await filtersOnAncestors(page.locator(".pattern-preview")), []);
+    assert.equal(await page.getByText("Device connected.", { exact: true }).count(), 0);
     await duration.evaluate((element) => element.remove());
     await page.waitForFunction(() => window.adminIntervals.size === 0);
     assert.equal(await page.evaluate(() => window.adminIntervals.size), 0, "removing the timer element must release its interval");
@@ -814,10 +857,7 @@ test("admin preview derives timing only from transmitted velocity and stroke", a
       transmittedSettings: { pattern: 0, speed: 5, stroke: 10, depth: 20, sensation: 50 },
     });
     await page.waitForFunction(() => document.querySelector(".preview-carriage animate")?.getAttribute("dur") === "0.8s");
-    for (const viewport of [
-      { width: 1280, height: 800 },
-      { width: 390, height: 844 },
-    ]) {
+    for (const viewport of viewports) {
       await page.setViewportSize(viewport);
       const positions = await page.locator(".preview-rail").evaluate((rail) => {
         rail.pauseAnimations();
@@ -903,10 +943,7 @@ test("deadline-free permission recovers after revoke, Allow and rearm without au
   try {
     const { page, errors } = await openGuest(context, invitation);
     assert.equal(await page.locator(".guest-session-message").innerText(), "Control enabled.");
-    await page.locator('[data-input="speed"]').evaluate((input) => {
-      input.value = "30";
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-    });
+    await selectSpeed(page, 30);
     await page.locator("[data-auto-send]").check();
     await page.waitForFunction(() => document.querySelector('[data-sent="speed"]')?.textContent === "3");
     assert.equal(session.submissions.length, 1);
@@ -933,10 +970,7 @@ test("deadline-free permission recovers after revoke, Allow and rearm without au
     assert.equal(session.renewals, 0);
     assert.equal(await page.getByTestId("guest-disconnected").isVisible(), false);
     assert.equal(await page.evaluate(() => sessionStorage.getItem("ossm-guest-connection-lost")), null);
-    for (const viewport of [
-      { width: 1280, height: 800 },
-      { width: 390, height: 844 },
-    ]) {
+    for (const viewport of viewports) {
       await page.setViewportSize(viewport);
       assert.equal(await page.locator(".guest-session-message").isVisible(), true);
       assert.equal(await page.locator("[data-send-button]").isVisible(), true);
@@ -960,10 +994,7 @@ test("guest Stop preserves permission and only acknowledged Stop permits deliber
   sessions.set(invitation, session);
   try {
     const { page, errors } = await openGuest(context, invitation);
-    await page.locator('[data-input="speed"]').evaluate((input) => {
-      input.value = "30";
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-    });
+    await selectSpeed(page, 30);
     await page.locator("[data-auto-send]").check();
     await page.waitForFunction(() => document.querySelector('[data-sent="speed"]')?.textContent === "3");
     await page.waitForFunction(() => document.querySelector('[data-current="speed"]')?.textContent === "3");
@@ -1002,7 +1033,7 @@ for (const [name, overrides] of [
 ]) {
   test(`permission alone cannot send with ${name}`, async () => {
     const context = await browser.newContext();
-    const invitation = `readiness-${name}`;
+    const invitation = `readiness-${name.replaceAll(" ", "-")}`;
     const session = { renewals: 0, submissions: [], state: guestState(overrides) };
     sessions.set(invitation, session);
     try {
@@ -1050,8 +1081,15 @@ for (const code of ["unexpected-rejection", "connection-unavailable", "outcome-u
     sessions.set(invitation, session);
     try {
       const { page } = await openGuest(context, invitation);
+      await selectSpeed(page, 50);
+      await page.locator(".preview-carriage animate").waitFor({ state: "attached" });
+      const settings = await page.locator(".preview-rail").getAttribute("aria-label");
       session.pollFailure = code;
       await page.getByTestId("guest-disconnected").waitFor({ state: "visible" });
+      assert.equal(await page.locator(".guest-session").count(), 1, "service loss must retain the actual joined view");
+      assert.equal(await page.locator(".preview-rail").getAttribute("aria-label"), settings);
+      await page.locator(".preview-carriage animate").waitFor({ state: "detached" });
+      assert.equal(await page.locator('[data-input="speed"]').inputValue(), "50");
       assert.equal(session.renewals, 0);
       assert.equal(await page.evaluate(() => sessionStorage.getItem("ossm-guest-connection-lost")), "true");
       assert.equal(await page.locator("[data-send-button]:not([disabled])").count(), 0);
@@ -1104,7 +1142,12 @@ test("same-document invite link bypasses Blazor navigation without disclosing it
 });
 
 test("shared disconnect presentation pauses user and guest previews and keeps notices inline", async () => {
-  for (const role of ["user", "guest"]) {
+  for (const [role, failure] of [
+    ["user", "reconnect"],
+    ["guest", "reconnect"],
+    ["user", "fatal"],
+    ["guest", "fatal"],
+  ]) {
     const context = role === "user" ? null : await browser.newContext();
     const view =
       role === "user"
@@ -1115,36 +1158,44 @@ test("shared disconnect presentation pauses user and guest previews and keeps no
     try {
       const { page } = view;
       if (role === "guest") {
-        await page.locator('[data-input="speed"]').evaluate((input) => {
-          input.value = "50";
-          input.dispatchEvent(new Event("input", { bubbles: true }));
-        });
+        await selectSpeed(page, 50);
       }
       await page.locator(".preview-carriage animate").waitFor({ state: "attached" });
+      const settings = await page.locator(".preview-rail").getAttribute("aria-label");
       assert.equal(await page.locator(".preview-rail").evaluate((rail) => rail.animationsPaused()), false);
-      await page.evaluate(() => {
+      await page.evaluate((failure) => {
+        if (failure === "fatal") {
+          document.getElementById("blazor-error-ui").style.display = "block";
+          return;
+        }
         const notice = document.getElementById("components-reconnect-modal");
         notice.classList.remove("components-reconnect-hide");
         notice.classList.add("components-reconnect-failed");
         notice.dispatchEvent(new CustomEvent("components-reconnect-state-changed", { detail: { state: "failed" } }));
-      });
-      const notice = role === "user" ? page.locator(".rw-reconnect-failed") : page.getByTestId("guest-disconnected");
+      }, failure);
+      const notice =
+        role === "user" ? page.locator(failure === "fatal" ? "#blazor-error-ui" : ".rw-reconnect-failed") : page.getByTestId("guest-disconnected");
       await notice.waitFor({ state: "visible" });
       assert.equal(await page.locator(".preview-rail").evaluate((rail) => rail.animationsPaused()), true);
+      assert.equal(await page.locator(".preview-rail").getAttribute("aria-label"), settings);
       assert.equal(await page.locator(".connection-sensitive").evaluate((element) => getComputedStyle(element).filter), "grayscale(1)");
       assert.equal(await notice.evaluate((element) => getComputedStyle(element).position), "static");
+      assert.deepEqual(await filtersOnAncestors(notice), [], "the loss notice must retain its semantic colour");
+      assert.equal(await notice.evaluate((element) => element.matches("rw-alert.rw-inline-notification[variant='danger']")), true);
+      assert.equal(await page.locator("rw-alert:visible").filter({ hasText: "Connection lost." }).count(), 1);
+      if (role === "user") assert.deepEqual(await filtersOnAncestors(page.getByTestId("device-connection")), ["grayscale(1)"]);
       if (role === "guest") assert.equal(await page.locator("[data-send-button]").isDisabled(), true);
-      for (const viewport of [
-        { width: 1280, height: 800 },
-        { width: 390, height: 844 },
-      ]) {
+      for (const viewport of viewports) {
         await page.setViewportSize(viewport);
         const notification = await notice.boundingBox();
         const main = await page.locator("main").boundingBox();
         assert.ok(notification.x >= main.x && notification.x + notification.width <= main.x + main.width + 1);
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
         if (process.env.GUEST_SCREENSHOT_DIR) {
-          await page.screenshot({ path: join(process.env.GUEST_SCREENSHOT_DIR, `ossm-${role}-disconnected-${viewport.width}.png`), fullPage: true });
+          await page.screenshot({
+            path: join(process.env.GUEST_SCREENSHOT_DIR, `ossm-${role}-${failure}-disconnected-${viewport.width}.png`),
+            fullPage: true,
+          });
         }
       }
       assert.deepEqual(view.errors, []);
@@ -1165,32 +1216,134 @@ test("user API loss retains a greyscale last state with a standard inline notice
     const notice = page.getByRole("alert").filter({ hasText: "Unable to connect to the user service." });
     await notice.waitFor({ state: "visible" });
     assert.equal(await page.getByTestId("device-connection").count(), 1);
+    assert.deepEqual(await filtersOnAncestors(page.getByTestId("device-connection")), ["grayscale(1)"]);
     assert.equal(await page.locator(".user-grid").evaluate((element) => getComputedStyle(element).filter), "grayscale(1)");
     assert.equal(await page.locator(".preview-carriage animate").count(), 0);
     assert.equal(await notice.evaluate((element) => getComputedStyle(element).position), "static");
+    assert.deepEqual(await filtersOnAncestors(notice), []);
+    assert.equal(
+      await page.locator(".preview-rail").getAttribute("aria-label"),
+      "Simple stroke preview at 5% speed, 10% stroke, 20% depth, and 50% sensation",
+    );
     assert.deepEqual(errors, []);
   } finally {
     await closeAdmin(context);
   }
 });
 
-test("guest device connection loss stops the selected preview", async () => {
+test("guest device connection loss stops and greys the selected preview until positive recovery", async () => {
   const context = await browser.newContext();
   const invitation = "preview-device-loss";
-  const session = { state: guestState() };
+  const session = { state: guestState(), submissions: [] };
   sessions.set(invitation, session);
   try {
     const { page, errors } = await openGuest(context, invitation);
-    await page.locator('[data-input="speed"]').evaluate((input) => {
-      input.value = "50";
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-    });
+    await selectSpeed(page, 50);
     await page.locator(".preview-carriage animate").waitFor({ state: "attached" });
-    session.state.device = { ...session.state.device, isConnected: false, connectionFailed: true };
-    await page.locator(".preview-carriage animate").waitFor({ state: "detached" });
-    assert.equal(await page.locator("[data-send-button]").isDisabled(), true);
-    assert.equal(await page.locator(".preview-rail").count(), 1);
+    const settings = await page.locator(".preview-rail").getAttribute("aria-label");
+    for (const device of [null, { isConnected: false }, { isConnecting: true }, { isConnected: false, connectionFailed: true }]) {
+      session.state.device = device === null ? null : { ...guestState().device, ...device };
+      await page.locator(".preview-carriage animate").waitFor({ state: "detached" });
+      assert.deepEqual(await filtersOnAncestors(page.locator(".guest-interface")), ["grayscale(1)"]);
+      assert.equal(await page.locator(".preview-rail").getAttribute("aria-label"), settings);
+      assert.equal(await page.locator('[data-input="speed"]').inputValue(), "50");
+      assert.equal(await page.getByTestId("guest-disconnected").isVisible(), false, "device loss must not create a service-loss notice");
+      if (device === null || device.connectionFailed) assert.equal(await page.locator("[data-send-button]").isDisabled(), true);
+      session.state.device = guestState().device;
+      await page.locator(".preview-carriage animate").waitFor({ state: "attached" });
+      assert.deepEqual(await filtersOnAncestors(page.locator(".pattern-preview")), []);
+    }
+    assert.equal(session.submissions.length, 0, "device recovery must not submit settings");
     assert.deepEqual(errors, []);
+  } finally {
+    await context.close();
+    sessions.delete(invitation);
+  }
+});
+
+test("guest initial device states grey the preview without inventing service loss", async () => {
+  for (const [name, device] of [
+    ["unknown", null],
+    ["disconnected", deviceState()],
+    ["connecting", deviceState({ isConnecting: true })],
+    ["failed", deviceState({ connectionFailed: true })],
+  ]) {
+    const context = await browser.newContext();
+    const invitation = `initial-device-${name}`;
+    sessions.set(invitation, { state: guestState({ device }) });
+    try {
+      const { page, errors } = await openGuest(context, invitation, device !== null && !device.connectionFailed);
+      assert.deepEqual(await filtersOnAncestors(page.locator(".guest-interface")), ["grayscale(1)"], name);
+      assert.equal(await page.locator(".preview-carriage animate").count(), 0);
+      assert.equal(await page.getByTestId("guest-disconnected").isVisible(), false);
+      assert.deepEqual(errors, []);
+    } finally {
+      await context.close();
+      sessions.delete(invitation);
+    }
+  }
+});
+
+test("component module import failure shows a standard fallback notice", async () => {
+  const context = await browser.newContext();
+  let bootstrapLoaded = false;
+  let componentImportAborted = false;
+  try {
+    await context.addInitScript(() => {
+      document.addEventListener("readystatechange", () => {
+        const bootstrap = document.getElementById("guest-start");
+        const controller = new URL(bootstrap.dataset.controller, document.baseURI);
+        controller.search = "?bootstrap-test";
+        bootstrap.dataset.controller = controller.href;
+      }, { once: true });
+    });
+    await context.route(/\/guest-session(?:\.[^/]+)?\.js(?:\?.*)?$/, async (route) => {
+      if (new URL(route.request().url()).search === "?bootstrap-test") {
+        bootstrapLoaded = true;
+        await route.continue();
+      } else {
+        componentImportAborted = true;
+        await route.abort("failed");
+      }
+    });
+    const page = await context.newPage();
+    page.setDefaultTimeout(10_000);
+    await page.goto(`${origin}/join#invite=module-import-failure`);
+    const notice = page.getByRole("alert").filter({ hasText: "Connection lost." });
+    await notice.waitFor({ state: "visible" });
+    assert.equal(bootstrapLoaded, true);
+    assert.equal(componentImportAborted, true, "the component import must fail independently of bootstrap");
+    assert.equal(await page.locator("html[data-guest-connection-lost]").count(), 0);
+    assert.equal(await page.getByTestId("guest-disconnected").isVisible(), false);
+    assert.equal(await page.locator(".guest-session, .preview-rail").count(), 0);
+    assert.equal(await page.getByTestId("guest-invalid").count(), 0);
+    assert.equal(await page.locator("rw-alert:visible").count(), 1);
+    assert.equal(await notice.evaluate((element) => element.matches("rw-alert.rw-inline-notification[variant='danger']")), true);
+    assert.equal(await notice.evaluate((element) => getComputedStyle(element).position), "static");
+    assert.deepEqual(await filtersOnAncestors(notice), []);
+    for (const viewport of viewports) {
+      await page.setViewportSize(viewport);
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+      if (process.env.GUEST_SCREENSHOT_DIR) {
+        await page.screenshot({ path: join(process.env.GUEST_SCREENSHOT_DIR, `ossm-guest-import-loss-${viewport.width}.png`), fullPage: true });
+      }
+    }
+  } finally {
+    await context.close();
+  }
+});
+
+test("initial API loss does not fabricate a joined guest view", async () => {
+  const context = await browser.newContext();
+  const invitation = "initial-api-loss";
+  sessions.set(invitation, { pollFailure: "unexpected-rejection" });
+  try {
+    const page = await context.newPage();
+    await page.goto(`${origin}/join#invite=${invitation}`);
+    await page.getByTestId("guest-disconnected").waitFor({ state: "visible" });
+    assert.equal(await page.locator(".guest-session, .preview-rail").count(), 0);
+    assert.equal(await page.getByTestId("guest-invalid").count(), 0);
+    assert.equal(await page.locator("rw-alert:visible").filter({ hasText: "Connection lost." }).count(), 1);
   } finally {
     await context.close();
     sessions.delete(invitation);
@@ -1201,12 +1354,21 @@ test("API transport loss displays recovery and persistently disables browser sub
   const context = await browser.newContext();
   try {
     const { page } = await openGuest(context, "transport-test-invite");
+    await selectSpeed(page, 50);
+    await page.locator(".preview-carriage animate").waitFor({ state: "attached" });
+    const settings = await page.locator(".preview-rail").getAttribute("aria-label");
     await page.evaluate(() => {
       window.originalSend = document.querySelector("[data-send-button]");
     });
     for (const socket of sockets.clients) socket.close(1000);
     const notice = page.getByTestId("guest-disconnected");
     await notice.waitFor({ state: "visible" });
+    await page.locator(".preview-carriage animate").waitFor({ state: "detached" });
+    assert.equal(await page.locator("[data-stop-button]").isDisabled(), true);
+    assert.equal(await page.getByRole("button", { name: "Leave session" }).isDisabled(), true);
+    assert.equal(await page.locator(".preview-rail").getAttribute("aria-label"), settings);
+    assert.deepEqual(await filtersOnAncestors(page.locator(".guest-interface")), ["grayscale(1)"]);
+    assert.deepEqual(await filtersOnAncestors(notice), []);
     assert.match(await notice.textContent(), /Connection lost.*invitation link again/s);
     assert.equal(await page.evaluate(() => sessionStorage.getItem("ossm-guest-connection-lost")), "true");
     const freshLayout = await page.request.get(`${origin}/join`);
@@ -1227,13 +1389,13 @@ test("API transport loss displays recovery and persistently disables browser sub
     });
     assert.equal(await page.evaluate(() => window.originalSend.disabled), true);
     assert.equal(submissions.length, before);
-    for (const viewport of [
-      { width: 1280, height: 800 },
-      { width: 390, height: 844 },
-    ]) {
+    for (const viewport of viewports) {
       await page.setViewportSize(viewport);
       assert.equal(await notice.isVisible(), true);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+      if (process.env.GUEST_SCREENSHOT_DIR) {
+        await page.screenshot({ path: join(process.env.GUEST_SCREENSHOT_DIR, `ossm-guest-api-loss-${viewport.width}.png`), fullPage: true });
+      }
     }
     await page.reload();
     await notice.waitFor({ state: "visible" });
