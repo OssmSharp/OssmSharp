@@ -4,7 +4,7 @@ using OssmSharp.Runtime.Oem.Protocol;
 
 namespace OssmSharp.Runtime.Oem.Tests;
 
-internal sealed class TestDevice(ILogger<DeviceBase>? logger = null) : DeviceBase(logger ?? NullLogger<DeviceBase>.Instance)
+internal sealed class TestDevice(ILogger<DeviceBase>? logger = null) : DeviceBase("test-device", logger ?? NullLogger<DeviceBase>.Instance)
 {
     public List<FirmwareCommand> Writes { get; } = [];
 

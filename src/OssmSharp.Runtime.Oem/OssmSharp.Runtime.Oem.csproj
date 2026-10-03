@@ -11,6 +11,5 @@
     <PackageReference Include="Microsoft.Extensions.Options" />
     <PackageReference Include="Shiny.BluetoothLE" />
     <InternalsVisibleTo Include="OssmSharp.Runtime.Oem.Tests" />
-    <InternalsVisibleTo Include="OssmSharp.Cli.Tests" />
   </ItemGroup>
 </Project>

@@ -171,7 +171,7 @@ public sealed class OssmDeviceTests
         var error = (await set.Should().ThrowAsync<DeviceWriteException>()).Which;
 
         error.CommandsWritten.Should().Be(1);
-        error.Command.Should().Be(new DeviceCommand(DeviceSetting.Stroke, 30));
+        error.Command.Should().Be(new FirmwareCommand(FirmwareSetting.Stroke, 30));
         error.InnerException.Should().BeOfType<IOException>().Which.Message.Should().Contain("invalid_value");
         context.RequestsFor("setting.write", "motion.").Should().HaveCount(2);
         device.IsArmed.Should().BeFalse();

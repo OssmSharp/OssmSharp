@@ -11,7 +11,6 @@
     <PackageReference Include="FastMoq.Core" />
     <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
     <ProjectReference Include="../../src/OssmSharp.Cli/OssmSharp.Cli.csproj" />
-    <Compile Include="../OssmSharp.Runtime.Oem.Tests/TestDevice.cs" Link="TestDevice.cs" />
   </ItemGroup>
   <ItemGroup>
     <AssemblyAttribute Include="FastMoq.Providers.FastMoqDefaultProviderAttribute">

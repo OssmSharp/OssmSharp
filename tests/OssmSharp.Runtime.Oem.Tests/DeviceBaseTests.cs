@@ -17,7 +17,7 @@ public sealed class DeviceBaseTests
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(token);
         await device.ConnectAsync(token);
         var pending = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        device.Write = (command, writeToken) => command is { Setting: DeviceSetting.Speed, Value: 6 }
+        device.Write = (command, writeToken) => command is { Setting: FirmwareSetting.Speed, Value: 6 }
             ? pending.Task.WaitAsync(writeToken) : Task.CompletedTask;
         var original = device.SetAsync(new(0, 20, 30, 40, 50), cancellation.Token);
         try
@@ -95,7 +95,7 @@ public sealed class DeviceBaseTests
         await using var device = new TestDevice();
         var token = TestContext.Current.CancellationToken;
         await device.ConnectAsync(token);
-        device.Write = (command, _) => command.Setting == DeviceSetting.Depth
+        device.Write = (command, _) => command.Setting == FirmwareSetting.Depth
             ? Task.FromException(new IOException("Write failed.")) : Task.CompletedTask;
         try
         {
@@ -116,7 +116,7 @@ public sealed class DeviceBaseTests
         var token = TestContext.Current.CancellationToken;
         await device.ConnectAsync(token);
         var pending = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        device.Write = (command, _) => command is { Setting: DeviceSetting.Speed, Value: > 0 }
+        device.Write = (command, _) => command is { Setting: FirmwareSetting.Speed, Value: > 0 }
             ? pending.Task : Task.CompletedTask;
         var set = device.SetAsync(new(0, 20, 30, 40, 50), token);
         try
@@ -165,7 +165,7 @@ public sealed class DeviceBaseTests
         Assert.Equal(
             settings.ToCommands().Select(command => command.Setting),
             logger.Entries.Where(entry => entry.Id.Id == 21 && entry.Level == LogLevel.Debug)
-                .Select(entry => (DeviceSetting)entry.StructuredState.Single(field => field.Key == "Control").Value!));
+                .Select(entry => (FirmwareSetting)entry.StructuredState.Single(field => field.Key == "Control").Value!));
         Assert.Equal(result.CommandsWritten, logger.Entries.Count(entry => entry.Id.Id == 22 && entry.Level == LogLevel.Debug));
         Assert.DoesNotContain(logger.Entries, entry => entry.Level == LogLevel.Information && entry.Id.Id is 14 or 21 or 22);
     }
@@ -246,7 +246,7 @@ public sealed class DeviceBaseTests
         device.Connects.Should().Be(2);
         device.Disconnects.Should().Be(1);
         device.IsArmed.Should().BeTrue();
-        device.Writes.Should().Equal(settings.ToCommands().Append(new DeviceCommand(DeviceSetting.Speed, 0)));
+        device.Writes.Should().Equal(settings.ToCommands().Append(new FirmwareCommand(FirmwareSetting.Speed, 0)));
         (await device.GetStateAsync(cancellationToken: token)).Should().Be(new DeviceState(reconnected));
         notifications.Should().BeGreaterThan(notificationsBeforeReconnect);
         device.Observe(reconnected);
@@ -498,7 +498,7 @@ public sealed class DeviceBaseTests
         var error = (await set.Should().ThrowAsync<DeviceWriteException>()).Which;
 
         error.CommandsWritten.Should().Be(2);
-        error.Command.Should().Be(new DeviceCommand(DeviceSetting.Depth, 40));
+        error.Command.Should().Be(new FirmwareCommand(FirmwareSetting.Depth, 40));
         error.InnerException.Should().BeSameAs(failure);
         device.Writes.Should().HaveCount(3);
         device.IsArmed.Should().BeFalse();
@@ -536,7 +536,7 @@ public sealed class DeviceBaseTests
 
         (await active).Should().Be(new SetResult(SetStatus.Superseded, 1));
         (await pending).Should().Be(new SetResult(SetStatus.Completed, 5));
-        device.Writes.Should().Equal(new[] { new DeviceCommand(DeviceSetting.Pattern, 1) }.Concat(settings.ToCommands()));
+        device.Writes.Should().Equal(new[] { new FirmwareCommand(FirmwareSetting.Pattern, 1) }.Concat(settings.ToCommands()));
         (await device.GetStateAsync(cancellationToken: token)).Should().Be(new DeviceState(observed));
         device.IsArmed.Should().BeTrue();
     }
@@ -561,7 +561,7 @@ public sealed class DeviceBaseTests
         await stop;
 
         device.IsArmed.Should().BeTrue();
-        device.Writes.Should().Equal(new DeviceCommand(DeviceSetting.Pattern, 1), new DeviceCommand(DeviceSetting.Speed, 0));
+        device.Writes.Should().Equal(new FirmwareCommand(FirmwareSetting.Pattern, 1), new FirmwareCommand(FirmwareSetting.Speed, 0));
     }
 
     [Fact]
@@ -572,7 +572,7 @@ public sealed class DeviceBaseTests
         await device.ConnectAsync(token);
         var releaseSetting = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseStop = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        device.Write = (command, _) => command.Setting == DeviceSetting.Pattern ? releaseSetting.Task : releaseStop.Task;
+        device.Write = (command, _) => command.Setting == FirmwareSetting.Pattern ? releaseSetting.Task : releaseStop.Task;
         var setting = device.SetAsync(new(StrokePattern.TeasingPounding, 20, 30, 40, 50), token);
         var stop = device.EmergencyStopAsync(token);
 
@@ -592,7 +592,7 @@ public sealed class DeviceBaseTests
         }
 
         device.IsArmed.Should().BeTrue();
-        device.Writes.Should().Equal(new DeviceCommand(DeviceSetting.Pattern, 1), new DeviceCommand(DeviceSetting.Speed, 0));
+        device.Writes.Should().Equal(new FirmwareCommand(FirmwareSetting.Pattern, 1), new FirmwareCommand(FirmwareSetting.Speed, 0));
     }
 
     [Fact]
@@ -609,7 +609,7 @@ public sealed class DeviceBaseTests
         (await stop.Should().ThrowAsync<IOException>()).Which.Should().BeSameAs(failure);
 
         device.IsArmed.Should().BeFalse();
-        device.Writes.Should().Equal(new DeviceCommand(DeviceSetting.Speed, 0));
+        device.Writes.Should().Equal(new FirmwareCommand(FirmwareSetting.Speed, 0));
         await device.ResetAsync(token);
         device.IsArmed.Should().BeTrue();
         device.Writes.Should().HaveCount(1);
@@ -628,7 +628,7 @@ public sealed class DeviceBaseTests
         (await disconnect.Should().ThrowAsync<IOException>()).Which.Should().BeSameAs(failure);
         device.Disconnects.Should().Be(1);
         device.IsArmed.Should().BeFalse();
-        device.Writes.Should().Equal(new DeviceCommand(DeviceSetting.Speed, 0));
+        device.Writes.Should().Equal(new FirmwareCommand(FirmwareSetting.Speed, 0));
 
         await device.ConnectAsync(token);
         device.Connects.Should().Be(2);
@@ -649,7 +649,7 @@ public sealed class DeviceBaseTests
 
         var disconnect = () => device.DisconnectAsync(token);
         (await disconnect.Should().ThrowAsync<AggregateException>()).Which.InnerExceptions.Should().Equal(stopFailure, cleanupFailure);
-        device.Writes.Should().Equal(new DeviceCommand(DeviceSetting.Speed, 0));
+        device.Writes.Should().Equal(new FirmwareCommand(FirmwareSetting.Speed, 0));
         device.Disconnects.Should().Be(1);
         device.IsArmed.Should().BeFalse();
 
@@ -688,7 +688,7 @@ public sealed class DeviceBaseTests
         (await pending).Should().Be(new SetResult(SetStatus.Cancelled, 0));
         (await active).Should().Be(new SetResult(SetStatus.Superseded, 1));
         device.Disconnects.Should().Be(1);
-        device.Writes.Should().Equal(new DeviceCommand(DeviceSetting.Pattern, 1), new DeviceCommand(DeviceSetting.Speed, 0));
+        device.Writes.Should().Equal(new FirmwareCommand(FirmwareSetting.Pattern, 1), new FirmwareCommand(FirmwareSetting.Speed, 0));
         var reset = () => device.ResetAsync(token);
         await reset.Should().ThrowAsync<ObjectDisposedException>();
     }
@@ -866,11 +866,11 @@ public sealed class DeviceBaseTests
 
         device.Prepares.Should().Be(2);
         device.Writes.Skip(5).Should().Equal(
-            new DeviceCommand(DeviceSetting.Pattern, 4),
-            new DeviceCommand(DeviceSetting.Stroke, 5),
-            new DeviceCommand(DeviceSetting.Depth, 5),
-            new DeviceCommand(DeviceSetting.Sensation, 5),
-            new DeviceCommand(DeviceSetting.Speed, 0));
+            new FirmwareCommand(FirmwareSetting.Pattern, 4),
+            new FirmwareCommand(FirmwareSetting.Stroke, 5),
+            new FirmwareCommand(FirmwareSetting.Depth, 5),
+            new FirmwareCommand(FirmwareSetting.Sensation, 5),
+            new FirmwareCommand(FirmwareSetting.Speed, 0));
         device.IsArmed.Should().BeTrue();
     }
 
@@ -997,7 +997,7 @@ public sealed class DeviceBaseTests
         await device.ResetAsync(token);
 
         device.IsArmed.Should().BeTrue();
-        device.Writes.Should().Equal(new DeviceCommand(DeviceSetting.Speed, 0));
+        device.Writes.Should().Equal(new FirmwareCommand(FirmwareSetting.Speed, 0));
         device.Reads.Should().Be(1);
     }
 
@@ -1015,7 +1015,7 @@ public sealed class DeviceBaseTests
         device.IsArmed.Should().BeTrue();
         result.Should().Be(new SetResult(SetStatus.Completed, 5));
         device.Writes.Should().Equal(
-            new[] { new DeviceCommand(DeviceSetting.Speed, 0) }.Concat(settings.ToCommands()));
+            new[] { new FirmwareCommand(FirmwareSetting.Speed, 0) }.Concat(settings.ToCommands()));
     }
 
     [Fact]
@@ -1054,7 +1054,7 @@ public sealed class DeviceBaseTests
         await device.EmergencyStopAsync(token);
 
         device.IsArmed.Should().BeFalse();
-        device.Writes.Should().Equal(new DeviceCommand(DeviceSetting.Speed, 0));
+        device.Writes.Should().Equal(new FirmwareCommand(FirmwareSetting.Speed, 0));
     }
 
     [Fact]
@@ -1093,7 +1093,7 @@ public sealed class DeviceBaseTests
             first.IsCompleted.Should().BeFalse();
             latest.IsCompleted.Should().BeFalse();
             (await second).Should().Be(new SetResult(SetStatus.Superseded, 0));
-            device.Writes.Should().Equal(new DeviceCommand(DeviceSetting.Pattern, 1));
+            device.Writes.Should().Equal(new FirmwareCommand(FirmwareSetting.Pattern, 1));
         }
         finally
         {
@@ -1102,7 +1102,7 @@ public sealed class DeviceBaseTests
 
         (await first).Should().Be(new SetResult(SetStatus.Superseded, 1));
         (await latest).Should().Be(new SetResult(SetStatus.Completed, 5));
-        device.Writes.Should().Equal(new[] { new DeviceCommand(DeviceSetting.Pattern, 1) }.Concat(latestSettings.ToCommands()));
+        device.Writes.Should().Equal(new[] { new FirmwareCommand(FirmwareSetting.Pattern, 1) }.Concat(latestSettings.ToCommands()));
     }
 
     [Fact]
@@ -1121,7 +1121,7 @@ public sealed class DeviceBaseTests
 
             device.IsArmed.Should().BeTrue();
             set.IsCompleted.Should().BeFalse();
-            device.Writes.Should().Equal(new DeviceCommand(DeviceSetting.Pattern, 1), new DeviceCommand(DeviceSetting.Speed, 0));
+            device.Writes.Should().Equal(new FirmwareCommand(FirmwareSetting.Pattern, 1), new FirmwareCommand(FirmwareSetting.Speed, 0));
         }
         finally
         {
@@ -1131,7 +1131,7 @@ public sealed class DeviceBaseTests
         (await set).Should().Be(new SetResult(SetStatus.Cancelled, 1));
         await device.ResetAsync(token);
         device.IsArmed.Should().BeTrue();
-        device.Writes.Should().Equal(new DeviceCommand(DeviceSetting.Pattern, 1), new DeviceCommand(DeviceSetting.Speed, 0));
+        device.Writes.Should().Equal(new FirmwareCommand(FirmwareSetting.Pattern, 1), new FirmwareCommand(FirmwareSetting.Speed, 0));
     }
 
     [Fact]
@@ -1141,7 +1141,7 @@ public sealed class DeviceBaseTests
         var token = TestContext.Current.CancellationToken;
         await device.ConnectAsync(token);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        device.Write = (command, _) => command.Setting == DeviceSetting.Pattern ? release.Task : Task.CompletedTask;
+        device.Write = (command, _) => command.Setting == FirmwareSetting.Pattern ? release.Task : Task.CompletedTask;
         var active = device.SetAsync(new(StrokePattern.TeasingPounding, 10, 10, 10, 10), token);
         var queued = device.SetAsync(new(StrokePattern.RoboStroke, 20, 20, 20, 20), token);
         var stop = device.EmergencyStopAsync(token);
@@ -1151,7 +1151,7 @@ public sealed class DeviceBaseTests
             await stop;
             active.IsCompleted.Should().BeFalse();
             (await queued).Should().Be(new SetResult(SetStatus.Cancelled, 0));
-            device.Writes.Should().Equal(new DeviceCommand(DeviceSetting.Pattern, 1), new DeviceCommand(DeviceSetting.Speed, 0));
+            device.Writes.Should().Equal(new FirmwareCommand(FirmwareSetting.Pattern, 1), new FirmwareCommand(FirmwareSetting.Speed, 0));
         }
         finally
         {
@@ -1159,7 +1159,7 @@ public sealed class DeviceBaseTests
         }
 
         (await active).Should().Be(new SetResult(SetStatus.Superseded, 1));
-        device.Writes.Should().Equal(new DeviceCommand(DeviceSetting.Pattern, 1), new DeviceCommand(DeviceSetting.Speed, 0));
+        device.Writes.Should().Equal(new FirmwareCommand(FirmwareSetting.Pattern, 1), new FirmwareCommand(FirmwareSetting.Speed, 0));
     }
 
     [Fact]
@@ -1180,7 +1180,7 @@ public sealed class DeviceBaseTests
             first.IsCompleted.Should().BeFalse();
             var reset = () => device.ResetAsync(token);
             await reset.Should().ThrowAsync<InvalidOperationException>();
-            device.Writes.Should().Equal(new DeviceCommand(DeviceSetting.Speed, 0));
+            device.Writes.Should().Equal(new FirmwareCommand(FirmwareSetting.Speed, 0));
         }
         finally
         {
@@ -1208,7 +1208,7 @@ public sealed class DeviceBaseTests
         {
             await device.EmergencyStopAsync(token);
 
-            device.Writes.Should().Equal(new DeviceCommand(DeviceSetting.Speed, 0));
+            device.Writes.Should().Equal(new FirmwareCommand(FirmwareSetting.Speed, 0));
             live.IsCompleted.Should().BeFalse();
         }
         finally
@@ -1244,7 +1244,7 @@ public sealed class DeviceBaseTests
         }
 
         device.Disconnects.Should().Be(1);
-        device.Writes.Should().Equal(new DeviceCommand(DeviceSetting.Speed, 0));
+        device.Writes.Should().Equal(new FirmwareCommand(FirmwareSetting.Speed, 0));
     }
 
     [Fact]
@@ -1273,7 +1273,7 @@ public sealed class DeviceBaseTests
         }
 
         device.Disconnects.Should().Be(1);
-        device.Writes.Should().Equal(new DeviceCommand(DeviceSetting.Speed, 0));
+        device.Writes.Should().Equal(new FirmwareCommand(FirmwareSetting.Speed, 0));
     }
 
     [Fact]
@@ -1285,7 +1285,7 @@ public sealed class DeviceBaseTests
         {
             Write = async (command, _) =>
             {
-                if (command == new DeviceCommand(DeviceSetting.Speed, 0))
+                if (command == new FirmwareCommand(FirmwareSetting.Speed, 0))
                 {
                     order.Add("stop");
                     return;
@@ -1319,7 +1319,7 @@ public sealed class DeviceBaseTests
 
         (await set).Should().Be(new SetResult(SetStatus.Cancelled, 1));
         order.Should().Equal("stop", "issued", "disconnect");
-        device.Writes.Should().Equal(new DeviceCommand(DeviceSetting.Pattern, 1), new DeviceCommand(DeviceSetting.Speed, 0));
+        device.Writes.Should().Equal(new FirmwareCommand(FirmwareSetting.Pattern, 1), new FirmwareCommand(FirmwareSetting.Speed, 0));
     }
 
     [Fact]
@@ -1335,7 +1335,7 @@ public sealed class DeviceBaseTests
         (await dispose.Should().ThrowAsync<IOException>()).Which.Should().BeSameAs(failure);
         var repeated = () => device.DisposeAsync().AsTask();
         (await repeated.Should().ThrowAsync<IOException>()).Which.Should().BeSameAs(failure);
-        device.Writes.Should().Equal(new DeviceCommand(DeviceSetting.Speed, 0));
+        device.Writes.Should().Equal(new FirmwareCommand(FirmwareSetting.Speed, 0));
         device.Disconnects.Should().Be(1);
     }
 
@@ -1355,7 +1355,7 @@ public sealed class DeviceBaseTests
         var dispose = () => disposal;
 
         (await dispose.Should().ThrowAsync<AggregateException>()).Which.InnerExceptions.Should().Equal(failure, cleanupFailure);
-        device.Writes.Should().Equal(new DeviceCommand(DeviceSetting.Speed, 0));
+        device.Writes.Should().Equal(new FirmwareCommand(FirmwareSetting.Speed, 0));
         device.Disconnects.Should().Be(1);
     }
 }

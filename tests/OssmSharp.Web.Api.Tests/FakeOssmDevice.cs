@@ -14,6 +14,8 @@ internal sealed class FakeOssmDevice : IOssmDevice
 
     public bool IsConnected { get; set; } = true;
 
+    public string DeviceId { get; } = "test-device";
+
     public string? Name { get; set; }
 
     public Exception? ConnectionFailure { get; set; }

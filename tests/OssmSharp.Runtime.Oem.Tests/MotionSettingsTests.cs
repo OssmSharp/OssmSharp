@@ -1,4 +1,5 @@
 using AwesomeAssertions;
+using OssmSharp.Runtime.Oem.Protocol;
 using Xunit;
 
 namespace OssmSharp.Runtime.Oem.Tests;
@@ -22,7 +23,7 @@ public sealed class MotionSettingsTests
         var settings = new MotionSettings(StrokePattern.SimpleStroke, speed, stroke, 100, 100);
 
         Assert.Equal(speed, settings.Speed);
-        Assert.Equal(new DeviceCommand(DeviceSetting.Speed, expectedDeviceVelocityPercent), settings.ToCommands()[^1]);
+        Assert.Equal(new FirmwareCommand(FirmwareSetting.Speed, expectedDeviceVelocityPercent), settings.ToCommands()[^1]);
     }
 
     [Fact]
@@ -31,11 +32,11 @@ public sealed class MotionSettingsTests
         var settings = new MotionSettings(StrokePattern.Insist, 12, 0, 100, 50);
 
         settings.ToCommands().Should().Equal(
-            new DeviceCommand(DeviceSetting.Pattern, 6),
-            new DeviceCommand(DeviceSetting.Stroke, 0),
-            new DeviceCommand(DeviceSetting.Depth, 100),
-            new DeviceCommand(DeviceSetting.Sensation, 50),
-            new DeviceCommand(DeviceSetting.Speed, 0));
+            new FirmwareCommand(FirmwareSetting.Pattern, 6),
+            new FirmwareCommand(FirmwareSetting.Stroke, 0),
+            new FirmwareCommand(FirmwareSetting.Depth, 100),
+            new FirmwareCommand(FirmwareSetting.Sensation, 50),
+            new FirmwareCommand(FirmwareSetting.Speed, 0));
         Assert.Equal(new DeviceState(StrokePattern.Insist, 0, 0, 100, 50), new DeviceState(settings));
         Assert.Null(new DeviceState(settings).Speed);
     }

@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using AwesomeAssertions;
+using OssmSharp.Runtime.Oem.Protocol;
 using Xunit;
 
 namespace OssmSharp.Runtime.Oem.Tests;
@@ -15,7 +16,7 @@ public sealed class RequestTests
         {
             CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("fr-FR");
 
-            var command = new DeviceCommand(DeviceSetting.Speed, 12);
+            var command = new FirmwareCommand(FirmwareSetting.Speed, 12);
             var encoded = Request.Encode(7, "setting.write", "motion.speed", new Dictionary<string, int> { ["value"] = command.Value }, 42);
 
             Encoding.UTF8.GetString(encoded).Should().Be("""{"v":1,"id":7,"op":"setting.write","path":"motion.speed","args":{"value":12},"lease":42}""");
