@@ -16,7 +16,7 @@ public sealed class ServiceKeyAuthenticatorTests : MockerTestBase<ServiceKeyAuth
     protected override Action<Mocker> SetupMocksAction => mocks =>
         mocks.SetupOptions(new ControlServiceOptions
         {
-            AdminWebServiceKey = AdminKey
+            AdminWebServiceKey = AdminKey,
         });
 
     [Theory]

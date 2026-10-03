@@ -36,9 +36,10 @@ public sealed class DeviceBaseTests
             var result = await original;
             Assert.Equal(superseded ? SetStatus.Superseded : SetStatus.Cancelled, result.Status);
             Assert.Equal(4, result.CommandsWritten);
-            Assert.Equal(
-                superseded ? new FirmwareSettings(2, 42, 70, 80, 90)
-                    : new FirmwareSettings(0, null, 30, 40, 50), device.Transmitted);
+            var expected = superseded
+                ? new FirmwareSettings(2, 42, 70, 80, 90)
+                : new FirmwareSettings(0, null, 30, 40, 50);
+            Assert.Equal(expected, device.Transmitted);
         }
         finally
         {
@@ -165,7 +166,7 @@ public sealed class DeviceBaseTests
         Assert.Equal(
             settings.ToCommands().Select(command => command.Setting),
             logger.Entries.Where(entry => entry.Id.Id == 21 && entry.Level == LogLevel.Debug)
-                .Select(entry => (FirmwareSetting)entry.StructuredState.Single(field => field.Key == "Control").Value!));
+                .Select(entry => (FirmwareSetting)entry.StructuredState.Single(field => field.Key == "Setting").Value!));
         Assert.Equal(result.CommandsWritten, logger.Entries.Count(entry => entry.Id.Id == 22 && entry.Level == LogLevel.Debug));
         Assert.DoesNotContain(logger.Entries, entry => entry.Level == LogLevel.Information && entry.Id.Id is 14 or 21 or 22);
     }
@@ -835,14 +836,16 @@ public sealed class DeviceBaseTests
         await using var device = new TestDevice();
         var token = TestContext.Current.CancellationToken;
         await device.ConnectAsync(token);
-        await device.SetAsync(new(0, 20, 0, 0, 0), token);
+        await device.SetAsync(new(0, 20, 100, 0, 0), token);
 
         // The firmware reports speed scaled by its speed knob.
-        device.Observe(new(0, 7, 0, 0, 0));
-        device.Observe(new(0, 13, 0, 0, 0));
+        device.Observe(new(0, 7, 100, 0, 0));
+        device.IsArmed.Should().BeTrue();
+        (await device.GetStateAsync(cancellationToken: token))!.Speed.Should().Be(7);
+        device.Observe(new(0, 13, 100, 0, 0));
 
         device.IsArmed.Should().BeTrue();
-        (await device.GetStateAsync(cancellationToken: token)).Should().Be(new DeviceState(new(0, 13, 0, 0, 0)));
+        (await device.GetStateAsync(cancellationToken: token)).Should().Be(new DeviceState(new(0, 13, 100, 0, 0)));
     }
 
     [Fact]

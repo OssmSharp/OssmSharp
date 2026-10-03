@@ -52,6 +52,6 @@ public sealed class ControlServiceOptionsValidatorTests
         KeepAliveSeconds = 1,
         ClientTimeoutSeconds = 2,
         GuestControlCheckMilliseconds = 100,
-        AdminWebServiceKey = AdminKey
+        AdminWebServiceKey = AdminKey,
     };
 }

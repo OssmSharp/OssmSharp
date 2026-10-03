@@ -709,6 +709,146 @@ dotnet_diagnostic.IDE0290.severity = suggestion
 dotnet_diagnostic.IDE0300.severity = suggestion
 # Assembly paths in single-file apps
 dotnet_diagnostic.IL3000.severity = warning
+# Keywords Must Be Spaced Correctly
+dotnet_diagnostic.SA1000.severity = warning
+# Commas Must Be Spaced Correctly
+dotnet_diagnostic.SA1001.severity = warning
+# Semicolons Must Be Spaced Correctly
+dotnet_diagnostic.SA1002.severity = warning
+# Symbols Must Be Spaced Correctly
+dotnet_diagnostic.SA1003.severity = warning
+# Documentation Lines Must Begin With Single Space
+dotnet_diagnostic.SA1004.severity = warning
+# Single Line Comments Must Begin With Single Space
+dotnet_diagnostic.SA1005.severity = warning
+# Preprocessor Keywords Must Not Be Preceded By Space
+dotnet_diagnostic.SA1006.severity = warning
+# Operator Keyword Must Be Followed By Space
+dotnet_diagnostic.SA1007.severity = warning
+# Opening Parenthesis Must Be Spaced Correctly
+dotnet_diagnostic.SA1008.severity = warning
+# Closing Parenthesis Must Be Spaced Correctly
+dotnet_diagnostic.SA1009.severity = warning
+# Opening Square Brackets Must Be Spaced Correctly
+dotnet_diagnostic.SA1010.severity = warning
+# Closing Square Brackets Must Be Spaced Correctly
+dotnet_diagnostic.SA1011.severity = warning
+# Opening Braces Must Be Spaced Correctly
+dotnet_diagnostic.SA1012.severity = warning
+# Closing Braces Must Be Spaced Correctly
+dotnet_diagnostic.SA1013.severity = warning
+# Opening Generic Brackets Must Be Spaced Correctly
+dotnet_diagnostic.SA1014.severity = warning
+# Closing Generic Brackets Must Be Spaced Correctly
+dotnet_diagnostic.SA1015.severity = warning
+# Opening Attribute Brackets Must Be Spaced Correctly
+dotnet_diagnostic.SA1016.severity = warning
+# Closing Attribute Brackets Must Be Spaced Correctly
+dotnet_diagnostic.SA1017.severity = warning
+# Nullable Type Symbols Must Not Be Preceded By Space
+dotnet_diagnostic.SA1018.severity = warning
+# Member Access Symbols Must Be Spaced Correctly
+dotnet_diagnostic.SA1019.severity = warning
+# Increment Decrement Symbols Must Be Spaced Correctly
+dotnet_diagnostic.SA1020.severity = warning
+# Negative Signs Must Be Spaced Correctly
+dotnet_diagnostic.SA1021.severity = warning
+# Positive Signs Must Be Spaced Correctly
+dotnet_diagnostic.SA1022.severity = warning
+# Dereference And Access Of Must Be Spaced Correctly
+dotnet_diagnostic.SA1023.severity = warning
+# Colons Must Be Spaced Correctly
+dotnet_diagnostic.SA1024.severity = warning
+# Code Must Not Contain Multiple Whitespace In A Row
+dotnet_diagnostic.SA1025.severity = warning
+# Code Must Not Contain Space After New Keyword In Implicitly Typed Array Allocation
+dotnet_diagnostic.SA1026.severity = warning
+# Use Tabs Correctly
+dotnet_diagnostic.SA1027.severity = warning
+# Code Must Not Contain Multiple Statements On One Line
+dotnet_diagnostic.SA1107.severity = warning
+# Closing Parenthesis Must Be On Line Of Last Parameter
+dotnet_diagnostic.SA1111.severity = warning
+# Closing Parenthesis Must Be On Line Of Opening Parenthesis
+dotnet_diagnostic.SA1112.severity = warning
+# Comma Must Be On Same Line As Previous Parameter
+dotnet_diagnostic.SA1113.severity = warning
+# Parameter List Must Follow Declaration
+dotnet_diagnostic.SA1114.severity = warning
+# Parameters Must Be On Same Line Or Separate Lines
+dotnet_diagnostic.SA1117.severity = warning
+# Parameter Must Not Span Multiple Lines
+dotnet_diagnostic.SA1118.severity = warning
+# Statement Must Not Use Unnecessary Parenthesis
+dotnet_diagnostic.SA1119.severity = warning
+# Comments Must Contain Text
+dotnet_diagnostic.SA1120.severity = warning
+# Use Built In Type Alias
+dotnet_diagnostic.SA1121.severity = warning
+# Use String Empty For Empty Strings
+dotnet_diagnostic.SA1122.severity = warning
+# Use Shorthand For Nullable Types
+dotnet_diagnostic.SA1125.severity = warning
+# Generic Type Constraints Must Be On Own Line
+dotnet_diagnostic.SA1127.severity = warning
+# Do Not Combine Fields
+dotnet_diagnostic.SA1132.severity = warning
+# Do Not Combine Attributes
+dotnet_diagnostic.SA1133.severity = warning
+# Attributes Must Not Share Line
+dotnet_diagnostic.SA1134.severity = warning
+# Enum Values Should Be On Separate Lines
+dotnet_diagnostic.SA1136.severity = warning
+# Elements Should Have The Same Indentation
+dotnet_diagnostic.SA1137.severity = warning
+# Use Literals Suffix Notation Instead Of Casting
+dotnet_diagnostic.SA1139.severity = warning
+# Use Tuple Syntax
+dotnet_diagnostic.SA1141.severity = warning
+# Refer To Tuple Elements By Name
+dotnet_diagnostic.SA1142.severity = warning
+# Using Directives Must Be Placed Correctly
+dotnet_diagnostic.SA1200.severity = warning
+# System Using Directives Must Be Placed Before Other Using Directives
+dotnet_diagnostic.SA1208.severity = warning
+# Using Alias Directives Must Be Placed After Other Using Directives
+dotnet_diagnostic.SA1209.severity = warning
+# Using Directives Must Be Ordered Alphabetically By Namespace
+dotnet_diagnostic.SA1210.severity = warning
+# Using Alias Directives Must Be Ordered Alphabetically By Alias Name
+dotnet_diagnostic.SA1211.severity = warning
+# Property Accessors Must Follow Order
+dotnet_diagnostic.SA1212.severity = warning
+# Event Accessors Must Follow Order
+dotnet_diagnostic.SA1213.severity = warning
+# Element Must Begin With Upper Case Letter
+dotnet_diagnostic.SA1300.severity = warning
+# Interface Names Must Begin With I
+dotnet_diagnostic.SA1302.severity = warning
+# Non Private Readonly Fields Must Begin With Upper Case Letter
+dotnet_diagnostic.SA1304.severity = suggestion
+# Field Names Must Begin With Lower Case Letter
+dotnet_diagnostic.SA1306.severity = none
+# Field Names Must Not Begin With Underscore
+dotnet_diagnostic.SA1309.severity = none
+# Field Names Must Not Contain Underscore
+dotnet_diagnostic.SA1310.severity = none
+# Static Readonly Fields Must Begin With Upper Case Letter
+dotnet_diagnostic.SA1311.severity = suggestion
+# Variable Names Must Begin With Lower Case Letter
+dotnet_diagnostic.SA1312.severity = suggestion
+# Parameter Names Must Begin With Lower Case Letter
+dotnet_diagnostic.SA1313.severity = suggestion
+# Tuple Element Names Should Use Correct Casing
+dotnet_diagnostic.SA1316.severity = warning
+# File May Only Contain A Single Type
+dotnet_diagnostic.SA1402.severity = suggestion
+# File May Only Contain A Single Namespace
+dotnet_diagnostic.SA1403.severity = warning
+# Attribute Constructor Must Not Use Unnecessary Parenthesis
+dotnet_diagnostic.SA1411.severity = suggestion
+# Use Trailing Commas In Multi Line Initializers
+dotnet_diagnostic.SA1413.severity = warning
 dotnet_style_coalesce_expression = true:suggestion
 dotnet_style_collection_initializer = true:suggestion
 dotnet_style_null_propagation = true:suggestion

@@ -1,24 +1,79 @@
+using System.Reactive.Disposables;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
-using System.Reflection;
 using System.Text;
 using System.Text.Json.Nodes;
 using AwesomeAssertions;
+using FastMoq;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using Moq;
 using OssmSharp.Runtime.Oem.Protocol;
 using Shiny.BluetoothLE;
 using Xunit;
 
 namespace OssmSharp.Runtime.Oem.Tests;
 
-public sealed class OssmDeviceTests
+public abstract class OssmDeviceTestBase : MockerTestBase<OssmDevice>, IAsyncDisposable
 {
-    private const string Controls = """{"pattern":0,"speed":{0},"stroke":50,"depth":10,"sensation":50,"homed":true}""";
-    private static readonly DeviceState Initial = new(new(0, 0, 50, 10, 50));
+    protected const string Controls = """{"pattern":0,"speed":{0},"stroke":50,"depth":10,"sensation":50,"homed":true}""";
+    protected static readonly DeviceState Initial = new(new(0, 0, 50, 10, 50));
+    private protected BleTestContext context = null!;
 
+    protected override Action<Mocker> SetupMocksAction => mocks =>
+    {
+        context = new(mocks);
+        mocks.AddType<string>("device-1");
+        mocks.AddType<ILogger<DeviceBase>>(context.Logger);
+        mocks.AddType<IOptions<OssmDeviceOptions>>(Options.Create(context.DeviceOptions));
+    };
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await Component.DisposeAsync();
+        }
+        finally
+        {
+            try
+            {
+                context.Dispose();
+            }
+            finally
+            {
+                try
+                {
+                    base.Dispose();
+                }
+                finally
+                {
+                    GC.SuppressFinalize(this);
+                }
+            }
+        }
+    }
+
+    protected static Task WhenConnectionFails(IOssmDevice device)
+    {
+        var failed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        device.StateChanged += (_, _) =>
+        {
+            if (device.ConnectionFailure is not null)
+            {
+                failed.TrySetResult();
+            }
+        };
+        return failed.Task;
+    }
+}
+
+public sealed class OssmDeviceTests : OssmDeviceTestBase
+{
     [Fact]
     public async Task SetupFailureRetainsOwnershipUntilDisconnectAcknowledged()
     {
-        using var context = new BleTestContext { CompleteDisconnect = false };
+        context.CompleteDisconnect = false;
         var failure = new IOException("Connection setup failed after issuance.");
         var nativeState = ConnectionState.Disconnected;
         context.Peripheral.SetupGet(peripheral => peripheral.Status).Returns(() => nativeState);
@@ -28,7 +83,7 @@ public sealed class OssmDeviceTests
             nativeState = ConnectionState.Connecting;
             throw failure;
         });
-        await using var device = context.CreateDevice();
+        var device = Component;
         var connect = device.ConnectAsync(TestContext.Current.CancellationToken);
         try
         {
@@ -52,10 +107,9 @@ public sealed class OssmDeviceTests
     [Fact]
     public async Task ConnectValidatesProtocolLeasesAndStreamsThenArmsWithoutWritingSettings()
     {
-        using var context = new BleTestContext();
         var token = TestContext.Current.CancellationToken;
 
-        await using var device = await context.ConnectAsync(token);
+        var device = await context.ConnectAsync(Component, token);
 
         device.IsArmed.Should().BeTrue();
         device.ConnectionFailure.Should().BeNull();
@@ -70,10 +124,30 @@ public sealed class OssmDeviceTests
     }
 
     [Fact]
+    public async Task ConnectHelperFailurePreservesOriginalErrorAndCallerOwnership()
+    {
+        var failure = new IOException("Protocol read failed.");
+        context.Peripheral.Setup(peripheral => peripheral.ReadCharacteristic(BleProtocolConstants.Service, BleProtocolConstants.ProtocolInfo))
+            .Returns(Observable.Throw<BleCharacteristicResult>(failure));
+
+        var error = await Assert.ThrowsAsync<IOException>(
+            () => context.ConnectAsync(Component, TestContext.Current.CancellationToken));
+
+        Assert.Same(failure, error);
+        Assert.Equal(1, context.DisconnectCalls);
+        Assert.False(Component.IsArmed);
+        Assert.Empty(context.Requests);
+        await Component.DisposeAsync();
+        Assert.False(context.Status.HasObservers);
+        Assert.False(context.ConnectionFailures.HasObservers);
+        Assert.Equal(1, context.DisconnectCalls);
+    }
+
+    [Fact]
     public async Task WaitsForSubscriptionsBeforeIssuingRequests()
     {
-        using var context = new BleTestContext { CompleteSubscription = false };
-        await using var device = context.CreateDevice();
+        context.CompleteSubscription = false;
+        var device = Component;
         var token = TestContext.Current.CancellationToken;
         var connect = device.ConnectAsync(token);
 
@@ -98,8 +172,8 @@ public sealed class OssmDeviceTests
     [InlineData("not json")]
     public async Task UnsupportedProtocolSendsNoRequestsAndReleasesConnection(string info)
     {
-        using var context = new BleTestContext { ProtocolInfo = Encoding.UTF8.GetBytes(info) };
-        await using var device = context.CreateDevice();
+        context.ProtocolInfo = Encoding.UTF8.GetBytes(info);
+        var device = Component;
 
         var connect = () => device.ConnectAsync(TestContext.Current.CancellationToken);
 
@@ -117,9 +191,8 @@ public sealed class OssmDeviceTests
     [InlineData(StrokePattern.SimpleStroke, 0, 100, 0, 0, 0)]
     public async Task SettingsSendLeasedWritesCompletedOnlyByTerminalResponses(StrokePattern pattern, int speed, int stroke, int depth, int sensation, int expectedDeviceVelocityPercent)
     {
-        using var context = new BleTestContext();
         var token = TestContext.Current.CancellationToken;
-        await using var device = await context.ConnectAsync(token);
+        var device = await context.ConnectAsync(Component, token);
         var held = new TaskCompletionSource<JsonObject>(TaskCreationOptions.RunContinuationsAsynchronously);
         context.Write = request =>
         {
@@ -152,9 +225,8 @@ public sealed class OssmDeviceTests
     [Fact]
     public async Task RejectedWritePreservesPartialProgressAndFailureCodeWithoutRetry()
     {
-        using var context = new BleTestContext();
         var token = TestContext.Current.CancellationToken;
-        await using var device = await context.ConnectAsync(token);
+        var device = await context.ConnectAsync(Component, token);
         context.Write = request =>
         {
             if (!BleTestContext.IsMotionWrite(request) || context.RequestsFor("setting.write", "motion.").Count != 2)
@@ -181,9 +253,8 @@ public sealed class OssmDeviceTests
     [Fact]
     public async Task StopSendsLeasedSpeedZeroAndPreservesArming()
     {
-        using var context = new BleTestContext();
         var token = TestContext.Current.CancellationToken;
-        await using var device = await context.ConnectAsync(token);
+        var device = await context.ConnectAsync(Component, token);
 
         await device.EmergencyStopAsync(token);
 
@@ -197,9 +268,8 @@ public sealed class OssmDeviceTests
     [Fact]
     public async Task StopFollowsIssuedTransferAndSkipsQueuedSettingsWithoutWaitingForEarlierResponse()
     {
-        using var context = new BleTestContext();
         var token = TestContext.Current.CancellationToken;
-        await using var device = await context.ConnectAsync(token);
+        var device = await context.ConnectAsync(Component, token);
         using var transfer = new Subject<BleCharacteristicResult>();
         var issued = new TaskCompletionSource<JsonObject>(TaskCreationOptions.RunContinuationsAsynchronously);
         context.Write = request =>
@@ -247,9 +317,8 @@ public sealed class OssmDeviceTests
     [Fact]
     public async Task StopTakesGateBeforeQueuedSettingWhileRenewalResponseIsWithheld()
     {
-        using var context = new BleTestContext();
         var token = TestContext.Current.CancellationToken;
-        await using var device = await context.ConnectAsync(token);
+        var device = await context.ConnectAsync(Component, token);
         using var transfer = new Subject<BleCharacteristicResult>();
         var issued = new TaskCompletionSource<JsonObject>(TaskCreationOptions.RunContinuationsAsynchronously);
         context.Write = request =>
@@ -295,9 +364,8 @@ public sealed class OssmDeviceTests
     [Fact]
     public async Task LiveReadWaitsForTheNextMotionFrame()
     {
-        using var context = new BleTestContext();
         var token = TestContext.Current.CancellationToken;
-        await using var device = await context.ConnectAsync(token);
+        var device = await context.ConnectAsync(Component, token);
 
         var read = device.GetStateAsync(true, token);
 
@@ -314,9 +382,8 @@ public sealed class OssmDeviceTests
     [InlineData("length")]
     public async Task MalformedFrameFailsConnectionAndLiveReadWithoutCachedSuccess(string defect)
     {
-        using var context = new BleTestContext();
         var token = TestContext.Current.CancellationToken;
-        await using var device = await context.ConnectAsync(token);
+        var device = await context.ConnectAsync(Component, token);
         var read = device.GetStateAsync(true, token);
 
         switch (defect)
@@ -354,9 +421,8 @@ public sealed class OssmDeviceTests
     [InlineData("""{"pattern":0,"speed":101,"stroke":50,"depth":10,"sensation":50}""")]
     public async Task InvalidMotionPayloadIsDiscardedAndLiveReadUsesNextObservation(string payload)
     {
-        using var context = new BleTestContext();
         var token = TestContext.Current.CancellationToken;
-        await using var device = await context.ConnectAsync(token);
+        var device = await context.ConnectAsync(Component, token);
         var read = device.GetStateAsync(true, token);
 
         context.Publish(payload);
@@ -372,9 +438,8 @@ public sealed class OssmDeviceTests
     [Fact]
     public async Task FramesFromOtherStreamsAreIgnored()
     {
-        using var context = new BleTestContext();
         var token = TestContext.Current.CancellationToken;
-        await using var device = await context.ConnectAsync(token);
+        var device = await context.ConnectAsync(Component, token);
 
         context.Publish(Controls.Replace("{0}", "99", StringComparison.Ordinal), streamId: 3);
         context.Publish("{", streamId: 3);
@@ -387,7 +452,6 @@ public sealed class OssmDeviceTests
     [Fact]
     public async Task OldConnectionStatusAndFramesCannotChangeNewConnection()
     {
-        using var context = new BleTestContext();
         using var oldStatus = new BehaviorSubject<ConnectionState>(ConnectionState.Disconnected);
         using var newStatus = new BehaviorSubject<ConnectionState>(ConnectionState.Disconnected);
         BehaviorSubject<ConnectionState> currentStatus = oldStatus;
@@ -395,7 +459,7 @@ public sealed class OssmDeviceTests
             .Returns(() => currentStatus);
         using var statusEvents = context.Status.Subscribe(state => currentStatus.OnNext(state));
         var token = TestContext.Current.CancellationToken;
-        await using var device = await context.ConnectAsync(token);
+        var device = await context.ConnectAsync(Component, token);
         await device.DisconnectAsync(token);
 
         oldStatus.HasObservers.Should().BeFalse();
@@ -417,32 +481,44 @@ public sealed class OssmDeviceTests
     [Fact]
     public async Task OldGenerationCallbackAlreadyInFlightCannotFaultReconnectedDevice()
     {
-        using var context = new BleTestContext();
+        var observers = new List<IObserver<BleException>>();
+        var disposed = new HashSet<IObserver<BleException>>();
+        var failures = Mocks.GetOrCreateMock<IObservable<BleException>>().Instance;
+        Mock.Get(failures).Setup(source => source.Subscribe(It.IsAny<IObserver<BleException>>()))
+            .Returns((IObserver<BleException> observer) =>
+            {
+                observers.Add(observer);
+                return Disposable.Create(() => disposed.Add(observer));
+            });
+        context.Peripheral.Setup(peripheral => peripheral.WhenConnectionFailed()).Returns(failures);
         var token = TestContext.Current.CancellationToken;
-        await using var device = await context.ConnectAsync(token);
-        var generation = typeof(OssmDevice).GetField("generation", BindingFlags.Instance | BindingFlags.NonPublic)!;
-        var previous = (long)generation.GetValue(device)!;
+        var device = await context.ConnectAsync(Component, token);
+        var oldObserver = observers[0];
+        var previousCount = observers.Count;
+        Action oldCallback = () => oldObserver.OnError(new IOException("Late old-connection failure."));
 
         await device.DisconnectAsync(token);
+        Assert.Contains(oldObserver, disposed);
         await context.StreamUntilAsync(device.ConnectAsync(token), token);
-        ((long)generation.GetValue(device)!).Should().NotBe(previous);
-
-        var callback = typeof(OssmDevice).GetMethod("ConnectionLost", BindingFlags.Instance | BindingFlags.NonPublic,
-            binder: null, types: [typeof(long), typeof(Exception)], modifiers: null)!;
-        callback.Invoke(device, [previous, new IOException("Late old-connection failure.")]);
+        Assert.True(observers.Count > previousCount);
+        oldCallback();
 
         device.IsArmed.Should().BeTrue();
         device.ConnectionFailure.Should().BeNull();
         (await device.GetStateAsync(cancellationToken: token)).Should().Be(Initial);
         context.DisconnectCalls.Should().Be(1);
+
+        var currentFailure = new IOException("Current connection failure.");
+        observers[previousCount].OnError(currentFailure);
+        Assert.False(device.IsArmed);
+        Assert.Same(currentFailure, device.ConnectionFailure);
     }
 
     [Fact]
     public async Task LiveObservationPreservesFractionalSpeedWithoutDisarming()
     {
-        using var context = new BleTestContext();
         var token = TestContext.Current.CancellationToken;
-        await using var device = await context.ConnectAsync(token);
+        var device = await context.ConnectAsync(Component, token);
         var live = device.GetStateAsync(bypassCache: true, cancellationToken: token);
 
         context.Publish("""{"pattern":0,"speed":12.5,"stroke":50,"depth":10,"sensation":50}""");
@@ -457,9 +533,8 @@ public sealed class OssmDeviceTests
     [Fact]
     public async Task PendingSettingsDoNotDetermineObservedSpeed()
     {
-        using var context = new BleTestContext();
         var token = TestContext.Current.CancellationToken;
-        await using var device = await context.ConnectAsync(token);
+        var device = await context.ConnectAsync(Component, token);
         var held = new TaskCompletionSource<JsonObject>(TaskCreationOptions.RunContinuationsAsynchronously);
         context.Write = request => BleTestContext.IsMotionWrite(request) && held.TrySetResult(request)
             ? Observable.Return(BleTestContext.WriteResult([])) : null;
@@ -489,9 +564,8 @@ public sealed class OssmDeviceTests
     [Fact]
     public async Task AsynchronousObservationUpdatesStateWithoutDisarmingOrIssuingStop()
     {
-        using var context = new BleTestContext();
         var token = TestContext.Current.CancellationToken;
-        await using var device = await context.ConnectAsync(token);
+        var device = await context.ConnectAsync(Component, token);
 
         context.Publish("""{"pattern":0,"speed":0,"stroke":12,"depth":10,"sensation":50,"homed":true}""");
 
@@ -510,13 +584,10 @@ public sealed class OssmDeviceTests
     [Fact]
     public async Task ModeSelectionDoesNotWaitForObservationBeforeWritingSettings()
     {
-        using var context = new BleTestContext
-        {
-            State = "menu.idle",
-            Motion = """{"pattern":0,"speed":0,"stroke":20,"depth":10,"sensation":50,"homed":true}""",
-        };
+        context.State = "menu.idle";
+        context.Motion = """{"pattern":0,"speed":0,"stroke":20,"depth":10,"sensation":50,"homed":true}""";
         var token = TestContext.Current.CancellationToken;
-        await using var device = await context.ConnectAsync(token);
+        var device = await context.ConnectAsync(Component, token);
         context.Write = request =>
         {
             if (BleTestContext.Operation(request) != "target.set")
@@ -558,9 +629,8 @@ public sealed class OssmDeviceTests
     [Fact]
     public async Task SetWaitsForDirectSpeedSetupBeforeSelectingModeOrWritingMotion()
     {
-        using var context = new BleTestContext();
         var token = TestContext.Current.CancellationToken;
-        await using var device = await context.ConnectAsync(token);
+        var device = await context.ConnectAsync(Component, token);
         context.Write = request => request["path"]?.GetValue<string>() == "setting.speedKnobAsLimit"
             ? Observable.Return(BleTestContext.WriteResult([]))
             : null;
@@ -591,9 +661,8 @@ public sealed class OssmDeviceTests
     [Fact]
     public async Task RejectedDirectSpeedSetupDisarmsWithoutSelectingModeOrWritingMotion()
     {
-        using var context = new BleTestContext();
         var token = TestContext.Current.CancellationToken;
-        await using var device = await context.ConnectAsync(token);
+        var device = await context.ConnectAsync(Component, token);
         context.Write = request =>
         {
             if (request["path"]?.GetValue<string>() != "setting.speedKnobAsLimit")
@@ -617,9 +686,8 @@ public sealed class OssmDeviceTests
     [Fact]
     public async Task CancelledDirectSpeedSetupDoesNotWriteMotionAfterLateAcknowledgement()
     {
-        using var context = new BleTestContext();
         var token = TestContext.Current.CancellationToken;
-        await using var device = await context.ConnectAsync(token);
+        var device = await context.ConnectAsync(Component, token);
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(token);
         context.Write = request => request["path"]?.GetValue<string>() == "setting.speedKnobAsLimit"
             ? Observable.Return(BleTestContext.WriteResult([]))
@@ -638,9 +706,8 @@ public sealed class OssmDeviceTests
     [Fact]
     public async Task SetDuringPreflightSendsNoSettings()
     {
-        using var context = new BleTestContext();
         var token = TestContext.Current.CancellationToken;
-        await using var device = await context.ConnectAsync(token);
+        var device = await context.ConnectAsync(Component, token);
         context.State = "strokeEngine.preflight";
 
         await device.Invoking(value => value.SetAsync(new(0, 5, 5, 5, 5), token))
@@ -654,9 +721,8 @@ public sealed class OssmDeviceTests
     [Fact]
     public async Task ObservedOwnWritesKeepRequestArmed()
     {
-        using var context = new BleTestContext();
         var token = TestContext.Current.CancellationToken;
-        await using var device = await context.ConnectAsync(token);
+        var device = await context.ConnectAsync(Component, token);
         await device.SetAsync(new(0, 20, 50, 10, 50), token);
 
         context.Publish(Controls.Replace("{0}", "10", StringComparison.Ordinal));
@@ -665,14 +731,25 @@ public sealed class OssmDeviceTests
         (await device.GetStateAsync(cancellationToken: token)).Should().Be(new DeviceState(new(0, 20, 50, 10, 50)));
     }
 
+}
+
+public sealed class OssmDeviceRequestTests : OssmDeviceTestBase
+{
     [Fact]
     public async Task MalformedResponseIsDiscardedAndRequestIsResentWithItsIdentifier()
     {
-        using var context = new BleTestContext();
         var token = TestContext.Current.CancellationToken;
-        await using var device = await context.ConnectAsync(token);
+        var device = await context.ConnectAsync(Component, token);
         var first = new TaskCompletionSource<JsonObject>(TaskCreationOptions.RunContinuationsAsynchronously);
         var resent = new TaskCompletionSource<JsonObject>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var timerRegistered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        context.TimerCreated = dueTime =>
+        {
+            if (dueTime == context.DeviceOptions.ResponseTimeout)
+            {
+                timerRegistered.TrySetResult();
+            }
+        };
         context.Write = request =>
         {
             if (!BleTestContext.IsMotionWrite(request))
@@ -691,20 +768,35 @@ public sealed class OssmDeviceTests
         };
 
         var set = device.SetAsync(new(StrokePattern.TeasingPounding, 20, 30, 40, 50), token);
-        var original = await first.Task.WaitAsync(token);
-
-        device.ConnectionFailure.Should().BeNull();
-        set.IsCompleted.Should().BeFalse();
-        for (var elapsed = 0; elapsed < 10 && !resent.Task.IsCompleted; elapsed++)
+        try
         {
-            context.Clock.Advance(TimeSpan.FromSeconds(1));
-            await Task.Delay(1, token);
-        }
+            var original = await first.Task.WaitAsync(token);
+            await timerRegistered.Task.WaitAsync(token);
+            device.ConnectionFailure.Should().BeNull();
+            set.IsCompleted.Should().BeFalse();
+            resent.Task.IsCompleted.Should().BeFalse();
 
-        resent.Task.IsCompleted.Should().BeTrue();
-        (await resent.Task)["id"]!.GetValue<uint>().Should().Be(original["id"]!.GetValue<uint>());
-        (await set.WaitAsync(token)).Should().Be(new SetResult(SetStatus.Completed, 5));
-        device.IsArmed.Should().BeTrue();
+            context.Clock.Advance(context.DeviceOptions.ResponseTimeout);
+
+            var retry = await resent.Task.WaitAsync(token);
+            retry["id"]!.GetValue<uint>().Should().Be(original["id"]!.GetValue<uint>());
+            (await set.WaitAsync(token)).Should().Be(new SetResult(SetStatus.Completed, 5));
+            var writes = context.RequestsFor("setting.write", "motion.");
+            writes.Should().HaveCount(6);
+            writes.Count(request => request["id"]!.GetValue<uint>() == original["id"]!.GetValue<uint>()).Should().Be(2);
+            device.IsArmed.Should().BeTrue();
+        }
+        finally
+        {
+            context.TimerCreated = null;
+            context.Write = null;
+            foreach (var request in context.RequestsFor("setting.write", "motion."))
+            {
+                context.Complete(request);
+            }
+
+            await set;
+        }
     }
 
     [Theory]
@@ -714,43 +806,47 @@ public sealed class OssmDeviceTests
     public async Task UnansweredRequestFailsConnectionAfterBoundedResends(int? maximumRequestAttempts, int responseTimeoutMilliseconds)
     {
         var responseTimeout = TimeSpan.FromMilliseconds(responseTimeoutMilliseconds);
-        using var context = new BleTestContext
+        if (maximumRequestAttempts is { } attempts)
         {
-            DeviceOptions = maximumRequestAttempts is { } attempts
-                ? new() { MaximumRequestAttempts = attempts, ResponseTimeout = responseTimeout }
-                : null,
-        };
-        var token = TestContext.Current.CancellationToken;
-        await using var device = await context.ConnectAsync(token);
-        var failed = WhenConnectionFails(device);
-        context.Write = request => BleTestContext.IsMotionWrite(request)
-            ? Observable.Return(BleTestContext.WriteResult([]))
-            : null;
-
-        var set = device.SetAsync(new(StrokePattern.TeasingPounding, 20, 30, 40, 50), token);
-        for (var elapsed = 0; elapsed < 10 && !failed.IsCompleted; elapsed++)
-        {
-            context.Clock.Advance(responseTimeout);
-            await Task.Delay(1, token);
+            context.DeviceOptions.MaximumRequestAttempts = attempts;
+            context.DeviceOptions.ResponseTimeout = responseTimeout;
         }
 
-        context.Write = null;
-        failed.IsCompleted.Should().BeTrue();
-        device.ConnectionFailure.Should().BeOfType<IOException>().Which.Message.Should().Contain("did not answer");
-        device.IsArmed.Should().BeFalse();
-        var writes = context.RequestsFor("setting.write", "motion.");
-        writes.Should().HaveCount(maximumRequestAttempts ?? 3);
-        writes.Select(request => request["id"]!.GetValue<uint>()).Distinct().Should().ContainSingle();
-        var result = () => set;
-        await result.Should().ThrowAsync<DeviceWriteException>();
+        var token = TestContext.Current.CancellationToken;
+        var device = await context.ConnectAsync(Component, token);
+        var failed = WhenConnectionFails(device);
+        var expectedAttempts = maximumRequestAttempts ?? 3;
+        var observations = ObserveRequestAttempts(expectedAttempts, responseTimeout);
+
+        var set = device.SetAsync(new(StrokePattern.TeasingPounding, 20, 30, 40, 50), token);
+        try
+        {
+            await AssertBoundedResendsFailAsync(device, set, failed, observations, expectedAttempts, responseTimeout, token);
+        }
+        finally
+        {
+            context.TimerCreated = null;
+            context.Write = null;
+            foreach (var request in context.RequestsFor("setting.write", "motion."))
+            {
+                context.Complete(request);
+            }
+
+            try
+            {
+                await set;
+            }
+            catch (DeviceWriteException)
+            {
+            }
+        }
     }
 
     [Fact]
     public async Task ResponsesForUnknownRequestsAreIgnored()
     {
-        using var context = new BleTestContext();
         var token = TestContext.Current.CancellationToken;
-        await using var device = await context.ConnectAsync(token);
+        var device = await context.ConnectAsync(Component, token);
 
         context.Respond(new JsonObject { ["id"] = 999u }, "completed");
         context.Respond(new JsonObject { ["id"] = 0u }, "failed", ok: false, code: "invalid_request");
@@ -759,12 +855,86 @@ public sealed class OssmDeviceTests
         device.ConnectionFailure.Should().BeNull();
     }
 
+    private (TaskCompletionSource<JsonObject>[] Transmissions, TaskCompletionSource[] Timers) ObserveRequestAttempts(
+        int expectedAttempts,
+        TimeSpan responseTimeout)
+    {
+        var transmissions = Enumerable.Range(0, expectedAttempts)
+            .Select(_ => new TaskCompletionSource<JsonObject>(TaskCreationOptions.RunContinuationsAsynchronously)).ToArray();
+        var timers = Enumerable.Range(0, expectedAttempts)
+            .Select(_ => new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)).ToArray();
+        var transmissionCount = 0;
+        var timerCount = 0;
+        context.TimerCreated = dueTime =>
+        {
+            if (dueTime == responseTimeout)
+            {
+                var index = Interlocked.Increment(ref timerCount) - 1;
+                if (index < timers.Length)
+                {
+                    timers[index].TrySetResult();
+                }
+            }
+        };
+        context.Write = request =>
+        {
+            if (!BleTestContext.IsMotionWrite(request))
+            {
+                return null;
+            }
+
+            var index = Interlocked.Increment(ref transmissionCount) - 1;
+            if (index < transmissions.Length)
+            {
+                transmissions[index].TrySetResult(request);
+            }
+
+            return Observable.Return(BleTestContext.WriteResult([]));
+        };
+
+        return (transmissions, timers);
+    }
+
+    private async Task AssertBoundedResendsFailAsync(
+        IOssmDevice device,
+        Task<SetResult> set,
+        Task failed,
+        (TaskCompletionSource<JsonObject>[] Transmissions, TaskCompletionSource[] Timers) observations,
+        int expectedAttempts,
+        TimeSpan responseTimeout,
+        CancellationToken cancellationToken)
+    {
+        var original = await observations.Transmissions[0].Task.WaitAsync(cancellationToken);
+        for (var attempt = 0; attempt < expectedAttempts; attempt++)
+        {
+            var request = await observations.Transmissions[attempt].Task.WaitAsync(cancellationToken);
+            await observations.Timers[attempt].Task.WaitAsync(cancellationToken);
+            request["id"]!.GetValue<uint>().Should().Be(original["id"]!.GetValue<uint>());
+            context.RequestsFor("setting.write", "motion.").Should().HaveCount(attempt + 1);
+            device.ConnectionFailure.Should().BeNull();
+            set.IsCompleted.Should().BeFalse();
+
+            context.Clock.Advance(responseTimeout);
+        }
+
+        await failed.WaitAsync(cancellationToken);
+        device.ConnectionFailure.Should().BeOfType<IOException>().Which.Message.Should().Contain("did not answer");
+        device.IsArmed.Should().BeFalse();
+        var writes = context.RequestsFor("setting.write", "motion.");
+        writes.Should().HaveCount(expectedAttempts);
+        writes.Select(request => request["id"]!.GetValue<uint>()).Distinct().Should().ContainSingle();
+        var result = () => set;
+        await result.Should().ThrowAsync<DeviceWriteException>();
+    }
+}
+
+public sealed class OssmDeviceLifecycleTests : OssmDeviceTestBase
+{
     [Fact]
     public async Task RenewsLeaseAtHalfItsReportedLifetime()
     {
-        using var context = new BleTestContext();
         var token = TestContext.Current.CancellationToken;
-        await using var device = await context.ConnectAsync(token);
+        var device = await context.ConnectAsync(Component, token);
         var renewed = new TaskCompletionSource<JsonObject>(TaskCreationOptions.RunContinuationsAsynchronously);
         context.Write = request =>
         {
@@ -789,9 +959,8 @@ public sealed class OssmDeviceTests
     [Fact]
     public async Task RejectedRenewalFailsConnectionWithoutReacquiringTheLease()
     {
-        using var context = new BleTestContext();
         var token = TestContext.Current.CancellationToken;
-        await using var device = await context.ConnectAsync(token);
+        var device = await context.ConnectAsync(Component, token);
         var failed = WhenConnectionFails(device);
         context.Write = request =>
         {
@@ -817,9 +986,8 @@ public sealed class OssmDeviceTests
     [Fact]
     public async Task UnansweredRenewalFailsConnectionAtLeaseExpiry()
     {
-        using var context = new BleTestContext();
         var token = TestContext.Current.CancellationToken;
-        await using var device = await context.ConnectAsync(token);
+        var device = await context.ConnectAsync(Component, token);
         var failed = WhenConnectionFails(device);
         var renewed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         context.Write = request =>
@@ -846,9 +1014,8 @@ public sealed class OssmDeviceTests
     [Fact]
     public async Task DisconnectReleasesLeaseAndReconnectUsesFreshLeaseWithoutReplayingSettings()
     {
-        using var context = new BleTestContext();
         var token = TestContext.Current.CancellationToken;
-        await using var device = await context.ConnectAsync(token);
+        var device = await context.ConnectAsync(Component, token);
         await device.SetAsync(new(StrokePattern.TeasingPounding, 20, 30, 40, 50), token);
 
         await device.DisconnectAsync(token);
@@ -877,9 +1044,8 @@ public sealed class OssmDeviceTests
     [Fact]
     public async Task FailedStopDuringDisconnectStillReleasesLeaseAndAllowsReconnect()
     {
-        using var context = new BleTestContext();
         var token = TestContext.Current.CancellationToken;
-        await using var device = await context.ConnectAsync(token);
+        var device = await context.ConnectAsync(Component, token);
         context.Write = request =>
         {
             if (!BleTestContext.IsMotionWrite(request))
@@ -912,9 +1078,8 @@ public sealed class OssmDeviceTests
     [Fact]
     public async Task ConnectionLossFailsPendingWriteAndClientCanReconnect()
     {
-        using var context = new BleTestContext();
         var token = TestContext.Current.CancellationToken;
-        await using var device = await context.ConnectAsync(token);
+        var device = await context.ConnectAsync(Component, token);
         var issued = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         context.Write = request =>
         {
@@ -951,9 +1116,9 @@ public sealed class OssmDeviceTests
     [Fact]
     public async Task DisposeAwaitsIssuedTransferAndDisconnectAcknowledgement()
     {
-        using var context = new BleTestContext { CompleteDisconnect = false };
+        context.CompleteDisconnect = false;
         var token = TestContext.Current.CancellationToken;
-        var device = await context.ConnectAsync(token);
+        var device = await context.ConnectAsync(Component, token);
         using var transfer = new Subject<BleCharacteristicResult>();
         var issued = new TaskCompletionSource<JsonObject>(TaskCreationOptions.RunContinuationsAsynchronously);
         context.Write = request =>
@@ -1006,8 +1171,7 @@ public sealed class OssmDeviceTests
     [Fact]
     public async Task DisposeSendsLeasedStopBeforeReleasingControl()
     {
-        using var context = new BleTestContext();
-        var device = await context.ConnectAsync(TestContext.Current.CancellationToken);
+        var device = await context.ConnectAsync(Component, TestContext.Current.CancellationToken);
 
         await device.DisposeAsync();
 
@@ -1022,8 +1186,7 @@ public sealed class OssmDeviceTests
     [Fact]
     public async Task DisposeAfterConnectionLossSendsNoStop()
     {
-        using var context = new BleTestContext();
-        var device = await context.ConnectAsync(TestContext.Current.CancellationToken);
+        var device = await context.ConnectAsync(Component, TestContext.Current.CancellationToken);
         context.Status.OnNext(ConnectionState.Disconnected);
 
         await device.DisposeAsync();
@@ -1034,9 +1197,8 @@ public sealed class OssmDeviceTests
     [Fact]
     public async Task UnavailableSelectionDoesNotConnectOrDisconnectAnotherDevice()
     {
-        using var context = new BleTestContext();
         context.Manager.Setup(manager => manager.GetKnownPeripheral("device-1")).Returns((IPeripheral?)null);
-        await using var device = context.CreateDevice();
+        var device = Component;
 
         var connect = () => device.ConnectAsync(TestContext.Current.CancellationToken);
         await connect.Should().ThrowAsync<InvalidOperationException>().WithMessage("*unavailable*");
@@ -1049,8 +1211,8 @@ public sealed class OssmDeviceTests
     [Fact]
     public async Task CancellingSubscriptionSetupDisconnectsBeforeReturning()
     {
-        using var context = new BleTestContext { CompleteSubscription = false };
-        await using var device = context.CreateDevice();
+        context.CompleteSubscription = false;
+        var device = Component;
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         var connect = device.ConnectAsync(cancellation.Token);
 
@@ -1067,9 +1229,8 @@ public sealed class OssmDeviceTests
     [Fact]
     public async Task RejectsSecondOwnerDuringPendingConnection()
     {
-        using var context = new BleTestContext();
         context.Peripheral.Setup(peripheral => peripheral.Connect(Moq.It.IsAny<ConnectionConfig>())).Callback(() => { });
-        await using var first = context.CreateDevice();
+        var first = Component;
         await using var second = context.CreateDevice();
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         var firstConnect = first.ConnectAsync(cancellation.Token);
@@ -1099,8 +1260,8 @@ public sealed class OssmDeviceTests
     [Fact]
     public async Task NegativeSubscriptionAcknowledgementFailsConnectionAndCleansUp()
     {
-        using var context = new BleTestContext { CompleteSubscription = false };
-        await using var device = context.CreateDevice();
+        context.CompleteSubscription = false;
+        var device = Component;
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         var connect = device.ConnectAsync(cancellation.Token);
 
@@ -1126,16 +1287,4 @@ public sealed class OssmDeviceTests
         }
     }
 
-    private static Task WhenConnectionFails(IOssmDevice device)
-    {
-        var failed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        device.StateChanged += (_, _) =>
-        {
-            if (device.ConnectionFailure is not null)
-            {
-                failed.TrySetResult();
-            }
-        };
-        return failed.Task;
-    }
 }

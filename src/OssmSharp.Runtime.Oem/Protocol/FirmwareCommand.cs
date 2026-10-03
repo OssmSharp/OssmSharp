@@ -28,10 +28,10 @@ internal readonly record struct FirmwareCommand
         if (value < 0 || value > maximum
             || (control == FirmwareSetting.Pattern && !MotionSettings.IsValidPattern((StrokePattern)value)))
         {
-            throw new ArgumentOutOfRangeException(nameof(value), value,
-                control == FirmwareSetting.Pattern
-                    ? "Pattern must be a defined stroke pattern."
-                    : "Percentage must be between zero and 100.");
+            var message = control == FirmwareSetting.Pattern
+                ? "Pattern must be a defined stroke pattern."
+                : "Percentage must be between zero and 100.";
+            throw new ArgumentOutOfRangeException(nameof(value), value, message);
         }
 
         Setting = control;

@@ -1,6 +1,7 @@
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using FastMoq;
+using FastMoq.Providers.MoqProvider;
 using Microsoft.Extensions.Time.Testing;
 using Moq;
 using OssmSharp.Runtime.Oem;
@@ -10,9 +11,10 @@ namespace OssmSharp.Cli.Tests;
 
 internal sealed class CommandTestContext : IDisposable
 {
-    public CommandTestContext()
+    public CommandTestContext(Mocker? mocks = null)
     {
-        Manager = Mock.Get(Mocks.GetOrCreateMock<IBleManager>().Instance);
+        Mocks = mocks ?? new Mocker();
+        Manager = Mocks.GetOrCreateMock<IBleManager>().AsMoq();
         Manager.Setup(manager => manager.RequestAccess()).Returns(Observable.Return(AccessState.Available));
         Manager.Setup(manager => manager.Scan(It.IsAny<ScanConfig>()))
             .Returns(() =>
@@ -23,7 +25,7 @@ internal sealed class CommandTestContext : IDisposable
         Discovery = new DeviceDiscovery(Manager.Object, Clock);
     }
 
-    public Mocker Mocks { get; } = new();
+    public Mocker Mocks { get; }
 
     public Mock<IBleManager> Manager { get; }
 
@@ -39,7 +41,7 @@ internal sealed class CommandTestContext : IDisposable
 
     public void Advertise(string identifier, string? name)
     {
-        var peripheral = Mock.Get(Mocks.CreateStandaloneFastMock<IPeripheral>().Instance);
+        var peripheral = Mocks.CreateStandaloneFastMock<IPeripheral>().AsMoq();
         peripheral.SetupGet(device => device.Uuid).Returns(identifier);
         peripheral.SetupGet(device => device.Name).Returns(name);
         ScanResults.OnNext(new(peripheral.Object, -40, Mocks.GetOrCreateMock<IAdvertisementData>().Instance));

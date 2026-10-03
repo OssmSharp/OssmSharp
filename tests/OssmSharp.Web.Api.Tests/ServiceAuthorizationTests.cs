@@ -41,7 +41,7 @@ public sealed class ServiceAuthorizationTests
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         {
             ["Client:ControlOrigin"] = "http://127.0.0.1:5003",
-            ["Client:ServiceKey"] = key
+            ["Client:ServiceKey"] = key,
         }).Build();
         var services = new ServiceCollection();
         services.AddSingleton<IConfiguration>(configuration);

@@ -21,7 +21,7 @@ public static class ControlHubEndpointRouteBuilderExtensions
             options.Transports = HttpTransportType.WebSockets)
             .RequireAuthorization(new AuthorizeAttribute
             {
-                Policy = ControlServicePolicies.Service
+                Policy = ControlServicePolicies.Service,
             });
     }
 }

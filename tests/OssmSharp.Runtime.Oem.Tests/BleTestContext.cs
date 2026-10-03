@@ -24,10 +24,22 @@ internal sealed class BleTestContext : IDisposable
     private readonly Dictionary<string, Subject<BleCharacteristicInfo>> subscribed = [];
     private readonly TaskCompletionSource connectionCancelled = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-    public BleTestContext()
+    public BleTestContext(Mocker? mocks = null)
     {
+        Mocks = mocks ?? new Mocker();
         Manager = Mock.Get(Mocks.GetOrCreateMock<IBleManager>().Instance);
         Peripheral = Mock.Get(Mocks.GetOrCreateMock<IPeripheral>().Instance);
+        var timeProvider = Mock.Get(Mocks.GetOrCreateMock<TimeProvider>().Instance);
+        timeProvider.Setup(provider => provider.GetUtcNow()).Returns(() => Clock.GetUtcNow());
+        timeProvider.Setup(provider => provider.GetTimestamp()).Returns(() => Clock.GetTimestamp());
+        timeProvider.SetupGet(provider => provider.TimestampFrequency).Returns(() => Clock.TimestampFrequency);
+        timeProvider.Setup(provider => provider.CreateTimer(It.IsAny<TimerCallback>(), It.IsAny<object?>(), It.IsAny<TimeSpan>(), It.IsAny<TimeSpan>()))
+            .Returns((TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period) =>
+            {
+                var timer = Clock.CreateTimer(callback, state, dueTime, period);
+                TimerCreated?.Invoke(dueTime);
+                return timer;
+            });
         Manager.Setup(manager => manager.RequestAccess()).Returns(Observable.Return(AccessState.Available));
         Manager.Setup(manager => manager.GetKnownPeripheral("device-1")).Returns(Peripheral.Object);
         Manager.Setup(manager => manager.Scan(It.IsAny<ScanConfig>())).Returns((ScanConfig config) =>
@@ -57,7 +69,7 @@ internal sealed class BleTestContext : IDisposable
         SetupRadProtocol();
     }
 
-    public Mocker Mocks { get; } = new();
+    public Mocker Mocks { get; }
 
     public Mock<IBleManager> Manager { get; }
 
@@ -65,7 +77,9 @@ internal sealed class BleTestContext : IDisposable
 
     public FakeTimeProvider Clock { get; } = new();
 
-    public OssmDeviceOptions? DeviceOptions { get; set; }
+    public OssmDeviceOptions DeviceOptions { get; } = new();
+
+    public Action<TimeSpan>? TimerCreated { get; set; }
 
     public ILogger<DeviceBase> Logger { get; set; } = NullLogger<DeviceBase>.Instance;
 
@@ -124,9 +138,7 @@ internal sealed class BleTestContext : IDisposable
     public static bool IsMotionWrite(JsonObject request) => Operation(request) == "setting.write"
         && request["path"]!.GetValue<string>().StartsWith("motion.", StringComparison.Ordinal);
 
-    public OssmDevice CreateDevice() => DeviceOptions is null
-        ? new(Manager.Object, "device-1", Clock, Logger)
-        : new(Manager.Object, "device-1", Clock, Logger, Options.Create(DeviceOptions));
+    public OssmDevice CreateDevice() => new(Manager.Object, "device-1", Mocks.GetRequiredObject<TimeProvider>(), Logger, Options.Create(DeviceOptions));
 
     public List<JsonObject> RequestsFor(string operation, string? pathPrefix = null)
     {
@@ -194,7 +206,7 @@ internal sealed class BleTestContext : IDisposable
                 Publish(Motion, streamId: MotionStreamId);
             }
 
-            await Task.WhenAny(operation, Task.Delay(5, cancellationToken));
+            await await Task.WhenAny(operation, Task.Delay(5, cancellationToken));
         }
 
         await operation;
@@ -206,9 +218,8 @@ internal sealed class BleTestContext : IDisposable
         return await operation;
     }
 
-    public async Task<OssmDevice> ConnectAsync(CancellationToken cancellationToken)
+    public async Task<OssmDevice> ConnectAsync(OssmDevice device, CancellationToken cancellationToken)
     {
-        var device = CreateDevice();
         await StreamUntilAsync(device.ConnectAsync(cancellationToken), cancellationToken);
         return device;
     }

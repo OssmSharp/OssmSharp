@@ -21,10 +21,14 @@ public partial class Join
     private bool _disposed;
     private GuestDisplayState _display = new(new(0, 0, 10, 20, 50), null, "Choose settings, then Send.", null);
 
-    [Inject] private GuestControlClient Client { get; set; } = null!;
-    [Inject] private IJSRuntime JavaScript { get; set; } = null!;
-    [Inject] private TimeProvider Time { get; set; } = null!;
-    [Inject] private ILogger<Join> Logger { get; set; } = null!;
+    [Inject]
+    private GuestControlClient Client { get; set; } = null!;
+    [Inject]
+    private IJSRuntime JavaScript { get; set; } = null!;
+    [Inject]
+    private TimeProvider Time { get; set; } = null!;
+    [Inject]
+    private ILogger<Join> Logger { get; set; } = null!;
 
     private bool Ready => !_disposed && !_leaving && !_connectionLost && _joined && _status is
     {
@@ -37,12 +41,12 @@ public partial class Join
     {
         { Joined: false } => "Session ended.",
         { Joined: true } => "Waiting for the user to allow control.",
-        _ => "Opening invite..."
+        _ => "Opening invite...",
     };
     private string SessionMessageVariant => _status switch
     {
         { Joined: true } => "warning",
-        _ => "danger"
+        _ => "danger",
     };
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -158,7 +162,7 @@ public partial class Join
     {
         joined = _joined,
         ready = Ready,
-        current = _status?.Device is { } device ? new { speed = DeviceSpeed, stroke = device.Stroke, depth = device.Depth } : null
+        current = _status?.Device is { } device ? new { speed = DeviceSpeed, stroke = device.Stroke, depth = device.Depth } : null,
     });
 
     private async Task BrowserCallAsync(string methodIdentifier, params object?[] arguments)

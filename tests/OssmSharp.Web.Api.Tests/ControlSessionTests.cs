@@ -11,7 +11,7 @@ using Xunit;
 
 namespace OssmSharp.Web.Api.Tests;
 
-public sealed class ControlSessionTests : MockerTestBase<ControlSession>
+public sealed class ControlSessionTests : MockerTestBase<ControlSession>, IAsyncDisposable
 {
     private FakeOssmDevice? _device;
     private FakeTimeProvider? _timeProvider;
@@ -28,6 +28,20 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>
     private FakeOssmDevice Device => _device ?? throw new InvalidOperationException("Test device is not initialized.");
 
     private FakeTimeProvider TimeProvider => _timeProvider ?? throw new InvalidOperationException("Test clock is not initialized.");
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await Component.DisposeAsync();
+        }
+        finally
+        {
+            base.Dispose();
+        }
+
+        Assert.Equal(1, Device.Disposals);
+    }
 
     [Fact]
     public async Task AllowControlRearmsOnlyWhenRequiredWithoutSendingSettings()
@@ -76,6 +90,7 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>
         finally
         {
             Device.PendingReset.TrySetResult();
+            await allow;
         }
 
         Assert.False((await allow).Accepted);
@@ -131,13 +146,21 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>
         Assert.Null(initial.Device.TransmittedSettings);
         Device.PendingConnect = new(TaskCreationOptions.RunContinuationsAsynchronously);
         var connect = Component.ConnectAsync("connect-1", TestContext.Current.CancellationToken);
-        var connecting = await Component.GetUserStateAsync(TestContext.Current.CancellationToken);
-        Assert.True(connecting.Device!.IsConnecting);
-        Assert.Null(connecting.Device.ConnectedAt);
-        Assert.Null(connecting.Device.TransmittedSettings);
-        Device.IsConnected = true;
-        Device.PendingConnect.SetResult();
-        Assert.True((await connect).Accepted);
+        try
+        {
+            var connecting = await Component.GetUserStateAsync(TestContext.Current.CancellationToken);
+            Assert.True(connecting.Device!.IsConnecting);
+            Assert.Null(connecting.Device.ConnectedAt);
+            Assert.Null(connecting.Device.TransmittedSettings);
+            Device.IsConnected = true;
+            Device.PendingConnect.SetResult();
+            Assert.True((await connect).Accepted);
+        }
+        finally
+        {
+            Device.PendingConnect.TrySetResult();
+            await connect;
+        }
         var connectedAt = TimeProvider.GetUtcNow();
         TimeProvider.Advance(TimeSpan.FromMinutes(1));
         Device.State = new(new(0, 80, 70, 60, 50));
@@ -196,6 +219,7 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>
         finally
         {
             Device.PendingReset.TrySetResult();
+            await submit;
         }
 
         var result = await submit;
@@ -280,6 +304,7 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>
         finally
         {
             Device.PendingSet.TrySetException(new DeviceWriteException(2, new IOException("Write failed.")));
+            await request;
         }
 
         var response = await request;
@@ -409,13 +434,21 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>
             new("set-1", 0, 10, 20, 30, 40),
             TestContext.Current.CancellationToken);
 
-        var stop = await Component.StopGuestAsync("guest-1", "stop-1");
+        try
+        {
+            var stop = await Component.StopGuestAsync("guest-1", "stop-1");
 
-        stop.Accepted.Should().BeTrue();
-        Device.Stops.Should().Be(1);
-        request.IsCompleted.Should().BeFalse();
-        Device.PendingSet.SetResult(new(SetStatus.Superseded, 0));
-        (await request).Status.Should().Be(SettingsResponseStatus.Superseded);
+            stop.Accepted.Should().BeTrue();
+            Device.Stops.Should().Be(1);
+            request.IsCompleted.Should().BeFalse();
+            Device.PendingSet.SetResult(new(SetStatus.Superseded, 0));
+            (await request).Status.Should().Be(SettingsResponseStatus.Superseded);
+        }
+        finally
+        {
+            Device.PendingSet.TrySetResult(new(SetStatus.Superseded, 0));
+            await request;
+        }
     }
 
     [Fact]
@@ -615,13 +648,21 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>
             TestContext.Current.CancellationToken)).Invitation;
 
         var leave = Component.LeaveGuestAsync("guest-1", "leave-1");
-        var replacement = JoinGuest("guest-2", new("join-2", replacementInvitation.Token));
+        try
+        {
+            var replacement = JoinGuest("guest-2", new("join-2", replacementInvitation.Token));
 
-        leave.IsCompleted.Should().BeFalse();
-        replacement.Should().Be(new ControlResponse("join-2", "guest-already-joined", false));
-        Device.PendingStop.SetResult();
-        (await leave).Accepted.Should().BeTrue();
-        JoinGuest("guest-2", new("join-3", replacementInvitation.Token)).Accepted.Should().BeTrue();
+            leave.IsCompleted.Should().BeFalse();
+            replacement.Should().Be(new ControlResponse("join-2", "guest-already-joined", false));
+            Device.PendingStop.SetResult();
+            (await leave).Accepted.Should().BeTrue();
+            JoinGuest("guest-2", new("join-3", replacementInvitation.Token)).Accepted.Should().BeTrue();
+        }
+        finally
+        {
+            Device.PendingStop.TrySetResult();
+            await leave;
+        }
     }
 
     [Fact]
@@ -782,30 +823,35 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>
         Device.StopException = new IOException("connection lost");
         Assert.False((await Component.LeaveGuestAsync("guest-1", "leave-1")).Accepted);
         var firstAttempt = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondAttempt = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task<ControlResponse>? secondConnect = null;
         Device.PendingConnect = firstAttempt;
         var firstConnect = Component.ConnectAsync("connect-1", TestContext.Current.CancellationToken);
-        Device.PendingConnect = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        var secondConnect = Component.ConnectAsync("connect-2", TestContext.Current.CancellationToken);
-        firstAttempt.SetException(new IOException("setup failed"));
-        Assert.Equal(new ControlResponse("connect-1", "device-io-failed", false), await firstConnect);
-
         try
         {
+            Device.PendingConnect = secondAttempt;
+            secondConnect = Component.ConnectAsync("connect-2", TestContext.Current.CancellationToken);
+            firstAttempt.SetException(new IOException("setup failed"));
+            Assert.Equal(new ControlResponse("connect-1", "device-io-failed", false), await firstConnect);
+
             await Component.ExpireGuestAsync();
             Assert.False(Device.PendingConnect.Task.IsCanceled);
             Assert.False(secondConnect.IsCompleted);
             Assert.Equal(1, Device.Stops);
+
+            Device.StopException = null;
+            secondAttempt.SetResult();
+            Assert.Equal(new ControlResponse("connect-2", "connected", true), await secondConnect);
+            Assert.Equal(2, Device.Stops);
+            Assert.False((await Component.GetUserStateAsync(TestContext.Current.CancellationToken)).GuestJoined);
         }
         finally
         {
             Device.StopException = null;
-            Device.PendingConnect.TrySetResult();
-            await secondConnect;
+            firstAttempt.TrySetResult();
+            secondAttempt.TrySetResult();
+            await Task.WhenAll(firstConnect, (Task?)secondConnect ?? Task.CompletedTask);
         }
-
-        Assert.Equal(new ControlResponse("connect-2", "connected", true), await secondConnect);
-        Assert.Equal(2, Device.Stops);
-        Assert.False((await Component.GetUserStateAsync(TestContext.Current.CancellationToken)).GuestJoined);
     }
 
     [Fact]
@@ -815,22 +861,37 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>
         Device.PendingStop = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         var stop = Component.StopGuestAsync("guest-1", "stop-1");
-        var requestTask = Component.SubmitAsync(
-            "guest-1",
-            new("set-1", 0, 10, 20, 30, 40),
-            TestContext.Current.CancellationToken);
-
-        requestTask.IsCompleted.Should().BeTrue();
-        var request = await requestTask;
-        request.Should().Be(new SettingsResponse(
-            "set-1",
-            SettingsResponseStatus.Rejected,
-            0,
-            "device-not-ready"));
-        Device.Sets.Should().Be(0);
-        Device.PendingStop.SetResult();
-        (await stop).Accepted.Should().BeTrue();
-        Assert.True((await Component.GetGuestStateAsync("guest-1", TestContext.Current.CancellationToken)).ControlAllowed);
+        try
+        {
+            var requestTask = Component.SubmitAsync(
+                "guest-1",
+                new("set-1", 0, 10, 20, 30, 40),
+                TestContext.Current.CancellationToken);
+            try
+            {
+                requestTask.IsCompleted.Should().BeTrue();
+                var request = await requestTask;
+                request.Should().Be(new SettingsResponse(
+                    "set-1",
+                    SettingsResponseStatus.Rejected,
+                    0,
+                    "device-not-ready"));
+                Device.Sets.Should().Be(0);
+                Device.PendingStop.SetResult();
+                (await stop).Accepted.Should().BeTrue();
+                Assert.True((await Component.GetGuestStateAsync("guest-1", TestContext.Current.CancellationToken)).ControlAllowed);
+            }
+            finally
+            {
+                Device.PendingStop.TrySetResult();
+                await requestTask;
+            }
+        }
+        finally
+        {
+            Device.PendingStop.TrySetResult();
+            await stop;
+        }
     }
 
     [Fact]
@@ -870,7 +931,7 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>
         "cancelled" => new OperationCanceledException(),
         "device-io-failed" => new IOException("connection failed"),
         "device-not-ready" => new InvalidOperationException("not connected"),
-        _ => throw new ArgumentOutOfRangeException(nameof(code))
+        _ => throw new ArgumentOutOfRangeException(nameof(code)),
     };
 
     private async Task<GuestInvitation> JoinAndAllowAsync(string connectionId)

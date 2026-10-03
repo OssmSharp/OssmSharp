@@ -38,7 +38,9 @@ public sealed class InvitationAuthenticationHandler(
 
         var identity = new ClaimsIdentity(
             [new Claim(ClaimTypes.NameIdentifier, invitationId), new Claim(ClaimTypes.Role, ControlServiceRoles.GuestWeb)],
-            Scheme.Name, ClaimTypes.Name, ClaimTypes.Role);
+            Scheme.Name,
+            ClaimTypes.Name,
+            ClaimTypes.Role);
         var ticket = new AuthenticationTicket(new ClaimsPrincipal(identity), Scheme.Name);
         return Task.FromResult(AuthenticateResult.Success(ticket));
     }

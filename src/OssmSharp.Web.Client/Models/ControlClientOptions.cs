@@ -9,13 +9,13 @@ public sealed class ControlClientOptions : IValidatableObject
     /// Gets or sets the path-free origin of the trusted control service.
     /// </summary>
     [Required]
-    public string ControlOrigin { get; set; } = "";
+    public string ControlOrigin { get; set; } = string.Empty;
 
     /// <summary>
     /// Gets or sets the administrator service key. Guest clients reject a configured key.
     /// </summary>
     [RegularExpression(@"\A[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]\z")]
-    public string ServiceKey { get; set; } = "";
+    public string ServiceKey { get; set; } = string.Empty;
 
     /// <summary>
     /// Gets or sets the connection keep-alive interval in seconds.

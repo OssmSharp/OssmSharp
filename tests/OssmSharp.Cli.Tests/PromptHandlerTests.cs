@@ -36,9 +36,9 @@ public sealed class PromptHandlerTests : MockerTestBase<object>, IAsyncDisposabl
             .ReturnsAsync(new DeviceState(new MotionSettings(0, 0, 0, 0, 0)));
     };
 
-            private new PromptHandler Component => (PromptHandler)base.Component;
+    private new PromptHandler Component => (PromptHandler)base.Component;
 
-            private Mock<IOssmDevice> Device => Mock.Get(Mocks.GetOrCreateMock<IOssmDevice>().Instance);
+    private Mock<IOssmDevice> Device => Mock.Get(Mocks.GetOrCreateMock<IOssmDevice>().Instance);
 
     public ValueTask DisposeAsync()
     {

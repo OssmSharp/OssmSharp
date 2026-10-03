@@ -1,51 +1,59 @@
+using FastMoq;
+using FastMoq.Extensions;
+using FastMoq.Providers;
 using Microsoft.Extensions.Hosting;
-using Moq;
 using Xunit;
 
 namespace OssmSharp.Cli.Tests;
 
-public sealed class CommandHostLifetimeTests
+public sealed class CommandHostLifetimeTests : MockerTestBase<object>
 {
+    protected override Action<Mocker> SetupMocksAction => mocks =>
+        mocks.AddType<PromptInterruptState>(new PromptInterruptState());
+
+    protected override Func<Mocker, object> CreateComponentAction => mocks => new CommandHostLifetime(
+        mocks.GetOrCreateMock<IHostApplicationLifetime>().Instance,
+        mocks.GetRequiredObject<PromptInterruptState>());
+
+    private new CommandHostLifetime Component => (CommandHostLifetime)base.Component;
+
     [Fact]
     public void InterruptStopsApplicationOutsideCommandExecution()
     {
-        var applicationLifetime = new Mock<IHostApplicationLifetime>();
-        using var lifetime = new CommandHostLifetime(applicationLifetime.Object, new PromptInterruptState());
+        using var lifetime = Component;
 
         lifetime.Interrupt();
 
-        applicationLifetime.Verify(lifetime => lifetime.StopApplication(), Times.Once);
+        Mocks.Verify<IHostApplicationLifetime>(application => application.StopApplication(), TimesSpec.Once);
     }
 
     [Fact]
     public void InterruptLeavesActiveCommandCancellationToPrompt()
     {
-        var applicationLifetime = new Mock<IHostApplicationLifetime>();
-        var interruptState = new PromptInterruptState();
-        using var lifetime = new CommandHostLifetime(applicationLifetime.Object, interruptState);
+        var interruptState = Mocks.GetRequiredObject<PromptInterruptState>();
+        using var lifetime = Component;
         interruptState.BeginCommand();
 
         lifetime.Interrupt();
 
-        applicationLifetime.Verify(lifetime => lifetime.StopApplication(), Times.Never);
+        Mocks.Verify<IHostApplicationLifetime>(application => application.StopApplication(), TimesSpec.NeverCalled);
 
         interruptState.EndCommand();
         lifetime.Interrupt();
 
-        applicationLifetime.Verify(lifetime => lifetime.StopApplication(), Times.Once);
+        Mocks.Verify<IHostApplicationLifetime>(application => application.StopApplication(), TimesSpec.Once);
     }
 
     [Fact]
     public void InterruptStopsApplicationAfterTrackedCommandCompletes()
     {
-        var applicationLifetime = new Mock<IHostApplicationLifetime>();
-        var interruptState = new PromptInterruptState();
-        using var lifetime = new CommandHostLifetime(applicationLifetime.Object, interruptState);
+        var interruptState = Mocks.GetRequiredObject<PromptInterruptState>();
+        using var lifetime = Component;
         interruptState.BeginCommand();
         interruptState.TrackCommand(Task.CompletedTask);
 
         lifetime.Interrupt();
 
-        applicationLifetime.Verify(application => application.StopApplication(), Times.Once);
+        Mocks.Verify<IHostApplicationLifetime>(application => application.StopApplication(), TimesSpec.Once);
     }
 }

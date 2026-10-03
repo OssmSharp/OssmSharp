@@ -279,15 +279,16 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
         try
         {
             var result = await operation!.ConfigureAwait(false);
+            var status = result.Status switch
+            {
+                SetStatus.Completed => SettingsResponseStatus.Completed,
+                SetStatus.Superseded => SettingsResponseStatus.Superseded,
+                SetStatus.Cancelled => SettingsResponseStatus.Cancelled,
+                _ => throw new UnreachableException(),
+            };
             return new(
                 request.Correlation,
-                result.Status switch
-                {
-                    SetStatus.Completed => SettingsResponseStatus.Completed,
-                    SetStatus.Superseded => SettingsResponseStatus.Superseded,
-                    SetStatus.Cancelled => SettingsResponseStatus.Cancelled,
-                    _ => throw new UnreachableException()
-                },
+                status,
                 result.CommandsWritten);
         }
         catch (DeviceWriteException exception)

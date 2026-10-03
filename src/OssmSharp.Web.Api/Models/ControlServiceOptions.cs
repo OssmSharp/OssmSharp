@@ -25,7 +25,8 @@ public sealed class ControlServiceOptions : IValidatableObject
     public int GuestControlCheckMilliseconds { get; set; } = 100;
 
     /// <summary>Gets or sets the user-facing server's private service key.</summary>
-    [Required, RegularExpression(@"\A[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]\z")]
+    [Required]
+    [RegularExpression(@"\A[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]\z")]
     public string AdminWebServiceKey { get; set; } = string.Empty;
 
     /// <inheritdoc />

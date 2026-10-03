@@ -1,6 +1,5 @@
 using System.ComponentModel.DataAnnotations;
 using System.Net;
-using System.Net.Sockets;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
@@ -14,6 +13,8 @@ namespace OssmSharp.Web.Api.Tests;
 
 public sealed class GuestAccessPolicyTests
 {
+    private const string LocalOrigin = "http://127.0.0.1:5001";
+
     [Theory]
     [InlineData("", true)]
     [InlineData("https://guest.example", true)]
@@ -40,7 +41,7 @@ public sealed class GuestAccessPolicyTests
         builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
         {
             ["OSSM:Guest:GuestPort"] = "5001",
-            [key] = value
+            [key] = value,
         });
         builder.Services.AddGuestConfiguration();
         using var provider = builder.Services.BuildServiceProvider();
@@ -71,9 +72,9 @@ public sealed class GuestAccessPolicyTests
         await using var app = await StartAccessPolicyAsync("https://guest.example");
         using var http = new HttpClient();
         using var request = new HttpRequestMessage(new HttpMethod(method), app.Urls.Single() + "/test");
-        request.Headers.Host = host == "local" ? new Uri(app.Urls.Single()).Authority : host;
+        request.Headers.Host = host == "local" ? new Uri(LocalOrigin).Authority : host;
         if (origin is not null)
-            request.Headers.TryAddWithoutValidation("Origin", origin == "local" ? app.Urls.Single() : origin);
+            request.Headers.TryAddWithoutValidation("Origin", origin == "local" ? LocalOrigin : origin);
         if (protocol is not null)
             request.Headers.Add("X-Forwarded-Proto", protocol);
         request.Headers.Add("X-Forwarded-Host", "guest.example");
@@ -89,7 +90,8 @@ public sealed class GuestAccessPolicyTests
             Assert.Equal("DENY", response.Headers.GetValues("X-Frame-Options").Single());
             Assert.Contains(
                 host == "local" ? $"ws://{request.Headers.Host}" : "wss://guest.example",
-                response.Headers.GetValues("Content-Security-Policy").Single(), StringComparison.Ordinal);
+                response.Headers.GetValues("Content-Security-Policy").Single(),
+                StringComparison.Ordinal);
         }
     }
 
@@ -97,7 +99,7 @@ public sealed class GuestAccessPolicyTests
     [Trait("Category", "Integration")]
     public async Task LocalOnlyModeRejectsPublicHostEvenWithForwardedHeaders()
     {
-        await using var app = await StartAccessPolicyAsync("");
+        await using var app = await StartAccessPolicyAsync(string.Empty);
         using var http = new HttpClient();
         using var request = new HttpRequestMessage(HttpMethod.Get, app.Urls.Single() + "/test");
         request.Headers.Host = "guest.example";
@@ -108,16 +110,12 @@ public sealed class GuestAccessPolicyTests
 
     private static async Task<WebApplication> StartAccessPolicyAsync(string publicOrigin)
     {
-        using var reservation = new TcpListener(IPAddress.Loopback, 0);
-        reservation.Start();
-        var port = ((IPEndPoint)reservation.LocalEndpoint).Port;
-        reservation.Stop();
         var builder = WebApplication.CreateBuilder();
         builder.Configuration["AllowedHosts"] = "*";
         builder.Logging.ClearProviders();
         builder.Services.AddProblemDetails();
         var app = builder.Build();
-        app.Urls.Add($"http://127.0.0.1:{port}");
+        app.Urls.Add("http://127.0.0.1:0");
         app.Use(async (context, next) =>
         {
             if (context.Request.Headers["X-Test-Peer"].FirstOrDefault() is { } peer)
@@ -125,7 +123,7 @@ public sealed class GuestAccessPolicyTests
             await next(context);
         });
         app.UseWebSockets();
-        app.UseGuestAccessPolicy(new() { GuestPort = port, Hostname = publicOrigin });
+        app.UseGuestAccessPolicy(new() { GuestPort = 5001, Hostname = publicOrigin });
         app.MapMethods("/test", ["GET", "POST"], () => Results.Ok());
         try
         {

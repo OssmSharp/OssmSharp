@@ -8,13 +8,14 @@ namespace OssmSharp.Cli.Tests;
 
 public sealed class ListCommandTests : MockerTestBase<ListCommand>, IAsyncDisposable
 {
-    private readonly CommandTestContext context = new();
     private readonly StringWriter output = new();
     private readonly StringWriter error = new();
     private readonly RecordingLogger<ListCommand> logger = new();
+    private CommandTestContext context = null!;
 
     protected override Action<Mocker> SetupMocksAction => mocks =>
     {
+        context = new CommandTestContext(mocks);
         mocks.AddType(context.Discovery);
         mocks.AddKeyedType<TextWriter>("output", output);
         mocks.AddKeyedType<TextWriter>("error", error);

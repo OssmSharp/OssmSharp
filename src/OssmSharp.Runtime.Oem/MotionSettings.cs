@@ -71,8 +71,8 @@ public sealed record MotionSettings
     internal int DesiredDeviceVelocityPercent => Speed * Stroke / 100;
 
     internal FirmwareCommand[] ToCommands() =>
-    [
-        new(FirmwareSetting.Pattern, (int)Pattern),
+        [
+            new(FirmwareSetting.Pattern, (int)Pattern),
         new(FirmwareSetting.Stroke, Stroke),
         new(FirmwareSetting.Depth, Depth),
         new(FirmwareSetting.Sensation, Sensation),

@@ -27,7 +27,8 @@ public static class BuilderExtensions
     /// </summary>
     /// <param name="builder">The application host builder.</param>
     /// <returns>The configured host builder.</returns>
-    public static TBuilder AddServiceDefaults<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
+    public static TBuilder AddServiceDefaults<TBuilder>(this TBuilder builder)
+        where TBuilder : IHostApplicationBuilder
     {
         var telemetry = builder.Services.AddOpenTelemetry()
             .WithMetrics(metrics => metrics.AddAspNetCoreInstrumentation())
@@ -38,8 +39,7 @@ public static class BuilderExtensions
                         // Exclude health-check requests from traces.
                         tracing.Filter = context =>
                             !context.Request.Path.StartsWithSegments(HealthEndpointPath)
-                            && !context.Request.Path.StartsWithSegments(AlivenessEndpointPath)
-                    );
+                            && !context.Request.Path.StartsWithSegments(AlivenessEndpointPath));
             });
 
         if (!string.IsNullOrWhiteSpace(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]))
@@ -55,7 +55,8 @@ public static class BuilderExtensions
     /// </summary>
     /// <param name="builder">The application host builder.</param>
     /// <returns>The configured host builder.</returns>
-    public static TBuilder AddDefaultHealthChecks<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
+    public static TBuilder AddDefaultHealthChecks<TBuilder>(this TBuilder builder)
+        where TBuilder : IHostApplicationBuilder
     {
         builder.Services.AddHealthChecks()
             // Report the app live when it can respond to health checks.
@@ -81,7 +82,7 @@ public static class BuilderExtensions
             // Liveness requires health checks tagged "live" to pass.
             app.MapHealthChecks(AlivenessEndpointPath, new HealthCheckOptions
             {
-                Predicate = r => r.Tags.Contains("live")
+                Predicate = r => r.Tags.Contains("live"),
             });
         }
 
@@ -116,7 +117,7 @@ public static class BuilderExtensions
             var forwarded = new ForwardedHeadersOptions
             {
                 ForwardedHeaders = ForwardedHeaders.XForwardedProto,
-                ForwardLimit = 1
+                ForwardLimit = 1,
             };
             forwarded.KnownIPNetworks.Clear();
             forwarded.KnownProxies.Clear();

@@ -15,7 +15,7 @@ public sealed record DeviceState
     /// <param name="settings">The requested controls; firmware velocity is rounded down to floor(Speed * Stroke / 100).</param>
     /// <exception cref="ArgumentNullException"><paramref name="settings"/> is null.</exception>
     public DeviceState(MotionSettings settings)
-        : this((settings ?? throw new ArgumentNullException(nameof(settings))).Pattern, settings.DesiredDeviceVelocityPercent, settings.Stroke, settings.Depth, settings.Sensation)
+            : this((settings ?? throw new ArgumentNullException(nameof(settings))).Pattern, settings.DesiredDeviceVelocityPercent, settings.Stroke, settings.Depth, settings.Sensation)
     {
     }
 
@@ -101,7 +101,7 @@ public sealed record DeviceState
     /// calculating <see cref="Speed"/> from the stroke in the same payload; zero stroke gives null.
     /// </remarks>
     public static bool TryFromBytes(byte[]? data, [NotNullWhen(true)] out DeviceState? state, out IReadOnlyList<ValidationResult> errors)
-        => TryFromBytes(data.AsMemory(), out state, out errors);
+            => TryFromBytes(data.AsMemory(), out state, out errors);
 
     internal static DeviceState FromBytes(ReadOnlyMemory<byte> data)
     {

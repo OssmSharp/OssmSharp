@@ -11,15 +11,16 @@ namespace OssmSharp.Cli.Tests;
 
 public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDisposable
 {
-    private readonly CommandTestContext context = new();
     private readonly PromptInput input = new();
     private readonly StringWriter output = new();
     private readonly StringWriter error = new();
     private readonly RecordingLogger<PromptCommand> logger = new();
     private Func<string, IOssmDevice> createDevice = _ => throw new InvalidOperationException("Factory must not run");
+    private CommandTestContext context = null!;
 
     protected override Action<Mocker> SetupMocksAction => mocks =>
     {
+        context = new CommandTestContext(mocks);
         var device = Mock.Get(mocks.GetOrCreateMock<IOssmDevice>().Instance);
         device.Setup(value => value.ConnectAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
         device.Setup(value => value.EmergencyStopAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);

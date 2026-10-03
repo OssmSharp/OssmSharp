@@ -1,54 +1,10 @@
 using AwesomeAssertions;
-using PrettyPrompt;
 using Xunit;
 
 namespace OssmSharp.Cli.Tests;
 
 public sealed class PrettyPromptInputTests
 {
-    [Theory]
-    [InlineData(true, "status", false)]
-    [InlineData(false, "", true)]
-    public async Task MapsPromptResult(bool isSuccess, string text, bool isInterrupted)
-    {
-        await using var prompt = new StubPrompt(new PromptResult(isSuccess, text, default));
-        await using var input = new PrettyPromptInput(prompt);
-
-        var result = await input.ReadAsync(TestContext.Current.CancellationToken);
-
-        result.Text.Should().Be(text);
-        result.IsInterrupted.Should().Be(isInterrupted);
-    }
-
-    [Fact]
-    public async Task DisposesOwnedPrompt()
-    {
-        await using var prompt = new StubPrompt(new PromptResult(true, string.Empty, default));
-        var input = new PrettyPromptInput(prompt);
-
-        await input.DisposeAsync();
-
-        prompt.IsDisposed.Should().BeTrue();
-    }
-
-    [Fact]
-    public async Task ConstructsPromptOnFirstRead()
-    {
-        var constructions = 0;
-        await using var prompt = new StubPrompt(new PromptResult(true, string.Empty, default));
-        await using var input = new PrettyPromptInput(() =>
-        {
-            constructions++;
-            return prompt;
-        });
-
-        constructions.Should().Be(0);
-
-        await input.ReadAsync(TestContext.Current.CancellationToken);
-
-        constructions.Should().Be(1);
-    }
-
     [Theory]
     [InlineData(4, 0)]
     [InlineData(4, 3)]
@@ -121,13 +77,13 @@ public sealed class PrettyPromptInputTests
         {
             await using var input = CreateInput(
                 directory,
-            [
-                Key('a', ConsoleKey.A),
-                Key('b', ConsoleKey.B),
-                Key('\0', ConsoleKey.LeftArrow),
-                Key('\0', ConsoleKey.D, control: true),
-                Key('\r', ConsoleKey.Enter),
-            ]);
+                [
+                    Key('a', ConsoleKey.A),
+                    Key('b', ConsoleKey.B),
+                    Key('\0', ConsoleKey.LeftArrow),
+                    Key('\0', ConsoleKey.D, control: true),
+                    Key('\r', ConsoleKey.Enter),
+                ]);
 
             var result = await input.ReadAsync(TestContext.Current.CancellationToken);
 
@@ -148,12 +104,12 @@ public sealed class PrettyPromptInputTests
         {
             await using var input = CreateInput(
                 directory,
-            [
-                Key('a', ConsoleKey.A),
-                Key('b', ConsoleKey.B),
-                Key('\0', ConsoleKey.Z, control: true),
-                Key('\r', ConsoleKey.Enter),
-            ]);
+                [
+                    Key('a', ConsoleKey.A),
+                    Key('b', ConsoleKey.B),
+                    Key('\0', ConsoleKey.Z, control: true),
+                    Key('\r', ConsoleKey.Enter),
+                ]);
 
             var result = await input.ReadAsync(TestContext.Current.CancellationToken);
 
@@ -197,20 +153,44 @@ public sealed class PrettyPromptInputTests
         var history = Path.Combine(directory.FullName, "prompt-history");
         try
         {
-            await using (var prompt = new Prompt(
-                history,
-                console: PrettyPromptTestConsole.ForText("status"),
-                configuration: new PromptConfiguration(prompt: CliStrings.Prompt)))
+            var console = new PrettyPromptConsole(
+                TextWriter.Null,
+                TextWriter.Null,
+                new PrettyPromptTestConsole(
+                    [
+                        Key('s', ConsoleKey.S),
+                        Key('t', ConsoleKey.T),
+                        Key('a', ConsoleKey.A),
+                        Key('t', ConsoleKey.T),
+                        Key('u', ConsoleKey.U),
+                        Key('s', ConsoleKey.S),
+                        Key('\r', ConsoleKey.Enter),
+                    ],
+                    reportKeysAvailable: true));
+            await using (var input = new PrettyPromptInput(console, history))
             {
-                (await prompt.ReadLineAsync()).Text.Should().Be("status");
+                var result = await input.ReadAsync(TestContext.Current.CancellationToken);
+
+                result.Text.Should().Be("status");
+                result.IsInterrupted.Should().BeFalse();
             }
 
-            await using var restarted = new Prompt(
-                history,
-                console: PrettyPromptTestConsole.ForHistoryRecall(),
-                configuration: new PromptConfiguration(prompt: CliStrings.Prompt));
+            Assert.True(File.Exists(history));
+            var restartedConsole = new PrettyPromptConsole(
+                TextWriter.Null,
+                TextWriter.Null,
+                new PrettyPromptTestConsole(
+                    [
+                        Key('\0', ConsoleKey.UpArrow),
+                        Key('\r', ConsoleKey.Enter),
+                    ],
+                    reportKeysAvailable: true));
+            await using var restarted = new PrettyPromptInput(restartedConsole, history);
 
-            (await restarted.ReadLineAsync()).Text.Should().Be("status");
+            var recalled = await restarted.ReadAsync(TestContext.Current.CancellationToken);
+
+            recalled.Text.Should().Be("status");
+            recalled.IsInterrupted.Should().BeFalse();
         }
         finally
         {
@@ -233,17 +213,4 @@ public sealed class PrettyPromptInputTests
         bool shift = false,
         bool alt = false,
         bool control = false) => new(character, key, shift, alt, control);
-
-    private sealed class StubPrompt(PromptResult result) : IPrompt, IAsyncDisposable
-    {
-        internal bool IsDisposed { get; private set; }
-
-        public Task<PromptResult> ReadLineAsync() => Task.FromResult(result);
-
-        public ValueTask DisposeAsync()
-        {
-            IsDisposed = true;
-            return ValueTask.CompletedTask;
-        }
-    }
 }

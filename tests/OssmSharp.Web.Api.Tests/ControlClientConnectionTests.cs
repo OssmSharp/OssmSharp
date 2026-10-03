@@ -1,3 +1,4 @@
+using System.Net;
 using FastMoq;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -19,6 +20,8 @@ public sealed class ControlClientConnectionTests : MockerTestBase<UserControlCli
     protected override Action<Mocker> SetupMocksAction => mocks =>
     {
         _options = new() { ControlOrigin = "http://127.0.0.1:1", ServiceKey = new string('A', 43) };
+        if (TestContext.Current.Test?.TestCase?.TestMethod?.MethodName == nameof(ConnectRemainsPendingBeyondCommandAcknowledgementDeadline))
+            _options.CommandTimeoutSeconds = 1;
         var options = Options.Create(_options);
         mocks.AddType<IOptions<ControlClientOptions>>(options);
         mocks.AddType(new ControlHubConnectionFactory(options));
@@ -55,7 +58,7 @@ public sealed class ControlClientConnectionTests : MockerTestBase<UserControlCli
 
         Assert.Equal("connection-unavailable", error.Code);
         var cause = Assert.IsType<HttpRequestException>(error.InnerException);
-        Assert.Equal(statusCode, (int)cause.StatusCode!);
+        Assert.Equal((HttpStatusCode)statusCode, cause.StatusCode);
     }
 
     [Fact]
@@ -71,7 +74,7 @@ public sealed class ControlClientConnectionTests : MockerTestBase<UserControlCli
             negotiateVersion = 1,
             connectionId = "test",
             connectionToken = "test",
-            availableTransports = new[] { new { transport = "WebSockets", transferFormats = TransferFormats } }
+            availableTransports = new[] { new { transport = "WebSockets", transferFormats = TransferFormats } },
         }));
         app.MapGet("/hubs/control/v2", () => Results.Unauthorized());
         await app.StartAsync(TestContext.Current.CancellationToken);
@@ -127,6 +130,7 @@ public sealed class ControlClientConnectionTests : MockerTestBase<UserControlCli
     [Trait("Category", "Integration")]
     public async Task ConnectRemainsPendingBeyondCommandAcknowledgementDeadline()
     {
+        Assert.Equal(1, _options.CommandTimeoutSeconds);
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var pendingStop = new TaskCompletionSource<ControlResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
         var builder = WebApplication.CreateBuilder();
@@ -139,7 +143,6 @@ public sealed class ControlClientConnectionTests : MockerTestBase<UserControlCli
         app.MapHub<BlockingControlHub>("/hubs/control/v2");
         await app.StartAsync(TestContext.Current.CancellationToken);
         _options.ControlOrigin = app.Urls.Single();
-        _options.CommandTimeoutSeconds = 1;
         await using var client = Component;
         using var pending = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         var connect = client.ConnectAsync(pending.Token);

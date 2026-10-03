@@ -1,17 +1,47 @@
 using System.Reactive.Subjects;
+using FastMoq;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Xunit;
 
 namespace OssmSharp.Runtime.Oem.Tests;
 
-public sealed class OssmDeviceLoggingTests
+public sealed class OssmDeviceLoggingTests : MockerTestBase<OssmDevice>, IAsyncDisposable
 {
+    private readonly RecordingLogger<DeviceBase> logger = new();
+    private BleTestContext context = null!;
+
+    protected override Action<Mocker> SetupMocksAction => mocks =>
+    {
+        context = new(mocks) { Logger = logger };
+        mocks.AddType<string>("device-1");
+        mocks.AddType<ILogger<DeviceBase>>(logger);
+        mocks.AddType<IOptions<OssmDeviceOptions>>(Options.Create(context.DeviceOptions));
+    };
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await Component.DisposeAsync();
+        }
+        finally
+        {
+            try
+            {
+                context.Dispose();
+            }
+            finally
+            {
+                base.Dispose();
+            }
+        }
+    }
+
     [Fact]
     public async Task ConnectionRequestsLogAtDebugWithoutSensitiveFields()
     {
-        var logger = new RecordingLogger<DeviceBase>();
-        using var context = new BleTestContext { Logger = logger };
-        await using var device = await context.ConnectAsync(TestContext.Current.CancellationToken);
+        await context.ConnectAsync(Component, TestContext.Current.CancellationToken);
 
         Assert.Equal(
             context.Requests.Select(request => request["id"]!.GetValue<uint>()),
@@ -27,12 +57,9 @@ public sealed class OssmDeviceLoggingTests
     [Fact]
     public async Task PendingBluetoothAccessLogsStageWithoutConnectedState()
     {
-        var logger = new RecordingLogger<DeviceBase>();
-        using var context = new BleTestContext { Logger = logger };
         using var access = new Subject<AccessState>();
         context.Manager.Setup(manager => manager.RequestAccess()).Returns(access);
-        await using var device = context.CreateDevice();
-        var connect = device.ConnectAsync(TestContext.Current.CancellationToken);
+        var connect = Component.ConnectAsync(TestContext.Current.CancellationToken);
         try
         {
             Assert.False(connect.IsCompleted);

@@ -179,13 +179,14 @@ public sealed class InvitationConnectionTests : MockerTestBase<GuestControlClien
     [Trait("Category", "Integration")]
     public async Task DisconnectRevokesGuestAndStopsDevice()
     {
-        await using var app = await StartApiAsync();
+        var disconnected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var app = await StartApiAsync(disconnected: disconnected);
         var invitation = (await _session.GetUserStateAsync(TestContext.Current.CancellationToken)).Invitation;
         await Component.JoinAsync(invitation.Token, TestContext.Current.CancellationToken);
         Assert.True((await _session.AllowGuestAsync("allow", TestContext.Current.CancellationToken)).Accepted);
 
         await Component.DisposeAsync();
-        await app.StopAsync(TestContext.Current.CancellationToken);
+        await disconnected.Task.WaitAsync(TestContext.Current.CancellationToken);
 
         var state = await _session.GetUserStateAsync(TestContext.Current.CancellationToken);
         Assert.False(state.GuestJoined);
@@ -228,7 +229,22 @@ public sealed class InvitationConnectionTests : MockerTestBase<GuestControlClien
         Assert.Equal(code, error.Code);
     }
 
-    private async Task<WebApplication> StartApiAsync(ConcurrentQueue<ClaimsPrincipal>? identities = null)
+    private static void UseConnectionTracking(
+        WebApplication app,
+        ConcurrentQueue<ClaimsPrincipal>? identities,
+        TaskCompletionSource? disconnected) => app.Use(async (context, next) =>
+    {
+        var controlConnection = context.Request.Path == "/hubs/control/v2" && context.WebSockets.IsWebSocketRequest;
+        if (context.User.Identity?.IsAuthenticated == true)
+            identities?.Enqueue(context.User);
+        await next(context);
+        if (controlConnection)
+            disconnected?.TrySetResult();
+    });
+
+    private async Task<WebApplication> StartApiAsync(
+        ConcurrentQueue<ClaimsPrincipal>? identities = null,
+        TaskCompletionSource? disconnected = null)
     {
         var builder = WebApplication.CreateBuilder();
         builder.Logging.ClearProviders();
@@ -240,12 +256,7 @@ public sealed class InvitationConnectionTests : MockerTestBase<GuestControlClien
         app.UseWebSockets();
         app.UseAuthentication();
         app.UseAuthorization();
-        app.Use(async (context, next) =>
-        {
-            if (context.User.Identity?.IsAuthenticated == true)
-                identities?.Enqueue(context.User);
-            await next(context);
-        });
+        UseConnectionTracking(app, identities, disconnected);
         app.MapControlHubV2();
         try
         {

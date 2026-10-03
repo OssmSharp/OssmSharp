@@ -59,7 +59,7 @@ internal static class CliStrings
     internal static string ResetCompleted(string success, string reset) => $"{success}OK{reset} reset: ready for settings.";
 
     internal static string Status(DeviceState state, string success, string reset) =>
-        FormattableString.Invariant($"{success}OK{reset} status: pattern={state.Pattern:D} speed={state.Speed?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "Unknown"}{(state.Speed is null ? "" : "%")} stroke={state.Stroke} depth={state.Depth} sensation={state.Sensation}.");
+        FormattableString.Invariant($"{success}OK{reset} status: pattern={state.Pattern:D} speed={state.Speed?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "Unknown"}{(state.Speed is null ? string.Empty : "%")} stroke={state.Stroke} depth={state.Depth} sensation={state.Sensation}.");
 
     internal static string SetInterrupted(SetResult result, string warning, string reset) =>
         FormattableString.Invariant($"{warning}{(result.Status == SetStatus.Superseded ? "SUPERSEDED" : "CANCELLED")}{reset} set: {result.CommandsWritten} commands sent; they may still take effect.");

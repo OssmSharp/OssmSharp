@@ -239,15 +239,19 @@ public sealed class OssmDevice : DeviceBase
         var connectIssued = false;
         events.Add(selected.WhenStatusChanged().Skip(1)
             .Where(status => status == ConnectionState.Disconnected)
-            .Subscribe(_ => ConnectionLost(current, new IOException("The bluetooth connection was lost.")), exception => Fail(current, exception)));
-        events.Add(selected.WhenConnectionFailed().Subscribe(
-            exception =>
-        {
-            if (Volatile.Read(ref connectIssued))
-            {
-                ConnectionLost(current, exception);
-            }
-        }, exception => Fail(current, exception)));
+            .Subscribe(
+                _ => ConnectionLost(current, new IOException("The bluetooth connection was lost.")),
+                exception => Fail(current, exception)));
+        events.Add(
+            selected.WhenConnectionFailed().Subscribe(
+                exception =>
+                {
+                    if (Volatile.Read(ref connectIssued))
+                    {
+                        ConnectionLost(current, exception);
+                    }
+                },
+                exception => Fail(current, exception)));
         Volatile.Write(ref connectIssued, true);
         logger.ConnectionSetupStage("connecting peripheral");
         await selected.ConnectAsync(new ConnectionConfig(AutoConnect: false), cancellationToken).ConfigureAwait(false);
@@ -521,22 +525,24 @@ public sealed class OssmDevice : DeviceBase
         CancellationToken cancellationToken)
     {
         var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        owned.Add(selected.WhenCharacteristicSubscriptionChanged(BleProtocolConstants.Service, characteristic).Subscribe(
-            info =>
-        {
-            if (info.IsNotifying)
-            {
-                ready.TrySetResult();
-            }
-            else if (!ready.TrySetException(new IOException($"The bluetooth {name} subscription could not be enabled.")))
-            {
-                Fail(current, new IOException($"The bluetooth {name} subscription was lost."));
-            }
-        }, exception =>
-        {
-            ready.TrySetException(exception);
-            Fail(current, exception);
-        }));
+        owned.Add(
+            selected.WhenCharacteristicSubscriptionChanged(BleProtocolConstants.Service, characteristic).Subscribe(
+                info =>
+                {
+                    if (info.IsNotifying)
+                    {
+                        ready.TrySetResult();
+                    }
+                    else if (!ready.TrySetException(new IOException($"The bluetooth {name} subscription could not be enabled.")))
+                    {
+                        Fail(current, new IOException($"The bluetooth {name} subscription was lost."));
+                    }
+                },
+                exception =>
+                {
+                    ready.TrySetException(exception);
+                    Fail(current, exception);
+                }));
         owned.Add(selected.NotifyCharacteristic(BleProtocolConstants.Service, characteristic, indicate).Subscribe(
             result => handler(current, result.Data),
             exception =>
@@ -781,9 +787,10 @@ public sealed class OssmDevice : DeviceBase
                     logger.LeaseRenewalExpired((expires - requested).TotalMilliseconds);
                 }
 
-                Fail(current, exception is TimeoutException
+                var failure = exception is TimeoutException
                     ? new IOException("The control lease expired before renewal completed; control ownership is lost.")
-                    : new IOException("Control lease renewal failed; control ownership is lost.", exception));
+                    : new IOException("Control lease renewal failed; control ownership is lost.", exception);
+                Fail(current, failure);
                 try
                 {
                     await renewal.ConfigureAwait(false);

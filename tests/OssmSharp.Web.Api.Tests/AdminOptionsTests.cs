@@ -31,7 +31,7 @@ public sealed class AdminOptionsTests
         builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
         {
             ["OSSM:Admin:AdminPort"] = "5002",
-            ["OSSM:Admin:GuestHostname"] = origin
+            ["OSSM:Admin:GuestHostname"] = origin,
         });
         builder.Services.AddAdminConfiguration();
         using var provider = builder.Services.BuildServiceProvider();

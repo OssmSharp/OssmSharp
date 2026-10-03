@@ -292,25 +292,28 @@ internal sealed class PromptHandler : IPromptHandler
     private Task SetAsync(ParseResult parsed, CancellationToken cancellationToken)
     {
         var settings = new MotionSettings(parsed.GetValue(pattern), parsed.GetValue(speed), parsed.GetValue(stroke), parsed.GetValue(depth), parsed.GetValue(sensation));
-        return ObserveAsync("set", async () =>
-        {
-            SetResult result;
-            try
+        return ObserveAsync(
+            "set",
+            async () =>
             {
-                result = await device.SetAsync(settings, cancellationToken).ConfigureAwait(false);
-            }
-            catch (InvalidOperationException exception) when (device.ConnectionFailure is null && exception is not ObjectDisposedException)
-            {
-                var detail = device.IsArmed ? exception.Message : CliStrings.DisarmedSet;
-                await error.WriteLineAsync(CliStrings.Error("set", detail, failure, errorReset)).ConfigureAwait(false);
-                return;
-            }
+                SetResult result;
+                try
+                {
+                    result = await device.SetAsync(settings, cancellationToken).ConfigureAwait(false);
+                }
+                catch (InvalidOperationException exception) when (device.ConnectionFailure is null && exception is not ObjectDisposedException)
+                {
+                    var detail = device.IsArmed ? exception.Message : CliStrings.DisarmedSet;
+                    await error.WriteLineAsync(CliStrings.Error("set", detail, failure, errorReset)).ConfigureAwait(false);
+                    return;
+                }
 
-            var message = result.Status == SetStatus.Completed
-                ? CliStrings.SetCompleted(success, outputReset)
-                : CliStrings.SetInterrupted(result, warning, outputReset);
-            await output.WriteLineAsync(message).ConfigureAwait(false);
-        }, cancellationToken);
+                var message = result.Status == SetStatus.Completed
+                    ? CliStrings.SetCompleted(success, outputReset)
+                    : CliStrings.SetInterrupted(result, warning, outputReset);
+                await output.WriteLineAsync(message).ConfigureAwait(false);
+            },
+            cancellationToken);
     }
 
     private async Task StopAsync()
@@ -339,20 +342,23 @@ internal sealed class PromptHandler : IPromptHandler
         await stopTask.ConfigureAwait(false);
     }
 
-    private Task ResetAsync(ParseResult _, CancellationToken cancellationToken) => ObserveAsync("reset", async () =>
-    {
-        try
+    private Task ResetAsync(ParseResult _, CancellationToken cancellationToken) => ObserveAsync(
+        "reset",
+        async () =>
         {
-            await device.ResetAsync(cancellationToken).ConfigureAwait(false);
-        }
-        catch (InvalidOperationException exception) when (device.ConnectionFailure is null && exception is not ObjectDisposedException)
-        {
-            await error.WriteLineAsync(CliStrings.Error("reset", exception.Message, failure, errorReset)).ConfigureAwait(false);
-            return;
-        }
+            try
+            {
+                await device.ResetAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (InvalidOperationException exception) when (device.ConnectionFailure is null && exception is not ObjectDisposedException)
+            {
+                await error.WriteLineAsync(CliStrings.Error("reset", exception.Message, failure, errorReset)).ConfigureAwait(false);
+                return;
+            }
 
-        await output.WriteLineAsync(CliStrings.ResetCompleted(success, outputReset)).ConfigureAwait(false);
-    }, cancellationToken);
+            await output.WriteLineAsync(CliStrings.ResetCompleted(success, outputReset)).ConfigureAwait(false);
+        },
+        cancellationToken);
 
     private async Task StatusAsync(CancellationToken cancellationToken)
     {

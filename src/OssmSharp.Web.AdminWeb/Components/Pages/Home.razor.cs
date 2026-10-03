@@ -19,10 +19,14 @@ public partial class Home
     private DeviceSettingsSnapshot? _stoppedSettings;
     private string _noticeVariant = "success";
 
-    [Inject] private UserControlClient Control { get; set; } = null!;
-    [Inject] private IJSRuntime Js { get; set; } = null!;
-    [Inject] private TimeProvider Time { get; set; } = null!;
-    [Inject] private IOptions<AdminOptions> Options { get; set; } = null!;
+    [Inject]
+    private UserControlClient Control { get; set; } = null!;
+    [Inject]
+    private IJSRuntime Js { get; set; } = null!;
+    [Inject]
+    private TimeProvider Time { get; set; } = null!;
+    [Inject]
+    private IOptions<AdminOptions> Options { get; set; } = null!;
 
     private string InvitationText =>
         $"{Options.Value.GuestHostname.TrimEnd('/')}/join#invite={Uri.EscapeDataString(_state!.Invitation.Token)}";
@@ -30,13 +34,13 @@ public partial class Home
     {
         { GuestJoined: false } => "No guest",
         { GuestControlAllowed: true } => "Guest allowed",
-        _ => "Guest joined"
+        _ => "Guest joined",
     };
     private string GuestVariant => _state switch
     {
         { GuestControlAllowed: true } => "success",
         { GuestJoined: true } => "warning",
-        _ => "neutral"
+        _ => "neutral",
     };
     private string ConnectionStatus => _connecting ? "Connecting" : _state?.Device switch
     {
@@ -44,14 +48,14 @@ public partial class Home
         { IsConnected: true } => "Connected",
         { ConnectionFailed: true } => "Failed",
         null => "Unknown",
-        _ => "Disconnected"
+        _ => "Disconnected",
     };
     private string ConnectionVariant => ConnectionStatus switch
     {
         "Connected" => "success",
         "Connecting" => "warning",
         "Failed" => "danger",
-        _ => "neutral"
+        _ => "neutral",
     };
 
     /// <summary>

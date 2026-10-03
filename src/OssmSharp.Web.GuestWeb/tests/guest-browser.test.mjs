@@ -8,6 +8,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, before, test } from "node:test";
+import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
@@ -95,40 +96,74 @@ async function listen(server) {
   return server.address().port;
 }
 
-async function startHost(projectPath, assembly, settings) {
+async function startHost(projectPath, assembly, settings, hostOrigin) {
+  const environment = Object.fromEntries(
+    Object.entries(process.env).filter(([name]) =>
+      /^(PATH|PATHEXT|SystemRoot|WINDIR|COMSPEC|TMP|TEMP|TMPDIR|LANG|LANGUAGE|LC_.+|TZ|DOTNET_ROOT(?:_.+)?|DOTNET_HOST_PATH|DOTNET_MULTILEVEL_LOOKUP|DOTNET_ROLL_FORWARD(?:_.+)?|DOTNET_CLI_.+|NUGET_.+)$/.test(name),
+    ),
+  );
   const host = spawn("dotnet", [assembly], {
     cwd: projectPath,
     env: {
-      ...process.env,
+      ...environment,
       HOME: home,
       DOTNET_CLI_HOME: home,
+      DOTNET_ENVIRONMENT: "Development",
       ASPNETCORE_ENVIRONMENT: "Development",
       OTEL_SDK_DISABLED: "true",
       OSSM__ControlClient__ControlOrigin: `http://127.0.0.1:${peer.address().port}`,
       OSSM__ControlClient__ServiceKey: "A".repeat(43),
+      OSSM__ControlClient__KeepAliveSeconds: "1",
+      OSSM__ControlClient__ServerTimeoutSeconds: "3",
+      OSSM__ControlClient__CommandTimeoutSeconds: "2",
+      OSSM__Guest__Hostname: "",
       ...settings,
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
-  hosts.push({ host, exit: once(host, "exit") });
-  await new Promise((resolve, reject) => {
-    const deadline = setTimeout(() => reject(new Error("UI host did not start")), 15_000);
-    host.once("exit", (code) => {
-      clearTimeout(deadline);
-      reject(new Error(`UI host exited with ${code}`));
-    });
-    host.once("error", (error) => {
-      clearTimeout(deadline);
-      reject(error);
-    });
-    host.stdout.on("data", (data) => {
-      if (data.toString().includes("Now listening on:")) {
-        clearTimeout(deadline);
-        resolve();
-      }
-    });
-    host.stderr.on("data", (data) => process.stderr.write(data));
-  });
+  const exit = once(host, "exit");
+  hosts.push({ host, exit });
+  host.stdout.resume();
+  host.stderr.on("data", (data) => process.stderr.write(data));
+  const readiness = new AbortController();
+  const deadline = setTimeout(() => readiness.abort(new Error(`UI host did not become healthy at ${hostOrigin}/health`)), 15_000);
+  try {
+    await Promise.race([
+      (async () => {
+        while (!readiness.signal.aborted) {
+          try {
+            const response = await fetch(`${hostOrigin}/health`, {
+              signal: AbortSignal.any([readiness.signal, AbortSignal.timeout(1_000)]),
+              redirect: "error",
+            });
+            await response.arrayBuffer();
+            if (response.status === 200) return;
+          } catch {
+            readiness.signal.throwIfAborted();
+          }
+          await delay(100, undefined, { signal: readiness.signal });
+        }
+        readiness.signal.throwIfAborted();
+      })(),
+      exit.then(([code, signal]) => {
+        throw new Error(`UI host exited before readiness (code ${code}, signal ${signal})`);
+      }),
+    ]);
+  } finally {
+    clearTimeout(deadline);
+    readiness.abort();
+  }
+}
+
+async function getGuestOrigin() {
+  if (origin) return origin;
+  const reservation = createServer();
+  const guestPort = await listen(reservation);
+  await new Promise((resolve) => reservation.close(resolve));
+  const guestOrigin = `http://127.0.0.1:${guestPort}`;
+  await startHost(project, artifact, { OSSM__Guest__GuestPort: String(guestPort), OSSM__ControlClient__ServiceKey: "" }, guestOrigin);
+  origin = guestOrigin;
+  return origin;
 }
 
 async function getAdminOrigin() {
@@ -136,12 +171,13 @@ async function getAdminOrigin() {
   const reservation = createServer();
   const adminPort = await listen(reservation);
   await new Promise((resolve) => reservation.close(resolve));
-  adminOrigin = `http://127.0.0.1:${adminPort}`;
+  const hostOrigin = `http://127.0.0.1:${adminPort}`;
   await startHost(adminProject, adminArtifact, {
     OSSM__Admin__AdminPort: String(adminPort),
-    OSSM__Admin__GuestHostname: origin,
+    OSSM__Admin__GuestHostname: "https://guest.test",
     OSSM__ControlClient__CommandTimeoutSeconds: "30",
-  });
+  }, hostOrigin);
+  adminOrigin = hostOrigin;
   return adminOrigin;
 }
 
@@ -241,18 +277,14 @@ before(async () => {
     });
   });
   await listen(peer);
-  const reservation = createServer();
-  const guestPort = await listen(reservation);
-  await new Promise((resolve) => reservation.close(resolve));
-  origin = `http://127.0.0.1:${guestPort}`;
   home = await mkdtemp(join(tmpdir(), "ossm-guest-test-"));
-  await startHost(project, artifact, { OSSM__Guest__GuestPort: String(guestPort), OSSM__ControlClient__ServiceKey: "" });
   browser = await chromium.launch({
     headless: true,
+    timeout: 15_000,
     executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE,
     args: ["--host-resolver-rules=MAP guest.test 127.0.0.1", "--no-proxy-server"],
   });
-});
+}, { timeout: 30_000 });
 
 after(async () => {
   try {
@@ -272,9 +304,9 @@ after(async () => {
     if (peer) await new Promise((resolve) => peer.close(resolve));
     if (home) await rm(home, { recursive: true, force: true });
   }
-});
+}, { timeout: 30_000 });
 
-async function openGuest(context, invitation, ready = true, guestOrigin = origin) {
+async function openGuest(context, invitation, ready = true, guestOrigin) {
   const page = await context.newPage();
   page.setDefaultTimeout(10_000);
   const frames = [];
@@ -284,7 +316,7 @@ async function openGuest(context, invitation, ready = true, guestOrigin = origin
     if (message.type() === "error") errors.push(`${message.text()} (${message.location().url})`);
   });
   page.on("websocket", (socket) => socket.on("framesent", ({ payload }) => frames.push(Buffer.from(payload))));
-  await page.goto(`${guestOrigin}/join#invite=${invitation}`);
+  await page.goto(`${guestOrigin ?? await getGuestOrigin()}/join#invite=${invitation}`);
   await page.waitForFunction((expected) => document.querySelector("[data-send-button]")?.disabled === !expected, ready);
   assert.equal(new URL(page.url()).hash, "");
   return { page, frames, errors };
@@ -308,7 +340,7 @@ async function getPublicOrigin() {
     key,
     "-out",
     cert,
-  ]);
+  ], { timeout: 10_000 });
   const reservation = createServer();
   const guestPort = await listen(reservation);
   await new Promise((resolve) => reservation.close(resolve));
@@ -355,11 +387,11 @@ async function getPublicOrigin() {
     OSSM__Guest__GuestPort: String(guestPort),
     OSSM__Guest__Hostname: publicOrigin,
     OSSM__ControlClient__ServiceKey: "",
-  });
+  }, target);
   return publicOrigin;
 }
 
-test("HTTPS reverse proxy carries guest circuits and invitation-authenticated API traffic", async () => {
+test("HTTPS reverse proxy carries guest circuits and invitation-authenticated API traffic", { timeout: 60_000 }, async () => {
   const externalOrigin = await getPublicOrigin();
   const context = await browser.newContext({ ignoreHTTPSErrors: true });
   try {
@@ -386,11 +418,12 @@ test("HTTPS reverse proxy carries guest circuits and invitation-authenticated AP
   }
 });
 
-test("public reverse proxy rejects mismatched and missing origins, including WebSocket upgrades", async () => {
+test("public reverse proxy rejects mismatched and missing origins, including WebSocket upgrades", { timeout: 60_000 }, async () => {
   const externalOrigin = await getPublicOrigin();
+  const localOrigin = await getGuestOrigin();
   const context = await browser.newContext({ ignoreHTTPSErrors: true });
   try {
-    for (const headers of [{}, { Origin: "https://evil.example" }, { Origin: origin }]) {
+    for (const headers of [{}, { Origin: "https://evil.example" }, { Origin: localOrigin }]) {
       const response = await context.request.post(`${proxyOrigin}/_blazor/negotiate?negotiateVersion=1`, {
         headers: { ...headers, Host: new URL(externalOrigin).host },
       });
@@ -406,14 +439,14 @@ test("public reverse proxy rejects mismatched and missing origins, including Web
       },
     });
     assert.equal(upgrade.status(), 403);
-    const localSpoof = await context.request.get(`${origin}/join`, { headers: { Host: new URL(externalOrigin).host, "X-Forwarded-Proto": "https" } });
+    const localSpoof = await context.request.get(`${localOrigin}/join`, { headers: { Host: new URL(externalOrigin).host, "X-Forwarded-Proto": "https" } });
     assert.equal(localSpoof.status(), 400);
   } finally {
     await context.close();
   }
 });
 
-test("rejected invitation authentication keeps invalid-invitation presentation", async () => {
+test("rejected invitation authentication keeps invalid-invitation presentation", { timeout: 60_000 }, async () => {
   const context = await browser.newContext({ ignoreHTTPSErrors: true });
   try {
     const page = await context.newPage();
@@ -426,7 +459,7 @@ test("rejected invitation authentication keeps invalid-invitation presentation",
   }
 });
 
-test("public browser circuit loss closes its API connection and disables control", async () => {
+test("public browser circuit loss closes its API connection and disables control", { timeout: 60_000 }, async () => {
   const externalOrigin = await getPublicOrigin();
   const invitation = "public-circuit-loss";
   const session = { state: guestState(), closed: Promise.withResolvers() };
@@ -446,15 +479,15 @@ test("public browser circuit loss closes its API connection and disables control
   }
 });
 
-test("local AdminWeb builds public invitation links and rejects public requests", async () => {
-  const externalOrigin = await getPublicOrigin();
+test("local AdminWeb builds public invitation links and rejects public requests", { timeout: 60_000 }, async () => {
+  const externalOrigin = "https://guest.test";
   const reservation = createServer();
   const port = await listen(reservation);
   await new Promise((resolve) => reservation.close(resolve));
   await startHost(adminProject, adminArtifact, {
     OSSM__Admin__AdminPort: String(port),
     OSSM__Admin__GuestHostname: externalOrigin,
-  });
+  }, `http://127.0.0.1:${port}`);
   const context = await browser.newContext();
   try {
     const page = await context.newPage();
@@ -610,7 +643,7 @@ async function filtersOnAncestors(locator) {
   });
 }
 
-test("admin Stop pauses the last sent preview and shows a yellow stopping notice", async () => {
+test("admin Stop pauses the last sent preview and shows a yellow stopping notice", { timeout: 60_000 }, async () => {
   const settings = { pattern: 0, speed: 35, stroke: 10, depth: 20, sensation: 50 };
   const { context, page, errors } = await openAdmin(userState(deviceState({ isConnected: true, transmittedSettings: settings })));
   try {
@@ -627,7 +660,11 @@ test("admin Stop pauses the last sent preview and shows a yellow stopping notice
     assert.equal(await preview.getAttribute("aria-label"), label, "Stop must preserve the last sent selection");
     adminSession.state = userState({ ...adminSession.state.device, transmittedSettings: { ...settings, speed: 36 } });
     await page.waitForFunction(() => document.querySelector(".preview-rail")?.getAttribute("aria-label").includes("36% speed"));
-    assert.equal(await page.locator(".preview-carriage animate").count(), 0, "a snapshot arriving while Stop is pending must not restart the preview");
+    assert.equal(
+      await page.locator(".preview-carriage animate").count(),
+      0,
+      "a snapshot arriving while Stop is pending must not restart the preview",
+    );
     for (const viewport of viewports) {
       await page.setViewportSize(viewport);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
@@ -637,7 +674,9 @@ test("admin Stop pauses the last sent preview and shows a yellow stopping notice
     }
     adminSession.pending.get("Stop")();
     adminSession.pending.delete("Stop");
-    await page.waitForFunction(() => [...document.querySelectorAll("button")].some((button) => button.textContent.trim() === "Stop" && button.disabled === false));
+    await page.waitForFunction(() =>
+      [...document.querySelectorAll("button")].some((button) => button.textContent.trim() === "Stop" && button.disabled === false),
+    );
     assert.equal(await page.locator(".preview-carriage animate").count(), 0, "an unchanged polled selection must not restart the preview");
     adminSession.state = userState({ ...adminSession.state.device, transmittedSettings: { ...settings, speed: 40 } });
     await page.locator(".preview-carriage animate").waitFor({ state: "attached" });
@@ -648,7 +687,7 @@ test("admin Stop pauses the last sent preview and shows a yellow stopping notice
   }
 });
 
-test("admin connection widget distinguishes unknown, disconnected, connecting and failed states", async () => {
+test("admin connection widget distinguishes unknown, disconnected, connecting and failed states", { timeout: 60_000 }, async () => {
   const { context, page, errors } = await openAdmin(userState());
   try {
     const status = page.getByTestId("device-connection-status");
@@ -713,17 +752,24 @@ test("admin connection widget distinguishes unknown, disconnected, connecting an
   }
 });
 
-test("admin completed connection shows metadata and a JS duration without server renders", async () => {
+test("admin completed connection shows metadata and a JS duration without server renders", { timeout: 60_000 }, async () => {
   const { context, page, errors, frames } = await openAdmin(userState(deviceState()));
   try {
     assert.equal(await page.getByText("Connecting...", { exact: true }).count(), 0, "connection state belongs in the device pill");
     await page.evaluate(() => {
       window.adminIntervals = new Set();
+      window.adminDurationUpdates = [];
       const set = window.setInterval;
       const clear = window.clearInterval;
-      window.setInterval = (...args) => {
-        const interval = set(...args);
-        if (new Error().stack.includes("/admin.js")) window.adminIntervals.add(interval);
+      window.setInterval = (callback, ...args) => {
+        const isAdminInterval = /\/admin(?:\.[^/]+)?\.js\b/.test(new Error().stack);
+        const interval = set(isAdminInterval ? (...callbackArgs) => {
+          const element = document.querySelector('[data-testid="device-duration"]');
+          const before = element?.textContent;
+          callback(...callbackArgs);
+          if (element?.isConnected && element.textContent !== before) window.adminDurationUpdates.push(element.textContent);
+        } : callback, ...args);
+        if (isAdminInterval) window.adminIntervals.add(interval);
         return interval;
       };
       window.clearInterval = (interval) => {
@@ -763,14 +809,22 @@ test("admin completed connection shows metadata and a JS duration without server
     const duration = page.getByTestId("device-duration");
     const before = await duration.innerText();
     const frameCount = frames.length;
-    await page.waitForFunction((before) => {
+    const interval = await page.evaluate(() => [...window.adminIntervals][0]);
+    const updateCount = await page.evaluate(() => window.adminDurationUpdates.length);
+    assert.equal(await page.evaluate(() => window.adminIntervals.size), 1);
+    await page.waitForFunction(({ before, updateCount }) => {
       const seconds = (value) => value.split(":").reduce((total, part) => total * 60 + Number(part), 0);
-      return seconds(document.querySelector('[data-testid="device-duration"]').textContent) >= seconds(before) + 2;
-    }, before);
+      return window.adminDurationUpdates.length >= updateCount + 2 &&
+        seconds(document.querySelector('[data-testid="device-duration"]').textContent) >= seconds(before) + 2;
+    }, { before, updateCount });
     const after = await duration.innerText();
     const seconds = (value) => value.split(":").reduce((total, part) => total * 60 + Number(part), 0);
     assert.ok(seconds(after) >= seconds(before) + 2, "duration must advance without a new device snapshot");
     assert.equal(frames.length, frameCount, "the browser timer must not need Blazor render frames");
+    const localUpdates = await page.evaluate((updateCount) => window.adminDurationUpdates.slice(updateCount), updateCount);
+    assert.ok(localUpdates.length >= 2, "the local interval must change the visible duration on at least two callbacks");
+    assert.ok(seconds(localUpdates.at(-1)) >= seconds(before) + 2);
+    assert.equal(await page.evaluate(() => [...window.adminIntervals][0]), interval, "unchanged state must retain the same local interval");
     assert.equal(Date.parse(await duration.getAttribute("data-connected-at")), Date.parse(connectedAt));
     assert.equal(adminSession.state.device.connectedAt, connectedAt);
     assert.equal(await page.evaluate(() => window.adminIntervals.size), 1);
@@ -816,7 +870,7 @@ test("admin completed connection shows metadata and a JS duration without server
   }
 });
 
-test("admin requested settings never substitute observed values or defaults for unknown selections", async () => {
+test("admin requested settings never substitute observed values or defaults for unknown selections", { timeout: 60_000 }, async () => {
   const { context, page, errors } = await openAdmin(userState(deviceState({ isConnected: true })));
   try {
     const preview = page.locator(".preview-rail");
@@ -851,7 +905,7 @@ test("admin requested settings never substitute observed values or defaults for 
   }
 });
 
-test("user and guest previews omit stats and user names the last settings", async () => {
+test("user and guest previews omit stats and user names the last settings", { timeout: 60_000 }, async () => {
   const admin = await openAdmin(userState(deviceState({ isConnected: true })));
   try {
     assert.equal(await admin.page.locator(".preview-settings").count(), 0);
@@ -871,7 +925,7 @@ test("user and guest previews omit stats and user names the last settings", asyn
   }
 });
 
-test("admin preview derives illustrative timing only from requested speed", async () => {
+test("admin preview derives illustrative timing only from requested speed", { timeout: 60_000 }, async () => {
   const { context, page, errors } = await openAdmin(userState(deviceState({ isConnected: true })));
   try {
     for (const [speed, stroke, depth, duration] of [
@@ -919,7 +973,7 @@ test("admin preview derives illustrative timing only from requested speed", asyn
   }
 });
 
-test("guest speed stays unchanged through request, preview and exact current state", async () => {
+test("guest speed stays unchanged through request, preview and exact current state", { timeout: 60_000 }, async () => {
   const context = await browser.newContext();
   const invitation = "speed-percentage";
   const session = { renewals: 0, requests: [], state: guestState() };
@@ -1030,7 +1084,7 @@ test("guest speed stays unchanged through request, preview and exact current sta
   }
 });
 
-test("auto-send label and send status align at desktop and mobile widths without a guest header", async () => {
+test("auto-send label and send status align at desktop and mobile widths without a guest header", { timeout: 60_000 }, async () => {
   const context = await browser.newContext();
   await context.route(/\/guest(?:\.[^/]+)?\.css(?:\?.*)?$/, async (route) => {
     await route.fulfill({ contentType: "text/css", body: await readFile(join(project, "wwwroot/guest.css"), "utf8") });
@@ -1081,7 +1135,7 @@ test("auto-send label and send status align at desktop and mobile widths without
   }
 });
 
-test("deadline-free permission recovers after revoke, Allow and rearm without automatic motion", async () => {
+test("deadline-free permission recovers after revoke, Allow and rearm without automatic motion", { timeout: 60_000 }, async () => {
   const context = await browser.newContext();
   const invitation = "permission-regrant";
   const session = { renewals: 0, requests: [], state: guestState() };
@@ -1147,7 +1201,7 @@ test("deadline-free permission recovers after revoke, Allow and rearm without au
   }
 });
 
-test("guest Stop preserves permission and only acknowledged Stop permits deliberate resumption", async () => {
+test("guest Stop preserves permission and only acknowledged Stop permits deliberate resumption", { timeout: 60_000 }, async () => {
   const context = await browser.newContext();
   const invitation = "stop-resume";
   const session = { renewals: 0, stops: 0, requests: [], holdStop: true, state: guestState() };
@@ -1194,7 +1248,7 @@ for (const [name, overrides] of [
   ["failed armed device", { device: { ...guestState().device, connectionFailed: true } }],
   ["failed stopped device", { device: { ...guestState().device, isArmed: false, connectionFailed: true }, canResumeAfterStop: true }],
 ]) {
-  test(`permission alone cannot send with ${name}`, async () => {
+  test(`permission alone cannot send with ${name}`, { timeout: 60_000 }, async () => {
     const context = await browser.newContext();
     const invitation = `readiness-${name.replaceAll(" ", "-")}`;
     const session = { renewals: 0, requests: [], state: guestState(overrides) };
@@ -1215,7 +1269,7 @@ for (const [name, overrides] of [
   });
 }
 
-test("polling a guest that is no longer joined ends the session without transport failure", async () => {
+test("polling a guest that is no longer joined ends the session without transport failure", { timeout: 60_000 }, async () => {
   const context = await browser.newContext();
   const invitation = "session-ended";
   const session = { renewals: 0, state: guestState() };
@@ -1234,7 +1288,7 @@ test("polling a guest that is no longer joined ends the session without transpor
 });
 
 for (const code of ["unexpected-rejection", "connection-unavailable", "outcome-unknown"]) {
-  test(`polling failure ${code} still disconnects persistently`, async () => {
+  test(`polling failure ${code} still disconnects persistently`, { timeout: 60_000 }, async () => {
     const context = await browser.newContext();
     const invitation = `polling-${code}`;
     const session = {
@@ -1266,7 +1320,7 @@ for (const code of ["unexpected-rejection", "connection-unavailable", "outcome-u
   });
 }
 
-test("reopened invite is redeemed after a fresh document without a capability navigation URI", async () => {
+test("reopened invite is redeemed after a fresh document without a capability navigation URI", { timeout: 60_000 }, async () => {
   const context = await browser.newContext();
   try {
     const { page, frames } = await openGuest(context, "first-test-invite");
@@ -1283,7 +1337,7 @@ test("reopened invite is redeemed after a fresh document without a capability na
   }
 });
 
-test("same-document invite link bypasses Blazor navigation without disclosing its fragment", async () => {
+test("same-document invite link bypasses Blazor navigation without disclosing its fragment", { timeout: 60_000 }, async () => {
   const context = await browser.newContext();
   try {
     const { page, frames } = await openGuest(context, "link-first-invite");
@@ -1305,7 +1359,7 @@ test("same-document invite link bypasses Blazor navigation without disclosing it
   }
 });
 
-test("shared disconnect presentation pauses user and guest previews and keeps notices inline", async () => {
+test("shared disconnect presentation pauses user and guest previews and keeps notices inline", { timeout: 60_000 }, async () => {
   for (const [role, failure] of [
     ["user", "reconnect"],
     ["guest", "reconnect"],
@@ -1370,7 +1424,7 @@ test("shared disconnect presentation pauses user and guest previews and keeps no
   }
 });
 
-test("user API loss retains a greyscale last state with a standard inline notice", async () => {
+test("user API loss retains a greyscale last state with a standard inline notice", { timeout: 60_000 }, async () => {
   const { context, page, errors } = await openAdmin(
     userState(deviceState({ isConnected: true, transmittedSettings: { pattern: 0, speed: 5, stroke: 10, depth: 20, sensation: 50 } })),
   );
@@ -1395,7 +1449,7 @@ test("user API loss retains a greyscale last state with a standard inline notice
   }
 });
 
-test("guest device connection loss resets speed and greys the selected preview until positive recovery", async () => {
+test("guest device connection loss resets speed and greys the selected preview until positive recovery", { timeout: 60_000 }, async () => {
   const context = await browser.newContext();
   const invitation = "preview-device-loss";
   const session = { state: guestState(), requests: [] };
@@ -1427,7 +1481,7 @@ test("guest device connection loss resets speed and greys the selected preview u
   }
 });
 
-test("guest initial device states grey the preview without inventing service loss", async () => {
+test("guest initial device states grey the preview without inventing service loss", { timeout: 60_000 }, async () => {
   for (const [name, device] of [
     ["unknown", null],
     ["disconnected", deviceState()],
@@ -1450,7 +1504,7 @@ test("guest initial device states grey the preview without inventing service los
   }
 });
 
-test("component module import failure shows a standard fallback notice", async () => {
+test("component module import failure shows a standard fallback notice", { timeout: 60_000 }, async () => {
   const context = await browser.newContext();
   let bootstrapLoaded = false;
   let componentImportAborted = false;
@@ -1478,7 +1532,7 @@ test("component module import failure shows a standard fallback notice", async (
     });
     const page = await context.newPage();
     page.setDefaultTimeout(10_000);
-    await page.goto(`${origin}/join#invite=module-import-failure`);
+    await page.goto(`${await getGuestOrigin()}/join#invite=module-import-failure`);
     const notice = page.getByRole("alert").filter({ hasText: "Connection lost." });
     await notice.waitFor({ state: "visible" });
     assert.equal(bootstrapLoaded, true);
@@ -1503,13 +1557,13 @@ test("component module import failure shows a standard fallback notice", async (
   }
 });
 
-test("initial API loss does not fabricate a joined guest view", async () => {
+test("initial API loss does not fabricate a joined guest view", { timeout: 60_000 }, async () => {
   const context = await browser.newContext();
   const invitation = "initial-api-loss";
   sessions.set(invitation, { pollFailure: "unexpected-rejection" });
   try {
     const page = await context.newPage();
-    await page.goto(`${origin}/join#invite=${invitation}`);
+    await page.goto(`${await getGuestOrigin()}/join#invite=${invitation}`);
     await page.getByTestId("guest-disconnected").waitFor({ state: "visible" });
     assert.equal(await page.locator(".guest-session, .preview-rail").count(), 0);
     assert.equal(await page.getByTestId("guest-invalid").count(), 0);
@@ -1520,7 +1574,7 @@ test("initial API loss does not fabricate a joined guest view", async () => {
   }
 });
 
-test("API transport loss displays recovery and persistently disables browser requests", async () => {
+test("API transport loss displays recovery and persistently disables browser requests", { timeout: 60_000 }, async () => {
   const context = await browser.newContext();
   try {
     const { page } = await openGuest(context, "transport-test-invite");

@@ -18,5 +18,5 @@ public enum SettingsResponseStatus
     Rejected,
 
     /// <summary>The runtime failed while processing the request.</summary>
-    Failed
+    Failed,
 }

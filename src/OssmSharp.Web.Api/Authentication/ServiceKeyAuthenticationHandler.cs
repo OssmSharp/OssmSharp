@@ -30,7 +30,7 @@ public sealed class ServiceKeyAuthenticationHandler(
         {
             new Claim(ClaimTypes.NameIdentifier, identity.Name),
             new Claim(ClaimTypes.Name, identity.Name),
-            new Claim(ClaimTypes.Role, identity.Role)
+            new Claim(ClaimTypes.Role, identity.Role),
         };
         var principal = new ClaimsPrincipal(new ClaimsIdentity(claims, Scheme.Name, ClaimTypes.Name, ClaimTypes.Role));
         var ticket = new AuthenticationTicket(principal, Scheme.Name);

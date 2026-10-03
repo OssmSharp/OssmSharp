@@ -1,19 +1,19 @@
 @if (ShowHeader)
 {
-    <header class="rw-page-header">
-        <span class="site-label">@Label</span>
-        @HeaderContent
-    </header>
+  <header class="rw-page-header">
+    <span class="site-label">@Label</span>
+    @HeaderContent
+  </header>
 }
 <main class="rw-page" tabindex="-1" aria-label="@Label" data-connection-lost="@(ConnectionLost ? "true" : null)">
-    <ConnectionNotice />
-    @ChildContent
+  <ConnectionNotice />
+  @ChildContent
 </main>
 
 @code {
-    [Parameter] public string Label { get; set; } = "Controls";
-    [Parameter] public bool ShowHeader { get; set; } = true;
-    [Parameter] public bool ConnectionLost { get; set; }
-    [Parameter] public RenderFragment? HeaderContent { get; set; }
-    [Parameter] public RenderFragment? ChildContent { get; set; }
+  [Parameter] public string Label { get; set; } = "Controls";
+  [Parameter] public bool ShowHeader { get; set; } = true;
+  [Parameter] public bool ConnectionLost { get; set; }
+  [Parameter] public RenderFragment? HeaderContent { get; set; }
+  [Parameter] public RenderFragment? ChildContent { get; set; }
 }
