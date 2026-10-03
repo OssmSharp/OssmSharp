@@ -24,7 +24,8 @@ else if (!_joined && !_connectionLost)
 else
 {
   <div @ref="_root" class="guest-session rw-stack" data-connection-lost="@(_connectionLost ? "true" : null)"
-      data-device-disconnected="@((_status?.Device).IsConnectedForControls ? null : "true")">
+      data-device-disconnected="@((_status?.Device).IsConnectedForControls ? null : "true")"
+      data-control-waiting="@(_status is { Joined: true, ControlAllowed: false } ? "true" : null)">
     <InlineNotification Variant="danger" Role="alert" data-browser-alert hidden="@(_display.Error is null)">
       @_display.Error
     </InlineNotification>
@@ -41,7 +42,7 @@ else
           <div class="settings-legend">
             <span><i class="key selected" aria-hidden="true"></i>Selected</span>
             <span><i class="key sent" aria-hidden="true"></i>Sent</span>
-            <span><i class="key current" aria-hidden="true"></i>Last known</span>
+            <span><i class="key current" aria-hidden="true"></i>Current</span>
           </div>
           <div class="slider-grid">
             <VerticalSlider Name="speed" Label="Speed" Maximum="100" InitialValue="0"

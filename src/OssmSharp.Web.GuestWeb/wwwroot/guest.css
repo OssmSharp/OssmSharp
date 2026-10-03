@@ -43,7 +43,7 @@
 main:focus { outline: none; }
 
 .send-bar { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: .8rem; }
-.auto-send { flex: 0 0 auto; white-space: nowrap; }
+.auto-send { flex: 0 0 auto; grid-template-columns: max-content max-content; white-space: nowrap; }
 .send-status { color: var(--rw-muted); font-size: .8rem; }
 
 .guest-session[data-connection-lost] .guest-session-message { display: none; }

@@ -227,14 +227,14 @@ class Controls {
     const selected = this.selected();
     for (const name of this.names) {
       const current = this.current?.[name];
-      const sent = this.sent?.[name];
+      const sent = this.sentSelection?.[name];
       this.marker(name, "current", current);
       this.marker(name, "sent", sent);
       this.root.querySelector(`[data-sent="${name}"]`).textContent = sent ?? "--";
       this.root.querySelector(`[data-current="${name}"]`).textContent = current ?? "--";
       this.inputs[name].setAttribute(
         "aria-valuetext",
-        `Selected value: ${selected[name]}. Sent value: ${sent ?? "none"}. Last known value: ${current ?? "unavailable"}.`,
+        `Selected value: ${selected[name]}. Sent value: ${sent ?? "none"}. Current value: ${current ?? "unavailable"}.`,
       );
     }
     this.sendButton.disabled = !this.canSend();
@@ -242,7 +242,7 @@ class Controls {
     const status = this.sent ? "Last changed selection sent." : "Choose settings, then Send.";
     const display = {
       selected,
-      sent: this.sent,
+      sent: this.sentSelection,
       status,
       error: this.error,
     };

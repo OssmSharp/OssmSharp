@@ -892,6 +892,7 @@ test("guest speed scales with stroke length without multiplying by depth", async
       [50, 10, 10, 5],
       [50, 80, 100, 40],
       [50, 10, 80, 5],
+      [25, 10, 10, 2],
       [100, 100, 100, 100],
       [0, 10, 20, 0],
       [30, 1, 1, 0],
@@ -910,15 +911,24 @@ test("guest speed scales with stroke length without multiplying by depth", async
       const count = session.submissions.length;
       await page.locator("[data-send-button]").click();
       await page.waitForFunction(
-        ({ expectedSpeed, stroke, depth }) =>
-          document.querySelector('[data-sent="speed"]')?.textContent === String(expectedSpeed) &&
+        ({ speed, stroke, depth }) =>
+          document.querySelector('[data-sent="speed"]')?.textContent === String(speed) &&
           document.querySelector('[data-sent="stroke"]')?.textContent === String(stroke) &&
           document.querySelector('[data-sent="depth"]')?.textContent === String(depth),
-        { expectedSpeed, stroke, depth },
+        { speed, stroke, depth },
       );
       assert.equal(session.submissions.length, count + 1);
       const submitted = session.submissions.at(-1);
       assert.deepEqual([submitted.speed, submitted.stroke, submitted.depth], [expectedSpeed, stroke, depth]);
+      const currentSpeed = Math.round((expectedSpeed * 100) / stroke);
+      await page.waitForFunction(
+        (currentSpeed) => document.querySelector('[data-current="speed"]')?.textContent === String(currentSpeed),
+        currentSpeed,
+      );
+      assert.equal(await page.locator('[data-sent-marker="speed"]').getAttribute("y1"), String(100 - speed));
+      assert.equal(await page.locator('[data-current-marker="speed"]').getAttribute("y1"), String(100 - currentSpeed));
+      assert.match(await page.locator('[data-input="speed"]').getAttribute("aria-valuetext"), /Current value:/);
+      assert.doesNotMatch(await page.locator("main").innerText(), /Last known/);
       assert.equal(await page.locator('[data-input="speed"]').inputValue(), String(speed), "the selected cadence must remain unchanged");
       const animation = page.locator(".preview-carriage animate");
       assert.equal(await animation.count(), expectedSpeed > 0 ? 1 : 0);
@@ -927,6 +937,73 @@ test("guest speed scales with stroke length without multiplying by depth", async
       }
       await page.locator("[data-send-button]").click();
       assert.equal(session.submissions.length, count + 1, "unchanged selection must not resend its converted command");
+    }
+    for (const [speed, stroke, expected] of [
+      [5, 10, 50],
+      [2.5, 20, 13],
+      [null, 10, null],
+      [5, null, null],
+      [0, 0, null],
+      [0, 10, 0],
+      [40, 10, 100],
+    ]) {
+      session.state = guestState({ device: { ...session.state.device, speed, stroke } });
+      await page.waitForFunction((expected) => document.querySelector('[data-current="speed"]')?.textContent === String(expected ?? "--"), expected);
+      assert.equal(await page.locator('[data-current-marker="speed"]').getAttribute("hidden"), expected === null ? "" : null);
+    }
+    session.state = guestState({ device: { ...session.state.device, speed: 5, stroke: 10 } });
+    await page.waitForFunction(() => document.querySelector('[data-current="speed"]')?.textContent === "50");
+    await page.locator('[data-input="stroke"]').evaluate((input) => {
+      input.value = "1";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await selectSpeed(page, 50);
+    assert.equal(await page.locator('[data-current="speed"]').innerText(), "50", "unsent edits must not change the device speed marker");
+    for (const viewport of viewports) {
+      await page.setViewportSize(viewport);
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+      if (process.env.GUEST_SCREENSHOT_DIR) {
+        await page.screenshot({ path: join(process.env.GUEST_SCREENSHOT_DIR, `ossm-guest-current-speed-${viewport.width}.png`), fullPage: true });
+      }
+    }
+    assert.deepEqual(errors, []);
+  } finally {
+    await context.close();
+    sessions.delete(invitation);
+  }
+});
+
+test("auto-send label fits beside its switch at desktop and mobile widths", async () => {
+  const context = await browser.newContext();
+  await context.route(/\/guest(?:\.[^/]+)?\.css(?:\?.*)?$/, async (route) => {
+    await route.fulfill({ contentType: "text/css", body: await readFile(join(project, "wwwroot/guest.css"), "utf8") });
+  });
+  const invitation = "auto-send-layout";
+  sessions.set(invitation, { state: guestState() });
+  try {
+    const { page, errors } = await openGuest(context, invitation);
+    for (const viewport of viewports) {
+      await page.setViewportSize(viewport);
+      const layout = await page.locator(".auto-send").evaluate((toggle) => {
+        const label = toggle.querySelector("label");
+        const range = document.createRange();
+        range.selectNodeContents(label);
+        const textBounds = range.getBoundingClientRect();
+        const labelBounds = label.getBoundingClientRect();
+        const toggleBounds = toggle.getBoundingClientRect();
+        return {
+          labelWidth: labelBounds.width,
+          textWidth: textBounds.width,
+          rightSpace: toggleBounds.right - textBounds.right,
+          toggleWidth: toggleBounds.width,
+        };
+      });
+      assert.ok(layout.labelWidth >= layout.textWidth, JSON.stringify(layout));
+      assert.ok(layout.rightSpace >= 48, "the label must leave room for the switch and its gap: " + JSON.stringify(layout));
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+      if (process.env.GUEST_SCREENSHOT_DIR) {
+        await page.screenshot({ path: join(process.env.GUEST_SCREENSHOT_DIR, `ossm-guest-auto-send-${viewport.width}.png`), fullPage: true });
+      }
     }
     assert.deepEqual(errors, []);
   } finally {
@@ -943,9 +1020,10 @@ test("deadline-free permission recovers after revoke, Allow and rearm without au
   try {
     const { page, errors } = await openGuest(context, invitation);
     assert.equal(await page.locator(".guest-session-message").innerText(), "Control enabled.");
+    assert.deepEqual(await filtersOnAncestors(page.locator(".guest-interface")), []);
     await selectSpeed(page, 30);
     await page.locator("[data-auto-send]").check();
-    await page.waitForFunction(() => document.querySelector('[data-sent="speed"]')?.textContent === "3");
+    await page.waitForFunction(() => document.querySelector('[data-sent="speed"]')?.textContent === "30");
     assert.equal(session.submissions.length, 1);
     session.state = guestState({ controlAllowed: false });
     await page.waitForFunction(
@@ -954,18 +1032,27 @@ test("deadline-free permission recovers after revoke, Allow and rearm without au
         document.documentElement.dataset.guestConnectionLost === "true",
     );
     assert.match(await page.locator("main").innerText(), /Waiting for the user to allow control\./);
+    for (const viewport of viewports) {
+      await page.setViewportSize(viewport);
+      assert.deepEqual(await filtersOnAncestors(page.locator(".guest-interface")), ["grayscale(1)"]);
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+      if (process.env.GUEST_SCREENSHOT_DIR) {
+        await page.screenshot({ path: join(process.env.GUEST_SCREENSHOT_DIR, `ossm-guest-waiting-${viewport.width}.png`), fullPage: true });
+      }
+    }
     assert.equal(await page.locator("[data-send-button]").isDisabled(), true);
     assert.equal(await page.locator("[data-auto-send]").isChecked(), false);
     session.state = guestState({ device: { ...session.state.device, isArmed: false } });
     await page.waitForFunction(() => document.querySelector(".guest-session-message")?.textContent.includes("Control enabled."));
     assert.equal(await page.locator(".guest-session-message").innerText(), "Control enabled.");
+    assert.deepEqual(await filtersOnAncestors(page.locator(".guest-interface")), []);
     assert.equal(await page.locator("[data-send-button]").isDisabled(), true, "Allow alone must not bypass a disarmed device");
     session.state.device.isArmed = true;
     await page.waitForFunction(() => document.querySelector("[data-send-button]")?.disabled === false);
     assert.equal(session.submissions.length, 1, "regrant and rearm must not submit the saved selection");
     assert.equal(await page.locator("[data-auto-send]").isChecked(), false);
     await page.locator("[data-send-button]").click();
-    await page.waitForFunction(() => document.querySelector('[data-sent="speed"]')?.textContent === "3");
+    await page.waitForFunction(() => document.querySelector('[data-sent="speed"]')?.textContent === "30");
     assert.equal(session.submissions.length, 2, "the same selection must be deliberately sendable after regrant");
     assert.equal(session.renewals, 0);
     assert.equal(await page.getByTestId("guest-disconnected").isVisible(), false);
@@ -996,8 +1083,8 @@ test("guest Stop preserves permission and only acknowledged Stop permits deliber
     const { page, errors } = await openGuest(context, invitation);
     await selectSpeed(page, 30);
     await page.locator("[data-auto-send]").check();
-    await page.waitForFunction(() => document.querySelector('[data-sent="speed"]')?.textContent === "3");
-    await page.waitForFunction(() => document.querySelector('[data-current="speed"]')?.textContent === "3");
+    await page.waitForFunction(() => document.querySelector('[data-sent="speed"]')?.textContent === "30");
+    await page.waitForFunction(() => document.querySelector('[data-current="speed"]')?.textContent === "30");
     await requestGuestStop(page, session);
     await page.waitForFunction(() => document.querySelector("[data-send-button]")?.disabled === true);
     assert.equal(session.stops, 1);
@@ -1014,7 +1101,7 @@ test("guest Stop preserves permission and only acknowledged Stop permits deliber
     assert.equal(session.state.canResumeAfterStop, true);
     assert.equal(session.submissions.length, 1, "Stop acknowledgement must not automatically resend");
     await page.locator("[data-send-button]").click();
-    await page.waitForFunction(() => document.querySelector('[data-sent="speed"]')?.textContent === "3");
+    await page.waitForFunction(() => document.querySelector('[data-sent="speed"]')?.textContent === "30");
     assert.equal(session.submissions.length, 2);
     assert.equal(session.stops, 2);
     assert.equal(session.renewals, 0);
@@ -1290,12 +1377,16 @@ test("component module import failure shows a standard fallback notice", async (
   let componentImportAborted = false;
   try {
     await context.addInitScript(() => {
-      document.addEventListener("readystatechange", () => {
-        const bootstrap = document.getElementById("guest-start");
-        const controller = new URL(bootstrap.dataset.controller, document.baseURI);
-        controller.search = "?bootstrap-test";
-        bootstrap.dataset.controller = controller.href;
-      }, { once: true });
+      document.addEventListener(
+        "readystatechange",
+        () => {
+          const bootstrap = document.getElementById("guest-start");
+          const controller = new URL(bootstrap.dataset.controller, document.baseURI);
+          controller.search = "?bootstrap-test";
+          bootstrap.dataset.controller = controller.href;
+        },
+        { once: true },
+      );
     });
     await context.route(/\/guest-session(?:\.[^/]+)?\.js(?:\?.*)?$/, async (route) => {
       if (new URL(route.request().url()).search === "?bootstrap-test") {

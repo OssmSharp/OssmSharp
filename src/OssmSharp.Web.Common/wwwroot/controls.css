@@ -32,6 +32,7 @@ a:focus-visible { outline: 2px solid var(--rw-focus); outline-offset: 3px; }
 .rw-page { max-width: 1000px; margin-block: 1.25rem 2rem; }
 .rw-inline-notification { inline-size: 100%; width: 100%; position: static; padding: 0; }
 [data-connection-lost] .connection-sensitive,
+[data-control-waiting] .guest-interface,
 [data-device-disconnected] .device-sensitive { filter: grayscale(1); }
 [slot="heading"], [slot="heading"] h2 { font-size: 1.1rem; }
 

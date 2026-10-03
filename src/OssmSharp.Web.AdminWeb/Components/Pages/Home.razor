@@ -24,9 +24,9 @@
                             Role="@(_notice.IsError ? "alert" : "status")">@message</InlineNotification>
       }
       <div class="user-grid connection-sensitive"
-         data-device-disconnected="@(_state.Device.IsConnectedForControls ? null : "true")">
+           data-device-disconnected="@(_state.Device.IsConnectedForControls ? null : "true")">
         <RwCard class="user-status device-sensitive" data-testid="user-controls" role="region"
-           aria-labelledby="controls-heading">
+                aria-labelledby="controls-heading">
           <div slot="heading" class="rw-card-heading user-status-heading">
             <h2 id="controls-heading">Controls</h2>
             <RwBadge Variant="@GuestVariant" data-testid="guest-status">@GuestStatus</RwBadge>

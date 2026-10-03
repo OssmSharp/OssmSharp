@@ -116,7 +116,9 @@ test("stroke-relative speed sends velocity percentages and retains the selected 
     assert.deepEqual([command.speed, command.stroke, command.depth], [expectedSpeed, stroke, depth]);
     const display = browser.calls("UpdateDisplay").at(-1).payload;
     assert.equal(display.selected.speed, speed);
-    assert.equal(display.sent.speed, expectedSpeed);
+    assert.equal(display.sent.speed, speed);
+    assert.equal(browser.element('[data-sent="speed"]').textContent, speed);
+    assert.equal(browser.element('[data-sent-marker="speed"]').attributes.get("y1"), String(100 - speed));
     browser.click("[data-send-button]");
     await setImmediate();
     assert.equal(browser.calls("SubmitSettings").length, count + 1);

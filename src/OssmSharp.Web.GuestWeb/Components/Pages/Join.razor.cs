@@ -32,7 +32,9 @@ public partial class Join
         ControlAllowed: true,
         Device: { ConnectionFailed: false } device
     } && (device.IsArmed || _status.CanResumeAfterStop);
-    private int? DeviceSpeed => _status?.Device?.Speed is { } speed ? (int)Math.Round(speed) : null;
+    private int? DeviceSpeed => _status?.Device is { Speed: { } speed, Stroke: { } stroke } && stroke > 0
+        ? (int)Math.Clamp(Math.Round(speed * 100 / stroke, MidpointRounding.AwayFromZero), 0, 100)
+        : null;
     private string SessionMessage => _status switch
     {
         { Joined: false } => "Session ended.",
@@ -159,7 +161,7 @@ public partial class Join
     {
         joined = _joined,
         ready = Ready,
-        current = _status?.Device
+        current = _status?.Device is { } device ? new { speed = DeviceSpeed, stroke = device.Stroke, depth = device.Depth } : null
     });
 
     private async Task BrowserCallAsync(string methodIdentifier, params object?[] arguments)
