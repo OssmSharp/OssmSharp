@@ -275,7 +275,7 @@ public abstract class DeviceBase : IOssmDevice
 
             throw;
         }
-        },
+    },
         cancellationToken: cancellationToken);
 
     /// <inheritdoc />
@@ -321,7 +321,7 @@ public abstract class DeviceBase : IOssmDevice
 
             await CleanupAsync(pendingStop).ConfigureAwait(false);
             return true;
-            },
+        },
             cancellationToken: CancellationToken.None).ConfigureAwait(false);
     }
 
@@ -424,7 +424,7 @@ public abstract class DeviceBase : IOssmDevice
                 logger.OperationFailed("live read", exception);
                 throw;
             }
-            },
+        },
             requiresConnection: true,
             connectionToken: connectionToken,
             cancellationToken: cancellationToken);
@@ -510,7 +510,7 @@ public abstract class DeviceBase : IOssmDevice
             }
 
             return Task.FromResult(true);
-            },
+        },
             requiresConnection: true,
             cancellationToken: cancellationToken);
     }
@@ -740,7 +740,7 @@ public abstract class DeviceBase : IOssmDevice
             if (!await TryStepAsync(
                 current,
                 () => WriteCommandAsync(command, current.PendingCancellation.Token),
-                exception => new DeviceWriteException(command, current.CommandsWritten, exception)).ConfigureAwait(false))
+                exception => new DeviceWriteException(current.CommandsWritten, exception)).ConfigureAwait(false))
             {
                 return current.Result;
             }

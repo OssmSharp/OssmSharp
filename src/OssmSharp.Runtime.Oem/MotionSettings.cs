@@ -72,7 +72,7 @@ public sealed record MotionSettings
 
     internal FirmwareCommand[] ToCommands() =>
         [
-            new(FirmwareSetting.Pattern, (int)Pattern),
+        new(FirmwareSetting.Pattern, (int)Pattern),
         new(FirmwareSetting.Stroke, Stroke),
         new(FirmwareSetting.Depth, Depth),
         new(FirmwareSetting.Sensation, Sensation),

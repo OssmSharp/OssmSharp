@@ -12,7 +12,7 @@ namespace OssmSharp.Runtime.Oem;
 public static class ServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers Shiny bluetooth, discovery, and a factory accepting a discovered identifier and returning <see cref="DeviceBase"/>.
+    /// Registers Shiny bluetooth, discovery, and a factory accepting a discovered identifier and returning <see cref="OssmDevice"/>.
     /// </summary>
     /// <param name="services">The application's service collection.</param>
     /// <returns>The same collection for composition.</returns>
@@ -22,7 +22,7 @@ public static class ServiceCollectionExtensions
     /// Registers Shiny lifecycle callbacks needed to await native cancellation, including a pending macOS connection.
     /// The factory's caller must asynchronously dispose each device, which may reconnect until disposed; it does not own the shared manager.
     /// </remarks>
-    public static IServiceCollection AddOemRuntime(this IServiceCollection services)
+    public static IServiceCollection AddOssmSharpOemRuntime(this IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
         if (!services.Any(descriptor => descriptor.ServiceType == typeof(IBleManager)))
@@ -42,12 +42,12 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IDeviceDiscovery, DeviceDiscovery>();
 
         // TODO: make a better factory method.
-        services.AddSingleton<Func<string, DeviceBase>>(
+        services.AddSingleton<Func<string, IOssmDevice>>(
             provider => identifier => new OssmDevice(
                 provider.GetRequiredService<IBleManager>(),
                 identifier,
                 provider.GetRequiredService<TimeProvider>(),
-                provider.GetRequiredService<ILogger<DeviceBase>>(),
+                provider.GetRequiredService<ILogger<OssmDevice>>(),
                 provider.GetRequiredService<IOptions<OssmDeviceOptions>>()));
 
         return services;

@@ -14,57 +14,26 @@ namespace OssmSharp.Web.Api;
 public static class ServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers validated control configuration.
+    /// Registers API configuration, authentication, authorization, the runtime device, and the UI control session.
     /// </summary>
     /// <param name="services">The host service collection to configure.</param>
     /// <returns>The service collection for further registration.</returns>
-    public static IServiceCollection AddApiConfiguration(this IServiceCollection services)
+    public static IServiceCollection AddApiServices(this IServiceCollection services)
     {
+        // Configuration
         services.AddSingleton<IValidateOptions<ControlServiceOptions>, ControlServiceOptionsValidator>();
         services.AddOptions<ControlServiceOptions>()
             .BindConfiguration("OSSM:Control", options => options.ErrorOnUnknownConfiguration = true)
             .ValidateOnStart();
-        return services;
-    }
 
-    /// <summary>
-    /// Registers one selected runtime device and the UI control session.
-    /// </summary>
-    /// <param name="services">The host service collection to configure.</param>
-    /// <returns>The service collection for further registration.</returns>
-    public static IServiceCollection AddApiComposition(this IServiceCollection services)
-    {
-        services.AddOemRuntime();
-        services.AddSingleton<Func<string, IOssmDevice>>(provider =>
-            provider.GetRequiredService<Func<string, OssmDevice>>());
-        services.AddSingleton<IControlSession, ControlSession>();
-        services.AddHostedService<DeviceLeaseManagementService>();
-        return services;
-    }
-
-    /// <summary>
-    /// Adds authentication using the administrator key or a guest invitation.
-    /// </summary>
-    /// <param name="services">The host service collection to configure.</param>
-    /// <returns>The service collection for further registration.</returns>
-    public static IServiceCollection AddApiAuthentication(this IServiceCollection services)
-    {
+        // Authentication and authorization services
         services.AddSingleton<ServiceKeyAuthenticator>();
         services.AddAuthentication()
             .AddScheme<ServiceKeyAuthenticationOptions, ServiceKeyAuthenticationHandler>(
                 ServiceKeyAuthenticationDefaults.Scheme, static _ => { })
             .AddScheme<AuthenticationSchemeOptions, InvitationAuthenticationHandler>(
                 InvitationAuthenticationHandler.SchemeName, static _ => { });
-        return services;
-    }
 
-    /// <summary>
-    /// Registers distinct administrator, guest, and connection authorization policies.
-    /// </summary>
-    /// <param name="services">The host service collection to configure.</param>
-    /// <returns>The service collection for further registration.</returns>
-    public static IServiceCollection AddApiAuthorization(this IServiceCollection services)
-    {
         services.AddAuthorization(options =>
         {
             options.AddPolicy(ControlServicePolicies.AdminWeb, policy => policy
@@ -80,6 +49,12 @@ public static class ServiceCollectionExtensions
                 .RequireAuthenticatedUser()
                 .RequireRole(ControlServiceRoles.AdminWeb, ControlServiceRoles.GuestWeb));
         });
+
+        services.AddOssmSharpOemRuntime();
+
+        services.AddSingleton<IControlSession, ControlSession>();
+        services.AddHostedService<DeviceLeaseManagementService>();
+
         return services;
     }
 
@@ -88,7 +63,7 @@ public static class ServiceCollectionExtensions
     /// </summary>
     /// <param name="services">The host service collection to configure.</param>
     /// <returns>The service collection for further registration.</returns>
-    public static IServiceCollection AddApiHub(this IServiceCollection services)
+    public static IServiceCollection AddSignalR(this IServiceCollection services)
     {
         services.AddSignalR(options =>
         {

@@ -31,7 +31,7 @@ internal static class HostRunner
                 builder.Services,
                 new Shiny.BluetoothLE.AppleBleConfiguration(DispatchQueue: bluetoothQueue));
 #endif
-            builder.Services.AddOemRuntime();
+            builder.Services.AddOssmSharpOemRuntime();
             var console = PromptConsole.FromConsole(output, error);
             builder.Services.AddSingleton(console);
             builder.Services.AddCliCommands(output, error);

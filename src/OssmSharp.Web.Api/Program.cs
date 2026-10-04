@@ -17,11 +17,8 @@ internal static class Program
             new Shiny.BluetoothLE.AppleBleConfiguration(DispatchQueue: bluetoothQueue));
 #endif
         builder.Services
-            .AddApiConfiguration()
-            .AddApiComposition()
-            .AddApiAuthentication()
-            .AddApiAuthorization()
-            .AddApiHub();
+            .AddApiServices()
+            .AddSignalR();
         builder.Services.AddProblemDetails();
 
         await using var app = builder.Build();
