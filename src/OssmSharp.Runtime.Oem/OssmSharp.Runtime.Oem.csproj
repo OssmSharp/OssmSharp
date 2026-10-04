@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <!-- Must target native for Shiny to function with the operating system's bluetooth stack. -->
     <TargetFramework />
     <TargetFrameworks>$(BaseTargetFramework)</TargetFrameworks>
     <TargetFrameworks Condition="'$(NativeTargetFramework)' != ''">
@@ -7,6 +8,7 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="../OssmSharp.Runtime/OssmSharp.Runtime.csproj" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.Options" />
     <PackageReference Include="Shiny.BluetoothLE" />
