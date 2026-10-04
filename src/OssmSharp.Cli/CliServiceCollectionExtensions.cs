@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
+using OssmSharp.Runtime;
 using OssmSharp.Runtime.Oem;
 
 namespace OssmSharp.Cli;
@@ -15,18 +16,14 @@ internal static class CliServiceCollectionExtensions
             provider.GetRequiredKeyedService<TextWriter>("output"),
             provider.GetRequiredKeyedService<TextWriter>("error")));
         services.TryAddSingleton<IPromptInput>(_ => PrettyPromptInput.Create(error));
+
+        // TODO: these probably should be interfaces, not concrete singletons.
         services.TryAddSingleton<PromptInterruptState>();
         services.TryAddSingleton<PromptHandlerFactory>();
 
-        services.TryAddSingleton<Func<string, IOssmDevice>>(provider => provider.GetRequiredService<Func<string, DeviceBase>>());
-
         services.AddTransient<ListCommand>();
-        services.AddTransient(provider => new PromptCommand(
-            provider.GetRequiredService<IDeviceDiscovery>(),
-            provider.GetRequiredService<Func<string, IOssmDevice>>(),
-            provider.GetRequiredService<PromptHandlerFactory>(),
-            provider.GetRequiredKeyedService<TextWriter>("error"),
-            provider.GetRequiredService<ILogger<PromptCommand>>()));
+        services.AddTransient<PromptCommand>();
+
         return services;
     }
 }

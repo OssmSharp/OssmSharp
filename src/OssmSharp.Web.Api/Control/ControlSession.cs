@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Security.Cryptography;
 using Microsoft.Extensions.Options;
+using OssmSharp.Runtime;
 using OssmSharp.Runtime.Oem;
 using OssmSharp.Web.Api.Models;
 using static OssmSharp.Web.Contracts.ControlResponseCodes;
@@ -34,9 +35,12 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
     private bool _clearGuestAfterStop;
     private bool _stopRequired;
     private int _pendingConnections;
+    private long _connectionVersion;
     private DeviceSettingsSnapshot? _lastSentSettings;
     private long _requestSequence;
     private long _lastSentSequence;
+    private CancellationTokenSource? _workCancellation;
+    private Task _workCleanup = Task.CompletedTask;
 
     /// <summary>
     /// Initializes a control session that owns one caller-selected runtime device.
@@ -48,6 +52,8 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
     /// <remarks>
     /// A configured identifier bypasses discovery. Otherwise, Connect discovers before constructing the device.
     /// The selected device is retained for reconnects and asynchronously disposed with this session.
+    /// Disconnection discards outstanding work and guest control permission; reconnect does not replay it.
+    /// Outstanding settings and Stop waits are cancelled; device I/O already issued may still finish.
     /// </remarks>
     public ControlSession(
         Func<string, IOssmDevice> deviceFactory,
@@ -61,6 +67,7 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
         {
             _deviceIdentifier = options.Value.DeviceIdentifier;
             _device = deviceFactory(options.Value.DeviceIdentifier);
+            _device.StateChanged += DeviceStateChanged;
         }
 
         _timeProvider = timeProvider;
@@ -122,6 +129,11 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
 
         lock (_sync)
         {
+            if (_device is not { IsConnected: true })
+            {
+                DiscardDisconnectedWorkLocked();
+            }
+
             if (_guestConnectionId is not null || _stopRequired)
             {
                 return Rejected(request.Correlation, GuestAlreadyJoined);
@@ -157,7 +169,7 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
             {
                 return Rejected(correlation, GuestNotJoined);
             }
-            if (_stopRequired || _device is null)
+            if (_stopRequired || _device is not { IsConnected: true })
             {
                 return Rejected(correlation, DeviceNotReady);
             }
@@ -177,7 +189,7 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
             cancellationToken.ThrowIfCancellationRequested();
             lock (_sync)
             {
-                if (_stopRequired || version != _permissionVersion || !IsCurrentGuestLocked(guest))
+                if (_stopRequired || !device.IsConnected || version != _permissionVersion || !IsCurrentGuestLocked(guest))
                 {
                     throw new InvalidOperationException("Control permission was interrupted by Stop or a session change.");
                 }
@@ -357,6 +369,12 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
         Task? stop = null;
         lock (_sync)
         {
+            if (_device is not { IsConnected: true })
+            {
+                DiscardDisconnectedWorkLocked();
+                return;
+            }
+
             if (_stopRequired)
             {
                 stop = RequestAutomaticStopLocked();
@@ -373,22 +391,32 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
     public async Task ShutdownAsync()
     {
         Task? selectionStop;
+        Task workCleanup;
         lock (_sync)
         {
             _shuttingDown = true;
+            DiscardDisconnectedWorkLocked();
+            workCleanup = _workCleanup;
             selectionStop = _selectionCancellation is { } cancellation && _selection is { IsCompleted: false } selection
                 ? CancelSelectionAsync(cancellation, selection)
                 : null;
         }
 
-        if (selectionStop is not null)
+        try
         {
-            await selectionStop.ConfigureAwait(false);
-        }
+            if (selectionStop is not null)
+            {
+                await selectionStop.ConfigureAwait(false);
+            }
 
-        if (_device is { } device)
+            if (_device is { } device)
+            {
+                await device.DisconnectAsync().ConfigureAwait(false);
+            }
+        }
+        finally
         {
-            await device.DisconnectAsync().ConfigureAwait(false);
+            await workCleanup.ConfigureAwait(false);
         }
     }
 
@@ -408,6 +436,7 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
             {
                 if (_device is { } device)
                 {
+                    device.StateChanged -= DeviceStateChanged;
                     await device.DisposeAsync().ConfigureAwait(false);
                 }
             }
@@ -492,23 +521,16 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
 
                 if (!device.IsConnected)
                 {
-                    _connectedAt = null;
+                    DiscardDisconnectedWorkLocked();
                 }
                 connect = device.ConnectAsync(cancellationToken);
             }
 
             await connect.ConfigureAwait(false);
-            Task? stop;
             lock (_sync)
             {
                 _connectedAt ??= _timeProvider.GetUtcNow();
                 _deviceName = device.Name ?? _deviceName;
-                stop = _stopRequired ? RequestStopLocked(clearGuest: false, preservePermission: _guestStopped && _guestControlAllowed) : null;
-            }
-
-            if (stop is not null)
-            {
-                await FinishStopAsync(stop).ConfigureAwait(false);
             }
         }
         finally
@@ -559,7 +581,9 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
 
             _deviceIdentifier = detected.Identifier;
             _deviceName = detected.Name;
-            return _device = _deviceFactory(detected.Identifier);
+            _device = _deviceFactory(detected.Identifier);
+            _device.StateChanged += DeviceStateChanged;
+            return _device;
         }
     }
 
@@ -595,22 +619,18 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
         }
     }
 
-    private Task StartStop()
+    private async Task StartStop()
     {
-        try
+        if (_device is null && _selectionCancellation is { } cancellation && _selection is { IsCompleted: false } selection)
         {
-            if (_device is null && _selectionCancellation is { } cancellation && _selection is { IsCompleted: false } selection)
-            {
-                return CancelSelectionAsync(cancellation, selection);
-            }
+            await CancelSelectionAsync(cancellation, selection).ConfigureAwait(false);
+            return;
+        }
 
-            return (_device ?? throw new InvalidOperationException("No device is connected."))
-                .EmergencyStopAsync(CancellationToken.None);
-        }
-        catch (Exception exception) when (exception is IOException or InvalidOperationException or OperationCanceledException)
-        {
-            return Task.FromException(exception);
-        }
+        var device = _device ?? throw new InvalidOperationException("No device is connected.");
+        var token = device.IsConnected ? GetWorkTokenLocked() : CancellationToken.None;
+        await WaitForDeviceWorkAsync(device.EmergencyStopAsync(token), token).ConfigureAwait(false);
+        token.ThrowIfCancellationRequested();
     }
 
     private Task RequestStopLocked(bool clearGuest, bool preservePermission = false)
@@ -625,9 +645,27 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
         {
             _guestStopped = _guestControlAllowed;
         }
-        _stopRequired = true;
         _clearGuestAfterStop |= clearGuest;
-        return _pendingStop ??= StartStop();
+        if (_device is not { IsConnected: true } && _pendingConnections == 0)
+        {
+            DiscardDisconnectedWorkLocked();
+            return Task.FromException(new InvalidOperationException("No device is connected."));
+        }
+
+        _stopRequired = true;
+        if (_pendingStop is { } pending)
+        {
+            return pending;
+        }
+
+        var version = _connectionVersion;
+        var stop = StartStop();
+        if (version == _connectionVersion)
+        {
+            _pendingStop = stop;
+        }
+
+        return stop;
     }
 
     private Task? RequestAutomaticStopLocked() =>
@@ -649,7 +687,11 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
                 if (ReferenceEquals(_pendingStop, stop))
                 {
                     _pendingStop = null;
-                    if (succeeded)
+                    if (_device is not { IsConnected: true })
+                    {
+                        DiscardDisconnectedWorkLocked();
+                    }
+                    else if (succeeded)
                     {
                         _stopRequired = false;
                         if (_clearGuestAfterStop)
@@ -728,7 +770,7 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
             var connected = device.IsConnected;
             if (!connected)
             {
-                _connectedAt = null;
+                DiscardDisconnectedWorkLocked();
             }
             return new(
                 state is null ? null : (int)state.Pattern,
@@ -751,28 +793,40 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
     {
         var device = _device ?? throw new InvalidOperationException("No device is connected.");
         var version = _permissionVersion;
+        var connectionVersion = _connectionVersion;
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, GetWorkTokenLocked());
+        var token = cancellation.Token;
         if (_guestStopped && !device.IsArmed)
         {
-            await device.ResetAsync(cancellationToken).ConfigureAwait(false);
+            await WaitForDeviceWorkAsync(device.ResetAsync(token), token).ConfigureAwait(false);
         }
 
         Task<SetResult> request;
         long sequence;
         lock (_sync)
         {
-            if (!IsCurrentGuestLocked(connectionId) || !_guestControlAllowed || _stopRequired || version != _permissionVersion)
+            token.ThrowIfCancellationRequested();
+            if (!device.IsConnected || !IsCurrentGuestLocked(connectionId) || !_guestControlAllowed || _stopRequired || version != _permissionVersion)
             {
                 throw new InvalidOperationException("Guest control is no longer available.");
             }
 
             _guestStopped = false;
             sequence = ++_requestSequence;
-            request = device.SetAsync(settings, cancellationToken);
+            request = device.SetAsync(settings, token);
         }
 
+        await WaitForDeviceWorkAsync(request, token).ConfigureAwait(false);
         var result = await request.ConfigureAwait(false);
         lock (_sync)
         {
+            if (token.IsCancellationRequested || !device.IsConnected || connectionVersion != _connectionVersion
+                || (result.Status == SetStatus.Completed
+                    && (!IsCurrentGuestLocked(connectionId) || version != _permissionVersion)))
+            {
+                return new(SetStatus.Cancelled, result.CommandsWritten);
+            }
+
             if (result.Status == SetStatus.Completed && sequence > _lastSentSequence)
             {
                 _lastSentSequence = sequence;
@@ -783,7 +837,81 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
         return result;
     }
 
-    private bool HasActiveControlLocked() => _guestControlAllowed;
+    private bool HasActiveControlLocked()
+    {
+        if (_device is not { IsConnected: true })
+        {
+            DiscardDisconnectedWorkLocked();
+        }
+
+        return _guestControlAllowed;
+    }
+
+    private void DiscardDisconnectedWorkLocked()
+    {
+        if (_workCancellation is { } cancellation)
+        {
+            _workCancellation = null;
+            _workCleanup = Task.WhenAll(_workCleanup, CancelWorkAsync(cancellation));
+        }
+
+        _connectionVersion++;
+        _permissionVersion++;
+        _connectedAt = null;
+        _guestControlAllowed = false;
+        _guestStopped = false;
+        _pendingStop = null;
+        _stopRequired = false;
+        _lastSentSettings = null;
+        if (_clearGuestAfterStop)
+        {
+            ClearGuestLocked();
+        }
+
+        _clearGuestAfterStop = false;
+    }
+
+    private void DeviceStateChanged(object? sender, EventArgs args)
+    {
+        lock (_sync)
+        {
+            if (_device is not { IsConnected: true })
+            {
+                DiscardDisconnectedWorkLocked();
+            }
+        }
+    }
+
+    private CancellationToken GetWorkTokenLocked() =>
+        (_workCancellation ??= new CancellationTokenSource()).Token;
+
+    private static async Task CancelWorkAsync(CancellationTokenSource cancellation)
+    {
+        try
+        {
+            await cancellation.CancelAsync().ConfigureAwait(false);
+        }
+        finally
+        {
+            cancellation.Dispose();
+        }
+    }
+
+    private static async Task WaitForDeviceWorkAsync(Task operation, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await operation.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _ = operation.ContinueWith(
+                completed => _ = completed.Exception,
+                CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+        }
+    }
 
     private bool IsCurrentGuestLocked(string connectionId) =>
         string.Equals(_guestConnectionId, connectionId, StringComparison.Ordinal);
