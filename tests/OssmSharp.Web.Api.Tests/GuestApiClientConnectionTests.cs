@@ -3,11 +3,14 @@ using System.Net;
 using System.Security.Claims;
 using FastMoq;
 using FastMoq.Extensions;
+using FastMoq.Providers;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Moq;
+using OssmSharp.Runtime;
 using OssmSharp.Runtime.Oem;
 using OssmSharp.Web.Api.Control;
 using OssmSharp.Web.Api.Models;
@@ -16,6 +19,7 @@ using OssmSharp.Web.Client.Clients;
 using OssmSharp.Web.Client.Connections;
 using OssmSharp.Web.Client.Models;
 using OssmSharp.Web.Contracts;
+using Shiny.BluetoothLE;
 using Xunit;
 
 namespace OssmSharp.Web.Api.Tests;
@@ -26,12 +30,12 @@ public sealed class GuestApiClientConnectionTests : MockerTestBase<GuestApiClien
     private RpcClientOptions _options = null!;
     private RpcClientTestScope _rpcScope = null!;
     private ControlSession _session = null!;
-    private FakeOssmDevice _device = null!;
+    private Mock<IOssmDevice> _device = null!;
 
     protected override Action<Mocker> SetupMocksAction => mocks =>
     {
-        _device = new();
-        mocks.AddType<Func<string, IOssmDevice>>(_ => _device);
+        _device = DeviceMockSetup.ConnectedDevice(mocks);
+        mocks.AddType<Func<string, IOssmDevice>>(_ => _device.Object);
         mocks.AddType(TimeProvider.System);
         mocks.SetupOptions(new ControlServiceOptions { DeviceIdentifier = "test", AdminWebServiceKey = AdminKey });
         _session = mocks.CreateInstance<ControlSession>()!;
@@ -48,21 +52,14 @@ public sealed class GuestApiClientConnectionTests : MockerTestBase<GuestApiClien
             try
             {
                 await _session.DisposeAsync();
+                Mocks.Verify<IOssmDevice>(device => device.DisposeAsync(), TimesSpec.Once);
+                _device.VerifyAdd(device => device.StateChanged += It.IsAny<EventHandler>(), Times.Once);
+                _device.VerifyRemove(device => device.StateChanged -= It.IsAny<EventHandler>(), Times.Once);
             }
             finally
             {
-                try
-                {
-                    if (_device.Disposals == 0)
-                    {
-                        await _device.DisposeAsync();
-                    }
-                }
-                finally
-                {
-                    try { await _rpcScope.DisposeAsync(); }
-                    finally { base.Dispose(); }
-                }
+                try { await _rpcScope.DisposeAsync(); }
+                finally { base.Dispose(); }
             }
         }
     }
@@ -82,7 +79,7 @@ public sealed class GuestApiClientConnectionTests : MockerTestBase<GuestApiClien
         Assert.False(state.ControlAllowed);
         var unapproved = await Component.SubmitAsync(new("before-allow", 0, 10, 20, 30, 40), TestContext.Current.CancellationToken);
         Assert.Equal(SettingsResponseStatus.Rejected, unapproved.Status);
-        Assert.Equal(0, _device.Sets);
+        Mocks.Verify<IOssmDevice>(device => device.SetAsync(FastArg.Any<MotionSettings>(), FastArg.Any<CancellationToken>()), TimesSpec.NeverCalled);
         Assert.Equal(2, identities.Count);
         foreach (var principal in identities)
         {
@@ -102,9 +99,9 @@ public sealed class GuestApiClientConnectionTests : MockerTestBase<GuestApiClien
         Assert.Equal(
             SettingsResponseStatus.Completed,
             (await Component.SubmitAsync(new("set", 0, 10, 20, 30, 40), TestContext.Current.CancellationToken)).Status);
-        Assert.Equal(1, _device.Sets);
+        Mocks.Verify<IOssmDevice>(device => device.SetAsync(FastArg.Any<MotionSettings>(), FastArg.Any<CancellationToken>()), TimesSpec.Once);
         Assert.True((await Component.LeaveAsync(TestContext.Current.CancellationToken)).Accepted);
-        Assert.Equal(1, _device.Stops);
+        Mocks.Verify<IOssmDevice>(device => device.EmergencyStopAsync(FastArg.Any<CancellationToken>()), TimesSpec.Once);
     }
 
     [Fact]
@@ -129,7 +126,7 @@ public sealed class GuestApiClientConnectionTests : MockerTestBase<GuestApiClien
         Assert.False(rejected.Accepted);
         Assert.Equal("invalid-invitation", rejected.Code);
         Assert.False((await Component.GetStateAsync(TestContext.Current.CancellationToken)).Joined);
-        Assert.Equal(1, _device.Stops);
+        Mocks.Verify<IOssmDevice>(device => device.EmergencyStopAsync(FastArg.Any<CancellationToken>()), TimesSpec.Once);
     }
 
     [Theory]
@@ -194,7 +191,7 @@ public sealed class GuestApiClientConnectionTests : MockerTestBase<GuestApiClien
         var state = await _session.GetUserStateAsync(TestContext.Current.CancellationToken);
         Assert.False(state.GuestJoined);
         Assert.False(state.GuestControlAllowed);
-        Assert.Equal(1, _device.Stops);
+        Mocks.Verify<IOssmDevice>(device => device.EmergencyStopAsync(FastArg.Any<CancellationToken>()), TimesSpec.Once);
     }
 
     [Fact]
@@ -251,9 +248,11 @@ public sealed class GuestApiClientConnectionTests : MockerTestBase<GuestApiClien
     {
         var builder = WebApplication.CreateBuilder();
         builder.Logging.ClearProviders();
+        builder.Services.AddSingleton(Mocks.GetOrCreateMock<IBleManager>().Instance);
+        builder.Services.AddApiServices().AddSignalR();
         builder.Services.Configure<ControlServiceOptions>(options => options.AdminWebServiceKey = AdminKey);
         builder.Services.AddSingleton<IControlSession>(_session);
-        builder.Services.AddApiAuthentication().AddApiAuthorization().AddApiHub();
+        builder.Services.AddSingleton<Func<string, IOssmDevice>>(_ => _device.Object);
         var app = builder.Build();
         app.Urls.Add("http://127.0.0.1:0");
         app.UseWebSockets();

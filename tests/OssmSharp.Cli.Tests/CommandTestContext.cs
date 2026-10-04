@@ -4,6 +4,7 @@ using FastMoq;
 using FastMoq.Providers.MoqProvider;
 using Microsoft.Extensions.Time.Testing;
 using Moq;
+using OssmSharp.Runtime;
 using OssmSharp.Runtime.Oem;
 using Shiny.BluetoothLE;
 
@@ -11,8 +12,11 @@ namespace OssmSharp.Cli.Tests;
 
 internal sealed class CommandTestContext : IDisposable
 {
+    private readonly bool ownsMocks;
+
     public CommandTestContext(Mocker? mocks = null)
     {
+        ownsMocks = mocks is null;
         Mocks = mocks ?? new Mocker();
         Manager = Mocks.GetOrCreateMock<IBleManager>().AsMoq();
         Manager.Setup(manager => manager.RequestAccess()).Returns(Observable.Return(AccessState.Available));
@@ -47,5 +51,18 @@ internal sealed class CommandTestContext : IDisposable
         ScanResults.OnNext(new(peripheral.Object, -40, Mocks.GetOrCreateMock<IAdvertisementData>().Instance));
     }
 
-    public void Dispose() => ScanResults.Dispose();
+    public void Dispose()
+    {
+        try
+        {
+            ScanResults.Dispose();
+        }
+        finally
+        {
+            if (ownsMocks)
+            {
+                Mocks.Dispose();
+            }
+        }
+    }
 }

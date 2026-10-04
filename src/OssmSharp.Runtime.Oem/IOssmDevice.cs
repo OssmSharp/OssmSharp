@@ -9,6 +9,10 @@ namespace OssmSharp.Runtime.Oem;
 /// The firmware controls motion and decides whether it is safe.
 /// The client can reconnect after a disconnect or connection failure unless it has been disposed.
 /// Each new connection reads fresh state and does not resend earlier settings.
+/// Disposal cancels calls still waiting for serialized I/O. Cancelled queued Connect, Disconnect, fresh-state,
+/// and Reset calls throw <see cref="OperationCanceledException"/>; settings requests use <see cref="SetResult"/> as described below.
+/// New device-operation calls after disposal begins throw <see cref="ObjectDisposedException"/>;
+/// repeated disposal calls observe the same cleanup result.
 /// </remarks>
 public interface IOssmDevice : IAsyncDisposable
 {
@@ -67,8 +71,12 @@ public interface IOssmDevice : IAsyncDisposable
     /// Cleanup of an earlier connection must finish first. If cleanup fails, the error is returned and no new connection opens.
     /// Failed, cancelled, or interrupted connection attempts release their resources and leave requests disarmed.
     /// Stop, disconnect, and disposal interrupt connection setup without sending motion settings.
+    /// Caller cancellation applies to the I/O gate wait and setup waits, but does not cancel issued GATT transfers
+    /// or required cleanup. Partial-connection cleanup is attempted before the call returns; a cleanup failure
+    /// is propagated, together with the setup error when both fail.
     /// </remarks>
     /// <exception cref="ObjectDisposedException">The client has been disposed.</exception>
+    /// <exception cref="OperationCanceledException">Caller cancellation or disposal cancelled a wait or setup step.</exception>
     Task ConnectAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -80,9 +88,11 @@ public interface IOssmDevice : IAsyncDisposable
     /// The client keeps its last known state and <see cref="StateChanged"/> subscriptions and can reconnect later.
     /// Live reads are interrupted. Device transfers already started must finish before their connection resources are released.
     /// Failed cleanup can be retried when reconnecting.
-    /// Cancellation before this call starts prevents disconnection. Once started, cleanup continues even if cancelled.
+    /// Caller cancellation is checked before accepting disconnection. Once accepted, Stop and cleanup ignore that token.
+    /// Disposal can still cancel this call's I/O gate wait and take ownership of cleanup.
     /// </remarks>
     /// <exception cref="ObjectDisposedException">The client has been disposed.</exception>
+    /// <exception cref="OperationCanceledException">The caller token was cancelled before acceptance, or disposal cancelled the I/O gate wait.</exception>
     Task DisconnectAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -94,7 +104,11 @@ public interface IOssmDevice : IAsyncDisposable
     /// <remarks>
     /// Entering pattern mode can reset the device's controls before the settings are sent. This does not disarm requests.
     /// Completion does not confirm physical motion.
-    /// Cancellation drops commands not yet sent and returns <see cref="SetStatus.Cancelled"/>.
+    /// Caller cancellation drops commands not yet sent and ends response waits for an accepted request.
+    /// A newer accepted request marks its predecessor <see cref="SetStatus.Superseded"/>; Stop, disarming,
+    /// disconnection, or disposal marks the current request <see cref="SetStatus.Cancelled"/>.
+    /// Caller cancellation preserves a superseded result; otherwise cancellation returns <see cref="SetStatus.Cancelled"/>.
+    /// These results do not replace connection, preparation, or write errors when those failures are propagated.
     /// A newer request, Stop, or cancellation ends waits for earlier device responses after transfers already started finish.
     /// Commands already sent may still take effect even if the result does not count them as confirmed writes.
     /// </remarks>
@@ -113,7 +127,11 @@ public interface IOssmDevice : IAsyncDisposable
     /// The last known state remains available while disconnected.
     /// Fresh reads require a connection and run one at a time with other device operations. Stop does not cancel them.
     /// Read failures, disconnection, and disposal return an error rather than silently returning the last known state.
+    /// Caller cancellation is checked before both cached and fresh reads. For a fresh read, caller cancellation,
+    /// disconnection, and disposal can cancel the I/O gate wait or the wait for the next valid observation.
+    /// Cancelling an observation wait does not stop the motion stream; a connection or read failure can instead be propagated.
     /// </remarks>
+    /// <exception cref="OperationCanceledException">The caller token was cancelled on entry, or a fresh-read wait was cancelled.</exception>
     Task<DeviceState?> GetStateAsync(bool bypassCache = false, CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -123,8 +141,8 @@ public interface IOssmDevice : IAsyncDisposable
     /// <remarks>
     /// Stop waits for a device transfer already started, but not for an earlier device response or a live read.
     /// A command sent just before Stop may still briefly take effect.
-    /// During connection setup, Stop ends the connection attempt without sending a command.
-    /// Calls made while Stop is running wait for the same Stop command.
+    /// During connection setup, Stop ends the connection attempt without sending a command or waiting for setup cleanup.
+    /// Calls made while Stop is running wait for the same Stop command, even if the joining caller's token is cancelled.
     /// Stop is allowed while requests are disarmed. Success leaves <see cref="IsArmed"/> unchanged; failure disarms requests.
     /// Cancellation is checked before a new Stop starts. Once started, its command finishes even if cancelled.
     /// </remarks>
@@ -136,7 +154,11 @@ public interface IOssmDevice : IAsyncDisposable
     /// <returns>Permission to send settings requests again.</returns>
     /// <remarks>
     /// Reset does not clear <see cref="ConnectionFailure"/> and cannot allow requests while Stop is running.
+    /// Caller cancellation applies to the I/O gate wait and is checked again before enabling requests.
+    /// Once that step begins, it ignores cancellation and sends no device commands.
+    /// Disposal can cancel a queued Reset; Stop, disarming, or disconnection can instead reject it as interrupted.
     /// </remarks>
     /// <exception cref="InvalidOperationException">The device is disconnected, Stop is running, or a Stop or operation failure interrupted the reset.</exception>
+    /// <exception cref="OperationCanceledException">Caller cancellation or disposal cancelled Reset before its enabling step began.</exception>
     Task ResetAsync(CancellationToken cancellationToken = default);
 }

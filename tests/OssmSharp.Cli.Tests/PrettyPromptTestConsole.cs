@@ -114,4 +114,12 @@ internal sealed class PrettyPromptTestConsole(
         new ConsoleKeyInfo('\0', ConsoleKey.UpArrow, shift: false, alt: false, control: false),
         new ConsoleKeyInfo('\r', ConsoleKey.Enter, shift: false, alt: false, control: false),
     ]);
+
+    internal void EnqueueKeys(IEnumerable<ConsoleKeyInfo> input)
+    {
+        foreach (var key in input)
+        {
+            keys.Enqueue(key);
+        }
+    }
 }

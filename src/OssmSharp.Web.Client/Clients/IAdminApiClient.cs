@@ -9,7 +9,7 @@ namespace OssmSharp.Web.Client.Clients;
 /// <remarks>
 /// The first request starts the RPC connection. Cancellation can interrupt connection startup or the caller's
 /// wait for a response; it does not roll back a dispatched request. Dispose the client when it is no longer
-/// needed. Disp,osal waits for pending operations before releasing the RPC connection.
+/// needed. Disposal waits for pending operations before releasing the RPC connection.
 /// </remarks>
 public interface IAdminApiClient : IAsyncDisposable
 {

@@ -1,15 +1,16 @@
 using System.ComponentModel.DataAnnotations;
 using AwesomeAssertions;
+using FastMoq;
 using Xunit;
 
 namespace OssmSharp.Runtime.Oem.Tests;
 
-public sealed class OssmDeviceOptionsTests
+public sealed class OssmDeviceOptionsTests : MockerTestBase<OssmDeviceOptions>
 {
     [Fact]
     public void RequestOptionsPreserveDefaultLimits()
     {
-        var options = new OssmDeviceOptions();
+        var options = Component;
         var results = new List<ValidationResult>();
 
         options.MaximumRequestAttempts.Should().Be(3);
@@ -23,7 +24,8 @@ public sealed class OssmDeviceOptionsTests
     [InlineData(-1)]
     public void RequestOptionsRejectNonpositiveAttemptLimit(int attempts)
     {
-        var options = new OssmDeviceOptions { MaximumRequestAttempts = attempts };
+        var options = Component;
+        options.MaximumRequestAttempts = attempts;
         var results = new List<ValidationResult>();
 
         Validator.TryValidateObject(options, new(options), results).Should().BeFalse();
@@ -36,7 +38,8 @@ public sealed class OssmDeviceOptionsTests
     [InlineData(4294967295d)]
     public void RequestOptionsRejectUnsupportedResponseTimeout(double milliseconds)
     {
-        var options = new OssmDeviceOptions { ResponseTimeout = TimeSpan.FromMilliseconds(milliseconds) };
+        var options = Component;
+        options.ResponseTimeout = TimeSpan.FromMilliseconds(milliseconds);
         var results = new List<ValidationResult>();
 
         Validator.TryValidateObject(options, new(options), results).Should().BeFalse();
@@ -46,7 +49,9 @@ public sealed class OssmDeviceOptionsTests
     [Fact]
     public void RequestOptionsReturnAllInvalidProperties()
     {
-        var options = new OssmDeviceOptions { MaximumRequestAttempts = 0, ResponseTimeout = TimeSpan.Zero };
+        var options = Component;
+        options.MaximumRequestAttempts = 0;
+        options.ResponseTimeout = TimeSpan.Zero;
         var results = new List<ValidationResult>();
 
         Validator.TryValidateObject(options, new(options), results).Should().BeFalse();

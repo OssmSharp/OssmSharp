@@ -16,7 +16,7 @@ public sealed class PromptCommand
         IDeviceDiscovery discovery,
         Func<string, IOssmDevice> createDevice,
         PromptHandlerFactory promptFactory,
-        [FromKeyedServices("error")] TextWriter error,
+        TextWriter error,
         ILogger<PromptCommand> logger)
     {
         this.discovery = discovery;

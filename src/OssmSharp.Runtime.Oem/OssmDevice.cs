@@ -7,6 +7,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.ExceptionServices;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization.Metadata;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using OssmSharp.Runtime.Oem.Protocol;
@@ -14,6 +15,13 @@ using Shiny.BluetoothLE;
 
 namespace OssmSharp.Runtime.Oem;
 
+/// <summary>
+/// Owns a device connection, control lease, settings requests, and last known state over bluetooth.
+/// </summary>
+/// <remarks>
+/// Dispose the client to end its connection and release its owned resources; the bluetooth manager remains host-owned.
+/// Settings select firmware patterns and controls rather than directly driving motor motion.
+/// </remarks>
 public sealed class OssmDevice : IOssmDevice
 {
     /// <summary>
@@ -27,23 +35,26 @@ public sealed class OssmDevice : IOssmDevice
     private const int StreamHeaderBytes = 20;
 
     /// <summary>
-    /// Associates peripherals with their owning clients for exclusive connections and lifecycle callbacks.
+    /// Prevents two clients from owning the same peripheral.
     /// </summary>
     private static readonly ConditionalWeakTable<IPeripheral, OssmDevice> Owners = [];
 
     /// <summary>
-    /// Protects lifecycle, request, and last known state from concurrent calls and provider callbacks.
+    /// Protects lifecycle, requests, connection resources, and last known state from concurrent calls and bluetooth callbacks.
     /// </summary>
-    private readonly Lock lifecycleSync = new();
+    private readonly Lock sync = new();
 
     /// <summary>
-    /// Serializes non-Stop operations and provider cleanup.
+    /// Serializes public operations other than Stop, together with connection cleanup, so teardown cannot overtake their issued transfers.
     /// </summary>
     private readonly SemaphoreSlim io = new(1, 1);
 
     /// <summary>
-    /// Cancels operation waits and cooperative work when disposal starts.
+    /// Cancels ExecuteAsync gate waits and token-aware work when disposal starts; it does not cancel issued GATT transfers.
     /// </summary>
+    /// <remarks>
+    /// Disconnect uses connectionCancellation instead so the client remains reusable.
+    /// </remarks>
     private readonly CancellationTokenSource shutdown = new();
 
     /// <summary>
@@ -51,24 +62,34 @@ public sealed class OssmDevice : IOssmDevice
     /// </summary>
     private readonly IBleManager manager;
 
+    /// <summary>
+    /// Supplies the clock and timers for response timeouts and renewal before the firmware lease expires.
+    /// </summary>
     private readonly TimeProvider timeProvider;
-    private readonly ILogger logger;
-    private readonly OssmDeviceOptions options;
 
     /// <summary>
-    /// Protects per-connection state and pending request and read ownership.
+    /// Records API entries, lifecycle changes, request progress, and failures at their owning boundary.
     /// </summary>
-    private readonly Lock sync = new();
+    private readonly ILogger logger;
+
+    /// <summary>
+    /// Bounds terminal-response waits and retries that reuse the same firmware request identifier.
+    /// </summary>
+    private readonly OssmDeviceOptions options;
 
     /// <summary>
     /// Serializes issued GATT writes without holding the gate while awaiting terminal responses.
     /// </summary>
+    /// <remarks>
+    /// All GATT request writes, including setup and cleanup requests, share this gate.
+    /// Not disposed: Stop and lease maintenance bypass io, so acquiring io alone does not join their work.
+    /// </remarks>
     private readonly SemaphoreSlim writes = new(1, 1);
 
     /// <summary>
     /// Correlates outstanding request identifiers with their terminal-response completions.
     /// </summary>
-    private readonly Dictionary<uint, TaskCompletionSource<Response>> requests = [];
+    private readonly Dictionary<uint, TaskCompletionSource<RadResponse>> requests = [];
 
     /// <summary>
     /// Shared Stop result joined by concurrent Stop callers, disconnect, and disposal while still in progress.
@@ -76,7 +97,12 @@ public sealed class OssmDevice : IOssmDevice
     private Task? stop;
 
     /// <summary>
-    /// Latest accepted settings request; newer requests supersede its unsent commands.
+    /// Signals when an accepted Stop has transferred so queued non-Stop traffic yields until zero speed is sent.
+    /// </summary>
+    private TaskCompletionSource? stopTransfer;
+
+    /// <summary>
+    /// Latest accepted settings request, targeted by supersession and Stop without cancelling older issued transfers.
     /// </summary>
     private SetOperationContext? request;
 
@@ -85,14 +111,10 @@ public sealed class OssmDevice : IOssmDevice
     /// </summary>
     private DeviceState? state;
 
-    private FirmwareSettings? transmitted;
-    private long writeSequence;
-    private long confirmedSpeedSequence;
-
     /// <summary>
     /// Connection failure retained with its stack trace until a successful reconnection.
     /// </summary>
-    private ExceptionDispatchInfo? providerFailure;
+    private ExceptionDispatchInfo? connectionFailure;
 
     /// <summary>
     /// Shared cleanup result returned by every disposal call, including when cleanup fails.
@@ -100,8 +122,12 @@ public sealed class OssmDevice : IOssmDevice
     private Task? disposal;
 
     /// <summary>
-    /// Per-connection cancellation source for interrupting setup and live reads during teardown.
+    /// Identifies the connection for stale-callback checks and cancels setup and live reads during teardown.
     /// </summary>
+    /// <remarks>
+    /// Cleanup disposes the source after joining connectionStopping. Protocol cleanup uses its identity, not its
+    /// cancelled token, so Stop and lease release can still use the transport while public operations are rejected.
+    /// </remarks>
     private CancellationTokenSource? connectionCancellation;
 
     /// <summary>
@@ -110,44 +136,23 @@ public sealed class OssmDevice : IOssmDevice
     private Task? connectionStopping;
 
     /// <summary>
-    /// Increments when Stop or disarming must invalidate a Reset that captured the previous version.
+    /// Invalidates earlier connection attempts and queued Reset calls when connectivity or arming is interrupted.
     /// </summary>
-    private long interruptionVersion;
-
-    /// <summary>
-    /// Identifies the current connection attempt; Connect, Disconnect, and disposal increment it to supersede earlier attempts.
-    /// </summary>
+    /// <remarks>
+    /// Lifecycle version, incremented by each connection attempt and interruption.
+    /// </remarks>
     private long connection;
 
     /// <summary>
-    /// Indicates that connection setup is in progress and has not yet been armed, failed, or interrupted.
+    /// Governs public operation admission through setup, connectivity, teardown, and permanent disposal.
+    /// Unlike active, this can reject new operations while the transport still serves Stop and lease release.
     /// </summary>
-    private bool connecting;
+    private ConnectionPhase phase;
 
     /// <summary>
-    /// Indicates an established connection that has not been disconnected, faulted, or disposed.
-    /// </summary>
-    private bool connected;
-
-    /// <summary>
-    /// Indicates that provider connection resources may still need <see cref="DisconnectCoreAsync"/>.
-    /// </summary>
-    private bool cleanupPending;
-
-    /// <summary>
-    /// Indicates that settings may be sent; only a successful connection or Reset sets it.
+    /// Gates settings independently of connectivity after disarming; successful connection or Reset restores it.
     /// </summary>
     private bool armed;
-
-    /// <summary>
-    /// Indicates that disposal has started; new operations are rejected and provider callbacks are ignored.
-    /// </summary>
-    private bool disposing;
-
-    /// <summary>
-    /// Completion signal for the priority Stop transfer; ordinary writes yield while it is pending.
-    /// </summary>
-    private TaskCompletionSource? stopTransfer;
 
     /// <summary>
     /// Owns response, motion-stream, and characteristic-subscription observers for the current connection.
@@ -155,12 +160,12 @@ public sealed class OssmDevice : IOssmDevice
     private CompositeDisposable subscriptions = [];
 
     /// <summary>
-    /// Owns connection-status and connection-failure observers until disconnection is acknowledged.
+    /// Keeps connection-status and failure observers alive after data subscriptions close, until native disconnection is acknowledged.
     /// </summary>
     private CompositeDisposable lifecycle = [];
 
     /// <summary>
-    /// Signals native disconnection for the current connection generation.
+    /// Signals native disconnection for the current connection.
     /// </summary>
     /// <remarks>
     /// Replaced before teardown so an earlier loss notification cannot acknowledge a later connection closure.
@@ -175,6 +180,10 @@ public sealed class OssmDevice : IOssmDevice
     /// <summary>
     /// Per-connection cancellation source that stops lease acquisition and renewal during teardown.
     /// </summary>
+    /// <remarks>
+    /// Separate from connectionCancellation so lease maintenance can continue while teardown waits for Stop.
+    /// DisconnectCoreAsync cancels and joins maintenance before releasing the lease and disposing this source.
+    /// </remarks>
     private CancellationTokenSource? leaseStopping;
 
     /// <summary>
@@ -188,12 +197,7 @@ public sealed class OssmDevice : IOssmDevice
     private IPeripheral? peripheral;
 
     /// <summary>
-    /// Identifies the current connection attempt so callbacks from earlier connections are ignored.
-    /// </summary>
-    private long generation;
-
-    /// <summary>
-    /// Indicates that the current connection generation has not been abandoned.
+    /// Allows protocol traffic and correlated callbacks until Abandon, even after phase rejects public operations.
     /// </summary>
     private bool active;
 
@@ -249,6 +253,15 @@ public sealed class OssmDevice : IOssmDevice
     /// <inheritdoc />
     public event EventHandler? StateChanged;
 
+    private enum ConnectionPhase
+    {
+        Disconnected,
+        Connecting,
+        Connected,
+        Disconnecting,
+        Disposing,
+    }
+
     /// <inheritdoc />
     public string? Name
     {
@@ -266,9 +279,9 @@ public sealed class OssmDevice : IOssmDevice
     {
         get
         {
-            lock (lifecycleSync)
+            lock (sync)
             {
-                return connected;
+                return phase == ConnectionPhase.Connected;
             }
         }
     }
@@ -281,7 +294,7 @@ public sealed class OssmDevice : IOssmDevice
     {
         get
         {
-            lock (lifecycleSync)
+            lock (sync)
             {
                 return armed;
             }
@@ -293,32 +306,24 @@ public sealed class OssmDevice : IOssmDevice
     {
         get
         {
-            lock (lifecycleSync)
+            lock (sync)
             {
-                return providerFailure?.SourceException;
-            }
-        }
-    }
-
-    internal FirmwareSettings? Transmitted
-    {
-        get
-        {
-            lock (lifecycleSync)
-            {
-                return transmitted;
+                return connectionFailure?.SourceException;
             }
         }
     }
 
     /// <inheritdoc />
-    public Task ConnectAsync(CancellationToken cancellationToken = default) => ExecuteAsync(
+    public Task ConnectAsync(CancellationToken cancellationToken = default)
+    {
+        logger.ApiCalled("Connect");
+        return ExecuteAsync(
         async token =>
     {
         long attempt;
-        lock (lifecycleSync)
+        lock (sync)
         {
-            if (connected)
+            if (phase == ConnectionPhase.Connected)
             {
                 return true;
             }
@@ -329,24 +334,24 @@ public sealed class OssmDevice : IOssmDevice
         logger.OperationStarted("connect");
         await CleanupAsync().ConfigureAwait(false);
         CancellationTokenSource session;
-        lock (lifecycleSync)
+        lock (sync)
         {
             ThrowIfInterrupted(attempt);
-            connecting = true;
-            transmitted = null;
-            cleanupPending = true;
+            phase = ConnectionPhase.Connecting;
             connectionCancellation = session = new();
             connectionStopping = null;
         }
 
+        // token combines caller cancellation with shutdown. The session additionally interrupts this setup
+        // on Stop or disconnect; issued GATT reads and writes still settle before partial cleanup.
         using var attemptCancellation = CancellationTokenSource.CreateLinkedTokenSource(token, session.Token);
         logger.ConnectionStateChanged("connecting");
         try
         {
             await ConnectCoreAsync(attemptCancellation.Token).ConfigureAwait(false);
-            lock (lifecycleSync)
+            lock (sync)
             {
-                if (!disposing)
+                if (phase != ConnectionPhase.Disposing)
                 {
                     ThrowIfInterrupted(attempt);
                 }
@@ -354,19 +359,18 @@ public sealed class OssmDevice : IOssmDevice
 
             attemptCancellation.Token.ThrowIfCancellationRequested();
             logger.ConnectionSetupStage("waiting for initial motion observation");
-            UpdateState(await ReadStateAsync(attemptCancellation.Token).WaitAsync(attemptCancellation.Token).ConfigureAwait(false));
-            lock (lifecycleSync)
+            UpdateState(await ReadStateAsync(attemptCancellation.Token).ConfigureAwait(false), session);
+            lock (sync)
             {
                 ThrowIfInterrupted(attempt);
-                if (!connecting)
+                if (phase != ConnectionPhase.Connecting)
                 {
                     // SetFaulted ended this attempt during setup.
-                    providerFailure!.Throw();
+                    connectionFailure!.Throw();
                 }
 
-                connecting = false;
-                connected = true;
-                providerFailure = null;
+                phase = ConnectionPhase.Connected;
+                connectionFailure = null;
                 armed = true;
             }
 
@@ -378,14 +382,14 @@ public sealed class OssmDevice : IOssmDevice
         catch (Exception connectionError)
         {
             bool reported;
-            lock (lifecycleSync)
+            lock (sync)
             {
                 if (attempt == connection)
                 {
-                    connecting = false;
+                    phase = connectionCancellation is null ? ConnectionPhase.Disconnected : ConnectionPhase.Disconnecting;
                 }
 
-                reported = ReferenceEquals(connectionError, providerFailure?.SourceException);
+                reported = ReferenceEquals(connectionError, connectionFailure?.SourceException);
             }
 
             if (connectionError is OperationCanceledException)
@@ -410,24 +414,23 @@ public sealed class OssmDevice : IOssmDevice
         }
     },
         cancellationToken: cancellationToken);
+    }
 
     /// <inheritdoc />
     public async Task DisconnectAsync(CancellationToken cancellationToken = default)
     {
+        logger.ApiCalled("Disconnect");
         bool changed;
-        long disconnection;
+        CancellationTokenSource? disconnection;
         Task? pendingStop;
         TaskCompletionSource? started;
-        lock (lifecycleSync)
+        lock (sync)
         {
-            ObjectDisposedException.ThrowIf(disposing, this);
+            ObjectDisposedException.ThrowIf(phase == ConnectionPhase.Disposing, this);
             cancellationToken.ThrowIfCancellationRequested();
             pendingStop = PrepareStop(out started);
-            disconnection = ++connection;
-            connecting = false;
-            connected = false;
-            changed = DisarmLocked();
-            connectionStopping ??= connectionCancellation?.CancelAsync();
+            changed = EndConnectionLocked();
+            disconnection = connectionCancellation;
         }
 
         if (changed)
@@ -440,12 +443,14 @@ public sealed class OssmDevice : IOssmDevice
             _ = CompleteStopAsync(started);
         }
 
+        // The caller token was checked before accepting disconnection. It cannot abandon the Stop or cleanup
+        // this call now owns; ExecuteAsync still links shutdown so disposal can take over serialized cleanup.
         await ExecuteAsync(
             async _ =>
         {
-            lock (lifecycleSync)
+            lock (sync)
             {
-                if (disconnection != connection)
+                if (!ReferenceEquals(disconnection, connectionCancellation))
                 {
                     // A later connection attempt owns cleanup of the connection this call ended.
                     return true;
@@ -459,13 +464,19 @@ public sealed class OssmDevice : IOssmDevice
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// Accepted requests complete asynchronously so cancellation cannot resume callers inside a state transition.
+    /// Request results and command counts do not confirm that the device applied the selected settings.
+    /// </remarks>
     public async Task<SetResult> SetAsync(MotionSettings settings, CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(settings);
         logger.ApiCalled("Set");
+        ArgumentNullException.ThrowIfNull(settings);
+        // This request owns the linked source. Caller cancellation and owner-driven supersession share its token,
+        // but the context preserves whether the result is Cancelled or Superseded.
         using var pendingCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         SetOperationContext current;
-        lock (lifecycleSync)
+        lock (sync)
         {
             EnsureConnected();
             if (stop is { IsCompleted: false })
@@ -489,6 +500,9 @@ public sealed class OssmDevice : IOssmDevice
 
         try
         {
+            // ExecuteAsync links pending cancellation with shutdown for the io wait. ApplySettingsAsync uses the
+            // pending token for each step; teardown cancels it through CancelPending, not through an issued transfer.
+            // Each request configures speedKnobAsLimit=false and checks strokeEngine readiness before its controls.
             var result = await ExecuteAsync(
                 _ => ApplySettingsAsync(current),
                 requiresConnection: true,
@@ -496,9 +510,9 @@ public sealed class OssmDevice : IOssmDevice
             logger.SettingsFinished(result.Status, result.CommandsWritten);
             return result;
         }
-        catch (OperationCanceledException) when (current.PendingCancellation.IsCancellationRequested || disposing)
+        catch (OperationCanceledException) when (current.PendingCancellation.IsCancellationRequested || shutdown.IsCancellationRequested)
         {
-            lock (lifecycleSync)
+            lock (sync)
             {
                 if (current.Status == SetStatus.Completed)
                 {
@@ -511,7 +525,10 @@ public sealed class OssmDevice : IOssmDevice
         }
         finally
         {
-            lock (lifecycleSync)
+            // CancelPending and Supersede can cancel under sync. Force an asynchronous continuation even when
+            // no I/O was awaited, so this method cannot complete and resume caller code inside that transition.
+            await Task.CompletedTask.ConfigureAwait(ConfigureAwaitOptions.ForceYielding);
+            lock (sync)
             {
                 if (ReferenceEquals(request, current))
                 {
@@ -524,10 +541,12 @@ public sealed class OssmDevice : IOssmDevice
     /// <inheritdoc />
     public Task<DeviceState?> GetStateAsync(bool bypassCache = false, CancellationToken cancellationToken = default)
     {
+        logger.ApiCalled("GetState");
+        CancellationTokenSource session;
         CancellationToken connectionToken;
-        lock (lifecycleSync)
+        lock (sync)
         {
-            ObjectDisposedException.ThrowIf(disposing, this);
+            ObjectDisposedException.ThrowIf(phase == ConnectionPhase.Disposing, this);
             cancellationToken.ThrowIfCancellationRequested();
             if (!bypassCache)
             {
@@ -535,7 +554,9 @@ public sealed class OssmDevice : IOssmDevice
             }
 
             EnsureConnected();
-            connectionToken = connectionCancellation!.Token;
+            session = connectionCancellation!;
+            // Only a fresh read needs the session token. Cached state remains available after disconnection.
+            connectionToken = session.Token;
         }
 
         return ExecuteAsync<DeviceState?>(
@@ -543,8 +564,8 @@ public sealed class OssmDevice : IOssmDevice
         {
             try
             {
-                var observation = await ReadStateAsync(token).WaitAsync(token).ConfigureAwait(false);
-                UpdateState(observation);
+                var observation = await ReadStateAsync(token).ConfigureAwait(false);
+                UpdateState(observation, session);
                 return observation;
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
@@ -564,35 +585,44 @@ public sealed class OssmDevice : IOssmDevice
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// The Stop command uses <see cref="CancellationToken.None"/> for its transfer and terminal-response wait.
+    /// New settings and Reset calls are rejected while a Stop is in progress.
+    /// </remarks>
     public Task EmergencyStopAsync(CancellationToken cancellationToken = default)
     {
         logger.ApiCalled("Stop");
         TaskCompletionSource? started = null;
         Task result;
-        lock (lifecycleSync)
+        lock (sync)
         {
-            ObjectDisposedException.ThrowIf(disposing, this);
+            ObjectDisposedException.ThrowIf(phase == ConnectionPhase.Disposing, this);
             if (stop is { IsCompleted: false })
             {
+                // The first caller owns Stop. A joiner cannot cancel that shared safety operation.
                 return stop;
             }
 
-            if (!connecting)
+            if (phase != ConnectionPhase.Connecting)
             {
                 EnsureConnected();
             }
 
             cancellationToken.ThrowIfCancellationRequested();
+            // Invalidate queued Reset calls and discard pending settings before publishing a Stop result.
+            // This does not itself change armed; failed Stop writes disarm through CompleteStopAsync.
             InterruptLocked();
-            if (connecting)
+            if (phase == ConnectionPhase.Connecting)
             {
-                connection++;
-                connecting = false;
+                // No usable connection exists yet. ConnectAsync owns setup settlement and partial cleanup;
+                // retain CancelAsync's callback completion for cleanup instead of running callbacks inline here.
+                phase = ConnectionPhase.Disconnecting;
                 connectionStopping ??= connectionCancellation?.CancelAsync();
                 result = Task.CompletedTask;
             }
             else
             {
+                // Publish under sync so Set/Reset cannot enter and concurrent Stop calls join this result.
                 started = new(TaskCreationOptions.RunContinuationsAsynchronously);
                 result = stop = started.Task;
             }
@@ -600,6 +630,8 @@ public sealed class OssmDevice : IOssmDevice
 
         if (started is not null)
         {
+            // Bypass io to avoid waiting for a settings response or live read. The writes gate still orders
+            // transfers, and CancellationToken.None keeps Stop owned until its response or transport failure.
             _ = CompleteStopAsync(started);
         }
 
@@ -609,8 +641,9 @@ public sealed class OssmDevice : IOssmDevice
     /// <inheritdoc />
     public Task ResetAsync(CancellationToken cancellationToken = default)
     {
+        logger.ApiCalled("Reset");
         long version;
-        lock (lifecycleSync)
+        lock (sync)
         {
             EnsureConnected();
             if (stop is { IsCompleted: false })
@@ -618,16 +651,18 @@ public sealed class OssmDevice : IOssmDevice
                 throw new InvalidOperationException("Reset was interrupted by disarming or Stop; explicitly reset again after it completes.");
             }
 
-            version = interruptionVersion;
+            version = connection;
         }
 
+        // ExecuteAsync checks caller cancellation and shutdown before invoking this step. The step ignores its
+        // token: it only restores permission under sync, after checking that no interruption changed the version.
         return ExecuteAsync(
             _ =>
         {
             bool changed;
-            lock (lifecycleSync)
+            lock (sync)
             {
-                if (stop is { IsCompleted: false } || version != interruptionVersion)
+                if (stop is { IsCompleted: false } || version != connection)
                 {
                     throw new InvalidOperationException("Reset was interrupted by disarming or Stop; explicitly reset again after it completes.");
                 }
@@ -653,14 +688,20 @@ public sealed class OssmDevice : IOssmDevice
     /// and prevents reconnection.
     /// </summary>
     /// <returns>Completion of cleanup; repeated calls observe the same cleanup result.</returns>
+    /// <remarks>
+    /// Disposal has no caller token. It cancels session work, pending settings, and serialized I/O waits,
+    /// then joins shutdown cancellation and connection cleanup. Issued GATT transfers are not cancelled.
+    /// Cleanup failures propagate through the shared disposal result.
+    /// </remarks>
     public ValueTask DisposeAsync()
     {
+        logger.ApiCalled("Dispose");
         GC.SuppressFinalize(this);
         TaskCompletionSource? started;
         Task? pendingStop;
         Task disposingTask;
         bool changed;
-        lock (lifecycleSync)
+        lock (sync)
         {
             if (disposal is not null)
             {
@@ -668,12 +709,10 @@ public sealed class OssmDevice : IOssmDevice
             }
 
             pendingStop = PrepareStop(out started);
-            disposing = true;
-            connection++;
-            connecting = false;
-            connected = false;
-            changed = DisarmLocked();
-            connectionStopping ??= connectionCancellation?.CancelAsync();
+            phase = ConnectionPhase.Disposing;
+            changed = EndConnectionLocked();
+            // EndConnectionLocked cancels session and pending settings; shutdown also wakes operations queued
+            // on io. Retain CancelAsync's completion so disposal joins cancellation callbacks before cleanup.
             disposingTask = disposal = CompleteDisposalAsync(pendingStop, shutdown.CancelAsync(), changed);
         }
 
@@ -685,57 +724,77 @@ public sealed class OssmDevice : IOssmDevice
         return new(disposingTask);
     }
 
+    /// <summary>
+    /// Acknowledges native disconnection callbacks that Shiny may suppress from its status observable.
+    /// </summary>
+    /// <param name="peripheral">The peripheral whose native connection state changed.</param>
     internal static void PeripheralStateChanged(IPeripheral peripheral)
     {
-        if (peripheral.Status == ConnectionState.Disconnected && Owners.TryGetValue(peripheral, out var owner))
+        if (peripheral.Status != ConnectionState.Disconnected || !Owners.TryGetValue(peripheral, out var owner))
         {
-            owner.ConnectionLost(new IOException("The bluetooth connection was lost."));
+            return;
         }
+
+        TaskCompletionSource? acknowledgement;
+        lock (owner.sync)
+        {
+            acknowledgement = ReferenceEquals(owner.peripheral, peripheral) ? owner.disconnected : null;
+        }
+
+        acknowledgement?.TrySetResult();
     }
 
     /// <summary>
     /// Records failure of the current connection, disarms, and discards settings not yet sent, without sending anything.
     /// </summary>
+    /// <param name="current">The connection whose failure is being recorded.</param>
     /// <param name="exception">The connection or notification failure to propagate to subsequent operations.</param>
     /// <remarks>
     /// Last known state remains available from cached reads. Reset cannot clear the failure; a successful
     /// reconnection can. Cleanup still waits for sent commands to finish. Calls without an active or pending connection are ignored.
     /// </remarks>
-    private void SetFaulted(Exception exception)
+    private void SetFaulted(CancellationTokenSource current, Exception exception)
     {
-        ArgumentNullException.ThrowIfNull(exception);
-        lock (lifecycleSync)
+        lock (sync)
         {
-            if (disposing || !(connecting || connected))
+            if (!ReferenceEquals(current, connectionCancellation) || phase is not (ConnectionPhase.Connecting or ConnectionPhase.Connected))
             {
                 return;
             }
 
-            providerFailure = ExceptionDispatchInfo.Capture(exception);
-            connecting = false;
-            connected = false;
-            DisarmLocked();
+            var wasConnected = phase == ConnectionPhase.Connected;
+            connectionFailure = ExceptionDispatchInfo.Capture(exception);
+            phase = ConnectionPhase.Disconnecting;
+            if (wasConnected)
+            {
+                DisarmLocked();
+            }
+            else
+            {
+                armed = false;
+                CancelPending();
+            }
         }
 
-        logger.OperationFailed("provider connection", exception);
+        logger.OperationFailed("connection", exception);
         NotifyStateChanged();
     }
 
     /// <summary>
     /// Records an incoming observation without changing arming or cancelling settings.
     /// </summary>
-    /// <param name="observation">Decoded controls from a provider read or notification.</param>
+    /// <param name="observation">Decoded controls from a bluetooth read or notification.</param>
+    /// <param name="current">The connection that supplied the observation.</param>
     /// <remarks>
     /// Observations never cause motion writes and are ignored without an active or pending connection.
     /// Subscriber failures are logged and cannot interrupt device execution.
     /// </remarks>
-    private void UpdateState(DeviceState observation)
+    private void UpdateState(DeviceState observation, CancellationTokenSource current)
     {
-        ArgumentNullException.ThrowIfNull(observation);
         bool changed;
-        lock (lifecycleSync)
+        lock (sync)
         {
-            if (disposing || !(connecting || connected))
+            if (!ReferenceEquals(current, connectionCancellation) || phase is not (ConnectionPhase.Connecting or ConnectionPhase.Connected))
             {
                 return;
             }
@@ -753,12 +812,14 @@ public sealed class OssmDevice : IOssmDevice
     /// <summary>
     /// Establishes fresh connectivity and subscriptions that deliver observations through <see cref="UpdateState"/>.
     /// </summary>
-    /// <param name="cancellationToken">Cancellation of connection setup.</param>
     /// <returns>Completion of setup, without any motion writes.</returns>
     /// <remarks>
     /// The initial state is read through <see cref="ReadStateAsync"/> before arming.
     /// Failure or cancellation releases partial setup through <see cref="DisconnectCoreAsync"/>.
     /// Observations, responses, and failures from earlier connections must not reach this connection.
+    /// The setup token links caller cancellation, shutdown, and session interruption. It cancels connection,
+    /// subscription-readiness, lease-acquisition, stream-start, and initial-observation waits where used.
+    /// Bluetooth access and issued GATT reads and writes are awaited without that token; cleanup is owned by ConnectAsync.
     /// </remarks>
     [SuppressMessage("Usage", "CA1849", Justification = "Shiny's Async wrappers add a timeout that abandons issued GATT I/O; the raw observables are awaited to settlement.")]
     private async Task ConnectCoreAsync(CancellationToken cancellationToken)
@@ -785,14 +846,14 @@ public sealed class OssmDevice : IOssmDevice
             throw new InvalidOperationException("The selected bluetooth device is already owned by another connection.");
         }
 
-        long current;
+        CancellationTokenSource current;
         CompositeDisposable owned;
         CompositeDisposable events;
         var stopping = new CancellationTokenSource();
         var acquired = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         lock (sync)
         {
-            current = ++generation;
+            current = connectionCancellation!;
             active = true;
             peripheral = selected;
             disconnected = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -831,9 +892,10 @@ public sealed class OssmDevice : IOssmDevice
         logger.ConnectionSetupStage("subscribing to motion observations");
         await SubscribeAsync(current, selected, owned, BleProtocolConstants.SensorStream, "sensor stream", false, HandleMotionObservation, cancellationToken).ConfigureAwait(false);
         logger.ConnectionSetupStage("acquiring control lease");
+        var maintenance = MaintainLeaseAsync(current, acquired, stopping.Token);
         lock (sync)
         {
-            leaseMaintenance = MaintainLeaseAsync(current, acquired, stopping.Token);
+            leaseMaintenance = maintenance;
         }
 
         await acquired.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -844,32 +906,33 @@ public sealed class OssmDevice : IOssmDevice
     /// <summary>
     /// Asks the firmware to run patterns before a request writes its controls.
     /// </summary>
-    /// <param name="cancellationToken">Cancellation follows <see cref="WriteCommandAsync"/>.</param>
     /// <returns>Whether the firmware now runs patterns; false when it is waiting for homing or its speed knob.</returns>
     /// <remarks>
-    /// Configures direct speed control, then selects the stroke engine and checks readiness from its terminal response.
+    /// Writes speedKnobAsLimit=false for every settings request, then selects the stroke engine and checks readiness from its terminal response.
     /// Homing and preflight report not ready.
-    /// Called once per request, so it must succeed without effect when patterns already run.
+    /// Called once per request, including when patterns already run.
     /// The firmware decides whether motion is safe to start.
+    /// Request cancellation stops issuance waits and terminal-response waits, not issued transfers.
     /// </remarks>
     private async Task<bool> PreparePatternAsync(CancellationToken cancellationToken)
     {
-        long current;
+        CancellationTokenSource current;
         lock (sync)
         {
-            current = generation;
+            current = connectionCancellation!;
         }
 
         await SendRequestAsync(current, "setting.write", "setting.speedKnobAsLimit", new JsonObject { ["value"] = false }, leased: true, cancellationToken).ConfigureAwait(false);
+
+        // TODO: Check whether the device is ready from the state callbacks instead of issuing a request each time.
         var response = await SendRequestAsync(current, "target.set", "target.strokeEngine", null, leased: true, cancellationToken).ConfigureAwait(false);
         return response.StateAfter is "strokeEngine.idle" or "strokeEngine.pattern";
     }
 
     /// <summary>
-    /// Reads and decodes live firmware controls without a provider-side state cache.
+    /// Reads and decodes live firmware controls from the motion stream.
     /// </summary>
-    /// <param name="cancellationToken">Cancellation of the observation wait.</param>
-    /// <returns>A decoded observation; malformed responses and provider errors must propagate.</returns>
+    /// <returns>A decoded observation; malformed responses and bluetooth errors must propagate.</returns>
     /// <remarks>
     /// Waits for the next valid motion-stream observation; cancellation abandons only the wait.
     /// </remarks>
@@ -915,7 +978,7 @@ public sealed class OssmDevice : IOssmDevice
     private async Task DisconnectCoreAsync()
     {
         IPeripheral? selected;
-        long current;
+        CancellationTokenSource current;
         CancellationTokenSource? stopping;
         Task maintenance;
         CompositeDisposable owned;
@@ -929,7 +992,7 @@ public sealed class OssmDevice : IOssmDevice
                 return;
             }
 
-            current = generation;
+            current = connectionCancellation!;
             stopping = leaseStopping;
             maintenance = leaseMaintenance;
             owned = subscriptions;
@@ -1009,10 +1072,11 @@ public sealed class OssmDevice : IOssmDevice
     /// Sends one primitive assignment and awaits the issued transfer and, unless abandoned, its terminal response.
     /// </summary>
     /// <param name="command">The already validated firmware control assignment.</param>
-    /// <param name="cancellationToken">Cancellation of the terminal-response wait, not the issued transfer.</param>
+    /// <param name="cancellationToken" />
     /// <returns>Completion of the issued transfer and, unless abandoned, its terminal response.</returns>
     /// <remarks>
-    /// A cancelled setting may abandon its terminal response, but its issued transfer must settle before this hook returns.
+    /// Cancellation stops issuance waits and terminal-response waits, not an issued transfer.
+    /// A cancelled setting may abandon its terminal response, but its issued transfer must settle before this method returns.
     /// Stop uses an uncancellable token and awaits its terminal response without waiting for an earlier response or live read.
     /// Do not interpret patterns or accept complete settings here.
     /// </remarks>
@@ -1027,24 +1091,23 @@ public sealed class OssmDevice : IOssmDevice
             FirmwareSetting.Sensation => "motion.sensation",
             _ => throw new ArgumentOutOfRangeException(nameof(command), command.Setting, "Unknown firmware control."),
         };
-        long current;
+        CancellationTokenSource current;
         lock (sync)
         {
-            current = generation;
+            current = connectionCancellation!;
         }
 
         return SendRequestAsync(current, "setting.write", path, new JsonObject { ["value"] = command.Value }, leased: true, cancellationToken);
     }
 
+    /// <summary>
+    /// Rejects incompatible protocol information before subscribing or acquiring device control.
+    /// </summary>
     private static void ValidateProtocolInfo(byte[]? data)
     {
         try
         {
-            using var document = JsonDocument.Parse(data ?? []);
-            if (TryGetString(document.RootElement, "protocol", out var protocol)
-                && protocol == "rad-ble"
-                && TryGetUInt32(document.RootElement, "version", out var version)
-                && version == 1)
+            if (JsonSerializer.Deserialize(data ?? [], RadJsonContext.Default.ProtocolInfo) is { Protocol: "rad-ble", Version: 1 })
             {
                 return;
             }
@@ -1056,63 +1119,67 @@ public sealed class OssmDevice : IOssmDevice
         throw new InvalidDataException("The device does not report RAD BLE protocol version 1.");
     }
 
-    private static bool TryGetUInt32(JsonElement element, string name, out uint value)
+    /// <summary>
+    /// Decodes a required response object and translates absent or malformed results into the operation's protocol error.
+    /// </summary>
+    private static T ReadResult<T>(JsonElement result, JsonTypeInfo<T> type, string error)
+        where T : class
     {
-        value = 0;
-        return element.ValueKind == JsonValueKind.Object
-            && element.TryGetProperty(name, out var property)
-            && property.ValueKind == JsonValueKind.Number
-            && property.TryGetUInt32(out value);
+        try
+        {
+            if (result.ValueKind == JsonValueKind.Object && result.Deserialize(type) is { } value)
+            {
+                return value;
+            }
+        }
+        catch (JsonException)
+        {
+        }
+
+        throw new InvalidDataException(error);
     }
 
-    private static bool TryGetString(JsonElement element, string name, [NotNullWhen(true)] out string? value)
-    {
-        value = element.ValueKind == JsonValueKind.Object
-            && element.TryGetProperty(name, out var property)
-            && property.ValueKind == JsonValueKind.String
-                ? property.GetString()
-                : null;
-        return value is not null;
-    }
-
-    private static TimeSpan ReadLeaseLifetime(JsonElement result) => TryGetUInt32(result, "ttlMs", out var milliseconds) && milliseconds != 0
-        ? TimeSpan.FromMilliseconds(milliseconds)
+    /// <summary>
+    /// Requires a positive firmware lease lifetime for renewal scheduling.
+    /// </summary>
+    private static TimeSpan ReadLeaseLifetime(LeaseResult result) => result.TtlMs != 0
+        ? TimeSpan.FromMilliseconds(result.TtlMs)
         : throw new InvalidDataException("The device did not report a positive control lease lifetime.");
 
-    private static Response ParseResponse(byte[]? data)
+    /// <summary>
+    /// Validates response size, version, and stage before correlation with an outstanding request.
+    /// </summary>
+    private static RadResponse ParseResponse(byte[]? data)
     {
         if (data is null || data.Length > MaximumMessageBytes)
         {
             throw new InvalidDataException("A RAD response must contain at most 509 bytes.");
         }
 
-        using var document = JsonDocument.Parse(data);
-        var root = document.RootElement;
-        if (!TryGetUInt32(root, "v", out var version)
-            || version != 1
-            || !TryGetUInt32(root, "id", out var id)
-            || !TryGetString(root, "stage", out var stage)
-            || stage is not ("accepted" or "completed" or "failed")
-            || !root.TryGetProperty("ok", out var status)
-            || status.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+        if (JsonSerializer.Deserialize(data, RadJsonContext.Default.RadResponse) is not { V: 1, Stage: "accepted" or "completed" or "failed" } response)
         {
             throw new InvalidDataException("A RAD response requires v=1, an id, a known stage, and ok.");
         }
 
-        var ok = status.GetBoolean();
-        TryGetString(root, "code", out var code);
-        TryGetString(root, "message", out var message);
-        TryGetString(root, "stateAfter", out var stateAfter);
-        var result = root.TryGetProperty("result", out var value) ? value.Clone() : default;
-        return new(id, stage, ok, code, message, result, stateAfter);
+        return response;
     }
 
+    /// <summary>
+    /// Admits non-Stop work through the operation gate and rechecks connection availability after waiting.
+    /// </summary>
+    /// <remarks>
+    /// The linked token combines caller cancellation, disposal shutdown, and an optional connection token.
+    /// Live reads supply the connection token; connection setup separately links its session token inside the operation.
+    /// Settings supply their pending-request token. Cleanup deliberately ignores caller cancellation once accepted.
+    /// Reset uses the token only for gate admission; its enabling step ignores it.
+    /// The operation determines which waits use this token; it never cancels an already issued GATT transfer.
+    /// </remarks>
     private async Task<T> ExecuteAsync<T>(Func<CancellationToken, Task<T>> operation, bool requiresConnection = false, CancellationToken connectionToken = default, CancellationToken cancellationToken = default)
     {
         CancellationTokenSource waiting;
-        lock (lifecycleSync)
+        lock (sync)
         {
-            ObjectDisposedException.ThrowIf(disposing, this);
+            ObjectDisposedException.ThrowIf(phase == ConnectionPhase.Disposing, this);
             waiting = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, shutdown.Token, connectionToken);
         }
 
@@ -1124,7 +1191,7 @@ public sealed class OssmDevice : IOssmDevice
                 waiting.Token.ThrowIfCancellationRequested();
                 if (requiresConnection)
                 {
-                    lock (lifecycleSync)
+                    lock (sync)
                     {
                         EnsureConnected();
                     }
@@ -1143,9 +1210,12 @@ public sealed class OssmDevice : IOssmDevice
         }
     }
 
+    /// <summary>
+    /// Prepares firmware pattern readiness, then sends controls in order while the accepted request remains eligible.
+    /// </summary>
     private async Task<SetResult> ApplySettingsAsync(SetOperationContext current)
     {
-        lock (lifecycleSync)
+        lock (sync)
         {
             if (IsDiscardedLocked(current))
             {
@@ -1171,15 +1241,12 @@ public sealed class OssmDevice : IOssmDevice
 
         foreach (var command in current.Settings.ToCommands())
         {
-            long sequence;
-            lock (lifecycleSync)
+            lock (sync)
             {
                 if (IsDiscardedLocked(current))
                 {
                     return current.Result;
                 }
-
-                sequence = ++writeSequence;
             }
 
             logger.CommandStarted(command.Setting, command.Value);
@@ -1193,10 +1260,9 @@ public sealed class OssmDevice : IOssmDevice
 
             logger.CommandCompleted(command.Setting);
             current.CommandsWritten++;
-            RecordTransmitted(command, sequence);
         }
 
-        lock (lifecycleSync)
+        lock (sync)
         {
             if (current.PendingCancellation.IsCancellationRequested && current.Status == SetStatus.Completed)
             {
@@ -1210,6 +1276,10 @@ public sealed class OssmDevice : IOssmDevice
     /// <summary>
     /// Runs one step of a request, returning false when the request was discarded while the step ran.
     /// </summary>
+    /// <remarks>
+    /// Pending-request cancellation ends the step without replacing its stored result unless a connection failure
+    /// is recorded. A recorded failure is wrapped as a preparation or write error instead of returning cancellation.
+    /// </remarks>
     private async Task<bool> TryStepAsync(SetOperationContext current, Func<Task> step, Func<Exception, IOException> failure)
     {
         try
@@ -1220,9 +1290,9 @@ public sealed class OssmDevice : IOssmDevice
         catch (OperationCanceledException) when (current.PendingCancellation.IsCancellationRequested)
         {
             Exception? connectionError;
-            lock (lifecycleSync)
+            lock (sync)
             {
-                connectionError = providerFailure?.SourceException;
+                connectionError = connectionFailure?.SourceException;
                 if (connectionError is null)
                 {
                     if (current.Status == SetStatus.Completed)
@@ -1245,9 +1315,12 @@ public sealed class OssmDevice : IOssmDevice
         }
     }
 
+    /// <summary>
+    /// Prevents further settings steps after cancellation, disarming, or disposal while preserving a superseded result.
+    /// </summary>
     private bool IsDiscardedLocked(SetOperationContext current)
     {
-        if (!current.PendingCancellation.IsCancellationRequested && armed && !disposing)
+        if (!current.PendingCancellation.IsCancellationRequested && armed && phase != ConnectionPhase.Disposing)
         {
             return false;
         }
@@ -1260,6 +1333,9 @@ public sealed class OssmDevice : IOssmDevice
         return true;
     }
 
+    /// <summary>
+    /// Replaces the accepted request under sync, marking its predecessor superseded before cancelling its waits.
+    /// </summary>
     private SetOperationContext Supersede(MotionSettings settings, CancellationTokenSource pendingCancellation)
     {
         if (request is not null)
@@ -1272,6 +1348,9 @@ public sealed class OssmDevice : IOssmDevice
         return request;
     }
 
+    /// <summary>
+    /// Marks the accepted request cancelled under sync and prevents its remaining commands from being issued.
+    /// </summary>
     private void CancelPending()
     {
         if (request is not null)
@@ -1281,12 +1360,33 @@ public sealed class OssmDevice : IOssmDevice
         }
     }
 
+    /// <summary>
+    /// Invalidates connection-attempt and Reset versions as well as pending settings, without changing arming itself.
+    /// </summary>
     private void InterruptLocked()
     {
-        interruptionVersion++;
+        connection++;
         CancelPending();
     }
 
+    /// <summary>
+    /// Closes public operation admission and cancels session work while retaining the transport for required cleanup.
+    /// </summary>
+    private bool EndConnectionLocked()
+    {
+        if (phase != ConnectionPhase.Disposing)
+        {
+            phase = connectionCancellation is null ? ConnectionPhase.Disconnected : ConnectionPhase.Disconnecting;
+        }
+
+        var changed = DisarmLocked();
+        connectionStopping ??= connectionCancellation?.CancelAsync();
+        return changed;
+    }
+
+    /// <summary>
+    /// Requires explicit rearming and invalidates queued work; returns whether arming changed for state notification.
+    /// </summary>
     private bool DisarmLocked()
     {
         var changed = armed;
@@ -1295,10 +1395,13 @@ public sealed class OssmDevice : IOssmDevice
         return changed;
     }
 
+    /// <summary>
+    /// Disarms under sync and notifies subscribers outside the state transition when arming changed.
+    /// </summary>
     private void Disarm()
     {
         bool changed;
-        lock (lifecycleSync)
+        lock (sync)
         {
             changed = DisarmLocked();
         }
@@ -1309,32 +1412,41 @@ public sealed class OssmDevice : IOssmDevice
         }
     }
 
+    /// <summary>
+    /// Rejects disposed or unavailable connections, preserving the recorded connection failure when present.
+    /// </summary>
     private void EnsureConnected()
     {
-        ObjectDisposedException.ThrowIf(disposing, this);
-        if (!connected)
+        ObjectDisposedException.ThrowIf(phase == ConnectionPhase.Disposing, this);
+        if (phase != ConnectionPhase.Connected)
         {
-            providerFailure?.Throw();
+            connectionFailure?.Throw();
             throw new InvalidOperationException("Connect before using the device.");
         }
     }
 
+    /// <summary>
+    /// Prevents an interrupted connection attempt from completing setup or arming a later lifecycle.
+    /// </summary>
     private void ThrowIfInterrupted(long attempt)
     {
-        ObjectDisposedException.ThrowIf(disposing, this);
+        ObjectDisposedException.ThrowIf(phase == ConnectionPhase.Disposing, this);
         if (attempt != connection)
         {
             throw new InvalidOperationException("The connection attempt was interrupted by a disconnect.");
         }
     }
 
+    /// <summary>
+    /// Joins session cancellation and Stop before transport teardown, preserving their failures after cleanup.
+    /// </summary>
     private async Task CleanupAsync(Task? joinedStop = null)
     {
         Task? pendingStop;
         Task? stopping;
-        lock (lifecycleSync)
+        lock (sync)
         {
-            if (!cleanupPending)
+            if (connectionCancellation is null)
             {
                 return;
             }
@@ -1380,13 +1492,16 @@ public sealed class OssmDevice : IOssmDevice
             throw new AggregateException("Cancellation, Stop, and cleanup failed.", failures);
         }
 
-        lock (lifecycleSync)
+        lock (sync)
         {
-            cleanupPending = false;
-            connectionCancellation?.Dispose();
+            connectionCancellation.Dispose();
             connectionCancellation = null;
             connectionStopping = null;
             stop = null;
+            if (phase != ConnectionPhase.Disposing)
+            {
+                phase = ConnectionPhase.Disconnected;
+            }
         }
 
         logger.ConnectionStateChanged("disconnected");
@@ -1409,13 +1524,13 @@ public sealed class OssmDevice : IOssmDevice
     /// <param name="started">The newly reserved completion source, or null when no new Stop is needed.</param>
     /// <returns>Completion of the pending or reserved Stop, or null when neither exists.</returns>
     /// <remarks>
-    /// The caller must hold <see cref="lifecycleSync"/>. When <paramref name="started"/> is non-null,
+    /// The caller must hold <see cref="sync"/>. When <paramref name="started"/> is non-null,
     /// the caller must invoke <see cref="CompleteStopAsync"/> after releasing the lock to send the Stop command.
     /// </remarks>
     private Task? PrepareStop(out TaskCompletionSource? started)
     {
         started = null;
-        if (connected && stop is not { IsCompleted: false })
+        if (phase == ConnectionPhase.Connected && stop is not { IsCompleted: false })
         {
             started = new(TaskCreationOptions.RunContinuationsAsynchronously);
             stop = started.Task;
@@ -1424,43 +1539,28 @@ public sealed class OssmDevice : IOssmDevice
         return stop is { IsCompleted: false } ? stop : null;
     }
 
+    /// <summary>
+    /// Owns the uncancellable zero-speed request and completes the shared Stop result, disarming on failure.
+    /// </summary>
     private async Task CompleteStopAsync(TaskCompletionSource completion)
     {
         try
         {
-            await WriteStopAsync().ConfigureAwait(false);
+            await WriteCommandAsync(new(FirmwareSetting.Speed, 0), CancellationToken.None).ConfigureAwait(false);
+            logger.StopCompleted();
             completion.TrySetResult();
         }
         catch (Exception exception)
         {
             Disarm();
+            logger.OperationFailed("Stop write", exception);
             completion.TrySetException(exception);
         }
     }
 
-    private async Task WriteStopAsync()
-    {
-        var command = new FirmwareCommand(FirmwareSetting.Speed, 0);
-        long sequence;
-        lock (lifecycleSync)
-        {
-            sequence = ++writeSequence;
-        }
-        logger.OperationStarted("Stop");
-        try
-        {
-            await WriteCommandAsync(command, CancellationToken.None).ConfigureAwait(false);
-            RecordTransmitted(command, sequence);
-            logger.OperationCompleted("Stop");
-            logger.StopCompleted();
-        }
-        catch (Exception exception)
-        {
-            logger.OperationFailed("Stop write", exception);
-            throw;
-        }
-    }
-
+    /// <summary>
+    /// Delivers state notifications without allowing one subscriber's failure to interrupt device work or other subscribers.
+    /// </summary>
     private void NotifyStateChanged()
     {
         var handlers = StateChanged;
@@ -1482,33 +1582,9 @@ public sealed class OssmDevice : IOssmDevice
         }
     }
 
-    private void RecordTransmitted(FirmwareCommand command, long sequence)
-    {
-        lock (lifecycleSync)
-        {
-            var previous = transmitted ?? new();
-            if (command.Setting == FirmwareSetting.Speed)
-            {
-                if (sequence < confirmedSpeedSequence)
-                {
-                    return;
-                }
-
-                confirmedSpeedSequence = sequence;
-            }
-
-            transmitted = command.Setting switch
-            {
-                FirmwareSetting.Pattern => previous with { Pattern = command.Value },
-                FirmwareSetting.Speed => previous with { DeviceVelocityPercent = command.Value },
-                FirmwareSetting.Stroke => previous with { Stroke = command.Value },
-                FirmwareSetting.Depth => previous with { Depth = command.Value },
-                FirmwareSetting.Sensation => previous with { Sensation = command.Value },
-                _ => previous,
-            };
-        }
-    }
-
+    /// <summary>
+    /// Leaves the disposal transition before notifying, then joins shutdown and serialized connection cleanup.
+    /// </summary>
     private async Task CompleteDisposalAsync(Task? pendingStop, Task cancellation, bool changed)
     {
         await Task.Yield();
@@ -1532,7 +1608,7 @@ public sealed class OssmDevice : IOssmDevice
         }
         finally
         {
-            lock (lifecycleSync)
+            lock (sync)
             {
                 StateChanged = null;
             }
@@ -1542,14 +1618,20 @@ public sealed class OssmDevice : IOssmDevice
         }
     }
 
+    /// <summary>
+    /// Owns both subscription readiness and data observers, routing later subscription failures to connection teardown.
+    /// </summary>
+    /// <remarks>
+    /// The setup token cancels only the readiness wait. The connection owns the observers until cleanup or failure.
+    /// </remarks>
     private async Task SubscribeAsync(
-        long current,
+        CancellationTokenSource current,
         IPeripheral selected,
         CompositeDisposable owned,
         string characteristic,
         string name,
         bool indicate,
-        Action<long, byte[]?> handler,
+        Action<CancellationTokenSource, byte[]?> handler,
         CancellationToken cancellationToken)
     {
         var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1582,15 +1664,23 @@ public sealed class OssmDevice : IOssmDevice
         await ready.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task<Response> SendRequestAsync(
-        long current,
+    /// <summary>
+    /// Correlates a request through terminal response, retrying timeouts with the same identifier and encoded controls.
+    /// </summary>
+    /// <remarks>
+    /// Cancellation stops gate waits, future retry issuance, and response waits, but each issued transfer must settle.
+    /// The connection source identifies the transport; its cancelled token does not prohibit cleanup requests.
+    /// Transport abandonment fails correlated responses independently of cancellation.
+    /// </remarks>
+    private async Task<RadResponse> SendRequestAsync(
+        CancellationTokenSource current,
         string operation,
         string? path,
         JsonObject? arguments,
         bool leased,
         CancellationToken cancellationToken)
     {
-        var response = new TaskCompletionSource<Response>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var response = new TaskCompletionSource<RadResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
         var priority = operation == "setting.write" && path == "motion.speed"
             && arguments?["value"]?.GetValue<int>() == 0
             && !cancellationToken.CanBeCanceled
@@ -1671,8 +1761,20 @@ public sealed class OssmDevice : IOssmDevice
         }
     }
 
+    /// <summary>
+    /// Serializes transfer issuance and retains the write gate until the native GATT observable settles.
+    /// </summary>
+    /// <remarks>
+    /// Cancellation applies before issuance only. Passing it to ToTask would abandon ownership of an in-flight write.
+    /// Terminal-response waiting occurs after this gate is released, allowing Stop to proceed independently.
+    /// </remarks>
     [SuppressMessage("Usage", "CA1849", Justification = "Shiny's Async wrapper adds a timeout that abandons issued GATT I/O; the raw observable is awaited to settlement.")]
-    private async Task WriteRequestAsync(long current, IPeripheral selected, byte[] payload, TaskCompletionSource? priority, CancellationToken cancellationToken)
+    private async Task WriteRequestAsync(
+        CancellationTokenSource current,
+        IPeripheral selected,
+        byte[] payload,
+        TaskCompletionSource? priority,
+        CancellationToken cancellationToken)
     {
         while (true)
         {
@@ -1713,9 +1815,12 @@ public sealed class OssmDevice : IOssmDevice
         }
     }
 
-    private void HandleResponse(long current, byte[]? data)
+    /// <summary>
+    /// Completes only correlated terminal responses from the current transport; accepted stages keep the request pending.
+    /// </summary>
+    private void HandleResponse(CancellationTokenSource current, byte[]? data)
     {
-        Response response;
+        RadResponse response;
         try
         {
             response = ParseResponse(data);
@@ -1727,7 +1832,7 @@ public sealed class OssmDevice : IOssmDevice
             return;
         }
 
-        TaskCompletionSource<Response>? pending;
+        TaskCompletionSource<RadResponse>? pending;
         lock (sync)
         {
             if (!IsCurrent(current) || !requests.TryGetValue(response.Id, out pending))
@@ -1748,20 +1853,25 @@ public sealed class OssmDevice : IOssmDevice
         }
     }
 
-    private async Task MaintainLeaseAsync(long current, TaskCompletionSource acquired, CancellationToken stopping)
+    /// <summary>
+    /// Acquires control and renews it before firmware expiry, failing the transport if renewal cannot retain ownership.
+    /// </summary>
+    /// <remarks>
+    /// leaseStopping cancels renewal delays, issuance waits, and response waits independently of session cancellation.
+    /// Teardown joins this routine before release; an issued renewal transfer still settles. The outer renewal wait
+    /// uses no cancellation token so lease expiry can fail the transport and then join the underlying renewal.
+    /// </remarks>
+    private async Task MaintainLeaseAsync(CancellationTokenSource current, TaskCompletionSource acquired, CancellationToken stopping)
     {
         TimeSpan lifetime;
         DateTimeOffset requested;
         try
         {
             requested = timeProvider.GetUtcNow();
-            var result = (await SendRequestAsync(current, "control.acquire", null, null, leased: false, stopping).ConfigureAwait(false)).Result;
-            if (!TryGetUInt32(result, "lease", out var token) || token == 0)
-            {
-                throw new InvalidDataException("The device did not return a control lease.");
-            }
-
-            lifetime = ReadLeaseLifetime(result);
+            const string noLease = "The device did not return a control lease.";
+            var granted = ReadResult((await SendRequestAsync(current, "control.acquire", null, null, leased: false, stopping).ConfigureAwait(false)).Result, RadJsonContext.Default.LeaseResult, noLease);
+            var token = granted.Lease != 0 ? granted.Lease : throw new InvalidDataException(noLease);
+            lifetime = ReadLeaseLifetime(granted);
             lock (sync)
             {
                 if (!IsCurrent(current))
@@ -1801,7 +1911,8 @@ public sealed class OssmDevice : IOssmDevice
             {
                 var remaining = expires - timeProvider.GetUtcNow();
                 // Issued renewal is bounded by lease expiry, not by disconnect.
-                lifetime = ReadLeaseLifetime((await renewal.WaitAsync(remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero, timeProvider, CancellationToken.None).ConfigureAwait(false)).Result);
+                var renewed = (await renewal.WaitAsync(remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero, timeProvider, CancellationToken.None).ConfigureAwait(false)).Result;
+                lifetime = ReadLeaseLifetime(ReadResult(renewed, RadJsonContext.Default.LeaseResult, "The device did not report a positive control lease lifetime."));
                 logger.LeaseRenewed((timeProvider.GetUtcNow() - requested).TotalMilliseconds, lifetime.TotalMilliseconds);
             }
             catch (OperationCanceledException) when (stopping.IsCancellationRequested)
@@ -1833,16 +1944,23 @@ public sealed class OssmDevice : IOssmDevice
         }
     }
 
-    private async Task StartMotionStreamAsync(long current, CancellationToken cancellationToken)
+    /// <summary>
+    /// Starts the motion stream and retains its validated identifier to reject unrelated sensor frames.
+    /// </summary>
+    /// <remarks>
+    /// The setup token cancels issuance and response waits, not an issued transfer. Connection cleanup stops
+    /// the stream or closes the transport when setup is interrupted.
+    /// </remarks>
+    private async Task StartMotionStreamAsync(CancellationTokenSource current, CancellationToken cancellationToken)
     {
-        var result = (await SendRequestAsync(current, "stream.start", "motion.speed", null, leased: true, cancellationToken).ConfigureAwait(false)).Result;
-        if (!TryGetUInt32(result, "streamId", out var id)
-            || id is 0 or > byte.MaxValue
-            || !TryGetString(result, "surface", out var surface)
-            || surface != "motion")
+        const string notStarted = "The device did not start a motion stream.";
+        var started = ReadResult((await SendRequestAsync(current, "stream.start", "motion.speed", null, leased: true, cancellationToken).ConfigureAwait(false)).Result, RadJsonContext.Default.StreamResult, notStarted);
+        if (started is not { StreamId: > 0 and <= byte.MaxValue, Surface: "motion" })
         {
-            throw new InvalidDataException("The device did not start a motion stream.");
+            throw new InvalidDataException(notStarted);
         }
+
+        var id = started.StreamId;
 
         lock (sync)
         {
@@ -1855,7 +1973,10 @@ public sealed class OssmDevice : IOssmDevice
         }
     }
 
-    private void HandleMotionObservation(long current, byte[]? data)
+    /// <summary>
+    /// Validates current-stream frames and delivers the next valid observation to a live read or the cached state.
+    /// </summary>
+    private void HandleMotionObservation(CancellationTokenSource current, byte[]? data)
     {
         byte expectedStream;
         lock (sync)
@@ -1914,13 +2035,7 @@ public sealed class OssmDevice : IOssmDevice
 
         if (read is null)
         {
-            lock (sync)
-            {
-                if (IsCurrent(current))
-                {
-                    UpdateState(observation);
-                }
-            }
+            UpdateState(observation, current);
         }
         else
         {
@@ -1928,25 +2043,20 @@ public sealed class OssmDevice : IOssmDevice
         }
     }
 
-    private bool IsCurrent(long current) => active && generation == current;
+    /// <summary>
+    /// Requires transport availability and session identity, not public-operation admission or an uncancelled session token.
+    /// </summary>
+    private bool IsCurrent(CancellationTokenSource current) => active && ReferenceEquals(connectionCancellation, current);
 
-    private void ConnectionLost(Exception exception)
-    {
-        long current;
-        lock (sync)
-        {
-            current = generation;
-        }
-
-        ConnectionLost(current, exception);
-    }
-
-    private void ConnectionLost(long current, Exception exception)
+    /// <summary>
+    /// Acknowledges native disconnection for the matching session and fails any transport work that remains active.
+    /// </summary>
+    private void ConnectionLost(CancellationTokenSource current, Exception exception)
     {
         TaskCompletionSource lost;
         lock (sync)
         {
-            if (current != generation)
+            if (!ReferenceEquals(current, connectionCancellation))
             {
                 return;
             }
@@ -1958,7 +2068,10 @@ public sealed class OssmDevice : IOssmDevice
         Fail(current, exception);
     }
 
-    private void Fail(long current, Exception exception)
+    /// <summary>
+    /// Abandons current transport work and removes data subscriptions that would otherwise trigger automatic reconnection.
+    /// </summary>
+    private void Fail(CancellationTokenSource current, Exception exception)
     {
         CompositeDisposable owned;
         lock (sync)
@@ -1975,19 +2088,16 @@ public sealed class OssmDevice : IOssmDevice
         {
             // Live notification subscriptions make Shiny reconnect; a failed connection must not be revived.
             owned.Dispose();
-            lock (sync)
-            {
-                if (current == generation)
-                {
-                    SetFaulted(exception);
-                }
-            }
+            SetFaulted(current, exception);
         }
     }
 
-    private bool Abandon(long current, Exception exception)
+    /// <summary>
+    /// Ends protocol traffic and fails response and live-read waiters without cancelling already issued native transfers.
+    /// </summary>
+    private bool Abandon(CancellationTokenSource current, Exception exception)
     {
-        TaskCompletionSource<Response>[] pending;
+        TaskCompletionSource<RadResponse>[] pending;
         TaskCompletionSource<DeviceState>? read;
         lock (sync)
         {
@@ -2011,6 +2121,4 @@ public sealed class OssmDevice : IOssmDevice
         read?.TrySetException(exception);
         return true;
     }
-
-    private readonly record struct Response(uint Id, string Stage, bool Ok, string? Code, string? Message, JsonElement Result, string? StateAfter);
 }

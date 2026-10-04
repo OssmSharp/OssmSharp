@@ -13,6 +13,7 @@ using OssmSharp.Web.Client.Connections;
 using OssmSharp.Web.Client.DependencyInjection;
 using OssmSharp.Web.Client.Models;
 using OssmSharp.Web.Contracts;
+using Shiny.BluetoothLE;
 using Xunit;
 
 namespace OssmSharp.Web.Api.Tests;
@@ -22,9 +23,12 @@ public sealed class ServiceAuthorizationTests
     [Fact]
     public async Task AuthorizationPoliciesSeparateServiceRoles()
     {
+        using var mocks = new Mocker();
         var services = new ServiceCollection();
         services.AddLogging();
-        services.AddApiAuthorization();
+        services.AddSingleton<IConfiguration>(new ConfigurationBuilder().Build());
+        services.AddSingleton(mocks.GetOrCreateMock<IBleManager>().Instance);
+        services.AddApiServices();
         await using var provider = services.BuildServiceProvider();
         var authorization = provider.GetRequiredService<IAuthorizationService>();
         var admin = Principal(ControlServiceRoles.AdminWeb);
@@ -104,7 +108,7 @@ public sealed class ServiceAuthorizationTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public async Task ApiClientRegistrationsUseMockRpcClients(bool guest)
+    public async Task ApiClientRegistrationsSendStopThroughScopedRpcClient(bool guest)
     {
         var cancellationToken = TestContext.Current.CancellationToken;
         var invitation = new string('A', 43);

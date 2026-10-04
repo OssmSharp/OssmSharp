@@ -3,6 +3,7 @@ let invitation = captureInvitation();
 let controller = null;
 let guestRoot = null;
 let disconnected = sessionStorage.getItem(disconnectedKey) === "true";
+const disconnectObserver = globalThis.MutationObserver ? new MutationObserver(() => disconnected && showDisconnect()) : null;
 
 document.addEventListener(
   "click",
@@ -73,10 +74,13 @@ export function restoreDisconnected() {
 }
 
 function showDisconnect() {
+  disconnectObserver?.disconnect();
   document.documentElement.dataset.guestConnectionLost = "true";
   guestRoot?.setAttribute("data-connection-lost", "true");
   document.querySelector(".preview-rail")?.pauseAnimations();
+  for (const control of document.querySelectorAll?.(".guest-session button, .guest-session input") ?? []) control.disabled = true;
   document.querySelector("main > [data-testid='guest-disconnected']")?.removeAttribute("hidden");
+  disconnectObserver?.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["disabled", "hidden"] });
 }
 
 class Controls {
@@ -227,6 +231,7 @@ class Controls {
       const sent = this.sentSelection?.[name];
       this.marker(name, "current", current);
       this.marker(name, "sent", sent);
+      this.root.querySelector(`[data-value="${name}"]`).textContent = selected[name];
       this.root.querySelector(`[data-sent="${name}"]`).textContent = sent ?? "--";
       this.root.querySelector(`[data-current="${name}"]`).textContent = current ?? "--";
       this.inputs[name].setAttribute(

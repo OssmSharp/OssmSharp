@@ -1,11 +1,15 @@
 using AwesomeAssertions;
+using FastMoq;
 using OssmSharp.Runtime.Oem.Protocol;
 using Xunit;
 
 namespace OssmSharp.Runtime.Oem.Tests;
 
-public sealed class MotionSettingsTests
+public sealed class MotionSettingsTests : MockerTestBase<MotionSettings>
 {
+    protected override Func<Mocker, MotionSettings> CreateComponentAction => _ =>
+        new(StrokePattern.Insist, 12, 0, 100, 50);
+
     [Theory]
     [InlineData(53, 10, 5)]
     [InlineData(0, 100, 0)]
@@ -29,16 +33,12 @@ public sealed class MotionSettingsTests
     [Fact]
     public void ExpandsSettingsWithoutPatternPolicy()
     {
-        var settings = new MotionSettings(StrokePattern.Insist, 12, 0, 100, 50);
-
-        settings.ToCommands().Should().Equal(
+        Component.ToCommands().Should().Equal(
             new FirmwareCommand(FirmwareSetting.Pattern, 6),
             new FirmwareCommand(FirmwareSetting.Stroke, 0),
             new FirmwareCommand(FirmwareSetting.Depth, 100),
             new FirmwareCommand(FirmwareSetting.Sensation, 50),
             new FirmwareCommand(FirmwareSetting.Speed, 0));
-        Assert.Equal(new DeviceState(StrokePattern.Insist, 0, 0, 100, 50), new DeviceState(settings));
-        Assert.Null(new DeviceState(settings).Speed);
     }
 
     [Theory]

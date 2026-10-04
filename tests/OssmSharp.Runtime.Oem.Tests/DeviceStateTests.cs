@@ -1,11 +1,15 @@
 using System.Text;
 using AwesomeAssertions;
+using FastMoq;
 using Xunit;
 
 namespace OssmSharp.Runtime.Oem.Tests;
 
-public sealed class DeviceStateTests
+public sealed class DeviceStateTests : MockerTestBase<DeviceState>
 {
+    protected override Type[] ComponentConstructorParameterTypes =>
+        [typeof(StrokePattern), typeof(double), typeof(int), typeof(int), typeof(int)];
+
     [Theory]
     [InlineData(12.5, 25, 50.0)]
     [InlineData(12.345, 25, 49.38)]
@@ -43,9 +47,19 @@ public sealed class DeviceStateTests
     [InlineData(0, 0, null)]
     public void RepresentsQuantizedSettings(int speed, int stroke, double? expectedSpeed)
     {
-        var state = new DeviceState(new MotionSettings(StrokePattern.SimpleStroke, speed, stroke, 0, 0));
+        var settings = new MotionSettings(StrokePattern.SimpleStroke, speed, stroke, 0, 0);
+        var payload = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new
+        {
+            pattern = 0,
+            speed = settings.ToCommands()[^1].Value,
+            stroke,
+            depth = 0,
+            sensation = 0,
+        });
+        var state = DeviceState.FromBytes(payload);
 
         Assert.Equal(expectedSpeed, state.Speed);
+        Assert.Equal(new DeviceState(settings), state);
     }
 
     [Theory]
@@ -159,13 +173,14 @@ public sealed class DeviceStateTests
     }
 
     [Fact]
-    public void PreservesFractionalEffectiveSpeed()
+    public void PreservesFractionalRawVelocity()
     {
         var payload = Encoding.UTF8.GetBytes("""{"pattern":3,"speed":12.5,"stroke":25,"depth":99,"sensation":50}""");
 
         var state = DeviceState.FromBytes(payload);
 
         Assert.Equal(50, state.Speed);
+        Assert.Equal(12.5, state.CurrentDeviceVelocityPercent);
         Assert.Equal(new DeviceState(StrokePattern.HalfNHalf, 12.5, 25, 99, 50), state);
     }
 
@@ -191,7 +206,47 @@ public sealed class DeviceStateTests
 
         success.Should().BeTrue();
         errors.Should().BeEmpty();
-        state.Should().Be(new DeviceState(new MotionSettings(StrokePattern.Insist, 0, 100, 0, 100)));
+        state.Should().Be(new DeviceState(StrokePattern.Insist, 0, 100, 0, 100));
         DeviceState.FromBytes(payload).Should().Be(state);
+    }
+
+    [Theory]
+    [InlineData(100.0, 99, 101.01010101010101)]
+    [InlineData(12.5, 3, 416.6666666666667)]
+    public void CalculatesUnroundedSpeedAbove100(double currentDeviceVelocityPercent, int stroke, double expectedSpeed)
+    {
+        var state = new DeviceState(StrokePattern.SimpleStroke, currentDeviceVelocityPercent, stroke, 99, 100);
+
+        Assert.Equal(currentDeviceVelocityPercent, state.CurrentDeviceVelocityPercent);
+        Assert.Equal(expectedSpeed, state.Speed);
+    }
+
+    [Theory]
+    [InlineData(0.0, 0, null)]
+    [InlineData(0.0, 1, 0.0)]
+    public void CalculatesZeroVelocitySpeedFromStroke(double currentDeviceVelocityPercent, int stroke, double? expectedSpeed)
+    {
+        Assert.Equal(expectedSpeed, new DeviceState(StrokePattern.SimpleStroke, currentDeviceVelocityPercent, stroke, 0, 0).Speed);
+    }
+
+    [Fact]
+    public void PreservesUnknownSpeedAtZeroStroke()
+    {
+        Assert.Equal(0, Component.Stroke);
+        Assert.Null(Component.Speed);
+        Assert.Null(new DeviceState(StrokePattern.SimpleStroke, 12.5, 0, 100, 100).Speed);
+    }
+
+    [Theory]
+    [InlineData("-1")]
+    [InlineData("100.001")]
+    [InlineData("1e999")]
+    public void RejectsInvalidRawVelocity(string velocity)
+    {
+        var payload = Encoding.UTF8.GetBytes($$"""{"pattern":0,"speed":{{velocity}},"stroke":100,"depth":0,"sensation":0}""");
+        Assert.False(DeviceState.TryFromBytes(payload, out var state, out var errors));
+        Assert.Null(state);
+        Assert.Equal(["speed"], Assert.Single(errors).MemberNames);
+        Assert.Throws<InvalidDataException>(() => DeviceState.FromBytes(payload));
     }
 }

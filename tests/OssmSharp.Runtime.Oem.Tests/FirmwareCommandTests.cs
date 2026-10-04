@@ -4,7 +4,7 @@ using Xunit;
 
 namespace OssmSharp.Runtime.Oem.Tests;
 
-public sealed class DeviceCommandTests
+public sealed class FirmwareCommandTests
 {
     [Theory]
     [InlineData((int)FirmwareSetting.Pattern, 0)]

@@ -99,7 +99,8 @@ Do not copy client-side pattern policies or introduce legacy protocol fallback.
   requires `stateAfter` to be `strokeEngine.idle` or `strokeEngine.pattern`. Entering the
   engine resets stroke, depth, sensation, and speed; that reset becomes the expected
   baseline. Reported speed is the knob-scaled effective speed, so it is excluded from
-  external-change detection. Knob configuration is never changed.
+  external-change detection. Each Set sets `speedKnobAsLimit` to `false` before
+  selecting the stroke engine so requested speed is not limited by the speed knob.
 - **Recovery:** explicitly reconnect with fresh protocol state and reject stale
   callbacks. Lease loss fails the connection and disarms; never silently reacquire
   and replay settings. Cancellation does not prove that an issued write stopped.

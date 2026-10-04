@@ -1,7 +1,5 @@
 using Microsoft.AspNetCore.Http.Connections;
 using Microsoft.AspNetCore.SignalR.Client;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using OssmSharp.Web.Client.Models;
 
@@ -15,24 +13,13 @@ public sealed class SignalRHubConnectionFactory : IHubConnectionFactory
     private readonly RpcClientOptions _options;
 
     /// <summary>
-    /// Creates a connection factory without operational logging.
+    /// Creates a connection factory for the configured endpoint and service credentials.
     /// </summary>
     /// <param name="options">The validated endpoint and service credentials for new connections.</param>
     public SignalRHubConnectionFactory(IOptions<RpcClientOptions> options)
-        : this(options, NullLogger<SignalRHubConnectionFactory>.Instance) { }
-
-    /// <summary>
-    /// Creates a connection factory with the host's operational logger.
-    /// </summary>
-    /// <param name="options">The validated endpoint and service credentials for new connections.</param>
-    /// <param name="logger">The host's operational logger.</param>
-    public SignalRHubConnectionFactory(IOptions<RpcClientOptions> options, ILogger<SignalRHubConnectionFactory> logger)
     {
         _options = options.Value;
-        Logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
-
-    internal ILogger Logger { get; }
 
     /// <summary>
     /// Creates a connection configured for WebSockets-only control traffic without automatic reconnect.

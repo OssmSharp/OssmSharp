@@ -2,8 +2,9 @@ using AwesomeAssertions;
 using FastMoq;
 using FastMoq.Extensions;
 using FastMoq.Providers;
-using Microsoft.Extensions.Logging;
+using FastMoq.Providers.MoqProvider;
 using Moq;
+using OssmSharp.Runtime;
 using OssmSharp.Runtime.Oem;
 using Xunit;
 
@@ -14,14 +15,13 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
     private readonly PromptInput input = new();
     private readonly StringWriter output = new();
     private readonly StringWriter error = new();
-    private readonly RecordingLogger<PromptCommand> logger = new();
     private Func<string, IOssmDevice> createDevice = _ => throw new InvalidOperationException("Factory must not run");
     private CommandTestContext context = null!;
 
     protected override Action<Mocker> SetupMocksAction => mocks =>
     {
         context = new CommandTestContext(mocks);
-        var device = Mock.Get(mocks.GetOrCreateMock<IOssmDevice>().Instance);
+        var device = mocks.GetOrCreateMock<IOssmDevice>().AsMoq();
         device.Setup(value => value.ConnectAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
         device.Setup(value => value.EmergencyStopAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
         device.Setup(value => value.DisposeAsync()).Returns(ValueTask.CompletedTask);
@@ -33,11 +33,10 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
             error,
             new PromptConsole(output, error),
             new PromptInterruptState()));
-        mocks.AddKeyedType<TextWriter>("error", error);
-        mocks.AddType<ILogger<PromptCommand>>(logger);
+        mocks.AddType<TextWriter>(error);
     };
 
-    private Mock<IOssmDevice> Device => Mock.Get(Mocks.GetOrCreateMock<IOssmDevice>().Instance);
+    private Mock<IOssmDevice> Device => Mocks.GetOrCreateMock<IOssmDevice>().AsMoq();
 
     public ValueTask DisposeAsync()
     {
@@ -88,7 +87,7 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
         context.Scans.Should().Be(1);
         Mocks.Verify<IOssmDevice>(device => device.ConnectAsync(TestContext.Current.CancellationToken), TimesSpec.Once);
         Mocks.Verify<IOssmDevice>(device => device.EmergencyStopAsync(CancellationToken.None), TimesSpec.Once);
-        Device.Verify(device => device.DisposeAsync(), Times.Once);
+        Mocks.Verify<IOssmDevice>(device => device.DisposeAsync(), TimesSpec.Once);
         Mocks.Verify<IOssmDevice>(device => device.SetAsync(FastArg.Any<MotionSettings>(), FastArg.Any<CancellationToken>()), TimesSpec.NeverCalled);
         error.ToString().Should().Contain("Connected. Type 'help' for commands.").And.NotContain("Armed:");
     }
@@ -109,7 +108,7 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
         (await Component.RunAsync("unavailable", TestContext.Current.CancellationToken)).Should().Be(1);
         context.Scans.Should().Be(0);
         factoryCalls.Should().Be(1);
-        Device.Verify(device => device.DisposeAsync(), Times.Once);
+        Mocks.Verify<IOssmDevice>(device => device.DisposeAsync(), TimesSpec.Once);
         Mocks.Verify<IOssmDevice>(device => device.EmergencyStopAsync(FastArg.Any<CancellationToken>()), TimesSpec.NeverCalled);
         output.ToString().Should().BeEmpty();
         error.ToString().Should().Contain("ERROR prompt: The selected bluetooth device is unavailable.")
@@ -154,7 +153,7 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
             Mocks.Verify<IOssmDevice>(device => device.ConnectAsync(TestContext.Current.CancellationToken), TimesSpec.Once);
             Mocks.Verify<IOssmDevice>(device => device.GetStateAsync(FastArg.Any<bool>(), FastArg.Any<CancellationToken>()), TimesSpec.NeverCalled);
             Mocks.Verify<IOssmDevice>(device => device.SetAsync(FastArg.Any<MotionSettings>(), FastArg.Any<CancellationToken>()), TimesSpec.NeverCalled);
-            Device.Verify(device => device.DisposeAsync(), Times.Never);
+            Mocks.Verify<IOssmDevice>(device => device.DisposeAsync(), TimesSpec.NeverCalled);
             run.IsCompleted.Should().BeFalse();
         }
         finally
@@ -166,7 +165,7 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
         (await run).Should().Be(0);
         context.Scans.Should().Be(identifier is null ? 1 : 0);
         selectedIdentifiers.Should().Equal(identifier ?? "Device-A");
-        Device.Verify(device => device.DisposeAsync(), Times.Once);
+        Mocks.Verify<IOssmDevice>(device => device.DisposeAsync(), TimesSpec.Once);
         Mocks.Verify<IOssmDevice>(device => device.EmergencyStopAsync(CancellationToken.None), TimesSpec.Once);
         output.ToString().Should().Contain("OK stop").And.NotContain("OK set");
         error.ToString().Should().Contain("Connected. Type 'help' for commands.").And.Contain("Sending stop command...")
@@ -188,7 +187,7 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
 
         (await Component.RunAsync("Device-A", TestContext.Current.CancellationToken)).Should().Be(1);
 
-        Device.Verify(device => device.DisposeAsync(), Times.Once);
+        Mocks.Verify<IOssmDevice>(device => device.DisposeAsync(), TimesSpec.Once);
         Mocks.Verify<IOssmDevice>(device => device.EmergencyStopAsync(FastArg.Any<CancellationToken>()), TimesSpec.NeverCalled);
         output.ToString().Should().BeEmpty();
         error.ToString().Should().Contain("ERROR prompt: ").And.Contain("connect failed").And.NotContain("Connected.");
@@ -211,7 +210,7 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
 
         (await Component.RunAsync("Device-A", TestContext.Current.CancellationToken)).Should().Be(1);
 
-        Device.Verify(device => device.DisposeAsync(), Times.Once);
+        Mocks.Verify<IOssmDevice>(device => device.DisposeAsync(), TimesSpec.Once);
         Mocks.Verify<IOssmDevice>(device => device.EmergencyStopAsync(CancellationToken.None), TimesSpec.Once);
         error.ToString().Should().Contain("Connected. Type 'help' for commands.").And.Contain("ERROR device cleanup: disconnect failed")
             .And.NotContain("ERROR prompt").And.NotContain("Armed:");
@@ -228,7 +227,7 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
         (await Component.RunAsync("Device-A", TestContext.Current.CancellationToken)).Should().Be(1);
 
         Mocks.Verify<IOssmDevice>(device => device.EmergencyStopAsync(CancellationToken.None), TimesSpec.Once);
-        Device.Verify(device => device.DisposeAsync(), Times.Once);
+        Mocks.Verify<IOssmDevice>(device => device.DisposeAsync(), TimesSpec.Once);
         error.ToString().Should().Contain("ERROR stop: Stop failed during quit.").And.NotContain("ERROR device cleanup");
         output.ToString().Should().NotContain("OK stop");
     }
@@ -243,7 +242,7 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
 
         (await Component.RunAsync("Device-A", TestContext.Current.CancellationToken)).Should().Be(1);
 
-        Device.Verify(device => device.DisposeAsync(), Times.Once);
+        Mocks.Verify<IOssmDevice>(device => device.DisposeAsync(), TimesSpec.Once);
         Mocks.Verify<IOssmDevice>(device => device.EmergencyStopAsync(CancellationToken.None), TimesSpec.Once);
         output.ToString().Should().Contain("OK stop");
         error.ToString().Should().Contain("ERROR device cleanup: Stop failed during disposal.").And.NotContain("ERROR stop:");
@@ -287,7 +286,7 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
         }
 
         (await run).Should().Be(0);
-        Device.Verify(device => device.DisposeAsync(), Times.Once);
+        Mocks.Verify<IOssmDevice>(device => device.DisposeAsync(), TimesSpec.Once);
         Mocks.Verify<IOssmDevice>(device => device.EmergencyStopAsync(CancellationToken.None), TimesSpec.Exactly(cancel ? 0 : 1));
         error.ToString().Should().NotContain("ERROR");
         error.ToString().Split(Environment.NewLine).Count(line => line == "Cancelled. Waiting for pending work and cleanup.")

@@ -52,7 +52,7 @@ public sealed class RpcClientOptions : IValidatableObject
             origin.Port is < 1 or > 65535)
         {
             yield return new(
-                "EndpointUri must be loopback or a non-loopback HTTP URI.",
+                "EndpointUri must be an http loopback origin or an https non-loopback origin, without a path, query, fragment, or user information.",
                 [nameof(EndpointUri)]);
         }
 

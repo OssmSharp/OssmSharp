@@ -1,3 +1,4 @@
+using OssmSharp.Runtime;
 using OssmSharp.Runtime.Oem;
 using Shiny.BluetoothLE;
 using Xunit;
@@ -16,7 +17,7 @@ public sealed class CliServiceCollectionExtensionsTests
         using var provider = new ServiceCollection()
             .AddSingleton<IBleManager>(context.Manager.Object)
             .AddSingleton<IPromptInput>(input)
-            .AddOemRuntime()
+            .AddOssmSharpOemRuntime()
             .AddCliCommands(output, error)
             .BuildServiceProvider();
 

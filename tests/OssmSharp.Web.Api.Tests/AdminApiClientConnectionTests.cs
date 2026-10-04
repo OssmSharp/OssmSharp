@@ -3,7 +3,6 @@ using FastMoq;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using OssmSharp.Web.Client.Clients;
 using OssmSharp.Web.Client.Connections;
 using OssmSharp.Web.Client.Models;
@@ -21,8 +20,6 @@ public sealed class AdminApiClientConnectionTests : MockerTestBase<AdminApiClien
     protected override Action<Mocker> SetupMocksAction => mocks =>
     {
         _options = new() { EndpointUri = "http://127.0.0.1:1", ServiceKey = new string('A', 43) };
-        if (TestContext.Current.Test?.TestCase?.TestMethod?.MethodName == nameof(ConnectRemainsPendingBeyondRequestAcknowledgementDeadline))
-            _options.RequestTimeoutSeconds = 1;
         _rpcScope = new(_options);
         mocks.AddType<IRpcClient>(_rpcScope.Connection);
     };
@@ -140,7 +137,12 @@ public sealed class AdminApiClientConnectionTests : MockerTestBase<AdminApiClien
     [Trait("Category", "Integration")]
     public async Task ConnectRemainsPendingBeyondRequestAcknowledgementDeadline()
     {
-        Assert.Equal(1, _options.RequestTimeoutSeconds);
+        var options = new RpcClientOptions
+        {
+            EndpointUri = "http://127.0.0.1:1",
+            ServiceKey = new string('A', 43),
+            RequestTimeoutSeconds = 1,
+        };
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var pendingStop = new TaskCompletionSource<ControlResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
         var builder = WebApplication.CreateBuilder();
@@ -152,8 +154,9 @@ public sealed class AdminApiClientConnectionTests : MockerTestBase<AdminApiClien
         app.Urls.Add("http://127.0.0.1:0");
         app.MapHub<BlockingControlHub>("/hubs/control/v2");
         await app.StartAsync(TestContext.Current.CancellationToken);
-        _options.EndpointUri = app.Urls.Single();
-        await using var client = Component;
+        options.EndpointUri = app.Urls.Single();
+        await using var scope = new RpcClientTestScope(options);
+        await using var client = new AdminApiClient(scope.Connection);
         using var pending = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         var connect = client.ConnectAsync(pending.Token);
         try

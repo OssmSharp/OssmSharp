@@ -17,14 +17,16 @@ namespace OssmSharp.Runtime.Oem.Tests;
 public abstract class OssmDeviceTestBase : MockerTestBase<OssmDevice>, IAsyncDisposable
 {
     protected const string Controls = """{"pattern":0,"speed":{0},"stroke":50,"depth":10,"sensation":50,"homed":true}""";
-    protected static readonly DeviceState Initial = new(new(0, 0, 50, 10, 50));
+    protected static readonly DeviceState Initial = new(0, 0, 50, 10, 50);
+    private protected readonly RecordingLogger<OssmDevice> logger = new();
     private protected BleTestContext context = null!;
+    private protected Exception? expectedDisposalFailure;
 
     protected override Action<Mocker> SetupMocksAction => mocks =>
     {
-        context = new(mocks);
+        context = new(mocks) { Logger = logger };
         mocks.AddType<string>("device-1");
-        mocks.AddType<ILogger<DeviceBase>>(context.Logger);
+        mocks.AddType<ILogger<OssmDevice>>(context.Logger);
         mocks.AddType<IOptions<OssmDeviceOptions>>(Options.Create(context.DeviceOptions));
     };
 
@@ -32,7 +34,14 @@ public abstract class OssmDeviceTestBase : MockerTestBase<OssmDevice>, IAsyncDis
     {
         try
         {
-            await Component.DisposeAsync();
+            if (expectedDisposalFailure is null)
+            {
+                await Component.DisposeAsync();
+            }
+            else
+            {
+                Assert.Same(expectedDisposalFailure, await Record.ExceptionAsync(() => Component.DisposeAsync().AsTask()));
+            }
         }
         finally
         {
@@ -218,7 +227,7 @@ public sealed class OssmDeviceTests : OssmDeviceTestBase
             .Should().Equal("motion.pattern", "motion.stroke", "motion.depth", "motion.sensation", "motion.speed");
         writes.Select(request => request["args"]!["value"]!.GetValue<int>()).Should().Equal((int)pattern, stroke, depth, sensation, expectedDeviceVelocityPercent);
         writes.Should().OnlyContain(request => request["lease"]!.GetValue<uint>() == 42);
-        Assert.Equal(new FirmwareSettings((int)pattern, expectedDeviceVelocityPercent, stroke, depth, sensation), device.Transmitted);
+        Assert.Equal(Initial, await device.GetStateAsync(cancellationToken: token));
         device.IsArmed.Should().BeTrue();
     }
 
@@ -243,7 +252,9 @@ public sealed class OssmDeviceTests : OssmDeviceTestBase
         var error = (await set.Should().ThrowAsync<DeviceWriteException>()).Which;
 
         error.CommandsWritten.Should().Be(1);
-        error.Command.Should().Be(new FirmwareCommand(FirmwareSetting.Stroke, 30));
+        var failedRequest = context.RequestsFor("setting.write", "motion.")[1];
+        Assert.Equal("motion.stroke", failedRequest["path"]!.GetValue<string>());
+        Assert.Equal(30, failedRequest["args"]!["value"]!.GetValue<int>());
         error.InnerException.Should().BeOfType<IOException>().Which.Message.Should().Contain("invalid_value");
         context.RequestsFor("setting.write", "motion.").Should().HaveCount(2);
         device.IsArmed.Should().BeFalse();
@@ -315,7 +326,7 @@ public sealed class OssmDeviceTests : OssmDeviceTestBase
     }
 
     [Fact]
-    public async Task StopTakesGateBeforeQueuedSettingWhileRenewalResponseIsWithheld()
+    public async Task StopCancelsQueuedSettingAndWaitsForRenewalTransferWithoutWaitingForItsResponse()
     {
         var token = TestContext.Current.CancellationToken;
         var device = await context.ConnectAsync(Component, token);
@@ -548,7 +559,7 @@ public sealed class OssmDeviceTests : OssmDeviceTestBase
             var observed = await device.GetStateAsync(cancellationToken: token);
             Assert.Equal(50, observed?.Speed);
             Assert.Equal(25, observed?.Stroke);
-            Assert.Null(device.Transmitted);
+            Assert.Single(context.RequestsFor("setting.write", "motion."));
             Assert.True(device.IsArmed);
         }
         finally
@@ -557,7 +568,8 @@ public sealed class OssmDeviceTests : OssmDeviceTestBase
             await set;
         }
 
-        Assert.Equal(new FirmwareSettings(2, 42, 80, 0, 100), device.Transmitted);
+        Assert.Equal([2, 80, 0, 100, 42], context.RequestsFor("setting.write", "motion.")
+            .Select(request => request["args"]!["value"]!.GetValue<int>()));
         Assert.Equal(50, (await device.GetStateAsync(cancellationToken: token))?.Speed);
     }
 
@@ -571,7 +583,7 @@ public sealed class OssmDeviceTests : OssmDeviceTestBase
 
         device.IsArmed.Should().BeTrue();
         device.ConnectionFailure.Should().BeNull();
-        (await device.GetStateAsync(cancellationToken: token)).Should().Be(new DeviceState(new(0, 0, 12, 10, 50)));
+        (await device.GetStateAsync(cancellationToken: token)).Should().Be(new DeviceState(0, 0, 12, 10, 50));
         context.RequestsFor("setting.write", "motion.").Should().BeEmpty();
 
         (await device.SetAsync(new(StrokePattern.RoboStroke, 5, 5, 5, 5), token))
@@ -607,7 +619,7 @@ public sealed class OssmDeviceTests : OssmDeviceTestBase
         {
             context.RequestsFor("setting.write", "motion.").Should().HaveCount(5);
             (await set).Should().Be(new SetResult(SetStatus.Completed, 5));
-            (await device.GetStateAsync(cancellationToken: token)).Should().Be(new DeviceState(new(0, 0, 20, 10, 50)));
+            (await device.GetStateAsync(cancellationToken: token)).Should().Be(new DeviceState(0, 0, 20, 10, 50));
         }
         finally
         {
@@ -728,7 +740,7 @@ public sealed class OssmDeviceTests : OssmDeviceTestBase
         context.Publish(Controls.Replace("{0}", "10", StringComparison.Ordinal));
 
         device.IsArmed.Should().BeTrue();
-        (await device.GetStateAsync(cancellationToken: token)).Should().Be(new DeviceState(new(0, 20, 50, 10, 50)));
+        (await device.GetStateAsync(cancellationToken: token)).Should().Be(new DeviceState(0, 10, 50, 10, 50));
     }
 
 }

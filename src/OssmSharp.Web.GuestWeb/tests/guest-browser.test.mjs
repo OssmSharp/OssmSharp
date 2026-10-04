@@ -1026,6 +1026,9 @@ test("guest speed stays unchanged through request, preview and exact current sta
         },
         { speed, stroke, depth },
       );
+      for (const [name, value] of Object.entries({ speed, stroke, depth })) {
+        assert.equal(await page.locator(`[data-value="${name}"]`).innerText(), String(value));
+      }
       const count = session.requests.length;
       await page.locator("[data-send-button]").click();
       await page.waitForFunction(
@@ -1176,10 +1179,10 @@ test("deadline-free permission recovers after revoke, Allow and rearm without au
     session.state = guestState({ controlAllowed: false });
     await page.waitForFunction(
       () =>
-        document.querySelector(".guest-session-message")?.textContent.includes("Waiting for the user") ||
+        document.querySelector(".guest-session-message")?.textContent.includes("Waiting for the other person to start.") ||
         document.documentElement.dataset.guestConnectionLost === "true",
     );
-    assert.match(await page.locator("main").innerText(), /Waiting for the user to allow control\./);
+    assert.match(await page.locator("main").innerText(), /Connected\. Waiting for the other person to start\./);
     for (const viewport of viewports) {
       await page.setViewportSize(viewport);
       assert.deepEqual(await filtersOnAncestors(page.locator(".guest-interface")), ["grayscale(1)"]);

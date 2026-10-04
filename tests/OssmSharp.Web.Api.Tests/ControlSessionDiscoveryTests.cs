@@ -1,6 +1,7 @@
 using FastMoq;
 using FastMoq.Extensions;
 using Moq;
+using OssmSharp.Runtime;
 using OssmSharp.Runtime.Oem;
 using OssmSharp.Web.Api.Control;
 using OssmSharp.Web.Api.Models;
@@ -11,7 +12,7 @@ namespace OssmSharp.Web.Api.Tests;
 
 public sealed class ControlSessionDiscoveryTests : MockerTestBase<ControlSession>, IAsyncDisposable
 {
-    private FakeOssmDevice _device = null!;
+    private Mock<IOssmDevice> _device = null!;
     private List<string> _identifiers = null!;
     private TaskCompletionSource<DiscoveredDevice?> _detected = null!;
     private CancellationToken _scanToken;
@@ -21,13 +22,13 @@ public sealed class ControlSessionDiscoveryTests : MockerTestBase<ControlSession
 
     protected override Action<Mocker> SetupMocksAction => mocks =>
     {
-        _device = new();
+        _device = DeviceMockSetup.ConnectedDevice(mocks);
         _identifiers = [];
         _detected = new(TaskCreationOptions.RunContinuationsAsynchronously);
         mocks.AddType<Func<string, IOssmDevice>>(identifier =>
         {
             _identifiers.Add(identifier);
-            return _device;
+            return _device.Object;
         });
         mocks.SetupOptions(new ControlServiceOptions());
         var discovery = Mock.Get(mocks.GetOrCreateMock<IDeviceDiscovery>().Instance);
@@ -52,14 +53,13 @@ public sealed class ControlSessionDiscoveryTests : MockerTestBase<ControlSession
         try
         {
             await Component.DisposeAsync();
+            var calls = Times.Exactly(_identifiers.Count);
+            _device.Verify(device => device.DisposeAsync(), calls);
+            _device.VerifyAdd(device => device.StateChanged += It.IsAny<EventHandler>(), calls);
+            _device.VerifyRemove(device => device.StateChanged -= It.IsAny<EventHandler>(), calls);
         }
         finally
         {
-            if (_identifiers.Count == 0)
-            {
-                await _device.DisposeAsync();
-            }
-
             base.Dispose();
         }
     }
@@ -73,7 +73,7 @@ public sealed class ControlSessionDiscoveryTests : MockerTestBase<ControlSession
         Assert.Empty(_identifiers);
         Assert.NotNull(state.Device);
         Assert.False(state.Device.IsArmed);
-        Assert.Equal(0, _device.Disposals);
+        _device.Verify(device => device.DisposeAsync(), Times.Never);
     }
 
     [Fact]
@@ -82,18 +82,18 @@ public sealed class ControlSessionDiscoveryTests : MockerTestBase<ControlSession
         var connect = Component.ConnectAsync("connect-1", TestContext.Current.CancellationToken);
         Assert.Equal(1, _scans);
         Assert.Empty(_identifiers);
-        Assert.Equal(0, _device.Connects);
+        _device.Verify(device => device.ConnectAsync(It.IsAny<CancellationToken>()), Times.Never);
 
         _detected.SetResult(new("device-1", "OSSM"));
         Assert.Equal(new ControlResponse("connect-1", "connected", true), await connect);
-        await _device.DisconnectAsync(TestContext.Current.CancellationToken);
+        await _device.Object.DisconnectAsync(TestContext.Current.CancellationToken);
         Assert.True((await Component.ConnectAsync("connect-2", TestContext.Current.CancellationToken)).Accepted);
 
         Assert.Equal(["device-1"], _identifiers);
         Assert.Equal(1, _scans);
-        Assert.Equal(2, _device.Connects);
+        _device.Verify(device => device.ConnectAsync(It.IsAny<CancellationToken>()), Times.Exactly(2));
         await DisposeAsync();
-        Assert.Equal(1, _device.Disposals);
+        _device.Verify(device => device.DisposeAsync(), Times.Once);
     }
 
     [Fact]
@@ -118,7 +118,7 @@ public sealed class ControlSessionDiscoveryTests : MockerTestBase<ControlSession
 
         Assert.Equal(new ControlResponse("connect-1", "device-not-ready", false), await connect);
         Assert.Empty(_identifiers);
-        Assert.Equal(0, _device.Connects);
+        _device.Verify(device => device.ConnectAsync(It.IsAny<CancellationToken>()), Times.Never);
 
         _detected = new(TaskCreationOptions.RunContinuationsAsynchronously);
         var retry = Component.ConnectAsync("connect-2", TestContext.Current.CancellationToken);
@@ -139,7 +139,7 @@ public sealed class ControlSessionDiscoveryTests : MockerTestBase<ControlSession
         Assert.Equal(new ControlResponse("connect-1", "cancelled", false), await connect);
         Assert.True(_scanToken.IsCancellationRequested);
         Assert.Empty(_identifiers);
-        Assert.Equal(0, _device.Connects);
+        _device.Verify(device => device.ConnectAsync(It.IsAny<CancellationToken>()), Times.Never);
         _detected.TrySetResult(null);
     }
 
@@ -167,8 +167,8 @@ public sealed class ControlSessionDiscoveryTests : MockerTestBase<ControlSession
         }
 
         Assert.Empty(_identifiers);
-        Assert.Equal(0, _device.Connects);
-        Assert.Equal(0, _device.Stops);
+        _device.Verify(device => device.ConnectAsync(It.IsAny<CancellationToken>()), Times.Never);
+        _device.Verify(device => device.EmergencyStopAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]

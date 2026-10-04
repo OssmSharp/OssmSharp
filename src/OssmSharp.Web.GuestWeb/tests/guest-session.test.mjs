@@ -109,6 +109,7 @@ test("speed is sent unchanged and retains the selected speed", async () => {
       const input = browser.element(`[data-input="${name}"]`);
       input.value = String(value);
       input.dispatchEvent(new Event("input"));
+      assert.equal(browser.element(`[data-value="${name}"]`).textContent, value);
     }
     const count = browser.calls("SubmitSettings").length;
     browser.click("[data-send-button]");

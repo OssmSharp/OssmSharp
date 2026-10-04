@@ -23,9 +23,11 @@ internal sealed class BleTestContext : IDisposable
     private readonly Lock subscriptionSync = new();
     private readonly Dictionary<string, Subject<BleCharacteristicInfo>> subscribed = [];
     private readonly TaskCompletionSource connectionCancelled = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly bool ownsMocks;
 
     public BleTestContext(Mocker? mocks = null)
     {
+        ownsMocks = mocks is null;
         Mocks = mocks ?? new Mocker();
         Manager = Mock.Get(Mocks.GetOrCreateMock<IBleManager>().Instance);
         Peripheral = Mock.Get(Mocks.GetOrCreateMock<IPeripheral>().Instance);
@@ -81,7 +83,7 @@ internal sealed class BleTestContext : IDisposable
 
     public Action<TimeSpan>? TimerCreated { get; set; }
 
-    public ILogger<DeviceBase> Logger { get; set; } = NullLogger<DeviceBase>.Instance;
+    public ILogger<OssmDevice> Logger { get; set; } = NullLogger<OssmDevice>.Instance;
 
     public BehaviorSubject<ConnectionState> Status { get; } = new(ConnectionState.Disconnected);
 
@@ -238,13 +240,23 @@ internal sealed class BleTestContext : IDisposable
 
     public void Dispose()
     {
-        Status.Dispose();
-        ConnectionFailures.Dispose();
-        Responses.Dispose();
-        Frames.Dispose();
-        ResponseSubscriptionChanges.Dispose();
-        StreamSubscriptionChanges.Dispose();
-        ScanResults.Dispose();
+        try
+        {
+            Status.Dispose();
+            ConnectionFailures.Dispose();
+            Responses.Dispose();
+            Frames.Dispose();
+            ResponseSubscriptionChanges.Dispose();
+            StreamSubscriptionChanges.Dispose();
+            ScanResults.Dispose();
+        }
+        finally
+        {
+            if (ownsMocks)
+            {
+                Mocks.Dispose();
+            }
+        }
     }
 
     private void SetupRadProtocol()

@@ -1,10 +1,46 @@
 using AwesomeAssertions;
+using FastMoq;
 using Xunit;
 
 namespace OssmSharp.Cli.Tests;
 
-public sealed class PrettyPromptInputTests
+public sealed class PrettyPromptInputTests : MockerTestBase<object>, IAsyncDisposable
 {
+    private DirectoryInfo directory = null!;
+    private StringWriter output = null!;
+    private StringWriter error = null!;
+    private PrettyPromptTestConsole terminal = null!;
+    private PrettyPromptConsole console = null!;
+
+    protected override Action<Mocker> SetupMocksAction => _ =>
+    {
+        directory = Directory.CreateTempSubdirectory("OssmSharp-prompt-");
+        output = new StringWriter();
+        error = new StringWriter();
+        terminal = new PrettyPromptTestConsole([], reportKeysAvailable: true);
+        console = new PrettyPromptConsole(output, error, terminal);
+    };
+
+    protected override Func<Mocker, object> CreateComponentAction => _ =>
+        new PrettyPromptInput(console, Path.Combine(directory.FullName, "history"));
+
+    private new PrettyPromptInput Component => (PrettyPromptInput)base.Component;
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await Component.DisposeAsync();
+        }
+        finally
+        {
+            output.Dispose();
+            error.Dispose();
+            directory.Delete(recursive: true);
+            base.Dispose();
+        }
+    }
+
     [Theory]
     [InlineData(4, 0)]
     [InlineData(4, 3)]
@@ -14,197 +50,120 @@ public sealed class PrettyPromptInputTests
     [InlineData(100, 99)]
     public async Task RepeatedReadsDoNotReserveBlankRows(int height, int cursorTop)
     {
-        var directory = Directory.CreateTempSubdirectory("OssmSharp-layout-");
-        try
+        terminal.EnqueueKeys([Key('h', ConsoleKey.H), Key('\r', ConsoleKey.Enter), Key('h', ConsoleKey.H), Key('\r', ConsoleKey.Enter)]);
+        terminal.WindowHeight = height;
+        terminal.CursorTop = cursorTop;
+
+        for (var readIndex = 0; readIndex < 2; readIndex++)
         {
-            using var output = new StringWriter();
-            var terminal = new PrettyPromptTestConsole(
-                [Key('h', ConsoleKey.H), Key('\r', ConsoleKey.Enter), Key('h', ConsoleKey.H), Key('\r', ConsoleKey.Enter)],
-                reportKeysAvailable: true)
-            {
-                WindowHeight = height,
-                CursorTop = cursorTop,
-            };
-            var console = new PrettyPromptConsole(
-                output,
-                TextWriter.Null,
-                terminal);
-            await using var input = new PrettyPromptInput(console, Path.Combine(directory.FullName, "history"));
+            output.GetStringBuilder().Clear();
 
-            for (var readIndex = 0; readIndex < 2; readIndex++)
-            {
-                output.GetStringBuilder().Clear();
+            var result = await Component.ReadAsync(TestContext.Current.CancellationToken);
 
-                var result = await input.ReadAsync(TestContext.Current.CancellationToken);
-
-                result.Text.Should().Be("h");
-                var rendered = output.ToString();
-                rendered.Count(character => character == '\n').Should().Be(1);
-                Assert.DoesNotMatch(@"\u001b\[[0-9;]*[ABHfST]", rendered);
-                console.WindowHeight.Should().Be(height);
-            }
-        }
-        finally
-        {
-            directory.Delete(recursive: true);
+            result.Text.Should().Be("h");
+            var rendered = output.ToString();
+            rendered.Count(character => character == '\n').Should().Be(1);
+            Assert.DoesNotMatch(@"\u001b\[[0-9;]*[ABHfST]", rendered);
+            console.WindowHeight.Should().Be(height);
         }
     }
 
     [Fact]
     public async Task ControlDOnEmptyInputReturnsEndOfInput()
     {
-        var directory = Directory.CreateTempSubdirectory("OssmSharp-eof-");
-        try
-        {
-            await using var input = CreateInput(directory, [Key('\0', ConsoleKey.D, control: true)]);
+        terminal.EnqueueKeys([Key('\0', ConsoleKey.D, control: true)]);
 
-            var result = await input.ReadAsync(TestContext.Current.CancellationToken);
+        var result = await Component.ReadAsync(TestContext.Current.CancellationToken);
 
-            result.Text.Should().BeNull();
-            result.IsInterrupted.Should().BeFalse();
-        }
-        finally
-        {
-            directory.Delete(recursive: true);
-        }
+        result.Text.Should().BeNull();
+        result.IsInterrupted.Should().BeFalse();
     }
 
     [Fact]
     public async Task ControlDOnNonEmptyInputDeletesForward()
     {
-        var directory = Directory.CreateTempSubdirectory("OssmSharp-delete-");
-        try
-        {
-            await using var input = CreateInput(
-                directory,
-                [
-                    Key('a', ConsoleKey.A),
-                    Key('b', ConsoleKey.B),
-                    Key('\0', ConsoleKey.LeftArrow),
-                    Key('\0', ConsoleKey.D, control: true),
-                    Key('\r', ConsoleKey.Enter),
-                ]);
+        terminal.EnqueueKeys(
+            [
+                Key('a', ConsoleKey.A),
+                Key('b', ConsoleKey.B),
+                Key('\0', ConsoleKey.LeftArrow),
+                Key('\0', ConsoleKey.D, control: true),
+                Key('\r', ConsoleKey.Enter),
+            ]);
 
-            var result = await input.ReadAsync(TestContext.Current.CancellationToken);
+        var result = await Component.ReadAsync(TestContext.Current.CancellationToken);
 
-            result.Text.Should().Be("a");
-            result.IsInterrupted.Should().BeFalse();
-        }
-        finally
-        {
-            directory.Delete(recursive: true);
-        }
+        result.Text.Should().Be("a");
+        result.IsInterrupted.Should().BeFalse();
     }
 
     [Fact]
     public async Task ControlZUsesNativeUndo()
     {
-        var directory = Directory.CreateTempSubdirectory("OssmSharp-undo-");
-        try
-        {
-            await using var input = CreateInput(
-                directory,
-                [
-                    Key('a', ConsoleKey.A),
-                    Key('b', ConsoleKey.B),
-                    Key('\0', ConsoleKey.Z, control: true),
-                    Key('\r', ConsoleKey.Enter),
-                ]);
+        terminal.EnqueueKeys(
+            [
+                Key('a', ConsoleKey.A),
+                Key('b', ConsoleKey.B),
+                Key('\0', ConsoleKey.Z, control: true),
+                Key('\r', ConsoleKey.Enter),
+            ]);
 
-            var result = await input.ReadAsync(TestContext.Current.CancellationToken);
+        var result = await Component.ReadAsync(TestContext.Current.CancellationToken);
 
-            result.Text.Should().Be("a");
-            result.IsInterrupted.Should().BeFalse();
-        }
-        finally
-        {
-            directory.Delete(recursive: true);
-        }
+        result.Text.Should().Be("a");
+        result.IsInterrupted.Should().BeFalse();
     }
 
     [Fact]
     public async Task ExternalCancellationEndsIdleRead()
     {
-        var directory = Directory.CreateTempSubdirectory("OssmSharp-cancel-");
-        try
-        {
-            using var output = new StringWriter();
-            using var error = new StringWriter();
-            var console = new PrettyPromptConsole(output, error, new PrettyPromptTestConsole([]));
-            await using var input = new PrettyPromptInput(console, Path.Combine(directory.FullName, "history"));
-            using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
 
-            var read = input.ReadAsync(cancellation.Token);
-            await cancellation.CancelAsync();
-            var result = await read.WaitAsync(TestContext.Current.CancellationToken);
+        var read = Component.ReadAsync(cancellation.Token);
+        await cancellation.CancelAsync();
+        var result = await read.WaitAsync(TestContext.Current.CancellationToken);
 
-            result.IsInterrupted.Should().BeTrue();
-        }
-        finally
-        {
-            directory.Delete(recursive: true);
-        }
+        result.IsInterrupted.Should().BeTrue();
     }
 
     [Fact]
     public async Task PersistentHistoryRecallsSubmittedCommandAfterRestart()
     {
-        var directory = Directory.CreateTempSubdirectory("OssmSharp-history-");
-        var history = Path.Combine(directory.FullName, "prompt-history");
-        try
+        var history = Path.Combine(directory.FullName, "history");
+        terminal.EnqueueKeys(
+            [
+                Key('s', ConsoleKey.S),
+                Key('t', ConsoleKey.T),
+                Key('a', ConsoleKey.A),
+                Key('t', ConsoleKey.T),
+                Key('u', ConsoleKey.U),
+                Key('s', ConsoleKey.S),
+                Key('\r', ConsoleKey.Enter),
+            ]);
+        await using (var input = Component)
         {
-            var console = new PrettyPromptConsole(
-                TextWriter.Null,
-                TextWriter.Null,
-                new PrettyPromptTestConsole(
-                    [
-                        Key('s', ConsoleKey.S),
-                        Key('t', ConsoleKey.T),
-                        Key('a', ConsoleKey.A),
-                        Key('t', ConsoleKey.T),
-                        Key('u', ConsoleKey.U),
-                        Key('s', ConsoleKey.S),
-                        Key('\r', ConsoleKey.Enter),
-                    ],
-                    reportKeysAvailable: true));
-            await using (var input = new PrettyPromptInput(console, history))
-            {
-                var result = await input.ReadAsync(TestContext.Current.CancellationToken);
+            var result = await input.ReadAsync(TestContext.Current.CancellationToken);
 
-                result.Text.Should().Be("status");
-                result.IsInterrupted.Should().BeFalse();
-            }
-
-            Assert.True(File.Exists(history));
-            var restartedConsole = new PrettyPromptConsole(
-                TextWriter.Null,
-                TextWriter.Null,
-                new PrettyPromptTestConsole(
-                    [
-                        Key('\0', ConsoleKey.UpArrow),
-                        Key('\r', ConsoleKey.Enter),
-                    ],
-                    reportKeysAvailable: true));
-            await using var restarted = new PrettyPromptInput(restartedConsole, history);
-
-            var recalled = await restarted.ReadAsync(TestContext.Current.CancellationToken);
-
-            recalled.Text.Should().Be("status");
-            recalled.IsInterrupted.Should().BeFalse();
+            result.Text.Should().Be("status");
+            result.IsInterrupted.Should().BeFalse();
         }
-        finally
-        {
-            directory.Delete(recursive: true);
-        }
-    }
 
-    private static PrettyPromptInput CreateInput(DirectoryInfo directory, IEnumerable<ConsoleKeyInfo> keys)
-    {
-        var console = new PrettyPromptConsole(
+        Assert.True(File.Exists(history));
+        var restartedConsole = new PrettyPromptConsole(
             TextWriter.Null,
             TextWriter.Null,
-            new PrettyPromptTestConsole(keys, reportKeysAvailable: true));
-        return new PrettyPromptInput(console, Path.Combine(directory.FullName, "history"));
+            new PrettyPromptTestConsole(
+                [
+                    Key('\0', ConsoleKey.UpArrow),
+                    Key('\r', ConsoleKey.Enter),
+                ],
+                reportKeysAvailable: true));
+        await using var restarted = new PrettyPromptInput(restartedConsole, history);
+
+        var recalled = await restarted.ReadAsync(TestContext.Current.CancellationToken);
+
+        recalled.Text.Should().Be("status");
+        recalled.IsInterrupted.Should().BeFalse();
     }
 
     private static ConsoleKeyInfo Key(

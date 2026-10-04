@@ -1,7 +1,7 @@
 using AwesomeAssertions;
 using FastMoq;
 using Microsoft.Extensions.Logging;
-using OssmSharp.Runtime.Oem;
+using OssmSharp.Runtime;
 using Xunit;
 
 namespace OssmSharp.Cli.Tests;

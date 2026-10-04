@@ -1,6 +1,7 @@
 using AwesomeAssertions;
 using Microsoft.Extensions.Options;
 using Moq;
+using OssmSharp.Runtime.Oem.Protocol;
 using Shiny.BluetoothLE;
 using Xunit;
 
@@ -16,9 +17,9 @@ public sealed class BleServiceCollectionExtensionsTests
         using var context = new BleTestContext();
         var services = new ServiceCollection();
         services.AddSingleton(context.Manager.Object);
-        services.AddOemRuntime();
+        services.AddOssmSharpOemRuntime();
         await using var provider = services.BuildServiceProvider();
-        var factory = provider.GetRequiredService<Func<string, DeviceBase>>();
+        var factory = provider.GetRequiredService<Func<string, IOssmDevice>>();
 
         Assert.Throws<ArgumentException>(() => factory(identifier));
 
@@ -33,9 +34,9 @@ public sealed class BleServiceCollectionExtensionsTests
         using var context = new BleTestContext();
         var services = new ServiceCollection();
         services.AddSingleton(context.Manager.Object);
-        services.AddOemRuntime();
+        services.AddOssmSharpOemRuntime();
         await using var provider = services.BuildServiceProvider();
-        await using var device = provider.GetRequiredService<Func<string, DeviceBase>>()("unavailable-device");
+        await using var device = provider.GetRequiredService<Func<string, IOssmDevice>>()("unavailable-device");
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => device.ConnectAsync(TestContext.Current.CancellationToken));
 
@@ -50,14 +51,16 @@ public sealed class BleServiceCollectionExtensionsTests
         using var context = new BleTestContext();
         var services = new ServiceCollection();
         services.AddSingleton(context.Manager.Object);
-        services.AddOemRuntime().Should().BeSameAs(services);
-        services.AddOemRuntime();
+        services.AddOssmSharpOemRuntime().Should().BeSameAs(services);
+        services.AddOssmSharpOemRuntime();
         await using var provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true, ValidateScopes = true });
 
         provider.GetRequiredService<IBleManager>().Should().BeSameAs(context.Manager.Object);
+        provider.GetServices<IBleDelegate>().Should().ContainSingle()
+            .Which.Should().BeOfType<BleLifecycleDelegate>();
         provider.GetRequiredService<IDeviceDiscovery>().Should().BeOfType<DeviceDiscovery>()
             .And.BeSameAs(provider.GetRequiredService<IDeviceDiscovery>());
-        var factory = provider.GetRequiredService<Func<string, DeviceBase>>();
+        var factory = provider.GetRequiredService<Func<string, IOssmDevice>>();
         await using var first = factory("device-1");
         await using var second = factory("device-2");
 
@@ -76,7 +79,7 @@ public sealed class BleServiceCollectionExtensionsTests
         using var context = new BleTestContext();
         var services = new ServiceCollection();
         services.AddSingleton(context.Manager.Object);
-        services.AddOemRuntime();
+        services.AddOssmSharpOemRuntime();
         services.Configure<OssmDeviceOptions>(options =>
         {
             options.MaximumRequestAttempts = attempts;
@@ -95,7 +98,7 @@ public sealed class BleServiceCollectionExtensionsTests
     {
         var services = new ServiceCollection();
 
-        var register = () => services.AddOemRuntime();
+        var register = () => services.AddOssmSharpOemRuntime();
 
         register.Should().Throw<PlatformNotSupportedException>();
     }

@@ -17,12 +17,16 @@ internal static class CliServiceCollectionExtensions
             provider.GetRequiredKeyedService<TextWriter>("error")));
         services.TryAddSingleton<IPromptInput>(_ => PrettyPromptInput.Create(error));
 
-        // TODO: these probably should be interfaces, not concrete singletons.
         services.TryAddSingleton<PromptInterruptState>();
         services.TryAddSingleton<PromptHandlerFactory>();
 
         services.AddTransient<ListCommand>();
-        services.AddTransient<PromptCommand>();
+        services.AddTransient(provider => new PromptCommand(
+            provider.GetRequiredService<IDeviceDiscovery>(),
+            provider.GetRequiredService<Func<string, IOssmDevice>>(),
+            provider.GetRequiredService<PromptHandlerFactory>(),
+            provider.GetRequiredKeyedService<TextWriter>("error"),
+            provider.GetRequiredService<ILogger<PromptCommand>>()));
 
         return services;
     }

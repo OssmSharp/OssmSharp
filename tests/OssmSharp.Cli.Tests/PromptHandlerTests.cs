@@ -3,6 +3,7 @@ using FastMoq;
 using FastMoq.Extensions;
 using FastMoq.Providers;
 using Moq;
+using OssmSharp.Runtime;
 using OssmSharp.Runtime.Oem;
 using Xunit;
 
@@ -33,7 +34,7 @@ public sealed class PromptHandlerTests : MockerTestBase<object>, IAsyncDisposabl
         device.Setup(value => value.EmergencyStopAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
         device.Setup(value => value.ResetAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
         device.Setup(value => value.GetStateAsync(It.IsAny<bool>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new DeviceState(new MotionSettings(0, 0, 0, 0, 0)));
+            .ReturnsAsync(new DeviceState(0, 0, 0, 0, 0));
     };
 
     private new PromptHandler Component => (PromptHandler)base.Component;
@@ -277,7 +278,7 @@ public sealed class PromptHandlerTests : MockerTestBase<object>, IAsyncDisposabl
         Device.Setup(device => device.ResetAsync(It.IsAny<CancellationToken>()))
             .Callback(() => operations.Add("reset")).Returns(Task.CompletedTask);
         Device.Setup(device => device.GetStateAsync(true, It.IsAny<CancellationToken>()))
-            .Callback(() => operations.Add("status")).ReturnsAsync(new DeviceState(new MotionSettings(0, 0, 0, 0, 0)));
+            .Callback(() => operations.Add("status")).ReturnsAsync(new DeviceState(0, 0, 0, 0, 0));
         foreach (var line in new[] { "stop", "set 0 20 50 50 25", "reset", "set insist 100 0 50 25", "status", "help", "help set", "help bogus", "stop", "quit" })
         {
             input.SendLine(line);
@@ -496,16 +497,16 @@ public sealed class PromptHandlerTests : MockerTestBase<object>, IAsyncDisposabl
     [Theory]
     [InlineData(1.5, 2, "75%")]
     [InlineData(2.5, 20, "12.5%")]
-    [InlineData(40, 10, "400%")]
-    [InlineData(0, 10, "0%")]
-    [InlineData(5, 0, "Unknown")]
-    [InlineData(0, 0, "Unknown")]
-    public async Task StatusAlwaysReadsLiveState(double velocity, int stroke, string expectedSpeed)
+    [InlineData(40d, 10, "400%")]
+    [InlineData(0d, 10, "0%")]
+    [InlineData(5d, 0, "Unknown")]
+    [InlineData(0d, 0, "Unknown")]
+    public async Task StatusAlwaysReadsLiveState(double currentDeviceVelocityPercent, int stroke, string expectedSpeed)
     {
         Device.Setup(device => device.GetStateAsync(false, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new DeviceState(new MotionSettings(StrokePattern.Deeper, 5, 6, 7, 8)));
+            .ReturnsAsync(new DeviceState(StrokePattern.Deeper, 5, 6, 7, 8));
         Device.Setup(device => device.GetStateAsync(true, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new DeviceState(StrokePattern.Insist, velocity, stroke, 3, 4));
+            .ReturnsAsync(new DeviceState(StrokePattern.Insist, currentDeviceVelocityPercent, stroke, 3, 4));
         input.SendLine("status");
         input.SendLine("quit");
 

@@ -1,11 +1,16 @@
+using FastMoq;
 using OssmSharp.Web.Api.Models;
 using Xunit;
 
 namespace OssmSharp.Web.Api.Tests;
 
-public sealed class ControlServiceOptionsValidatorTests
+public sealed class ControlServiceOptionsValidatorTests : MockerTestBase<object>
 {
     private const string AdminKey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+
+    protected override Func<Mocker, object> CreateComponentAction => _ => new ControlServiceOptionsValidator();
+
+    private new ControlServiceOptionsValidator Component => (ControlServiceOptionsValidator)base.Component;
 
     [Theory]
     [InlineData("")]
@@ -15,7 +20,7 @@ public sealed class ControlServiceOptionsValidatorTests
         var options = ValidOptions();
         options.DeviceIdentifier = identifier;
 
-        var result = new ControlServiceOptionsValidator().Validate(null, options);
+        var result = Component.Validate(null, options);
 
         Assert.True(result.Succeeded);
     }
@@ -26,7 +31,7 @@ public sealed class ControlServiceOptionsValidatorTests
         var options = ValidOptions();
         options.AdminWebServiceKey = string.Empty;
 
-        var result = new ControlServiceOptionsValidator().Validate(null, options);
+        var result = Component.Validate(null, options);
 
         Assert.True(result.Failed);
         Assert.Contains(result.Failures, failure => failure.Contains("AdminWebServiceKey", StringComparison.Ordinal));
@@ -41,7 +46,7 @@ public sealed class ControlServiceOptionsValidatorTests
         options.KeepAliveSeconds = keepAliveSeconds;
         options.ClientTimeoutSeconds = clientTimeoutSeconds;
 
-        var result = new ControlServiceOptionsValidator().Validate(null, options);
+        var result = Component.Validate(null, options);
 
         Assert.Equal(valid, result.Succeeded);
     }

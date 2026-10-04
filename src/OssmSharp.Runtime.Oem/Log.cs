@@ -59,7 +59,7 @@ internal static partial class Log
     [LoggerMessage(19, LogLevel.Information, "Device Set finished with status {Status}; {CommandsWritten} commands written.")]
     public static partial void SettingsFinished(this ILogger logger, SetStatus status, int commandsWritten);
 
-    [LoggerMessage(20, LogLevel.Information, "Device Stop command completed; commands remain disarmed.")]
+    [LoggerMessage(20, LogLevel.Debug, "Device Stop command completed.")]
     public static partial void StopCompleted(this ILogger logger);
 
     [LoggerMessage(21, LogLevel.Debug, "Writing device setting {Setting} with value {Value}.")]
