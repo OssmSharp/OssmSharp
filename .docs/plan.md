@@ -1,145 +1,108 @@
 ## External dependencies
 
-- **Platform:** .NET 10 — runtime and standard libraries.
-- **Bluetooth:** Shiny.BluetoothLE 5.7.2 — access Windows/macOS Bluetooth APIs.
+- **Platform:** .NET 10 - runtime and standard libraries.
+- **Bluetooth:** Shiny.BluetoothLE 5.7.2 - access Windows and macOS Bluetooth APIs.
 - **Hardware:** Device and firmware - execute commands and own motor behavior and safety.
-- **Wire protocol:** [RAD BLE v1](https://github.com/researchanddesire/rad-ble/blob/main/protocol/rad-ble-v1.json) - the supported Bluetooth protocol for discovery, requests, responses, control leases, and telemetry.
-- **CLI parsing:** System.CommandLine 2.0.12 — parse commands and options, and generate help.
-- **Hosting:** Microsoft.Extensions.Hosting 10.0.12 — manage executable composition and lifecycle.
-- **Logging:** Microsoft.Extensions.Logging.Abstractions 10.0.12 — provide standard `ILogger<T>` diagnostics.
-- **Test framework:** xUnit v3 — define and organize tests.
-- **Test runner:** Microsoft.Testing.Platform v2 — discover and execute tests.
-- **Test mocking:** FastMoq — construct test subjects with mocked dependencies.
-- **Test assertions:** AwesomeAssertions — express readable assertions and failure messages.
+- **Wire protocol:** [RAD BLE v1](https://github.com/researchanddesire/rad-ble/blob/main/protocol/rad-ble-v1.json) - discovery, requests, responses, control leases, and telemetry.
+- **CLI parsing:** System.CommandLine 2.0.12 - parse commands and options, and generate help.
+- **Interactive input:** PrettyPrompt 6.0.5 - read prompt commands with history.
+- **Hosting:** Microsoft.Extensions.Hosting 10.0.12 - manage executable composition and lifecycle.
+- **Options:** Microsoft.Extensions.Options 10.0.12 - supply request retry and response timeout limits.
+- **Logging:** Microsoft.Extensions.Logging.Abstractions 10.0.12 - provide `ILogger<T>` diagnostics.
+- **Testing:** xUnit v3 on Microsoft.Testing.Platform v2, FastMoq, and AwesomeAssertions.
 
 ## Project dependency order
 
-- **`OssmSharp.Runtime.Oem`**
-  - **Framework:** .NET 10.
-  - **Package:** Shiny.BluetoothLE 5.7.2.
-  - **Runtime connection:** Device firmware over RAD BLE v1.
-- **`OssmSharp.Cli`**
-  - **Project reference:** `OssmSharp.Runtime.Oem`.
+- **`OssmSharp.Cli`** - consumer layer.
+  - **Framework:** .NET 10
+  - **Packages:** System.CommandLine 2.0.12, PrettyPrompt 6.0.5, Microsoft.Extensions.Hosting 10.0.12
+  - **Project reference:** `OssmSharp.Runtime.Oem` - runtime and transport layers.
+    - **Framework:** .NET 10
+    - **Packages:** Shiny.BluetoothLE 5.7.2, Microsoft.Extensions.Options 10.0.12
+    - **Runtime connection:** Device firmware over RAD BLE v1
+    - **Project reference:** `OssmSharp.Runtime` - shared result and discovery contracts.
+      - **Framework:** .NET 10
+      - **Package:** Microsoft.Extensions.Logging.Abstractions 10.0.12
 
 ## Projects, files, and functions
 
-This is the concrete implementation contract. Every listed member, its ownership,
-visibility, and specified behavior is required, not an implementation suggestion.
-
-- **Consumer layer:** Runtime accepts complete motion settings and owns their translation, sequencing, supersession, state, and arming.
-- **Command layer:** Runtime defines individual control assignments; the Bluetooth provider encodes and sends one assignment per call.
-- **Transport layer:** The Bluetooth provider owns RAD requests, responses, leases, and streams through Shiny.
-
-### Types and members
-
-- **`OssmSharp.Runtime.Oem`**
-  - **`DeviceControl.cs`**
-    - Identify individual firmware controls, such as pattern, speed, stroke, depth, and sensation.
-  - **`DeviceCommand.cs`**
-    - Represent one assignment to one DeviceControl, such as setting speed to 20 percent.
-  - **`IOssmDevice.cs`**
-    - **ConnectAsync:** Connect or reconnect the same undisposed client, initialize fresh state, and arm request on success without sending or replaying motion settings. Throw when Stop, disconnect, or disposal ends the attempt.
-    - **DisconnectAsync:** Disarm and abandon settings and live reads; send or join Stop when connected, then clean up even if it fails while preserving reuse.
-    - **SetAsync:** Submit MotionSettings and count confirmed writes; return Cancelled on Stop, disconnect, or disposal, and retain genuine failures' partial progress in DeviceWriteException.
-    - **GetStateAsync(bypassCache):** Return cached state, including while disconnected, or read live state when bypassCache is true, requiring a connection and propagating read errors. Live reads without an established connection, including those abandoned by disconnect or disposal, throw.
-    - **EmergencyStopAsync:** Abandon pending settings and send or join Stop without waiting for earlier responses or live reads, or end an unfinished connection attempt. Success preserves current arming; failure disarms.
-    - **ResetAsync:** Arm without resending settings or clearing failures; throw when disarmed later or while Stop is in progress.
-    - **IsArmed (property):** Indicate request arming: successful connection or explicit reset arms; successful Stop preserves current arming; Stop failure, operational failure, disconnect, and disposal disarm.
-    - **ConnectionFailure (property):** Expose the current connection failure; clear it only after successful connection initialization, never through reset.
-    - **StateChanged (event):** Notify subscribers when the last known state or armed status changes.
-    - **DisposeAsync:** Disarm and abandon settings and live reads; send or join Stop when connected, then release resources even on failure and prohibit reuse.
-  - **`MotionSettings.cs`**
-    - Carry a StrokePattern and control arguments without interpreting pattern behavior.
-    - Require a defined StrokePattern and whole-number percentages between zero and 100, without pattern-specific validation.
-    - **ToCommands (internal):** Expand these settings into an ordered sequence of individual DeviceCommand values without interpreting patterns or deciding motor safety.
-  - **`StrokePattern.cs`** — public enum.
-    - Identify the seven supported firmware patterns by name and ID (0..6), without implementing their behavior.
-  - **`SetResult.cs`** — public record.
-    - Carry SetStatus and CommandsWritten, the count of successfully completed primitive writes, without claiming rollback or physical motion confirmation.
-  - **`SetStatus.cs`** — public enum.
-    - Distinguish Completed, Superseded, and Cancelled requests; commands already sent may have taken effect regardless of status.
-  - **`DeviceState.cs`**
-    - Represent complete last-observed controls without interpreting compact protocol metadata, inferring motion safety, or imposing expiry.
-    - Expose observed Pattern, Speed, Stroke, Depth, and Sensation directly. Preserve fractional effective speed; require integer values for the other controls and reject malformed, missing, duplicate, or out-of-range values.
-  - **`DeviceBase.cs`** — abstract class implementing `IOssmDevice`.
-
-    - **ConnectCoreAsync (protected abstract):** Establish fresh provider connectivity and subscriptions; DeviceBase arms only after initial state initialization succeeds, without sending motion settings.
-    - **ExecuteAsync (private):** Serialize non-Stop I/O, abandon cancelled operation waits, and prevent queued settings from running after disarm.
-    - **Supersede (private):** Replace pending settings with the latest request and discard older primitive commands not yet sent, letting a command already sent finish.
-    - **CancelPending (private):** Discard pending settings and not-yet-issued writes without claiming an issued write was recalled.
-    - **WriteCommandAsync(command) (protected abstract):** Send one control assignment while owning issued transport writes after abandonment; Stop awaits terminal completion without claiming physical motion.
-    - **ReadStateAsync (protected abstract):** Read live device state through the provider without maintaining another state cache.
-    - **DisconnectCoreAsync (protected abstract):** Release resources after Stop and issued transport writes settle, without waiting for abandoned responses; tolerate partial setup and reconnection.
-    - **UpdateState (protected):** Store incoming last known state and notify subscribers without changing arming or cancelling pending requests.
-    - **SetFaulted (protected):** Record failure of the current connection, disarm, and discard settings not yet sent, without sending commands or permanently preventing reconnection.
-
-  - **`DeviceDiscovery.cs`**
-    - **ScanAsync:** Discover distinct devices advertising the fixed OSSM service within a bounded scan, returning identifiers and names and surfacing cancellation or Bluetooth errors.
-  - **`DiscoveredDevice.cs`**
-    - Carry the platform device identifier and advertised name for listing and connection selection.
-  - **`BleProtocolConstants.cs`** — internal constants.
-    - Define service `522b443a-4f53-534d-0001-420badbabe69` and characteristic suffixes: Protocol Info `0002`, Request `1000`, Response `1100`, State `2000`, Sensor Stream `2300`.
-  - **`OssmDevice.cs`** — extends `DeviceBase`; supplies Bluetooth operations while inheriting all settings execution from Runtime.
-    - **ConnectCoreAsync (protected override):** Open Bluetooth, validate RAD BLE v1, await fresh subscriptions, acquire a new control lease, and start streaming; leave arming to DeviceBase.
-    - **WriteCommandAsync(command) (protected override):** Send one leased setting.write assignment; abandon an earlier setting's terminal-response wait, not its issued GATT transfer.
-    - **ReadStateAsync (protected override):** Await the next valid motion-stream observation and return complete DeviceState controls, propagating failures without returning cached success.
-    - **SendRequestAsync (private):** Register and encode bounded requests, recheck queued writes at the GATT gate, send Stop next, and own issued transfers until settlement.
-    - **HandleResponse (private):** Validate response envelopes, correlate pending IDs, retain accepted requests, and resolve or fail them only at terminal stages.
-    - **MaintainLeaseAsync (private):** Own acquisition and renewal using server-provided expiry, serialize protocol I/O, and fail the connection when control ownership is lost.
-    - **StartMotionStreamAsync (private):** Start motion.speed streaming after subscription readiness and retain the returned stream identity for validating observations.
-    - **HandleMotionObservation (private):** Validate stream frames, decode controls, satisfy pending live reads, and forward asynchronous observations through UpdateState without maintaining another controls cache.
-    - **DecodeState (private):** Decode complete motion controls into DeviceState, rejecting malformed values without substituting defaults or treating compact State as controls.
-    - **DisconnectCoreAsync (protected override):** Fail abandoned response waits, settle transfers and renewal, stop streaming, release the lease, and close per-connection resources without disposing the reusable client.
-  - **`Request.cs`**
-    - **Encode:** Serialize a RAD v1 request with nonzero ID, operation, optional path, arguments, and lease, preserving supplied values without interpreting patterns.
-  - **`ServiceCollectionExtensions.cs`**
-    - **Register:** Register discovery and a factory accepting a discovered device identifier and returning DeviceBase.
+- **Consumer layer:** callers submit complete motion settings; the latest request wins. A regular stop is a request with speed zero; an emergency stop uses `EmergencyStopAsync`.
+- **Runtime layer:** `OssmDevice` decomposes settings into commands and coordinates supersession, readiness, arming, and last known state.
+- **Transport layer:** `OssmDevice` private members and `Request` encode and execute individual RAD requests through Shiny.
 
 - **`OssmSharp.Cli`**
   - **`Program.cs`**
-    - **Main:** Parse list or prompt arguments, configure dependencies, invoke the selected operation, and return its exit code.
+    - **Main:** Parse list or prompt arguments, configure dependencies, run the selected command, and return its exit code.
     - **ListAsync:** Discover devices and print their identifiers and names without connecting.
-    - **PromptAsync:** Select the explicit identifier or sole discovered device, connect, run the prompt, and dispose the device on exit or failure.
+    - **PromptAsync:** Connect to the explicit or sole discovered device, run the prompt, and dispose the device on exit or failure.
   - **`PromptHandler.cs`**
-    - **RunAsync:** Read commands while remaining responsive to newer settings and Stop.
-    - **Set:** Parse positional settings into MotionSettings, submit through IOssmDevice, and report completion, supersession, validation errors, or partial failure with armed status.
-    - **Stop:** Request emergency Stop and report its success or failure, discarded queued commands, and armed status.
-    - **Reset:** Explicitly reset the device and report its result and armed status without resubmitting previous motion.
-    - **StatusAsync(bypassCache):** Display cached or live state as requested, together with whether command request is armed.
-    - **Help (private):** Display general or command-specific parser help, including argument ranges for set, and current armed status.
-    - **Quit:** Stop the device, end command intake, and wait for the Stop and cleanup to finish before exiting. End of input behaves the same.
+    - **RunAsync:** Read and execute prompt commands until quit or end of input.
+    - **Set:** Parse five positional arguments into MotionSettings, submit them, and report the result with armed status.
+    - **Stop:** Request emergency Stop and report its outcome with armed status.
+    - **Reset:** Rearm the device without resubmitting settings and report the result.
+    - **StatusAsync(bypassCache):** Display cached or live state with armed status.
+    - **Help (private):** Display general or command-specific help with argument ranges and armed status.
+    - **Quit:** Stop the device and exit after Stop and cleanup finish.
+
+- **`OssmSharp.Runtime`**
+  - **`IDeviceDiscovery.cs`**
+    - **ScanAsync:** Return distinct devices advertising the OSSM service within a bounded scan, propagating cancellation and Bluetooth errors.
+    - **FindFirstAsync:** Return the first device advertising the OSSM service, or null when the bounded scan finds none.
+  - **`DiscoveredDevice.cs`** - public record carrying a platform device identifier and advertised name.
+  - **`SetResult.cs`** - public record carrying SetStatus and the number of commands the firmware completed.
+  - **`SetStatus.cs`** - public enum distinguishing Completed, Superseded, and Cancelled requests.
+  - **`DeviceWriteException.cs`** - public exception reporting a failed request and the commands completed before it failed.
+
+- **`OssmSharp.Runtime.Oem`**
+  - **`IOssmDevice.cs`**
+    - **ConnectAsync:** Connect or reconnect, read initial state, and arm without sending motion settings.
+    - **DisconnectAsync:** Disarm, abandon pending work, send or join Stop, and release the connection while keeping the client reusable.
+    - **SetAsync:** Reject without sending or changing arming when disconnected, disarmed, not ready, or emergency stopping; otherwise return once all commands complete or another call supersedes.
+    - **GetStateAsync(bypassCache):** Return last known state, or the next live observation when bypassing the cache.
+    - **EmergencyStopAsync:** Cancel pending settings and write speed zero, rejecting Set and Reset until complete; success preserves arming and failure disarms.
+    - **ResetAsync:** Arm without resending settings or clearing connection failures; reject during an emergency stop or when disarmed after the call.
+    - **IsArmed (property):** Indicate whether settings may be sent.
+    - **ConnectionFailure (property):** Expose the current connection failure until a successful reconnection.
+    - **StateChanged (event):** Notify subscribers when last known state or armed status changes.
+    - **DisposeAsync:** Disarm, send or join Stop, release resources, and prohibit reuse.
+  - **`MotionSettings.cs`** - public class.
+    - **Constructor:** Require a defined StrokePattern and whole-number percentages from 0 to 100, without pattern-specific validation.
+    - **ToCommands (internal):** Expand the settings into one command per control, ending with speed.
+  - **`StrokePattern.cs`** - public enum identifying the seven firmware patterns by name and ID 0 to 6.
+  - **`DeviceState.cs`** - public record.
+    - **FromBytes:** Decode one observation's controls, preserving fractional speed and rejecting malformed, missing, duplicate, or out-of-range values.
+  - **`DeviceDiscovery.cs`** - implements `IDeviceDiscovery` through Shiny.
+  - **`OssmDeviceOptions.cs`** - public class carrying request attempt and response timeout limits, validated at startup by `OssmDeviceOptionsValidator`.
+  - **`OssmDevice.cs`** - public sealed class implementing `IOssmDevice`.
+    - **DisconnectCoreAsync (private):** Stop streaming, release the lease, and close the Bluetooth connection.
+    - **MaintainLeaseAsync (private):** Acquire and renew the control lease, failing the connection when ownership is lost.
+    - **StartMotionStreamAsync (private):** Start the motion observation stream.
+    - **ReadStateAsync (private):** Return the next valid motion observation.
+    - **HandleMotionObservation (private):** Validate and decode stream frames into last known state and pending live reads.
+    - **WriteCommandAsync (private):** Send one control assignment and await the firmware's terminal response.
+    - **SendRequestAsync (private):** Send one RAD request and return its terminal response.
+    - **HandleResponse (private):** Match a response to its pending request and complete it at a terminal stage.
+  - **`Request.cs`** - internal.
+    - **Encode:** Serialize one RAD v1 request without interpreting its arguments.
+  - **`ServiceCollectionExtensions.cs`**
+    - **AddOssmSharpOemRuntime:** Register discovery, validated options, and an `IOssmDevice` factory, requiring an explicit `IBleManager` outside Windows and macOS.
 
 ## Consumer call chains (examples)
 
-- **Connect and start the prompt:**
-  - **Input:** `OssmSharp.Cli prompt`, optionally with `--device <id>`.
-  - **Discovery:** `Program.Main` -> Bluetooth `ServiceCollectionExtensions.Register` -> `Program.PromptAsync` -> `DeviceDiscovery.ScanAsync` -> Shiny Bluetooth scan.
-  - **Connection:** `Program.PromptAsync` selects the explicit identifier or sole discovered device -> registered factory returns `DeviceBase` -> `IOssmDevice.ConnectAsync` -> `OssmDevice.ConnectCoreAsync` -> Shiny connection, Protocol Info validation, and awaited subscriptions.
-  - **Initialization:** `OssmDevice.MaintainLeaseAsync` -> `OssmDevice.SendRequestAsync` -> `Request.Encode` -> `control.acquire`; `OssmDevice.StartMotionStreamAsync` -> the same request path -> `stream.start` on `motion.speed`.
-  - **Initial controls:** `IOssmDevice.ConnectAsync` -> `OssmDevice.ReadStateAsync` -> next valid motion observation -> `OssmDevice.DecodeState` -> `DeviceBase.UpdateState`; successful initialization arms request without sending motion settings.
-  - **Outcome:** After connection succeeds, `Program.PromptAsync` passes the device as `IOssmDevice` to `PromptHandler.RunAsync`; ambiguous discovery exits without connecting.
-  - **Reusable disconnect:** Library caller -> `IOssmDevice.DisconnectAsync` -> disarm and abandon pending work -> `OssmDevice.WriteCommandAsync(command)` sends or joins Stop after the current GATT send -> `OssmDevice.DisconnectCoreAsync`; the client remains reusable.
-  - **Reconnect:** Library caller -> `IOssmDevice.ConnectAsync` on the same instance -> finish previous cleanup if needed -> `OssmDevice.ConnectCoreAsync` -> new lease and subscriptions -> fresh initial controls -> rearm request without replaying settings.
-  - **Cleanup:** On prompt exit or connection failure, `Program.PromptAsync` -> `IOssmDevice.DisposeAsync` -> disarm and abandon pending work -> `OssmDevice.WriteCommandAsync(command)` sends or joins Stop while connected and leased -> `OssmDevice.DisconnectCoreAsync` -> stream stop, lease release, and Bluetooth teardown; cleanup still runs if Stop fails, and disposal prevents reuse.
+- **Connect:**
+  - **Input:** `OssmSharp.Cli prompt`
+  - **Chain:** `Program.PromptAsync` -> `IDeviceDiscovery.ScanAsync` -> factory from `AddOssmSharpOemRuntime` -> `IOssmDevice.ConnectAsync` (`OssmDevice` implementation) -> `OssmDevice.MaintainLeaseAsync` -> `OssmDevice.StartMotionStreamAsync` -> `OssmDevice.ReadStateAsync`.
+  - **Return:** Initial state recorded -> device armed -> `PromptHandler.RunAsync` starts.
 
-- **Submit settings or Stop:**
-  - **Input:** Settings require a connected, armed device and one complete `MotionSettings` value; Stop does not require arming.
-  - **Chain:** `PromptHandler.Set` -> `IOssmDevice.SetAsync` -> `DeviceBase.Supersede` -> `MotionSettings.ToCommands` -> `DeviceBase.ExecuteAsync` -> `OssmDevice.WriteCommandAsync(command)` -> `OssmDevice.SendRequestAsync` -> `Request.Encode` -> Shiny Request write -> firmware `setting.write`.
-  - **Example primitive:** The speed value in the submitted settings becomes one `DeviceCommand` assigning `DeviceControl.Speed`; other controls become separate commands.
-  - **Execution:** `DeviceBase.ExecuteAsync` walks the primitive commands in order, checks for cancellation or supersession before each write, and calls the protected `WriteCommandAsync(command)` hook. That call invokes the selected provider's override; `ExecuteAsync` awaits its completion before advancing to the next command.
-  - **Completion:** Response indication -> `OssmDevice.HandleResponse` -> matching ID reaches `completed` or `failed` -> pending `OssmDevice.SendRequestAsync` settles; GATT acknowledgement and `accepted` are insufficient.
-  - **Outcome:** Every assignment must complete successfully; firmware owns motor behavior and safety, and protocol completion does not confirm physical motion.
-  - **Stop:** `PromptHandler.Stop` or `PromptHandler.Quit` -> `IOssmDevice.EmergencyStopAsync` -> `DeviceBase.CancelPending` -> `OssmDevice.WriteCommandAsync(command)` -> `OssmDevice.SendRequestAsync` sends speed zero next after the current GATT write, without waiting for its terminal response or a live read.
-  - **Stop outcome:** The firmware handles requests in the order received, so a command sent just before Stop may briefly take effect; no queued setting may follow Stop. Success preserves prior arming, failure disarms, overlapping callers share the Stop outcome, and neither cancellation nor lease release proves the motor stopped.
+- **Submit settings:**
+  - **Input:** `set 0 20 50 50 25`
+  - **Chain:** `PromptHandler.Set` -> `IOssmDevice.SetAsync` (`OssmDevice` implementation) -> `MotionSettings.ToCommands` -> `OssmDevice.WriteCommandAsync` per command -> `OssmDevice.SendRequestAsync` -> `Request.Encode` -> RAD `setting.write`.
+  - **Return:** `OssmDevice.HandleResponse` completes each request -> `SetResult` Completed, or Superseded when a newer call replaces it.
 
-- **Read cached or live state:**
-  - **Input:** The consumer requests status with or without cache bypass.
-  - **Cached chain:** `PromptHandler.StatusAsync(false)` -> `IOssmDevice.GetStateAsync(false)` -> last known state.
-  - **Live chain:** `PromptHandler.StatusAsync(true)` -> `IOssmDevice.GetStateAsync(true)` -> `DeviceBase.ExecuteAsync` -> `OssmDevice.ReadStateAsync` -> subsequent Sensor Stream frame -> `OssmDevice.HandleMotionObservation` -> `OssmDevice.DecodeState` -> `DeviceBase.UpdateState`.
-  - **Asynchronous feedback:** Sensor Stream frame -> `OssmDevice.HandleMotionObservation` -> `OssmDevice.DecodeState` -> `DeviceBase.UpdateState` -> `IOssmDevice.StateChanged`, including while no commands are pending.
-  - **Observation policy:** Changed controls update last known state only; they do not disarm request, discard queued commands, or trigger Stop.
-  - **Failure:** Invalid controls, lost stream, or lost lease -> `DeviceBase.SetFaulted`; compact State alone neither replaces controls nor constitutes malformed motion telemetry.
-  - **Outcome:** Return the requested state and display it alongside `IOssmDevice.IsArmed`; cached reads require no I/O, and live read failures surface as errors.
+- **Read live state:**
+  - **Input:** `status`
+  - **Chain:** `PromptHandler.StatusAsync(true)` -> `IOssmDevice.GetStateAsync(true)` (`OssmDevice` implementation) -> `OssmDevice.ReadStateAsync` -> `OssmDevice.HandleMotionObservation` -> `DeviceState.FromBytes`.
+  - **Return:** Decoded state -> CLI displays it with armed status.
 
 ## Command-line prompt
 
@@ -241,3 +204,9 @@ knob-scaled effective speed as an external change. The current design exposes ob
 ### RAD Transport Adapter
 
 An optional `RadBleConnection` transport adapter could isolate Bluetooth lifecycle, RAD requests, responses, leases, and subscriptions from `OssmDevice`.
+
+### Source-generated JSON
+
+Parsing uses `JsonDocument` with manual checks, and encoding uses `Utf8JsonWriter`; both are already trim- and AOT-safe.
+A `JsonSerializerContext` with `required` members, `AllowDuplicateProperties = false`, and `JsonUnmappedMemberHandling`
+could replace the manual helpers. Checks for `stage`, `v == 1`, and `protocol == "rad-ble"` would remain.

@@ -3,6 +3,7 @@
     <Project Path="src/OssmSharp.AppHost/OssmSharp.AppHost.csproj" />
     <Project Path="src/OssmSharp.Cli/OssmSharp.Cli.csproj" />
     <Project Path="src/OssmSharp.Runtime.Oem/OssmSharp.Runtime.Oem.csproj" />
+    <Project Path="src/OssmSharp.Runtime/OssmSharp.Runtime.csproj" />
     <Project Path="src/OssmSharp.Web.AdminWeb/OssmSharp.Web.AdminWeb.csproj" />
     <Project Path="src/OssmSharp.Web.Api/OssmSharp.Web.Api.csproj" />
     <Project Path="src/OssmSharp.Web.Client/OssmSharp.Web.Client.csproj" />
