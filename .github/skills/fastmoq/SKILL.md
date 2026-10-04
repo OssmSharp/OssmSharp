@@ -1,17 +1,16 @@
 ---
 name: fastmoq
 description:
-  Write or migrate FastMoq tests for xUnit v3 with Microsoft.Testing.Platform
-  v2. Use for Fact/Theory tests, per-test setup, async cleanup, tracked mocks,
-  dependency overrides, framework helpers, and provider selection.
+  Write or migrate FastMoq tests for xUnit v3 with Microsoft.Testing.Platform v2. Use for
+  Fact/Theory tests, per-test setup, async cleanup, tracked mocks, dependency overrides, framework
+  helpers, and provider selection.
 ---
 
 # FastMoq with xUnit v3
 
-Use .NET 10, the pinned FastMoq v4 and `xunit.v3.mtp-v2` packages, and xUnit
-`Assert` methods. Keep `Microsoft.Testing.Platform` selected in `global.json`;
-do not add VSTest adapters or replace the runner. Follow
-[AGENTS.md](../../../AGENTS.md).
+Use .NET 10, the pinned FastMoq v4 and `xunit.v3.mtp-v2` packages, and xUnit `Assert` methods. Keep
+`Microsoft.Testing.Platform` selected in `global.json`; do not add VSTest adapters or replace the
+runner. Follow [AGENTS.md](../../../AGENTS.md).
 
 From the repository root:
 
@@ -19,30 +18,25 @@ From the repository root:
 dotnet test --project tests/OssmSharp.Web.Api.Tests/OssmSharp.Web.Api.Tests.csproj
 ```
 
-For filters, reports, and project configuration, use
-[fastmoq-mtp2](../fastmoq-mtp2/SKILL.md).
+For filters, reports, and project configuration, use [fastmoq-mtp2](../fastmoq-mtp2/SKILL.md).
 
 ## Defaults
 
-- Prefer `FastMoq.Core`; ask before adding packages. Web helpers need
-  `FastMoq.Web`, EF helpers need `FastMoq.Database`. Keep EF package majors
-  aligned.
-- Keep pure tests and deterministic fakes direct. Use `Mocker` for local DI
-  construction; `MockerTestBase<T>` for a repeated component harness.
-- Use public `[Fact]` methods, or `[Theory]` with `[InlineData]` /
-  `[MemberData]`. Async tests return `Task` or `ValueTask`, never `async void`.
-- xUnit creates a test-class instance per test. In a FastMoq base, arrange in
-  `SetupMocksAction` before `Component` is created; the derived constructor body
-  is too late for dependency replacement. Select constructor signatures with
-  `ComponentConstructorParameterTypes`.
-- Prefer shared helpers, then tracked provider extensions, then explicit
-  `AsMoq()` / `AsNSubstitute()` escape hatches. Do not add verification-only
-  wrappers.
+- Prefer `FastMoq.Core`; ask before adding packages. Web helpers need `FastMoq.Web`, EF helpers need
+  `FastMoq.Database`. Keep EF package majors aligned.
+- Use `Mocker` for local DI construction; `MockerTestBase<T>` for a repeated component harness.
+- Use public `[Fact]` methods, or `[Theory]` with `[InlineData]` / `[MemberData]`. Async tests
+  return `Task` or `ValueTask`, never `async void`.
+- xUnit creates a test-class instance per test. In a FastMoq base, arrange in `SetupMocksAction`
+  before `Component` is created; the derived constructor body is too late for dependency
+  replacement. Select constructor signatures with `ComponentConstructorParameterTypes`.
+- Prefer shared helpers, then tracked provider extensions, then explicit `AsMoq()` /
+  `AsNSubstitute()` escape hatches. Do not add verification-only wrappers.
 
 ## Construct, arrange, verify
 
-Domain types are illustrative. FastMoq creates `Component` and its tracked
-dependencies; the test runner discovers the attributed method:
+Domain types are illustrative. FastMoq creates `Component` and its tracked dependencies; the test
+runner discovers the attributed method:
 
 ```csharp
 using FastMoq;
@@ -71,10 +65,9 @@ public sealed class ImporterTests : MockerTestBase<Importer>
 }
 ```
 
-Remaining setup fragments use the `mocks` parameter in `SetupMocksAction`. For
-direct construction in a plain `[Fact]`, use a fresh `new Mocker()`, arrange,
-then call `CreateInstance<T>()`. Do not put test execution in top-level
-statements.
+Remaining setup fragments use the `mocks` parameter in `SetupMocksAction`. For direct construction
+in a plain `[Fact]`, use a fresh `new Mocker()`, arrange, then call `CreateInstance<T>()`. Do not
+put test execution in top-level statements.
 
 | Intent                   | Pattern                                                                                                                                 |
 | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
@@ -85,39 +78,35 @@ statements.
 | Separate keyed roles     | `GetOrCreateMock<T>(new MockRequestOptions { ServiceKey = "primary" })`; create a distinct secondary role                               |
 | Detached mock            | `CreateStandaloneFastMock<T>()`; wire `.Instance` manually and verify that handle through `MockingProviderRegistry.Default.Verify(...)` |
 
-Keep one resolution model per service. Do not retrieve a tracked mock and then
-re-register its `.Instance` with `AddType`. Exact-result helpers wrap interface
-registrations; arrange them before injection, not after the subject captures a
-dependency. For sequencing or richer setup, use a capable provider.
+Keep one resolution model per service. Do not retrieve a tracked mock and then re-register its
+`.Instance` with `AddType`. Exact-result helpers wrap interface registrations; arrange them before
+injection, not after the subject captures a dependency. Configure tracked Moq mocks with setups for
+sequencing or richer behavior.
 
-Use `TimesSpec.Once`, `NeverCalled`, `Exactly(n)`, `AtLeast(n)`, or `AtMost(n)`.
-Omitting a verification count means at least once. Prefer `FastArg.Any<T>()` /
-`FastArg.Is<T>(predicate)` over Moq matchers in provider-first verification;
-check provider capabilities rather than assuming identical matcher behavior.
+Use `TimesSpec.Once`, `NeverCalled`, `Exactly(n)`, `AtLeast(n)`, or `AtMost(n)`. Omitting a
+verification count means at least once. Prefer `FastArg.Any<T>()` / `FastArg.Is<T>(predicate)` over
+Moq matchers in provider-first verification; check provider capabilities rather than assuming
+identical matcher behavior.
 
 ## xUnit v3 lifetime and output
 
-- Await async calls and `Assert.ThrowsAsync<T>(...)`. Pass
-  `TestContext.Current.CancellationToken` to cancellable operations; do not
-  cache the test context or block with `.Result` / `.Wait()`.
-- Async setup uses `Xunit.IAsyncLifetime.InitializeAsync()` returning
-  `ValueTask`. It runs after construction: use a plain test class with direct
-  `Mocker` when asynchronous setup must precede subject creation.
-- Async cleanup uses `ValueTask DisposeAsync()` via `IAsyncDisposable` or
-  `IAsyncLifetime`. v3 prefers it over `IDisposable.Dispose()`. When adding it
-  to `MockerTestBase<T>`, call `base.Dispose()` in `finally` after owned async
-  cleanup.
-- Keep mutable mocks per test. Use `IClassFixture<T>` / collection fixtures only
-  for intentionally shared infrastructure; assembly fixtures do not serialize
-  tests.
+- Await async calls and `Assert.ThrowsAsync<T>(...)`. Pass `TestContext.Current.CancellationToken`
+  to cancellable operations; do not cache the test context or block with `.Result` / `.Wait()`.
+- Async setup uses `Xunit.IAsyncLifetime.InitializeAsync()` returning `ValueTask`. It runs after
+  construction: use a plain test class with direct `Mocker` when asynchronous setup must precede
+  subject creation.
+- Async cleanup uses `ValueTask DisposeAsync()` via `IAsyncDisposable` or `IAsyncLifetime`. v3
+  prefers it over `IDisposable.Dispose()`. When adding it to `MockerTestBase<T>`, call
+  `base.Dispose()` in `finally` after owned async cleanup.
+- Keep mutable mocks per test. Use `IClassFixture<T>` / collection fixtures only for intentionally
+  shared infrastructure; assembly fixtures do not serialize tests.
 - Inject `Xunit.ITestOutputHelper` for per-test diagnostics, not
-  `Xunit.Abstractions.ITestOutputHelper`. Output is diagnostic; assert behavior
-  separately.
+  `Xunit.Abstractions.ITestOutputHelper`. Output is diagnostic; assert behavior separately.
 
 ## Files, HTTP, options, logs
 
-Use the shared in-memory file system; do not create a second `MockFileSystem`
-merely to fill an `IFileSystem` constructor slot.
+Use the shared in-memory file system; do not create a second `MockFileSystem` merely to fill an
+`IFileSystem` constructor slot.
 
 ```csharp
 var files = mocks.GetFileSystem();
@@ -137,16 +126,16 @@ Mocks.VerifyLogged(
     Microsoft.Extensions.Logging.LogLevel.Warning, "retrying", TimesSpec.Exactly(2));
 ```
 
-The built-in `IHttpClientFactory` shares the mocker's handler but does not apply
-named-client configuration. Use typed DI helpers such as
-`AddTypedServiceProvider(...)` / `CreateTypedServiceScope(...)` when actual
-service types and lifetimes matter; never return one object for every service.
+The built-in `IHttpClientFactory` shares the mocker's handler but does not apply named-client
+configuration. Use typed DI helpers such as `AddTypedServiceProvider(...)` /
+`CreateTypedServiceScope(...)` when actual service types and lifetimes matter; never return one
+object for every service.
 
 ## DbContext (optional database package)
 
-`GetMockDbContext<T>()` provides a Moq-backed convenience path for mocked sets.
-Seed through `GetRequiredObject<T>()`; retrieve its tracked handle only after
-helper creation. For a real EF in-memory context:
+`GetMockDbContext<T>()` provides a Moq-backed convenience path for mocked sets. Seed through
+`GetRequiredObject<T>()`; retrieve its tracked handle only after helper creation. For a real EF
+in-memory context:
 
 ```csharp
 var db = mocks.GetDbContextHandle<AppDbContext>(new DbContextHandleOptions<AppDbContext>
@@ -156,13 +145,13 @@ var db = mocks.GetDbContextHandle<AppDbContext>(new DbContextHandleOptions<AppDb
 db.Context.Database.EnsureCreated();
 ```
 
-Seed before the act step; isolate stores per test and dispose owned contexts
-afterward. In-memory tests do not prove relational SQL or transaction behavior.
+Seed before the act step; isolate stores per test and dispose owned contexts afterward. In-memory
+tests do not prove relational SQL or transaction behavior.
 
 ## Controllers and request context (optional web package)
 
-Import `FastMoq.Web.Extensions`. Use this standalone arrangement in a plain
-`[Fact]`, rather than creating an extra controller in a base-class setup hook:
+Import `FastMoq.Web.Extensions`. Use this standalone arrangement in a plain `[Fact]`, rather than
+creating an extra controller in a base-class setup hook:
 
 ```csharp
 var mocks = new Mocker();
@@ -183,13 +172,13 @@ var principal = Mocks.SetupClaimsPrincipal(claims,
 Component.ControllerContext = Mocks.CreateControllerContext(principal);
 ```
 
-Assign the context to the actual subject, not a throwaway controller created
-during setup. Direct action calls do not exercise authorization middleware.
+Assign the context to the actual subject, not a throwaway controller created during setup. Direct
+action calls do not exercise authorization middleware.
 
 ## Known-type customization
 
-Use `AddType` for ordinary dependency replacement. Use `AddKnownType` only for
-framework resolution or post-processing; registrations stay local to the mocker:
+Use `AddType` for ordinary dependency replacement. Use `AddKnownType` only for framework resolution
+or post-processing; registrations stay local to the mocker:
 
 ```csharp
 mocks.AddKnownType<Microsoft.AspNetCore.Http.HttpContext>(
@@ -199,14 +188,13 @@ mocks.AddKnownType<Microsoft.AspNetCore.Http.HttpContext>(
 
 ## Providers and migration
 
-Provider resolution uses an async-scoped `Push` override, an explicit default, a
-single discoverable non-reflection provider, or `reflection`. Reflection
-verification is best-effort and compares only direct constant arguments with
-`Equals`; do not use it to prove captured-variable or rich matcher predicates.
+Provider resolution uses an async-scoped `Push` override, an explicit default, a single discoverable
+non-reflection provider, or `reflection`. Reflection verification is best-effort and compares only
+direct constant arguments with `Equals`; do not use it to prove captured-variable or rich matcher
+predicates.
 
-Moq-fluent `.Setup(...)` needs `FastMoq.Provider.Moq` and
-`using FastMoq.Providers.MoqProvider;`. Select it once in the xUnit test
-assembly, before any FastMoq test-class construction:
+Moq-fluent `.Setup(...)` needs `FastMoq.Provider.Moq` and `using FastMoq.Providers.MoqProvider;`.
+Select it once in the xUnit test assembly, before any FastMoq test-class construction:
 
 ```csharp
 using FastMoq.Providers;
@@ -214,17 +202,17 @@ using FastMoq.Providers;
 ```
 
 For register-and-select bootstrap, use
-`FastMoqRegisterProvider("alias", typeof(Provider), SetAsDefault = true)`. For a
-temporary override, use a plain `[Fact]` and create its mocker inside the scope;
-pushing a provider cannot reconfigure an already-created `Component`:
+`FastMoqRegisterProvider("alias", typeof(Provider), SetAsDefault = true)`. For a temporary override,
+use a plain `[Fact]` and create its mocker inside the scope; pushing a provider cannot reconfigure
+an already-created `Component`:
 
 ```csharp
 using var scope = MockingProviderRegistry.Push("reflection");
 var mocks = new Mocker();
 ```
 
-Do not change global defaults inside parallel tests. Preserve intentional
-provider-specific behavior during migration; do not mechanically erase it.
+Do not change global defaults inside parallel tests. Preserve intentional provider-specific behavior
+during migration; do not mechanically erase it.
 
 | Legacy                             | Preferred v4                                                                 |
 | ---------------------------------- | ---------------------------------------------------------------------------- |
@@ -237,8 +225,7 @@ provider-specific behavior during migration; do not mechanically erase it.
 
 ## Sources
 
-Reviewed 2026-09-14:
-[Getting started](https://help.fastmoq.com/docs/getting-started/README.html),
+Reviewed 2026-09-14: [Getting started](https://help.fastmoq.com/docs/getting-started/README.html),
 [Testing](https://help.fastmoq.com/docs/getting-started/testing-guide.html),
 [Migration](https://help.fastmoq.com/docs/migration/README.html),
 [Cookbook](https://help.fastmoq.com/docs/cookbook/README.html),
