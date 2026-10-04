@@ -482,11 +482,7 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
         {
             return Rejected(correlation, DeviceNotReady);
         }
-        catch (IOException)
-        {
-            return Rejected(correlation, DeviceIoFailed);
-        }
-        catch (AggregateException)
+        catch (Exception exception) when (exception is IOException or AggregateException)
         {
             return Rejected(correlation, DeviceIoFailed);
         }

@@ -61,16 +61,16 @@ public partial class Join
     /// </summary>
     /// <returns>The accepted reply code, or a rejection or unknown-outcome code.</returns>
     [JSInvokable]
-    public async Task<BrowserReply> StopRun()
-        => await RunPositionCommandAsync(resetPosition: false);
+    public Task<BrowserReply> StopRun()
+        => RunPositionCommandAsync(resetPosition: false);
 
     /// <summary>
     /// Retracts once and stops for the permitted guest without resuming a pattern.
     /// </summary>
     /// <returns>The completed reply code or the service's failure code.</returns>
     [JSInvokable]
-    public async Task<BrowserReply> ResetPosition()
-        => await RunPositionCommandAsync(resetPosition: true);
+    public Task<BrowserReply> ResetPosition()
+        => RunPositionCommandAsync(resetPosition: true);
 
     /// <summary>
     /// Cancels and awaits polling before releasing browser and control resources.

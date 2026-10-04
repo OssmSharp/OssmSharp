@@ -5,23 +5,16 @@
   <ItemGroup>
     <PackageVersion Include="AwesomeAssertions" Version="9.6.0" />
     <PackageVersion Include="FastMoq.Core" Version="4.5.0" />
-    <PackageVersion Include="Microsoft.Extensions.Diagnostics.Testing" Version="10.0.12" />
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.12" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.12" />
     <PackageVersion Include="Microsoft.Extensions.Options" Version="10.0.12" />
     <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.1.0" />
     <PackageVersion Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.12" />
-    <PackageVersion Include="Microsoft.Testing.Platform" Version="2.4.0" />
-    <PackageVersion Include="Microsoft.Testing.Extensions.CodeCoverage" Version="18.11.2" />
-    <PackageVersion Include="OneOf" Version="3.0.271" />
     <PackageVersion Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.19.1" />
     <PackageVersion Include="OpenTelemetry.Extensions.Hosting" Version="1.19.1" />
     <PackageVersion Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.19.0" />
     <PackageVersion Include="PrettyPrompt" Version="6.0.5" />
     <PackageVersion Include="RetroWebUi.Blazor" Version="[0.2.0]" />
-    <PackageVersion Include="Serilog" Version="4.4.0" />
-    <PackageVersion Include="Serilog.Extensions.Logging" Version="10.0.0" />
-    <PackageVersion Include="Serilog.Sinks.File" Version="7.0.0" />
     <PackageVersion Include="Shiny.BluetoothLE" Version="5.7.2" />
     <PackageVersion Include="StyleCop.Analyzers" Version="1.2.0-beta.556" />
     <PackageVersion Include="System.CommandLine" Version="2.0.12" />

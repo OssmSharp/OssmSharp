@@ -99,7 +99,6 @@ class Controls {
     this.ready = false;
     this.joined = false;
     this.destroyed = false;
-    this.sent = null;
     this.sentSelection = null;
     this.current = null;
     this.stopQueued = false;
@@ -166,7 +165,6 @@ class Controls {
           this.commandGeneration++;
           this.error = "Settings may have executed. The outcome is unknown. Use Stop before sending again.";
         } else if (reply?.ok) {
-          this.sent = settings;
           this.sentSelection = settings;
           this.previewStopped = false;
           this.error = null;
@@ -188,7 +186,6 @@ class Controls {
   pauseSelection() {
     this.autoSendToggle.checked = false;
     this.previewStopped = true;
-    this.sent = null;
     this.sentSelection = null;
   }
   requestResetPosition() {
@@ -282,7 +279,7 @@ class Controls {
     this.resetPositionButton.disabled = !this.canSend();
     this.pattern.disabled = this.resetQueued || this.resettingPosition;
     for (const input of Object.values(this.inputs)) input.disabled = this.resetQueued || this.resettingPosition;
-    const status = this.resetQueued || this.resettingPosition ? "Resetting position ..." : this.sent ? "Last changed selection sent." : "Choose settings, then Send.";
+    const status = this.resetQueued || this.resettingPosition ? "Resetting position ..." : this.sentSelection ? "Last changed selection sent." : "Choose settings, then Send.";
     const display = {
       selected,
       sent: this.sentSelection,
