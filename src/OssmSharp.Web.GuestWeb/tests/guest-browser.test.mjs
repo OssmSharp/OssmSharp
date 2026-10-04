@@ -998,6 +998,84 @@ test("admin preview derives illustrative timing only from requested speed", { ti
   }
 });
 
+test("guest preview catches up to rapid slider edits without replaying intermediate positions", { timeout: 60_000 }, async () => {
+  const context = await browser.newContext();
+  const invitation = "preview-slider-burst";
+  const session = { requests: [], state: guestState() };
+  sessions.set(invitation, session);
+  const source = await readFile(join(project, "wwwroot/guest-session.js"), "utf8");
+  const attachment = "controller = new Controls(root, reference);";
+  assert.ok(source.includes(attachment));
+  await context.route(/\/guest-session(?:\.[^/]+)?\.js(?:\?.*)?$/, async (route) => {
+    await route.fulfill({
+      contentType: "text/javascript",
+      body: source.replace(attachment, `
+        const originalReference = reference;
+        controller = new Controls(root, {
+          async invokeMethodAsync(method, payload) {
+            if (method === "UpdateDisplay" && globalThis.previewDisplayGate) {
+              globalThis.previewDepths.push(payload.selected.depth);
+              await globalThis.previewDisplayGate;
+            }
+            return originalReference.invokeMethodAsync(method, payload);
+          }
+        });`),
+    });
+  });
+  try {
+    const { page, errors } = await openGuest(context, invitation);
+    await selectSpeed(page, 50);
+    await page.waitForFunction(() => document.querySelector(".preview-carriage animate")?.getAttribute("dur") === "0.8s");
+    for (const viewport of viewports) {
+      await page.setViewportSize(viewport);
+      await page.evaluate(() => {
+        globalThis.previewDepths = [];
+        globalThis.previewDisplayGate = new Promise((resolve) => { globalThis.releasePreviewDisplay = resolve; });
+        const input = document.querySelector('[data-input="depth"]');
+        input.value = "21";
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      await page.waitForFunction(() => globalThis.previewDepths.length === 1);
+      await page.evaluate(() => {
+        const input = document.querySelector('[data-input="depth"]');
+        for (let depth = 22; depth <= 80; depth++) {
+          input.value = String(depth);
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+        }
+      });
+      assert.equal(await page.locator('[data-value="depth"]').innerText(), "80");
+      assert.deepEqual(await page.evaluate(() => globalThis.previewDepths), [21]);
+      await page.evaluate(() => globalThis.releasePreviewDisplay());
+      await page.waitForFunction(() => document.querySelector(".preview-rail")?.getAttribute("aria-label").includes("80% depth"));
+      assert.deepEqual(await page.evaluate(() => globalThis.previewDepths), [21, 80], "only the latest pending preview position should follow the in-flight update");
+      assert.equal(await page.locator(".preview-range").getAttribute("x"), "43");
+      assert.equal(await page.locator(".preview-range").getAttribute("width"), "19");
+      const positions = await page.locator(".preview-rail").evaluate((rail) => {
+        rail.pauseAnimations();
+        rail.setCurrentTime(0);
+        rail.querySelector("animate").beginElement();
+        rail.setCurrentTime(0.1);
+        const first = rail.querySelector(".preview-carriage").cx.animVal.value;
+        rail.setCurrentTime(0.3);
+        const second = rail.querySelector(".preview-carriage").cx.animVal.value;
+        rail.unpauseAnimations();
+        return [first, second];
+      });
+      assert.ok(Math.abs(positions[1] - positions[0]) > 1, "the carriage must keep moving after rapid edits");
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+      if (process.env.GUEST_SCREENSHOT_DIR) {
+        await page.screenshot({ path: join(process.env.GUEST_SCREENSHOT_DIR, `ossm-guest-preview-burst-${viewport.width}.png`), fullPage: true });
+      }
+      await page.evaluate(() => { globalThis.previewDisplayGate = null; });
+    }
+    assert.deepEqual(session.requests, [], "preview edits must not send device commands");
+    assert.deepEqual(errors, []);
+  } finally {
+    await context.close();
+    sessions.delete(invitation);
+  }
+});
+
 test("guest speed stays unchanged through request, preview and exact current state", { timeout: 60_000 }, async () => {
   const context = await browser.newContext();
   const invitation = "speed-percentage";

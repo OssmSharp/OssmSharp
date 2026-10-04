@@ -128,6 +128,35 @@ test("speed is sent unchanged and retains the selected speed", async () => {
   browser.guest.dispose();
 });
 
+test("preview display skips intermediate slider edits while an update is in flight", async () => {
+  let completeDisplay;
+  const browser = await createGuest(async (method) => {
+    if (method === "UpdateDisplay")
+      return new Promise((resolve) => {
+        completeDisplay = resolve;
+      });
+    return { ok: true };
+  });
+  const input = browser.element('[data-input="depth"]');
+  for (let depth = 21; depth <= 80; depth++) {
+    input.value = String(depth);
+    input.dispatchEvent(new Event("input"));
+  }
+  assert.equal(browser.element('[data-value="depth"]').textContent, 80);
+  assert.equal(browser.calls("UpdateDisplay").length, 1);
+  completeDisplay();
+  await setImmediate();
+  assert.equal(browser.calls("UpdateDisplay").length, 2);
+  assert.equal(browser.calls("UpdateDisplay").at(-1).payload.selected.depth, 80, "the preview must receive the latest selection, not replay depth 21");
+  assert.equal(browser.calls("SubmitSettings").length, 0, "preview edits must not send device commands");
+  input.value = "81";
+  input.dispatchEvent(new Event("input"));
+  browser.guest.dispose();
+  completeDisplay();
+  await setImmediate();
+  assert.equal(browser.calls("UpdateDisplay").length, 2, "disposal must discard pending display work");
+});
+
 test("unknown outcome pauses queued and new sends until an acknowledged recovery Stop", async () => {
   let completeRequest;
   let completeStop;

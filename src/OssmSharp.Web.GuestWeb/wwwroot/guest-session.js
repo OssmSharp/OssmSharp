@@ -104,7 +104,8 @@ class Controls {
     this.recoveryRequired = false;
     this.commandGeneration = 0;
     this.commandQueue = Promise.resolve();
-    this.displayQueue = Promise.resolve();
+    this.pendingDisplay = null;
+    this.updatingDisplay = false;
     this.on(this.sendButton, "click", () => this.commitSelection());
     this.on(root.querySelector("[data-stop-button]"), "click", () => this.requestStop());
     this.on(this.autoSendToggle, "change", () => this.autoSendToggle.checked && this.commitSelection());
@@ -251,9 +252,23 @@ class Controls {
     const serialized = JSON.stringify(display);
     if (serialized !== this.lastDisplayPayload) {
       this.lastDisplayPayload = serialized;
-      this.displayQueue = this.displayQueue
-        .then(() => !this.destroyed && this.reference.invokeMethodAsync("UpdateDisplay", display))
-        .catch(() => this.connectionLost());
+      this.pendingDisplay = display;
+      this.updateDisplay();
+    }
+  }
+  async updateDisplay() {
+    if (this.updatingDisplay) return;
+    this.updatingDisplay = true;
+    try {
+      while (!this.destroyed && this.pendingDisplay) {
+        const display = this.pendingDisplay;
+        this.pendingDisplay = null;
+        await this.reference.invokeMethodAsync("UpdateDisplay", display);
+      }
+    } catch {
+      this.connectionLost();
+    } finally {
+      this.updatingDisplay = false;
     }
   }
   connectionLost() {
@@ -264,6 +279,7 @@ class Controls {
     this.disarm();
     this.commandGeneration++;
     this.destroyed = true;
+    this.pendingDisplay = null;
     this.listeners.abort();
     this.sendButton.disabled = true;
     this.autoSendToggle.disabled = true;
