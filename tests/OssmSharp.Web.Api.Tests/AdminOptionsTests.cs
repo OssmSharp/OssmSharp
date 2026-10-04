@@ -30,7 +30,7 @@ public sealed class AdminOptionsTests
         var builder = WebApplication.CreateBuilder();
         builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
         {
-            ["OSSM:Admin:AdminPort"] = "5002",
+            ["OSSM:Admin:ListenPort"] = "5002",
             ["OSSM:Admin:GuestHostname"] = origin,
         });
         builder.Services.AddAdminConfiguration();

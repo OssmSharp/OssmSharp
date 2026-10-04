@@ -36,7 +36,7 @@ public static class ServiceCollectionExtensions
     {
         services.AddOemRuntime();
         services.AddSingleton<Func<string, IOssmDevice>>(provider =>
-            provider.GetRequiredService<Func<string, DeviceBase>>());
+            provider.GetRequiredService<Func<string, OssmDevice>>());
         services.AddSingleton<IControlSession, ControlSession>();
         services.AddHostedService<DeviceLeaseManagementService>();
         return services;

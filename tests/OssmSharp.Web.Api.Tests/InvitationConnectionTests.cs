@@ -20,10 +20,11 @@ using Xunit;
 
 namespace OssmSharp.Web.Api.Tests;
 
-public sealed class InvitationConnectionTests : MockerTestBase<GuestControlClient>, IAsyncDisposable
+public sealed class GuestApiClientConnectionTests : MockerTestBase<GuestApiClient>, IAsyncDisposable
 {
     private const string AdminKey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
-    private ControlClientOptions _options = null!;
+    private RpcClientOptions _options = null!;
+    private RpcClientTestScope _rpcScope = null!;
     private ControlSession _session = null!;
     private FakeOssmDevice _device = null!;
 
@@ -34,9 +35,9 @@ public sealed class InvitationConnectionTests : MockerTestBase<GuestControlClien
         mocks.AddType(TimeProvider.System);
         mocks.SetupOptions(new ControlServiceOptions { DeviceIdentifier = "test", AdminWebServiceKey = AdminKey });
         _session = mocks.CreateInstance<ControlSession>()!;
-        _options = new() { ControlOrigin = "http://127.0.0.1:1" };
-        mocks.SetupOptions(_options);
-        mocks.AddType(new ControlHubConnectionFactory(Options.Create(_options)));
+        _options = new() { EndpointUri = "http://127.0.0.1:1" };
+        _rpcScope = new(_options, guest: true);
+        mocks.AddType<IRpcClient>(_rpcScope.Connection);
     };
 
     public async ValueTask DisposeAsync()
@@ -59,7 +60,8 @@ public sealed class InvitationConnectionTests : MockerTestBase<GuestControlClien
                 }
                 finally
                 {
-                    base.Dispose();
+                    try { await _rpcScope.DisposeAsync(); }
+                    finally { base.Dispose(); }
                 }
             }
         }
@@ -89,8 +91,9 @@ public sealed class InvitationConnectionTests : MockerTestBase<GuestControlClien
             Assert.True(principal.IsInRole("Guest"));
             Assert.DoesNotContain(principal.Claims, claim => claim.Value == invitation.Token);
         }
-        await using var replay = new GuestControlClient(new(Options.Create(_options)), Options.Create(_options));
-        var rejection = await Assert.ThrowsAsync<ControlClientException>(
+        await using var replayScope = new RpcClientTestScope(_options, guest: true);
+        await using var replay = new GuestApiClient(replayScope.Connection);
+        var rejection = await Assert.ThrowsAsync<ApiClientException>(
             () => replay.JoinAsync(invitation.Token, TestContext.Current.CancellationToken));
         Assert.Equal("invalid-invitation", rejection.Code);
         Assert.True((await Component.GetStateAsync(TestContext.Current.CancellationToken)).Joined);
@@ -110,15 +113,15 @@ public sealed class InvitationConnectionTests : MockerTestBase<GuestControlClien
     {
         await using var app = await StartApiAsync();
         var invitation = (await _session.GetUserStateAsync(TestContext.Current.CancellationToken)).Invitation;
-        await using var stale = new ControlHubConnectionFactory(Options.Create(_options)).CreateForGuest(invitation.Token);
+        await using var stale = new SignalRRpcClientFactory(Options.Create(_options)).CreateForGuest(invitation.Token);
         await stale.StartAsync(TestContext.Current.CancellationToken);
         Assert.True((await Component.JoinAsync(invitation.Token, TestContext.Current.CancellationToken)).Accepted);
         await Assert.ThrowsAsync<HubException>(() => stale.InvokeAsync<UserSessionState>("GetUserState", TestContext.Current.CancellationToken));
         await Assert.ThrowsAsync<HubException>(() => stale.InvokeAsync<ControlResponse>("Stop", "stop", TestContext.Current.CancellationToken));
         Assert.Null((await stale.InvokeAsync<GuestSessionState>("GetGuestState", TestContext.Current.CancellationToken)).Device);
 
-        var adminOptions = Options.Create(new ControlClientOptions { ControlOrigin = _options.ControlOrigin, ServiceKey = AdminKey });
-        await using var admin = new UserControlClient(new(adminOptions), adminOptions);
+        await using var adminScope = new RpcClientTestScope(new() { EndpointUri = _options.EndpointUri, ServiceKey = AdminKey });
+        await using var admin = new AdminApiClient(adminScope.Connection);
         Assert.True((await admin.GetStateAsync(TestContext.Current.CancellationToken)).GuestJoined);
         Assert.True((await admin.EndGuestAsync(TestContext.Current.CancellationToken)).Accepted);
         var fresh = (await admin.GetStateAsync(TestContext.Current.CancellationToken)).Invitation;
@@ -141,7 +144,7 @@ public sealed class InvitationConnectionTests : MockerTestBase<GuestControlClien
         using var http = new HttpClient();
         using var request = new HttpRequestMessage(
             HttpMethod.Post,
-            $"{_options.ControlOrigin}/hubs/control/v2/negotiate?negotiateVersion=1&access_token={invitation.Token}");
+            $"{_options.EndpointUri}/hubs/control/v2/negotiate?negotiateVersion=1&access_token={invitation.Token}");
         if (authorization is not null)
             request.Headers.TryAddWithoutValidation("Authorization", authorization);
         using var response = await http.SendAsync(request, TestContext.Current.CancellationToken);
@@ -152,7 +155,7 @@ public sealed class InvitationConnectionTests : MockerTestBase<GuestControlClien
     [Fact]
     public async Task GuestMethodsBeforeJoinDoNotConnect()
     {
-        var error = await Assert.ThrowsAsync<ControlClientException>(() => Component.GetStateAsync(TestContext.Current.CancellationToken));
+        var error = await Assert.ThrowsAsync<ApiClientException>(() => Component.GetStateAsync(TestContext.Current.CancellationToken));
         Assert.Equal("guest-not-joined", error.Code);
     }
 
@@ -162,7 +165,7 @@ public sealed class InvitationConnectionTests : MockerTestBase<GuestControlClien
     [InlineData("invite!invalid")]
     public async Task MalformedInvitationIsRejectedBeforeConnecting(string invitation)
     {
-        var error = await Assert.ThrowsAsync<ControlClientException>(
+        var error = await Assert.ThrowsAsync<ApiClientException>(
             () => Component.JoinAsync(invitation, TestContext.Current.CancellationToken));
         Assert.Equal("invalid-invitation", error.Code);
     }
@@ -170,7 +173,7 @@ public sealed class InvitationConnectionTests : MockerTestBase<GuestControlClien
     [Fact]
     public async Task OversizedInvitationIsRejectedBeforeConnecting()
     {
-        var error = await Assert.ThrowsAsync<ControlClientException>(
+        var error = await Assert.ThrowsAsync<ApiClientException>(
             () => Component.JoinAsync(new string('A', 129), TestContext.Current.CancellationToken));
         Assert.Equal("invalid-invitation", error.Code);
     }
@@ -201,7 +204,7 @@ public sealed class InvitationConnectionTests : MockerTestBase<GuestControlClien
         await using var app = await StartApiAsync();
         var invitation = (await _session.GetUserStateAsync(TestContext.Current.CancellationToken)).Invitation;
         using var http = new HttpClient();
-        using var request = new HttpRequestMessage(HttpMethod.Post, _options.ControlOrigin + "/hubs/control/v2/negotiate?negotiateVersion=1");
+        using var request = new HttpRequestMessage(HttpMethod.Post, _options.EndpointUri + "/hubs/control/v2/negotiate?negotiateVersion=1");
         request.Headers.TryAddWithoutValidation("Authorization", [$"Bearer {invitation.Token}", $"ServiceKey {AdminKey}"]);
         using var response = await http.SendAsync(request, TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
@@ -223,8 +226,8 @@ public sealed class InvitationConnectionTests : MockerTestBase<GuestControlClien
             return Task.CompletedTask;
         });
         await app.StartAsync(TestContext.Current.CancellationToken);
-        _options.ControlOrigin = app.Urls.Single();
-        var error = await Assert.ThrowsAsync<ControlClientException>(
+        _options.EndpointUri = app.Urls.Single();
+        var error = await Assert.ThrowsAsync<ApiClientException>(
             () => Component.JoinAsync(new string('A', 43), TestContext.Current.CancellationToken));
         Assert.Equal(code, error.Code);
     }
@@ -261,7 +264,7 @@ public sealed class InvitationConnectionTests : MockerTestBase<GuestControlClien
         try
         {
             await app.StartAsync(TestContext.Current.CancellationToken);
-            _options.ControlOrigin = app.Urls.Single();
+            _options.EndpointUri = app.Urls.Single();
             return app;
         }
         catch

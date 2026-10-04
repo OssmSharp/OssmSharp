@@ -10,23 +10,23 @@ namespace OssmSharp.Web.Client.Connections;
 /// <summary>
 /// Creates isolated, authenticated SignalR hub connections for server-side consumers.
 /// </summary>
-public sealed class ControlHubConnectionFactory
+public sealed class SignalRHubConnectionFactory : IHubConnectionFactory
 {
-    private readonly ControlClientOptions _options;
+    private readonly RpcClientOptions _options;
 
     /// <summary>
     /// Creates a connection factory without operational logging.
     /// </summary>
     /// <param name="options">The validated endpoint and service credentials for new connections.</param>
-    public ControlHubConnectionFactory(IOptions<ControlClientOptions> options)
-        : this(options, NullLogger<ControlHubConnectionFactory>.Instance) { }
+    public SignalRHubConnectionFactory(IOptions<RpcClientOptions> options)
+        : this(options, NullLogger<SignalRHubConnectionFactory>.Instance) { }
 
     /// <summary>
     /// Creates a connection factory with the host's operational logger.
     /// </summary>
     /// <param name="options">The validated endpoint and service credentials for new connections.</param>
     /// <param name="logger">The host's operational logger.</param>
-    public ControlHubConnectionFactory(IOptions<ControlClientOptions> options, ILogger<ControlHubConnectionFactory> logger)
+    public SignalRHubConnectionFactory(IOptions<RpcClientOptions> options, ILogger<SignalRHubConnectionFactory> logger)
     {
         _options = options.Value;
         Logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -57,7 +57,7 @@ public sealed class ControlHubConnectionFactory
 
     private HubConnection Create(string authorization)
     {
-        var origin = new Uri(_options.ControlOrigin, UriKind.Absolute);
+        var origin = new Uri(_options.EndpointUri, UriKind.Absolute);
         var hub = new Uri(origin, "/hubs/control/v2");
         return new HubConnectionBuilder()
             .WithUrl(hub, connection =>

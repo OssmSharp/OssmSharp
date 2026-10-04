@@ -4,7 +4,7 @@ namespace OssmSharp.Web.GuestWeb.Services;
 /// Closes the scoped guest transport when its Blazor circuit disconnects or closes.
 /// </summary>
 /// <param name="client">The guest connection owned by this circuit.</param>
-public sealed class GuestCircuitHandler(GuestControlClient client) : CircuitHandler
+public sealed class GuestCircuitHandler(IGuestApiClient client) : CircuitHandler
 {
     /// <inheritdoc />
     public override Task OnConnectionDownAsync(Circuit circuit, CancellationToken cancellationToken) =>

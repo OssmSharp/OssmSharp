@@ -8,6 +8,7 @@ var adminServiceKey = builder.AddParameter("admin-web-service-key", NewToken, se
 var deviceIdentifier = builder.AddParameter("device-identifier", () => builder.Configuration["Parameters:device-identifier"] ?? string.Empty);
 var guestHostname = builder.Configuration["Parameters:guest-hostname"] ?? string.Empty;
 var guestPort = builder.Configuration.GetValue<int?>("Parameters:guest-port");
+var adminPort = builder.Configuration.GetValue<int?>("Parameters:admin-port");
 
 var controlFramework = OperatingSystem.IsMacOS()
     ? "net10.0-macos27.0"
@@ -30,7 +31,7 @@ var guest = builder.AddProject<Projects.OssmSharp_Web_GuestWeb>("guest")
     .WithHttpHealthCheck("/health")
     .WithEnvironment("OSSM__Guest__Hostname", guestHostname)
     .WithEnvironment(
-        "OSSM__ControlClient__ControlOrigin",
+        "OSSM__ControlClient__EndpointUri",
         ReferenceExpression.Create($"http://127.0.0.1:{control.GetEndpoint("http").Property(EndpointProperty.Port)}"))
     .WithUrls(context =>
     {
@@ -47,11 +48,11 @@ var invitationOrigin = guestHostname.Length == 0
 
 var admin = builder.AddProject<Projects.OssmSharp_Web_AdminWeb>("admin")
     .WithEnvironment("DOTNET_ENVIRONMENT", "Development")
-    .WithHttpEndpoint(env: "OSSM__Admin__AdminPort", isProxied: false)
+    .WithHttpEndpoint(port: adminPort, env: "OSSM__Admin__ListenPort", isProxied: false)
     .WithEndpoint("http", endpoint => endpoint.TargetHost = "127.0.0.1")
     .WithHttpHealthCheck("/health")
     .WithEnvironment(
-        "OSSM__ControlClient__ControlOrigin",
+        "OSSM__ControlClient__EndpointUri",
         ReferenceExpression.Create($"http://127.0.0.1:{control.GetEndpoint("http").Property(EndpointProperty.Port)}"))
     .WithEnvironment("OSSM__ControlClient__ServiceKey", adminServiceKey)
     .WithEnvironment("OSSM__Admin__GuestHostname", invitationOrigin)

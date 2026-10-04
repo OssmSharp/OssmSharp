@@ -20,7 +20,7 @@ public partial class Home
     private string _noticeVariant = "success";
 
     [Inject]
-    private UserControlClient Control { get; set; } = null!;
+    private IAdminApiClient Control { get; set; } = null!;
     [Inject]
     private IJSRuntime Js { get; set; } = null!;
     [Inject]
@@ -118,7 +118,7 @@ public partial class Home
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
         catch (Exception exception) when (
-            exception is ControlClientException or ControlClientUnknownOutcomeException)
+            exception is ApiClientException or RpcClientRequestTimeoutException)
         {
             _loaded = true;
             _connectionLost = true;
@@ -170,11 +170,11 @@ public partial class Home
             else
                 _notice.Show(message);
         }
-        catch (ControlClientUnknownOutcomeException)
+        catch (RpcClientRequestTimeoutException)
         {
             _notice.Show("The action outcome is unknown. Check the latest state before trying again.", true);
         }
-        catch (ControlClientException error)
+        catch (ApiClientException error)
         {
             _notice.Show($"The action was rejected ({error.Code}).", true);
         }

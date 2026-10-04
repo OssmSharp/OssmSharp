@@ -42,7 +42,7 @@ public partial class Join
                 _lifetime.Token);
             return new(response.Status == SettingsResponseStatus.Completed, response.ErrorCode ?? response.Status.ToString());
         }
-        catch (ControlClientUnknownOutcomeException)
+        catch (RpcClientRequestTimeoutException)
         {
             return new(false, "outcome-unknown");
         }
@@ -50,7 +50,7 @@ public partial class Join
         {
             return new(false, "outcome-unknown");
         }
-        catch (ControlClientException error)
+        catch (ApiClientException error)
         {
             return new(false, error.Code);
         }
@@ -70,7 +70,7 @@ public partial class Join
             var response = await Client.StopAsync(_lifetime.Token);
             return new(response.Accepted, response.Code);
         }
-        catch (ControlClientUnknownOutcomeException)
+        catch (RpcClientRequestTimeoutException)
         {
             return new(false, "outcome-unknown");
         }
@@ -78,7 +78,7 @@ public partial class Join
         {
             return new(false, "outcome-unknown");
         }
-        catch (ControlClientException error)
+        catch (ApiClientException error)
         {
             return new(false, error.Code);
         }

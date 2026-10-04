@@ -22,7 +22,7 @@ public partial class Join
     private GuestDisplayState _display = new(new(0, 0, 10, 20, 50), null, "Choose settings, then Send.", null);
 
     [Inject]
-    private GuestControlClient Client { get; set; } = null!;
+    private IGuestApiClient Client { get; set; } = null!;
     [Inject]
     private IJSRuntime JavaScript { get; set; } = null!;
     [Inject]
@@ -39,9 +39,9 @@ public partial class Join
     private double? DeviceSpeed => _status?.Device?.Speed;
     private string SessionMessage => _status switch
     {
-        { Joined: false } => "Session ended.",
-        { Joined: true } => "Waiting for the user to allow control.",
-        _ => "Opening invite...",
+        { Joined: false } => "Session stopped.",
+        { Joined: true } => "Connected. Waiting for the other person to start.",
+        _ => "Loading ...",
     };
     private string SessionMessageVariant => _status switch
     {
@@ -78,11 +78,11 @@ public partial class Join
                 await PushStateAsync();
             }
         }
-        catch (ControlClientException error) when (error.Code.Contains("invitation", StringComparison.Ordinal))
+        catch (ApiClientException error) when (error.Code.Contains("invitation", StringComparison.Ordinal))
         {
             _joined = false;
         }
-        catch (Exception exception) when (exception is ControlClientException or ControlClientUnknownOutcomeException or JSException)
+        catch (Exception exception) when (exception is ApiClientException or RpcClientRequestTimeoutException or JSException)
         {
             LogGuestControlInitializationFailed(Logger);
             _connectionLost = true;
@@ -126,7 +126,7 @@ public partial class Join
             }
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
-        catch (Exception exception) when (exception is ControlClientException or ControlClientUnknownOutcomeException)
+        catch (Exception exception) when (exception is ApiClientException or RpcClientRequestTimeoutException)
         {
             await InvokeAsync(async () =>
             {
@@ -149,8 +149,8 @@ public partial class Join
         {
             await Client.LeaveAsync(_lifetime.Token);
         }
-        catch (ControlClientUnknownOutcomeException) { }
-        catch (ControlClientException error)
+        catch (RpcClientRequestTimeoutException) { }
+        catch (ApiClientException error)
         {
             LogGuestLeaveRejected(Logger, error.Code);
         }

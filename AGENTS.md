@@ -63,11 +63,11 @@ Do not round calculated current speed or limit it to 100%.
 Rounding loses information: 53% requested speed at 10% stroke sends 5% firmware speed.
 The same device values give 50% current speed, not 53%.
 
-Outside of the SetAsync method in DeviceBase, do not make reference to the fact that reported values do not confirm that the device applied the settings.
+Outside of the SetAsync method in OssmDevice, do not make reference to the fact that reported values do not confirm that the device applied the settings.
 
 ## Logging
 
-In OssmSharp.Device.Oem OssmDevice and DeviceBase:
+In OssmSharp.Runtime.Oem OssmDevice:
 - Connection state changes and api calls must be logged and at the information level
 - Commands and step logged at the debug level.
 - Add logging proactively but not overwhelmingly.

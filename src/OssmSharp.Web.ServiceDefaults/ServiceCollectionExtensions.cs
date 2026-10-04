@@ -31,7 +31,7 @@ public static class ServiceCollectionExtensions
                 (_, configuration) =>
                     !configuration.GetSection("Kestrel").Exists()
                     && !configuration.GetValue<bool>(WebHostDefaults.PreferHostingUrlsKey),
-                "Admin listener overrides are not supported. Use OSSM:Admin:AdminPort for the 127.0.0.1 listener.")
+                "Admin listener overrides are not supported. Use OSSM:Admin:ListenPort for the 127.0.0.1 listener.")
             .ValidateOnStart();
         return services;
     }
@@ -71,7 +71,7 @@ public static class ServiceCollectionExtensions
         services.AddOptions<KestrelServerOptions>()
             .Configure<IOptions<AdminOptions>>((server, options) =>
             {
-                server.Listen(IPAddress.Loopback, options.Value.AdminPort);
+                server.Listen(IPAddress.Loopback, options.Value.ListenPort);
                 server.Limits.MaxRequestBodySize = 16_384;
             });
         return services;

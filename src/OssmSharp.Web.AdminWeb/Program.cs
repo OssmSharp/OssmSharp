@@ -1,10 +1,10 @@
 var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
-builder.Services.AddAdminConfiguration().AddLocalBlazor().AddControlClient("OSSM:ControlClient").AddAdminListener();
+builder.Services.AddAdminConfiguration().AddLocalBlazor().AddAdminApiClient("OSSM:ControlClient").AddAdminListener();
 builder.WebHost.UseStaticWebAssets();
 
 await using var app = builder.Build();
-app.UseLocalAccessPolicy(app.Services.GetRequiredService<IOptions<AdminOptions>>().Value.AdminPort, RetroWidgetAssets.InlineStyleHashes);
+app.UseLocalAccessPolicy(app.Services.GetRequiredService<IOptions<AdminOptions>>().Value.ListenPort, RetroWidgetAssets.InlineStyleHashes);
 app.UseStaticFiles();
 app.UseAntiforgery();
 app.MapStaticAssets();

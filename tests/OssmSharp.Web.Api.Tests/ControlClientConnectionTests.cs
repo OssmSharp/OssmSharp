@@ -12,26 +12,36 @@ using Xunit;
 
 namespace OssmSharp.Web.Api.Tests;
 
-public sealed class ControlClientConnectionTests : MockerTestBase<UserControlClient>
+public sealed class AdminApiClientConnectionTests : MockerTestBase<AdminApiClient>, IAsyncDisposable
 {
     private static readonly string[] TransferFormats = ["Text", "Binary"];
-    private ControlClientOptions _options = null!;
+    private RpcClientOptions _options = null!;
+    private RpcClientTestScope _rpcScope = null!;
 
     protected override Action<Mocker> SetupMocksAction => mocks =>
     {
-        _options = new() { ControlOrigin = "http://127.0.0.1:1", ServiceKey = new string('A', 43) };
-        if (TestContext.Current.Test?.TestCase?.TestMethod?.MethodName == nameof(ConnectRemainsPendingBeyondCommandAcknowledgementDeadline))
-            _options.CommandTimeoutSeconds = 1;
-        var options = Options.Create(_options);
-        mocks.AddType<IOptions<ControlClientOptions>>(options);
-        mocks.AddType(new ControlHubConnectionFactory(options));
+        _options = new() { EndpointUri = "http://127.0.0.1:1", ServiceKey = new string('A', 43) };
+        if (TestContext.Current.Test?.TestCase?.TestMethod?.MethodName == nameof(ConnectRemainsPendingBeyondRequestAcknowledgementDeadline))
+            _options.RequestTimeoutSeconds = 1;
+        _rpcScope = new(_options);
+        mocks.AddType<IRpcClient>(_rpcScope.Connection);
     };
 
+    public async ValueTask DisposeAsync()
+    {
+        try { await Component.DisposeAsync(); }
+        finally
+        {
+            try { await _rpcScope.DisposeAsync(); }
+            finally { base.Dispose(); }
+        }
+    }
+
     [Fact]
-    public void ResetIsNotExposedAsAUserCommand()
+    public void ResetIsNotExposedAsAUserRequest()
     {
         Assert.Null(typeof(OssmSharp.Web.Api.SignalR.ControlHub).GetMethod("Reset"));
-        Assert.Null(typeof(UserControlClient).GetMethod("ResetAsync"));
+        Assert.Null(typeof(AdminApiClient).GetMethod("ResetAsync"));
     }
 
     [Theory]
@@ -50,10 +60,10 @@ public sealed class ControlClientConnectionTests : MockerTestBase<UserControlCli
             return Task.CompletedTask;
         });
         await app.StartAsync(TestContext.Current.CancellationToken);
-        _options.ControlOrigin = app.Urls.Single();
+        _options.EndpointUri = app.Urls.Single();
         await using var client = Component;
 
-        var error = await Assert.ThrowsAsync<ControlClientException>(
+        var error = await Assert.ThrowsAsync<ApiClientException>(
             () => client.GetStateAsync(TestContext.Current.CancellationToken));
 
         Assert.Equal("connection-unavailable", error.Code);
@@ -78,10 +88,10 @@ public sealed class ControlClientConnectionTests : MockerTestBase<UserControlCli
         }));
         app.MapGet("/hubs/control/v2", () => Results.Unauthorized());
         await app.StartAsync(TestContext.Current.CancellationToken);
-        _options.ControlOrigin = app.Urls.Single();
+        _options.EndpointUri = app.Urls.Single();
         await using var client = Component;
 
-        var error = await Assert.ThrowsAsync<ControlClientException>(
+        var error = await Assert.ThrowsAsync<ApiClientException>(
             () => client.GetStateAsync(TestContext.Current.CancellationToken));
 
         Assert.Equal("connection-unavailable", error.Code);
@@ -103,7 +113,7 @@ public sealed class ControlClientConnectionTests : MockerTestBase<UserControlCli
         app.Urls.Add("http://127.0.0.1:0");
         app.MapHub<BlockingControlHub>("/hubs/control/v2");
         await app.StartAsync(TestContext.Current.CancellationToken);
-        _options.ControlOrigin = app.Urls.Single();
+        _options.EndpointUri = app.Urls.Single();
         await using var client = Component;
         using var pending = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         var connect = client.ConnectAsync(pending.Token);
@@ -122,15 +132,15 @@ public sealed class ControlClientConnectionTests : MockerTestBase<UserControlCli
             await pending.CancelAsync();
             try { await connect; }
             catch (OperationCanceledException) { }
-            catch (ControlClientUnknownOutcomeException) { }
+            catch (RpcClientRequestTimeoutException) { }
         }
     }
 
     [Fact]
     [Trait("Category", "Integration")]
-    public async Task ConnectRemainsPendingBeyondCommandAcknowledgementDeadline()
+    public async Task ConnectRemainsPendingBeyondRequestAcknowledgementDeadline()
     {
-        Assert.Equal(1, _options.CommandTimeoutSeconds);
+        Assert.Equal(1, _options.RequestTimeoutSeconds);
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var pendingStop = new TaskCompletionSource<ControlResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
         var builder = WebApplication.CreateBuilder();
@@ -142,7 +152,7 @@ public sealed class ControlClientConnectionTests : MockerTestBase<UserControlCli
         app.Urls.Add("http://127.0.0.1:0");
         app.MapHub<BlockingControlHub>("/hubs/control/v2");
         await app.StartAsync(TestContext.Current.CancellationToken);
-        _options.ControlOrigin = app.Urls.Single();
+        _options.EndpointUri = app.Urls.Single();
         await using var client = Component;
         using var pending = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         var connect = client.ConnectAsync(pending.Token);
@@ -150,7 +160,7 @@ public sealed class ControlClientConnectionTests : MockerTestBase<UserControlCli
         {
             await entered.Task.WaitAsync(TestContext.Current.CancellationToken);
 
-            await Assert.ThrowsAsync<ControlClientUnknownOutcomeException>(
+            await Assert.ThrowsAsync<RpcClientRequestTimeoutException>(
                 () => client.StopAsync(TestContext.Current.CancellationToken));
 
             Assert.False(connect.IsCompleted);
@@ -160,7 +170,7 @@ public sealed class ControlClientConnectionTests : MockerTestBase<UserControlCli
             await pending.CancelAsync();
             try { await connect; }
             catch (OperationCanceledException) { }
-            catch (ControlClientUnknownOutcomeException) { }
+            catch (RpcClientRequestTimeoutException) { }
         }
     }
 

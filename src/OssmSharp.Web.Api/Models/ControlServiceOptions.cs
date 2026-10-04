@@ -12,19 +12,27 @@ public sealed class ControlServiceOptions : IValidatableObject
     /// </summary>
     public string DeviceIdentifier { get; set; } = string.Empty;
 
-    /// <summary>Gets or sets the SignalR keep-alive interval in seconds.</summary>
+    /// <summary>
+    /// Gets or sets the SignalR keep-alive interval in seconds.
+    /// </summary>
     [Range(1, 300)]
     public int KeepAliveSeconds { get; set; } = 1;
 
-    /// <summary>Gets or sets the SignalR client inactivity timeout in seconds.</summary>
+    /// <summary>
+    /// Gets or sets the SignalR client inactivity timeout in seconds.
+    /// </summary>
     [Range(2, 600)]
     public int ClientTimeoutSeconds { get; set; } = 3;
 
-    /// <summary>Gets or sets how often a required Stop is retried.</summary>
+    /// <summary>
+    /// Gets or sets how often a required Stop is retried.
+    /// </summary>
     [Range(50, 1000)]
     public int GuestControlCheckMilliseconds { get; set; } = 100;
 
-    /// <summary>Gets or sets the user-facing server's private service key.</summary>
+    /// <summary>
+    /// Gets or sets the user-facing server's private service key.
+    /// </summary>
     [Required]
     [RegularExpression(@"\A[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]\z")]
     public string AdminWebServiceKey { get; set; } = string.Empty;

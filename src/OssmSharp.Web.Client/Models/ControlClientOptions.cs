@@ -2,14 +2,16 @@ using System.ComponentModel.DataAnnotations;
 
 namespace OssmSharp.Web.Client.Models;
 
-/// <summary>Configures one authenticated server-side connection to the versioned control hub.</summary>
-public sealed class ControlClientOptions : IValidatableObject
+/// <summary>
+/// Configures one authenticated server-side connection to the versioned control hub.
+/// </summary>
+public sealed class RpcClientOptions : IValidatableObject
 {
     /// <summary>
-    /// Gets or sets the path-free origin of the trusted control service.
+    /// Gets or sets the URI of the API.
     /// </summary>
     [Required]
-    public string ControlOrigin { get; set; } = string.Empty;
+    public string EndpointUri { get; set; } = string.Empty;
 
     /// <summary>
     /// Gets or sets the administrator service key. Guest clients reject a configured key.
@@ -30,17 +32,19 @@ public sealed class ControlClientOptions : IValidatableObject
     public int ServerTimeoutSeconds { get; set; } = 3;
 
     /// <summary>
-    /// Gets or sets the command response timeout in seconds, excluding device connection setup.
+    /// Gets or sets the request timeout in seconds, excluding device connection setup.
     /// </summary>
     [Range(1, 30)]
-    public int CommandTimeoutSeconds { get; set; } = 2;
+    public int RequestTimeoutSeconds { get; set; } = 2;
 
-    /// <summary>Validates the trusted hub origin and compatible elapsed-time connection settings.</summary>
+    /// <summary>
+    /// Validates the trusted hub origin and compatible elapsed-time connection settings.
+    /// </summary>
     /// <param name="validationContext">The validation context supplied by the options system.</param>
     /// <returns>Validation failures for the origin or timing settings.</returns>
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
-        if (!Uri.TryCreate(ControlOrigin, UriKind.Absolute, out var origin) ||
+        if (!Uri.TryCreate(EndpointUri, UriKind.Absolute, out var origin) ||
             origin.UserInfo.Length != 0 || origin.AbsolutePath != "/" ||
             origin.Query.Length != 0 || origin.Fragment.Length != 0 ||
             (origin.IsLoopback ? origin.Scheme != "http" : origin.Scheme != "https") ||
@@ -48,8 +52,8 @@ public sealed class ControlClientOptions : IValidatableObject
             origin.Port is < 1 or > 65535)
         {
             yield return new(
-                "ControlOrigin must be a path-free loopback HTTP origin or a non-loopback HTTPS origin.",
-                [nameof(ControlOrigin)]);
+                "EndpointUri must be loopback or a non-loopback HTTP URI.",
+                [nameof(EndpointUri)]);
         }
 
         if (ServerTimeoutSeconds < KeepAliveSeconds * 2)

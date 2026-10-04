@@ -11,7 +11,7 @@ public sealed class AdminOptions : IValidatableObject
     /// Gets or sets the loopback listener port, from 1024 through 65535.
     /// </summary>
     [Range(1024, 65535)]
-    public int AdminPort { get; set; }
+    public int ListenPort { get; set; }
 
     /// <summary>
     /// Gets or sets the HTTPS guest origin used for invitations. HTTP is allowed only for loopback.

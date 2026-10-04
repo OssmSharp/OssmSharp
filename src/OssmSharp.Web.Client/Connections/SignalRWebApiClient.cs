@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Http.Connections.Client;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.AspNetCore.SignalR.Client;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using OssmSharp.Web.Client.Models;
 
@@ -11,9 +13,12 @@ namespace OssmSharp.Web.Client.Connections;
 /// </summary>
 /// <param name="factory">The factory for an isolated authenticated connection.</param>
 /// <param name="options">The validated command deadline settings.</param>
-internal sealed class ControlHubClient(ControlHubConnectionFactory factory, IOptions<ControlClientOptions> options) : IAsyncDisposable
+/// <param name="logger">The logger for connection and request results.</param>
+internal sealed class SignalRRpcClient(IRpcClientFactory factory, IOptions<RpcClientOptions> options, ILogger<SignalRRpcClient>? logger = null)
+    : IRpcClient
 {
-    private readonly TimeSpan _commandTimeout = TimeSpan.FromSeconds(options.Value.CommandTimeoutSeconds);
+    private readonly ILogger _logger = logger ?? NullLogger<SignalRRpcClient>.Instance;
+    private readonly TimeSpan _commandTimeout = TimeSpan.FromSeconds(options.Value.RequestTimeoutSeconds);
     private readonly SemaphoreSlim _commandGate = new(1, 1);
     private readonly SemaphoreSlim _stopGate = new(1, 1);
     private readonly object _disposeSync = new();
@@ -36,7 +41,7 @@ internal sealed class ControlHubClient(ControlHubConnectionFactory factory, IOpt
     /// <summary>
     /// Starts the authenticated connection once.
     /// </summary>
-    internal async Task StartAsync(CancellationToken cancellationToken, string? invitationToken = null)
+    public async Task StartAsync(CancellationToken cancellationToken, string? invitationToken = null)
     {
         if (!TryEnterOperation())
             throw new InvalidOperationException("The control connection has already closed.");
@@ -63,11 +68,11 @@ internal sealed class ControlHubClient(ControlHubConnectionFactory factory, IOpt
                 await connection.DisposeAsync();
                 if (invitationToken is not null
                     && error.GetBaseException() is HttpRequestException { StatusCode: System.Net.HttpStatusCode.Unauthorized })
-                    throw new ControlClientException("invalid-invitation", error);
+                    throw new ApiClientException("invalid-invitation", error);
                 if (error is HttpRequestException or System.Net.WebSockets.WebSocketException or IOException
                     || error is AggregateException aggregate
                     && aggregate.InnerExceptions.All(exception => exception is TransportFailedException))
-                    throw new ControlClientException("connection-unavailable", error);
+                    throw new ApiClientException("connection-unavailable", error);
                 throw;
             }
         }
@@ -84,14 +89,14 @@ internal sealed class ControlHubClient(ControlHubConnectionFactory factory, IOpt
     /// <param name="method">The hub method to invoke.</param>
     /// <param name="arguments">The command arguments.</param>
     /// <returns>The service response.</returns>
-    /// <exception cref="ControlClientUnknownOutcomeException">The response deadline expired after dispatch.</exception>
-    /// <exception cref="ControlClientException">The connection is unavailable or the service rejected the command.</exception>
-    internal async Task<T> InvokeAsync<T>(string method, object?[] arguments, CancellationToken cancellationToken)
+    /// <exception cref="RpcClientUnknownOutcomeException">The response deadline expired after dispatch.</exception>
+    /// <exception cref="ApiClientException">The connection is unavailable or the service rejected the command.</exception>
+    public async Task<T> InvokeAsync<T>(string method, object?[] arguments, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(method);
         ArgumentNullException.ThrowIfNull(arguments);
         if (!TryEnterOperation())
-            throw new ControlClientException("connection-unavailable");
+            throw new ApiClientException("connection-unavailable");
 
         try
         {
@@ -101,7 +106,7 @@ internal sealed class ControlHubClient(ControlHubConnectionFactory factory, IOpt
             {
                 var connection = _connectionTask is { } connectionTask ? await connectionTask : null;
                 if (Volatile.Read(ref _state) != 1 || connection is null)
-                    throw new ControlClientException("connection-unavailable");
+                    throw new ApiClientException("connection-unavailable");
 
                 using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 if (method != "Connect")
@@ -112,18 +117,18 @@ internal sealed class ControlHubClient(ControlHubConnectionFactory factory, IOpt
                 }
                 catch (HubException error)
                 {
-                    throw new ControlClientException(error.Message, error);
+                    throw new ApiClientException(error.Message, error);
                 }
                 catch (InvalidOperationException error) when (
                     Volatile.Read(ref _state) != 1 || connection.State != HubConnectionState.Connected)
                 {
-                    throw new ControlClientException("connection-unavailable", error);
+                    throw new ApiClientException("connection-unavailable", error);
                 }
                 catch (OperationCanceledException error) when (!cancellationToken.IsCancellationRequested)
                 {
                     if (method != "Submit")
-                        Log.CommandOutcomeUnknown(factory.Logger, method);
-                    throw new ControlClientUnknownOutcomeException(error);
+                        Log.CommandOutcomeUnknown(_logger, method);
+                    throw new RpcClientUnknownOutcomeException(error);
                 }
             }
             finally
@@ -190,7 +195,7 @@ internal sealed class ControlHubClient(ControlHubConnectionFactory factory, IOpt
             return Task.CompletedTask;
 
         if (previousState == 1)
-            Log.ConnectionLost(factory.Logger, error?.GetType().Name ?? "RemoteClose");
+            Log.ConnectionLost(_logger, error?.GetType().Name ?? "RemoteClose");
 
         return Task.CompletedTask;
     }

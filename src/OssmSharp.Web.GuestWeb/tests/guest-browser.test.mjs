@@ -99,7 +99,9 @@ async function listen(server) {
 async function startHost(projectPath, assembly, settings, hostOrigin) {
   const environment = Object.fromEntries(
     Object.entries(process.env).filter(([name]) =>
-      /^(PATH|PATHEXT|SystemRoot|WINDIR|COMSPEC|TMP|TEMP|TMPDIR|LANG|LANGUAGE|LC_.+|TZ|DOTNET_ROOT(?:_.+)?|DOTNET_HOST_PATH|DOTNET_MULTILEVEL_LOOKUP|DOTNET_ROLL_FORWARD(?:_.+)?|DOTNET_CLI_.+|NUGET_.+)$/.test(name),
+      /^(PATH|PATHEXT|SystemRoot|WINDIR|COMSPEC|TMP|TEMP|TMPDIR|LANG|LANGUAGE|LC_.+|TZ|DOTNET_ROOT(?:_.+)?|DOTNET_HOST_PATH|DOTNET_MULTILEVEL_LOOKUP|DOTNET_ROLL_FORWARD(?:_.+)?|DOTNET_CLI_.+|NUGET_.+)$/.test(
+        name,
+      ),
     ),
   );
   const host = spawn("dotnet", [assembly], {
@@ -111,11 +113,11 @@ async function startHost(projectPath, assembly, settings, hostOrigin) {
       DOTNET_ENVIRONMENT: "Development",
       ASPNETCORE_ENVIRONMENT: "Development",
       OTEL_SDK_DISABLED: "true",
-      OSSM__ControlClient__ControlOrigin: `http://127.0.0.1:${peer.address().port}`,
+      OSSM__ControlClient__EndpointUri: `http://127.0.0.1:${peer.address().port}`,
       OSSM__ControlClient__ServiceKey: "A".repeat(43),
       OSSM__ControlClient__KeepAliveSeconds: "1",
       OSSM__ControlClient__ServerTimeoutSeconds: "3",
-      OSSM__ControlClient__CommandTimeoutSeconds: "2",
+      OSSM__ControlClient__RequestTimeoutSeconds: "2",
       OSSM__Guest__Hostname: "",
       ...settings,
     },
@@ -172,139 +174,150 @@ async function getAdminOrigin() {
   const adminPort = await listen(reservation);
   await new Promise((resolve) => reservation.close(resolve));
   const hostOrigin = `http://127.0.0.1:${adminPort}`;
-  await startHost(adminProject, adminArtifact, {
-    OSSM__Admin__AdminPort: String(adminPort),
-    OSSM__Admin__GuestHostname: "https://guest.test",
-    OSSM__ControlClient__CommandTimeoutSeconds: "30",
-  }, hostOrigin);
+  await startHost(
+    adminProject,
+    adminArtifact,
+    {
+      OSSM__Admin__ListenPort: String(adminPort),
+      OSSM__Admin__GuestHostname: "https://guest.test",
+      OSSM__ControlClient__RequestTimeoutSeconds: "30",
+    },
+    hostOrigin,
+  );
   adminOrigin = hostOrigin;
   return adminOrigin;
 }
 
-before(async () => {
-  peer = createServer((request, response) => {
-    if (request.url.startsWith("/hubs/control/v2/negotiate")) {
-      handshakes.push(request.headers.authorization);
-      if (request.headers.authorization === "Bearer rejected-invite") {
-        response.writeHead(401).end();
-        return;
-      }
-      response.writeHead(200, { "Content-Type": "application/json" });
-      response.end(
-        JSON.stringify({
-          negotiateVersion: 1,
-          connectionId: "test",
-          connectionToken: "test",
-          availableTransports: [{ transport: "WebSockets", transferFormats: ["Text", "Binary"] }],
-        }),
-      );
-    } else {
-      response.writeHead(404).end();
-    }
-  });
-  sockets = new WebSocketServer({ server: peer });
-  sockets.on("connection", (socket, request) => {
-    handshakes.push(request.headers.authorization);
-    let session;
-    socket.on("close", () => session?.closed?.resolve());
-    socket.on("message", (data) => {
-      for (const text of data.toString().split("\u001e").filter(Boolean)) {
-        const message = JSON.parse(text);
-        if (message.protocol) {
-          socket.send("{}\u001e");
-        } else if (message.type === 6) {
-          socket.send('{"type":6}\u001e');
-        } else if (message.type === 1) {
-          let result = { accepted: true, code: "accepted" };
-          const reply = (value = result) => socket.send(`${JSON.stringify({ type: 3, invocationId: message.invocationId, result: value })}\u001e`);
-          if (adminSession && ["Connect", "AllowGuest", "Stop", "EndGuest"].includes(message.target)) {
-            adminSession.calls.push(message.target);
-            adminSession.pending.set(message.target, reply);
-            adminSession.received.get(message.target).resolve();
-            continue;
-          }
-          if (message.target === "GetUserState") {
-            if (adminSession) adminSession.reads++;
-            result = adminSession?.state ?? userState();
-          }
-          if (message.target === "Join") {
-            invitations.push(message.arguments[0].invitationToken);
-            session = sessions.get(message.arguments[0].invitationToken);
-          }
-          if (message.target === "GetGuestState") {
-            if (session?.pollFailure === "outcome-unknown") continue;
-            if (session?.pollFailure === "connection-unavailable") {
-              socket.close(1000);
-              continue;
-            }
-            if (session?.pollFailure === "unexpected-rejection") {
-              socket.send(`${JSON.stringify({ type: 3, invocationId: message.invocationId, error: "Isolated polling failure" })}\u001e`);
-              continue;
-            }
-            result = session?.state ?? guestState();
-          }
-          if (message.target === "Renew" && session) {
-            session.renewals++;
-          }
-          if (message.target === "GuestStop" && session) {
-            session.stops++;
-            session.stopReceived?.();
-            session.completeStop = (value = { accepted: true, code: "accepted" }) => {
-              if (value.accepted) {
-                session.state = { ...session.state, canResumeAfterStop: true, device: { ...session.state.device, isArmed: false, speed: 0 } };
-              }
-              reply(value);
-            };
-            if (session.holdStop) continue;
-            session.completeStop();
-            continue;
-          }
-          if (message.target === "Submit") {
-            requests.push(message.arguments[0]);
-            result = { correlationId: message.arguments[0].correlationId, status: 0 };
-            if (session) {
-              session.requests.push(message.arguments[0]);
-              session.state = {
-                ...session.state,
-                canResumeAfterStop: false,
-                device: { ...session.state.device, isArmed: true, ...message.arguments[0] },
-              };
-            }
-          }
-          reply(result);
+before(
+  async () => {
+    peer = createServer((request, response) => {
+      if (request.url.startsWith("/hubs/control/v2/negotiate")) {
+        handshakes.push(request.headers.authorization);
+        if (request.headers.authorization === "Bearer rejected-invite") {
+          response.writeHead(401).end();
+          return;
         }
+        response.writeHead(200, { "Content-Type": "application/json" });
+        response.end(
+          JSON.stringify({
+            negotiateVersion: 1,
+            connectionId: "test",
+            connectionToken: "test",
+            availableTransports: [{ transport: "WebSockets", transferFormats: ["Text", "Binary"] }],
+          }),
+        );
+      } else {
+        response.writeHead(404).end();
       }
     });
-  });
-  await listen(peer);
-  home = await mkdtemp(join(tmpdir(), "ossm-guest-test-"));
-  browser = await chromium.launch({
-    headless: true,
-    timeout: 15_000,
-    executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE,
-    args: ["--host-resolver-rules=MAP guest.test 127.0.0.1", "--no-proxy-server"],
-  });
-}, { timeout: 30_000 });
+    sockets = new WebSocketServer({ server: peer });
+    sockets.on("connection", (socket, request) => {
+      handshakes.push(request.headers.authorization);
+      let session;
+      socket.on("close", () => session?.closed?.resolve());
+      socket.on("message", (data) => {
+        for (const text of data.toString().split("\u001e").filter(Boolean)) {
+          const message = JSON.parse(text);
+          if (message.protocol) {
+            socket.send("{}\u001e");
+          } else if (message.type === 6) {
+            socket.send('{"type":6}\u001e');
+          } else if (message.type === 1) {
+            let result = { accepted: true, code: "accepted" };
+            const reply = (value = result) => socket.send(`${JSON.stringify({ type: 3, invocationId: message.invocationId, result: value })}\u001e`);
+            if (adminSession && ["Connect", "AllowGuest", "Stop", "EndGuest"].includes(message.target)) {
+              adminSession.calls.push(message.target);
+              adminSession.pending.set(message.target, reply);
+              adminSession.received.get(message.target).resolve();
+              continue;
+            }
+            if (message.target === "GetUserState") {
+              if (adminSession) adminSession.reads++;
+              result = adminSession?.state ?? userState();
+            }
+            if (message.target === "Join") {
+              invitations.push(message.arguments[0].invitationToken);
+              session = sessions.get(message.arguments[0].invitationToken);
+            }
+            if (message.target === "GetGuestState") {
+              if (session?.pollFailure === "outcome-unknown") continue;
+              if (session?.pollFailure === "connection-unavailable") {
+                socket.close(1000);
+                continue;
+              }
+              if (session?.pollFailure === "unexpected-rejection") {
+                socket.send(`${JSON.stringify({ type: 3, invocationId: message.invocationId, error: "Isolated polling failure" })}\u001e`);
+                continue;
+              }
+              result = session?.state ?? guestState();
+            }
+            if (message.target === "Renew" && session) {
+              session.renewals++;
+            }
+            if (message.target === "GuestStop" && session) {
+              session.stops++;
+              session.stopReceived?.();
+              session.completeStop = (value = { accepted: true, code: "accepted" }) => {
+                if (value.accepted) {
+                  session.state = { ...session.state, canResumeAfterStop: true, device: { ...session.state.device, isArmed: false, speed: 0 } };
+                }
+                reply(value);
+              };
+              if (session.holdStop) continue;
+              session.completeStop();
+              continue;
+            }
+            if (message.target === "Submit") {
+              requests.push(message.arguments[0]);
+              result = { correlationId: message.arguments[0].correlationId, status: 0 };
+              if (session) {
+                session.requests.push(message.arguments[0]);
+                session.state = {
+                  ...session.state,
+                  canResumeAfterStop: false,
+                  device: { ...session.state.device, isArmed: true, ...message.arguments[0] },
+                };
+              }
+            }
+            reply(result);
+          }
+        }
+      });
+    });
+    await listen(peer);
+    home = await mkdtemp(join(tmpdir(), "ossm-guest-test-"));
+    browser = await chromium.launch({
+      headless: true,
+      timeout: 15_000,
+      executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE,
+      args: ["--host-resolver-rules=MAP guest.test 127.0.0.1", "--no-proxy-server"],
+    });
+  },
+  { timeout: 30_000 },
+);
 
-after(async () => {
-  try {
-    await browser?.close();
-  } finally {
-    for (const { host, exit } of hosts) {
-      if (host.exitCode !== null) continue;
-      const deadline = setTimeout(() => host.kill("SIGKILL"), 5_000);
-      host.kill("SIGTERM");
-      await exit;
-      clearTimeout(deadline);
+after(
+  async () => {
+    try {
+      await browser?.close();
+    } finally {
+      for (const { host, exit } of hosts) {
+        if (host.exitCode !== null) continue;
+        const deadline = setTimeout(() => host.kill("SIGKILL"), 5_000);
+        host.kill("SIGTERM");
+        await exit;
+        clearTimeout(deadline);
+      }
+      for (const socket of sockets?.clients ?? []) socket.terminate();
+      for (const socket of proxySockets) socket.destroy();
+      if (proxy) await new Promise((resolve) => proxy.close(resolve));
+      if (sockets) await new Promise((resolve) => sockets.close(resolve));
+      if (peer) await new Promise((resolve) => peer.close(resolve));
+      if (home) await rm(home, { recursive: true, force: true });
     }
-    for (const socket of sockets?.clients ?? []) socket.terminate();
-    for (const socket of proxySockets) socket.destroy();
-    if (proxy) await new Promise((resolve) => proxy.close(resolve));
-    if (sockets) await new Promise((resolve) => sockets.close(resolve));
-    if (peer) await new Promise((resolve) => peer.close(resolve));
-    if (home) await rm(home, { recursive: true, force: true });
-  }
-}, { timeout: 30_000 });
+  },
+  { timeout: 30_000 },
+);
 
 async function openGuest(context, invitation, ready = true, guestOrigin) {
   const page = await context.newPage();
@@ -316,7 +329,7 @@ async function openGuest(context, invitation, ready = true, guestOrigin) {
     if (message.type() === "error") errors.push(`${message.text()} (${message.location().url})`);
   });
   page.on("websocket", (socket) => socket.on("framesent", ({ payload }) => frames.push(Buffer.from(payload))));
-  await page.goto(`${guestOrigin ?? await getGuestOrigin()}/join#invite=${invitation}`);
+  await page.goto(`${guestOrigin ?? (await getGuestOrigin())}/join#invite=${invitation}`);
   await page.waitForFunction((expected) => document.querySelector("[data-send-button]")?.disabled === !expected, ready);
   assert.equal(new URL(page.url()).hash, "");
   return { page, frames, errors };
@@ -326,21 +339,11 @@ async function getPublicOrigin() {
   if (publicOrigin) return publicOrigin;
   const key = join(home, "proxy.key");
   const cert = join(home, "proxy.pem");
-  await promisify(execFile)("openssl", [
-    "req",
-    "-x509",
-    "-newkey",
-    "rsa:2048",
-    "-nodes",
-    "-days",
-    "1",
-    "-subj",
-    "/CN=127.0.0.1",
-    "-keyout",
-    key,
-    "-out",
-    cert,
-  ], { timeout: 10_000 });
+  await promisify(execFile)(
+    "openssl",
+    ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-subj", "/CN=127.0.0.1", "-keyout", key, "-out", cert],
+    { timeout: 10_000 },
+  );
   const reservation = createServer();
   const guestPort = await listen(reservation);
   await new Promise((resolve) => reservation.close(resolve));
@@ -383,11 +386,16 @@ async function getPublicOrigin() {
   const port = await listen(proxy);
   proxyOrigin = `https://127.0.0.1:${port}`;
   publicOrigin = `https://guest.test:${port}`;
-  await startHost(project, artifact, {
-    OSSM__Guest__GuestPort: String(guestPort),
-    OSSM__Guest__Hostname: publicOrigin,
-    OSSM__ControlClient__ServiceKey: "",
-  }, target);
+  await startHost(
+    project,
+    artifact,
+    {
+      OSSM__Guest__GuestPort: String(guestPort),
+      OSSM__Guest__Hostname: publicOrigin,
+      OSSM__ControlClient__ServiceKey: "",
+    },
+    target,
+  );
   return publicOrigin;
 }
 
@@ -439,7 +447,9 @@ test("public reverse proxy rejects mismatched and missing origins, including Web
       },
     });
     assert.equal(upgrade.status(), 403);
-    const localSpoof = await context.request.get(`${localOrigin}/join`, { headers: { Host: new URL(externalOrigin).host, "X-Forwarded-Proto": "https" } });
+    const localSpoof = await context.request.get(`${localOrigin}/join`, {
+      headers: { Host: new URL(externalOrigin).host, "X-Forwarded-Proto": "https" },
+    });
     assert.equal(localSpoof.status(), 400);
   } finally {
     await context.close();
@@ -484,10 +494,15 @@ test("local AdminWeb builds public invitation links and rejects public requests"
   const reservation = createServer();
   const port = await listen(reservation);
   await new Promise((resolve) => reservation.close(resolve));
-  await startHost(adminProject, adminArtifact, {
-    OSSM__Admin__AdminPort: String(port),
-    OSSM__Admin__GuestHostname: externalOrigin,
-  }, `http://127.0.0.1:${port}`);
+  await startHost(
+    adminProject,
+    adminArtifact,
+    {
+      OSSM__Admin__ListenPort: String(port),
+      OSSM__Admin__GuestHostname: externalOrigin,
+    },
+    `http://127.0.0.1:${port}`,
+  );
   const context = await browser.newContext();
   try {
     const page = await context.newPage();
@@ -763,12 +778,17 @@ test("admin completed connection shows metadata and a JS duration without server
       const clear = window.clearInterval;
       window.setInterval = (callback, ...args) => {
         const isAdminInterval = /\/admin(?:\.[^/]+)?\.js\b/.test(new Error().stack);
-        const interval = set(isAdminInterval ? (...callbackArgs) => {
-          const element = document.querySelector('[data-testid="device-duration"]');
-          const before = element?.textContent;
-          callback(...callbackArgs);
-          if (element?.isConnected && element.textContent !== before) window.adminDurationUpdates.push(element.textContent);
-        } : callback, ...args);
+        const interval = set(
+          isAdminInterval
+            ? (...callbackArgs) => {
+                const element = document.querySelector('[data-testid="device-duration"]');
+                const before = element?.textContent;
+                callback(...callbackArgs);
+                if (element?.isConnected && element.textContent !== before) window.adminDurationUpdates.push(element.textContent);
+              }
+            : callback,
+          ...args,
+        );
         if (isAdminInterval) window.adminIntervals.add(interval);
         return interval;
       };
@@ -812,11 +832,16 @@ test("admin completed connection shows metadata and a JS duration without server
     const interval = await page.evaluate(() => [...window.adminIntervals][0]);
     const updateCount = await page.evaluate(() => window.adminDurationUpdates.length);
     assert.equal(await page.evaluate(() => window.adminIntervals.size), 1);
-    await page.waitForFunction(({ before, updateCount }) => {
-      const seconds = (value) => value.split(":").reduce((total, part) => total * 60 + Number(part), 0);
-      return window.adminDurationUpdates.length >= updateCount + 2 &&
-        seconds(document.querySelector('[data-testid="device-duration"]').textContent) >= seconds(before) + 2;
-    }, { before, updateCount });
+    await page.waitForFunction(
+      ({ before, updateCount }) => {
+        const seconds = (value) => value.split(":").reduce((total, part) => total * 60 + Number(part), 0);
+        return (
+          window.adminDurationUpdates.length >= updateCount + 2 &&
+          seconds(document.querySelector('[data-testid="device-duration"]').textContent) >= seconds(before) + 2
+        );
+      },
+      { before, updateCount },
+    );
     const after = await duration.innerText();
     const seconds = (value) => value.split(":").reduce((total, part) => total * 60 + Number(part), 0);
     assert.ok(seconds(after) >= seconds(before) + 2, "duration must advance without a new device snapshot");
