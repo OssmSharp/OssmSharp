@@ -115,6 +115,41 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>, IAsync
     }
 
     [Fact]
+    public async Task ResetPositionDiscardsPendingSettingsAndLeavesGuestStopped()
+    {
+        await JoinAndAllowAsync("guest-1");
+        await Component.SubmitAsync("guest-1", new("sent", 0, 53, 10, 20, 50), TestContext.Current.CancellationToken);
+        var pendingSet = new TaskCompletionSource<SetResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var pendingReset = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Device.Setup(device => device.SetAsync(It.IsAny<MotionSettings>(), It.IsAny<CancellationToken>())).Returns(pendingSet.Task);
+        Device.Setup(device => device.ResetPositionAsync(It.IsAny<CancellationToken>())).Returns(pendingReset.Task);
+        var submit = Component.SubmitAsync("guest-1", new("pending", 0, 80, 40, 50, 60), TestContext.Current.CancellationToken);
+        var reset = Component.ResetPositionGuestAsync("guest-1", "position", TestContext.Current.CancellationToken);
+        try
+        {
+            Assert.False(reset.IsCompleted);
+            Assert.Null((await Component.GetUserStateAsync(TestContext.Current.CancellationToken)).Device!.TransmittedSettings);
+            Assert.Equal(
+                SettingsResponseStatus.Rejected,
+                (await Component.SubmitAsync("guest-1", new("during", 0, 80, 40, 50, 60), TestContext.Current.CancellationToken)).Status);
+            pendingSet.TrySetResult(new(SetStatus.Completed, 5));
+            Assert.Equal(SettingsResponseStatus.Cancelled, (await submit).Status);
+            pendingReset.TrySetResult();
+            Assert.Equal(new ControlResponse("position", "position-reset", true), await reset);
+            Assert.Null((await Component.GetUserStateAsync(TestContext.Current.CancellationToken)).Device!.TransmittedSettings);
+            Assert.True((await Component.GetGuestStateAsync("guest-1", TestContext.Current.CancellationToken)).CanResumeAfterStop);
+            Device.Verify(device => device.ResetPositionAsync(It.IsAny<CancellationToken>()), Times.Once);
+            Device.Verify(device => device.SetAsync(It.IsAny<MotionSettings>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
+        }
+        finally
+        {
+            pendingSet.TrySetResult(new(SetStatus.Cancelled, 0));
+            pendingReset.TrySetResult();
+            await Task.WhenAll(submit, reset);
+        }
+    }
+
+    [Fact]
     public async Task FailedGuestStopRetryKeepsPermissionAndBlocksSettingsUntilSuccess()
     {
         await JoinAndAllowAsync("guest-1");
@@ -136,6 +171,111 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>, IAsync
         Assert.True(state.ControlAllowed);
         Assert.True(state.CanResumeAfterStop);
         Mocks.Verify<IOssmDevice>(device => device.EmergencyStopAsync(FastArg.Any<CancellationToken>()), TimesSpec.Exactly(4));
+    }
+
+    [Theory]
+    [InlineData("guest-2", "position", "guest-not-joined")]
+    [InlineData("guest-1", "position", "control-not-allowed")]
+    [InlineData("guest-1", "", "invalid-correlation")]
+    [InlineData("guest-1", "bad\ncorrelation", "invalid-correlation")]
+    public async Task ResetPositionRejectsUnauthorizedOrInvalidRequests(string guest, string correlation, string code)
+    {
+        var invitation = (await Component.GetUserStateAsync(TestContext.Current.CancellationToken)).Invitation;
+        Assert.True(JoinGuest("guest-1", new("join", invitation.Token)).Accepted);
+
+        Assert.Equal(
+            new ControlResponse(correlation, code, false),
+            await Component.ResetPositionGuestAsync(guest, correlation, TestContext.Current.CancellationToken));
+        Assert.False((await Component.ResetPositionAsync(string.Empty, TestContext.Current.CancellationToken)).Accepted);
+
+        Device.Verify(device => device.ResetPositionAsync(It.IsAny<CancellationToken>()), Times.Never);
+        Device.Verify(device => device.ResetAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task AdminResetPositionRearmsWithoutGuestOrSettingsReplay()
+    {
+        Device.SetupGet(device => device.IsArmed).Returns(false);
+
+        Assert.Equal(
+            new ControlResponse("position", "position-reset", true),
+            await Component.ResetPositionAsync("position", TestContext.Current.CancellationToken));
+
+        var state = await Component.GetUserStateAsync(TestContext.Current.CancellationToken);
+        Assert.False(state.GuestJoined);
+        Assert.False(state.GuestControlAllowed);
+        Assert.False(state.Device!.IsResettingPosition);
+        Device.Verify(device => device.ResetAsync(It.IsAny<CancellationToken>()), Times.Once);
+        Device.Verify(device => device.ResetPositionAsync(It.IsAny<CancellationToken>()), Times.Once);
+        Device.Verify(device => device.SetAsync(It.IsAny<MotionSettings>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData("guest-stop")]
+    [InlineData("user-stop")]
+    [InlineData("guest-disconnect")]
+    [InlineData("device-disconnect")]
+    [InlineData("caller-cancel")]
+    public async Task ResetPositionInterruptionClearsBusyWithoutReplay(string interruption)
+    {
+        await JoinAndAllowAsync("guest-1");
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        var pending = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Device.Setup(device => device.ResetPositionAsync(It.IsAny<CancellationToken>()))
+            .Returns((CancellationToken token) => pending.Task.WaitAsync(token));
+        Device.Setup(device => device.EmergencyStopAsync(It.IsAny<CancellationToken>()))
+            .Callback(() => pending.TrySetCanceled(CancellationToken.None)).Returns(Task.CompletedTask);
+        var reset = Component.ResetPositionGuestAsync("guest-1", "position", cancellation.Token);
+        try
+        {
+            Assert.True((await Component.GetUserStateAsync(TestContext.Current.CancellationToken)).Device!.IsResettingPosition);
+            Assert.False((await Component.ResetPositionAsync("overlap", TestContext.Current.CancellationToken)).Accepted);
+            switch (interruption)
+            {
+                case "guest-stop":
+                    Assert.True((await Component.StopGuestAsync("guest-1", "stop")).Accepted);
+                    break;
+                case "user-stop":
+                    Assert.True((await Component.StopAsync("stop")).Accepted);
+                    break;
+                case "guest-disconnect":
+                    await Component.GuestDisconnectedAsync("guest-1");
+                    break;
+                case "device-disconnect":
+                    Device.SetupGet(device => device.IsConnected).Returns(false);
+                    Device.Raise(device => device.StateChanged += null, EventArgs.Empty);
+                    break;
+                case "caller-cancel":
+                    await cancellation.CancelAsync();
+                    break;
+            }
+
+            Assert.Equal(new ControlResponse("position", "cancelled", false), await reset);
+            var state = await Component.GetUserStateAsync(TestContext.Current.CancellationToken);
+            Assert.False(state.Device!.IsResettingPosition);
+            Assert.Null(state.Device.TransmittedSettings);
+            if (interruption is "user-stop" or "guest-disconnect" or "device-disconnect")
+                Assert.False(state.GuestControlAllowed);
+            Device.Verify(device => device.ResetPositionAsync(It.IsAny<CancellationToken>()), Times.Once);
+            Device.Verify(device => device.SetAsync(It.IsAny<MotionSettings>(), It.IsAny<CancellationToken>()), Times.Never);
+        }
+        finally
+        {
+            pending.TrySetCanceled(CancellationToken.None);
+            await reset;
+        }
+    }
+
+    [Fact]
+    public async Task ResetPositionCleanupFailureIsRejectedAndClearsBusy()
+    {
+        var failure = new AggregateException(new IOException("Position write failed."), new IOException("Stop cleanup failed."));
+        Device.Setup(device => device.ResetPositionAsync(It.IsAny<CancellationToken>())).ThrowsAsync(failure);
+
+        var response = await Component.ResetPositionAsync("position", TestContext.Current.CancellationToken);
+
+        Assert.Equal(new ControlResponse("position", "device-io-failed", false), response);
+        Assert.False((await Component.GetUserStateAsync(TestContext.Current.CancellationToken)).Device!.IsResettingPosition);
     }
 
     [Fact]
@@ -911,10 +1051,10 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>, IAsync
             Device.SetupGet(device => device.IsConnected).Returns(true);
             Device.Raise(device => device.StateChanged += null, EventArgs.Empty);
 
-            Assert.True(workToken.IsCancellationRequested);
-            Assert.False(rearming ? pendingReset.Task.IsCompleted : pendingSet.Task.IsCompleted);
             Assert.Equal(new SettingsResponse("set-1", SettingsResponseStatus.Cancelled, 0),
                 await request.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
+            Assert.True(workToken.IsCancellationRequested);
+            Assert.False(rearming ? pendingReset.Task.IsCompleted : pendingSet.Task.IsCompleted);
             var disconnectedGuest = await Component.GetGuestStateAsync("guest-1", TestContext.Current.CancellationToken);
             Assert.True(disconnectedGuest.Joined);
             Assert.False(disconnectedGuest.ControlAllowed);

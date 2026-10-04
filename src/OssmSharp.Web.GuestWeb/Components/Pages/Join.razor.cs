@@ -162,6 +162,8 @@ public partial class Join
     {
         joined = _joined,
         ready = Ready,
+        resettingPosition = _status?.Device?.IsResettingPosition == true,
+        stopped = _status?.CanResumeAfterStop == true,
         current = _status?.Device is { } device ? new { speed = DeviceSpeed, stroke = device.Stroke, depth = device.Depth } : null,
     });
 

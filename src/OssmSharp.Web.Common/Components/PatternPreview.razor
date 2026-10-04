@@ -1,4 +1,4 @@
-<RwCard class="pattern-preview device-sensitive" role="region" aria-label="@PreviewLabel">
+<RwCard class="pattern-preview device-sensitive" role="region" aria-label="@Title">
     <div slot="heading" class="rw-card-heading preview-heading">
         <h2>@Title</h2>
         <RwBadge Variant="neutral" data-testid="preview-pattern">@PatternLabel</RwBadge>
@@ -9,14 +9,18 @@
         @if (BoundedStroke is not null && BoundedDepth is not null)
         {
             <rect class="preview-range" x="@RangeStart" y="18" width="@RangeWidth" height="10" rx="2" />
-            <circle class="preview-carriage" cx="@RangeMidpoint" cy="23" r="7">
-                @if (Animate && Speed > 0 && BoundedStroke > 0 && BoundedDepth > 0)
+            <path class="preview-carriage" d="@CarriagePath" aria-hidden="true">
+                @if (Animate && Speed > 0 && double.IsFinite(Speed.Value) && End > Start && Pattern is >= 0 and <= 6
+                    && (Pattern == 0 || BoundedSensation is not null) && _positions.Distinct().Count() > 1)
                 {
-                    <animate attributeName="cx" values="@AnimationValues" dur="@AnimationDuration" repeatCount="indefinite" />
+                    <animate attributeName="d" values="@AnimationValues" keyTimes="@AnimationTimes" calcMode="spline"
+                             keySplines="@AnimationSplines" dur="@AnimationDuration" repeatCount="indefinite" />
                 }
-            </circle>
+            </path>
+            <path class="preview-still" d="@CarriagePath" aria-hidden="true" />
         }
     </svg>
+    <div class="preview-ends"><span>Back</span><span>Front / person</span></div>
 </RwCard>
 
 @code {
@@ -31,21 +35,85 @@
     [Parameter] public int? Sensation { get; set; }
     [Parameter] public bool Animate { get; set; } = true;
 
-    private string PatternLabel => Pattern switch { null => "Unknown", 0 => "Simple stroke", _ => $"Pattern {Pattern}" };
+    private string PatternLabel => Pattern switch
+    {
+        null => "Unknown", 0 => "Simple stroke", 1 => "Teasing / pounding", 2 => "Robo stroke",
+        3 => "Half / half", 4 => "Deeper", 5 => "Stop / go", 6 => "Insist", _ => $"Pattern {Pattern}",
+    };
     private int? BoundedStroke => Bound(Stroke);
     private int? BoundedDepth => Bound(Depth);
     private int? BoundedSensation => Bound(Sensation);
-    private double Start => 5 + (100 - BoundedDepth!.Value) * 1.9;
-    private double End => Math.Min(195, Start + BoundedStroke!.Value * 1.9);
+    private double Start => 17 + Math.Max(0, BoundedDepth!.Value - BoundedStroke!.Value) * 1.66;
+    private double End => 17 + BoundedDepth!.Value * 1.66;
     private double Mid => (Start + End) / 2;
     private string RangeStart => Format(Start);
     private string RangeWidth => Format(Math.Max(1, End - Start));
-    private string RangeMidpoint => Format(Mid);
-    private string AnimationValues => $"{Format(Start)};{Format(End)};{Format(Start)}";
-    private string AnimationDuration => FormattableString.Invariant($"{40 / Speed:0.####}s");
+    private string CarriagePath => Shape((Pattern == 6 ? Start + _positions[0] * (End - Start) : Mid) - 12);
+    private double[] _positions = [0, 1, 0];
+    private double[] _times = [0, .5, 1];
+    private double _cycles = 1;
+    private string AnimationValues => string.Join(';', _positions.Select(position => Shape(Start + position * (End - Start) - 12)));
+    private string AnimationTimes => string.Join(';', _times.Select(time => time.ToString("0.######", CultureInfo.InvariantCulture)));
+    private string AnimationSplines => string.Join(';', Enumerable.Repeat(Pattern == 2
+        ? FormattableString.Invariant($"{.5 - BoundedSensation.GetValueOrDefault(50) / 200.0:0.##} 0 {.5 + BoundedSensation.GetValueOrDefault(50) / 200.0:0.##} 1")
+        : ".33 0 .67 1", _positions.Length - 1));
+    private string AnimationDuration => FormattableString.Invariant($"{40 * _cycles / Speed:0.####}s");
     private string PreviewLabel => $"{PatternLabel} preview at {Value(Speed)} speed, {Value(BoundedStroke)} stroke, {Value(BoundedDepth)} depth, and {Value(BoundedSensation)} sensation";
 
+    protected override void OnParametersSet()
+    {
+        var sensation = BoundedSensation.GetValueOrDefault(50);
+        var bias = (sensation - 50) / 50.0;
+        var insertionTime = bias >= 0 ? .5 / (1 + 4 * bias) : 1 - .5 / (1 - 4 * bias);
+        _positions = [0, 1, 0];
+        _times = [0, .5, 1];
+        _cycles = 1;
+        switch (Pattern)
+        {
+            case 1:
+                _times = [0, insertionTime, 1];
+                break;
+            case 3:
+                _positions = [0, .5, 0, 1, 0];
+                _times = [0, insertionTime / 2, .5, .5 + insertionTime / 2, 1];
+                _cycles = 2;
+                break;
+            case 4:
+                var count = sensation < 50 ? 2 + sensation * 9 / 50 : 11 + (sensation - 50) * 21 / 50;
+                _positions = Enumerable.Range(0, count * 2 + 1).Select(index => index % 2 == 0 ? 0 : (index + 1) / (2.0 * count)).ToArray();
+                _times = Enumerable.Range(0, _positions.Length).Select(index => index / (double)(_positions.Length - 1)).ToArray();
+                _cycles = count;
+                break;
+            case 5:
+                var positions = new List<double> { 0 };
+                var times = new List<double> { 0 };
+                var elapsed = 0.0;
+                foreach (var strokes in new[] { 1, 2, 3, 4, 5, 4, 3, 2 })
+                {
+                    for (var stroke = 0; stroke < strokes; stroke++)
+                    {
+                        positions.AddRange([1, 0]);
+                        times.AddRange([elapsed + .5, elapsed + 1]);
+                        elapsed++;
+                    }
+                    elapsed += .25 + sensation / 25.0;
+                    positions.Add(0);
+                    times.Add(elapsed);
+                }
+                _positions = positions.ToArray();
+                _times = times.Select(time => time / elapsed).ToArray();
+                _cycles = elapsed;
+                break;
+            case 6:
+                var fraction = 1 - Math.Abs(bias);
+                _positions = bias > 0 ? [1 - fraction, 1, 1 - fraction] : [0, fraction, 0];
+                _cycles = Math.Max(.01, fraction);
+                break;
+        }
+    }
+
     private static int? Bound(int? value) => value is { } known ? Math.Clamp(known, 0, 100) : null;
+    private static string Shape(double position) => $"M{Format(position)} 16H{Format(position + 17)}A7 7 0 0 1 {Format(position + 17)} 30H{Format(position)}Z";
     private static string Value(double? value) => value is { } known ? FormattableString.Invariant($"{known}%") : "Unknown";
     private static string Format(double value) => value.ToString("0.##", CultureInfo.InvariantCulture);
 }

@@ -115,6 +115,9 @@ public sealed class GuestApiClientConnectionTests : MockerTestBase<GuestApiClien
         Assert.True((await Component.JoinAsync(invitation.Token, TestContext.Current.CancellationToken)).Accepted);
         await Assert.ThrowsAsync<HubException>(() => stale.InvokeAsync<UserSessionState>("GetUserState", TestContext.Current.CancellationToken));
         await Assert.ThrowsAsync<HubException>(() => stale.InvokeAsync<ControlResponse>("Stop", "stop", TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<HubException>(() => stale.InvokeAsync<ControlResponse>("ResetPosition", "position", TestContext.Current.CancellationToken));
+        Assert.Equal("guest-not-joined", (await stale.InvokeAsync<ControlResponse>("GuestResetPosition", "position", TestContext.Current.CancellationToken)).Code);
+        Mocks.Verify<IOssmDevice>(device => device.ResetPositionAsync(FastArg.Any<CancellationToken>()), TimesSpec.NeverCalled);
         Assert.Null((await stale.InvokeAsync<GuestSessionState>("GetGuestState", TestContext.Current.CancellationToken)).Device);
 
         await using var adminScope = new RpcClientTestScope(new() { EndpointUri = _options.EndpointUri, ServiceKey = AdminKey });
@@ -147,6 +150,71 @@ public sealed class GuestApiClientConnectionTests : MockerTestBase<GuestApiClien
         using var response = await http.SendAsync(request, TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         Assert.False((await _session.GetUserStateAsync(TestContext.Current.CancellationToken)).GuestJoined);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    [Trait("Category", "Integration")]
+    public async Task ResetPositionAllowsStopThroughSameClientAndHub(bool adminRequest)
+    {
+        await using var app = await StartApiAsync();
+        await using var adminScope = new RpcClientTestScope(new() { EndpointUri = _options.EndpointUri, ServiceKey = AdminKey });
+        await using var admin = new AdminApiClient(adminScope.Connection);
+        if (!adminRequest)
+        {
+            var invitation = (await _session.GetUserStateAsync(TestContext.Current.CancellationToken)).Invitation;
+            await Component.JoinAsync(invitation.Token, TestContext.Current.CancellationToken);
+            var denied = await Assert.ThrowsAsync<ApiClientException>(() => Component.ResetPositionAsync(TestContext.Current.CancellationToken));
+            Assert.Equal("control-not-allowed", denied.Code);
+            _device.Verify(device => device.ResetPositionAsync(It.IsAny<CancellationToken>()), Times.Never);
+            Assert.True((await admin.AllowGuestAsync(TestContext.Current.CancellationToken)).Accepted);
+        }
+
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var pending = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _device.Setup(device => device.ResetPositionAsync(It.IsAny<CancellationToken>()))
+            .Callback(() => entered.TrySetResult()).Returns(pending.Task);
+        _device.Setup(device => device.EmergencyStopAsync(It.IsAny<CancellationToken>()))
+            .Callback(() => pending.TrySetCanceled(CancellationToken.None)).Returns(Task.CompletedTask);
+        var reset = adminRequest ? admin.ResetPositionAsync(TestContext.Current.CancellationToken) : Component.ResetPositionAsync(TestContext.Current.CancellationToken);
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            Assert.False(reset.IsCompleted);
+            var stopped = await (adminRequest ? admin.StopAsync(TestContext.Current.CancellationToken) : Component.StopAsync(TestContext.Current.CancellationToken));
+            Assert.True(stopped.Accepted);
+            var error = await Assert.ThrowsAsync<ApiClientException>(() => reset);
+            Assert.Equal("cancelled", error.Code);
+            _device.Verify(device => device.EmergencyStopAsync(It.IsAny<CancellationToken>()), Times.Once);
+            _device.Verify(device => device.ResetPositionAsync(It.IsAny<CancellationToken>()), Times.Once);
+            Assert.False((await _session.GetUserStateAsync(TestContext.Current.CancellationToken)).Device!.IsResettingPosition);
+            _device.Verify(device => device.SetAsync(It.IsAny<MotionSettings>(), It.IsAny<CancellationToken>()), Times.Never);
+        }
+        finally
+        {
+            pending.TrySetResult();
+            try { await reset; }
+            catch (ApiClientException) { }
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    public async Task ResetPositionHubRejectsInvalidCorrelationWithoutDeviceCall()
+    {
+        await using var app = await StartApiAsync();
+        var invitation = (await _session.GetUserStateAsync(TestContext.Current.CancellationToken)).Invitation;
+        await using var connection = new SignalRHubConnectionFactory(Options.Create(_options)).CreateForGuest(invitation.Token);
+        await connection.StartAsync(TestContext.Current.CancellationToken);
+        Assert.True((await connection.InvokeAsync<ControlResponse>("Join", new GuestJoinRequest("join", invitation.Token), TestContext.Current.CancellationToken)).Accepted);
+        Assert.True((await _session.AllowGuestAsync("allow", TestContext.Current.CancellationToken)).Accepted);
+        foreach (var correlation in new[] { string.Empty, new string('x', 65), "bad\ncorrelation" })
+        {
+            var result = await connection.InvokeAsync<ControlResponse>("GuestResetPosition", correlation, TestContext.Current.CancellationToken);
+            Assert.Equal(new ControlResponse(correlation, "invalid-correlation", false), result);
+        }
+        _device.Verify(device => device.ResetPositionAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]

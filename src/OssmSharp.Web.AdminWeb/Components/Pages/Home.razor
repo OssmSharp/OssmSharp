@@ -32,11 +32,14 @@
             <RwBadge Variant="@GuestVariant" data-testid="guest-status">@GuestStatus</RwBadge>
           </div>
           <div class="rw-actions">
-            <RwButton Type="button" Variant="success" Disabled="@(_busy || _safetyBusy || !_state.GuestJoined)"
+            <RwButton Type="button" Variant="success" Disabled="@(_busy || _safetyBusy || _state.Device is { IsResettingPosition: true } || !_state.GuestJoined)"
                       OnClick="AllowGuest">
               Allow control
             </RwButton>
             <RwButton Type="button" Variant="danger" Disabled="@_safetyBusy" OnClick="Stop">Stop</RwButton>
+            <RwButton Type="button" Variant="secondary" data-reset-position-button
+                      Disabled="@(_busy || _safetyBusy || _state.Device is not { IsConnected: true, IsConnecting: false, IsResettingPosition: false })"
+                      OnClick="ResetPosition">Reset Position</RwButton>
             <RwButton Type="button" Variant="danger" Disabled="@(_safetyBusy || !_state.GuestJoined)" OnClick="EndGuest">
               End guest
             </RwButton>
@@ -87,7 +90,7 @@
         <PatternPreview Title="Last settings" Pattern="@_state.Device?.TransmittedSettings?.Pattern"
                         Speed="@_state.Device?.TransmittedSettings?.Speed" Stroke="@_state.Device?.TransmittedSettings?.Stroke"
                         Depth="@_state.Device?.TransmittedSettings?.Depth" Sensation="@_state.Device?.TransmittedSettings?.Sensation"
-                        Animate="@(!_previewStopped && !_connectionLost && _state.Device is { IsConnected: true, IsConnecting: false })" />
+                        Animate="@(!_previewStopped && !_connectionLost && _state.Device is { IsConnected: true, IsConnecting: false, IsResettingPosition: false })" />
       </div>
     }
   </ChildContent>

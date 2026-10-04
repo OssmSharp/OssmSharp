@@ -86,7 +86,7 @@ function newAdminSession(state = userState()) {
     reads: 0,
     calls: [],
     pending: new Map(),
-    received: new Map(["Connect", "AllowGuest", "Stop", "EndGuest"].map((name) => [name, Promise.withResolvers()])),
+    received: new Map(["Connect", "AllowGuest", "Stop", "EndGuest", "ResetPosition"].map((name) => [name, Promise.withResolvers()])),
   };
 }
 
@@ -225,7 +225,7 @@ before(
           } else if (message.type === 1) {
             let result = { accepted: true, code: "accepted" };
             const reply = (value = result) => socket.send(`${JSON.stringify({ type: 3, invocationId: message.invocationId, result: value })}\u001e`);
-            if (adminSession && ["Connect", "AllowGuest", "Stop", "EndGuest"].includes(message.target)) {
+            if (adminSession && ["Connect", "AllowGuest", "Stop", "EndGuest", "ResetPosition"].includes(message.target)) {
               adminSession.calls.push(message.target);
               adminSession.pending.set(message.target, reply);
               adminSession.received.get(message.target).resolve();
@@ -267,11 +267,26 @@ before(
               session.completeStop();
               continue;
             }
+            if (message.target === "GuestResetPosition" && session) {
+              session.resets++;
+              session.state = { ...session.state, device: { ...session.state.device, isResettingPosition: true } };
+              session.completeReset = (value = { accepted: true, code: "position-reset" }) => {
+                session.state = {
+                  ...session.state,
+                  canResumeAfterStop: true,
+                  device: { ...session.state.device, isResettingPosition: false, speed: 0, stroke: 100, depth: 100 },
+                };
+                reply(value);
+              };
+              session.resetReceived?.resolve();
+              continue;
+            }
             if (message.target === "Submit") {
               requests.push(message.arguments[0]);
               result = { correlationId: message.arguments[0].correlationId, status: 0 };
               if (session) {
                 session.requests.push(message.arguments[0]);
+                session.requestReceived?.(message.arguments[0]);
                 session.state = {
                   ...session.state,
                   canResumeAfterStop: false,
@@ -321,6 +336,7 @@ after(
 
 async function openGuest(context, invitation, ready = true, guestOrigin) {
   const page = await context.newPage();
+  await page.route("**/favicon.ico", (route) => route.fulfill({ status: 204 }));
   page.setDefaultTimeout(10_000);
   const frames = [];
   const errors = [];
@@ -621,6 +637,7 @@ async function openAdmin(state) {
   adminSession = newAdminSession(state);
   const context = await browser.newContext();
   const page = await context.newPage();
+  await page.route("**/favicon.ico", (route) => route.fulfill({ status: 204 }));
   page.setDefaultTimeout(7_000);
   const errors = [];
   const frames = [];
@@ -657,6 +674,89 @@ async function filtersOnAncestors(locator) {
     return filters;
   });
 }
+
+test("admin Reset Position uses its distinct RPC and keeps Stop available", { timeout: 40_000 }, async () => {
+  const settings = { pattern: 6, speed: 35, stroke: 10, depth: 20, sensation: 50 };
+  const { context, page, errors } = await openAdmin({ ...userState(deviceState({ isConnected: true, transmittedSettings: settings })), guestJoined: false });
+  try {
+    await page.getByRole("button", { name: "Reset Position", exact: true }).click();
+    await adminSession.received.get("ResetPosition").promise;
+    await page.locator("rw-alert.rw-inline-notification").filter({ hasText: "Resetting position ..." }).waitFor();
+    assert.equal(await page.locator(".preview-carriage animate").count(), 0);
+    assert.equal(await page.getByRole("button", { name: "Reset Position", exact: true }).isDisabled(), true);
+    assert.equal(await page.getByRole("button", { name: "Stop", exact: true }).isEnabled(), true);
+    for (const viewport of viewports) {
+      await page.setViewportSize(viewport);
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+      if (process.env.GUEST_SCREENSHOT_DIR)
+        await page.screenshot({ path: join(process.env.GUEST_SCREENSHOT_DIR, `ossm-admin-reset-position-${viewport.width}.png`), fullPage: true });
+    }
+    await page.getByRole("button", { name: "Stop", exact: true }).click();
+    await adminSession.received.get("Stop").promise;
+    assert.deepEqual(adminSession.calls, ["ResetPosition", "Stop"], "Stop must reach the same peer while reset is held");
+    adminSession.pending.get("Stop")();
+    adminSession.pending.delete("Stop");
+    adminSession.state = { ...adminSession.state, device: { ...adminSession.state.device, transmittedSettings: null } };
+    adminSession.pending.get("ResetPosition")({ accepted: false, code: "cancelled" });
+    adminSession.pending.delete("ResetPosition");
+    await page.waitForFunction(() => !document.querySelector("[data-reset-position-button]")?.disabled);
+    assert.equal(await page.locator(".preview-carriage animate").count(), 0);
+    assert.equal(adminSession.state.guestControlAllowed, false);
+    assert.deepEqual(errors, []);
+  } finally {
+    await closeAdmin(context);
+  }
+});
+
+test("guest Reset Position retains selection, pauses preview, and allows independent Stop", { timeout: 60_000 }, async () => {
+  const context = await browser.newContext();
+  const invitation = "reset-position";
+  const session = { requests: [], resets: 0, stops: 0, state: guestState(), resetReceived: Promise.withResolvers() };
+  sessions.set(invitation, session);
+  try {
+    const { page, errors } = await openGuest(context, invitation);
+    await selectSpeed(page, 35);
+    await page.locator("[data-pattern]").selectOption("6");
+    await page.locator("[data-auto-send]").check();
+    await page.waitForFunction(() => document.querySelector('[data-sent="speed"]')?.textContent === "35");
+    await page.getByRole("button", { name: "Reset Position", exact: true }).click();
+    await session.resetReceived.promise;
+    await page.getByText("Resetting position ...", { exact: true }).waitFor();
+    assert.equal(await page.locator("[data-send-button]").isDisabled(), true);
+    assert.equal(await page.locator("[data-auto-send]").isChecked(), false);
+    assert.equal(await page.locator("[data-stop-button]").isEnabled(), true);
+    assert.equal(await page.locator(".preview-carriage animate").count(), 0);
+    assert.equal(await page.locator('[data-input="speed"]').inputValue(), "35");
+    assert.equal(await page.locator("[data-pattern]").inputValue(), "6");
+    for (const viewport of viewports) {
+      await page.setViewportSize(viewport);
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+      if (process.env.GUEST_SCREENSHOT_DIR)
+        await page.screenshot({ path: join(process.env.GUEST_SCREENSHOT_DIR, `ossm-guest-reset-position-${viewport.width}.png`), fullPage: true });
+    }
+    session.completeReset();
+    await page.waitForFunction(() => !document.querySelector("[data-send-button]")?.disabled);
+    await page.waitForFunction(() => document.querySelector('[data-current="stroke"]')?.textContent === "100");
+    assert.equal(session.requests.length, 1, "reset completion and polling must not replay settings");
+    assert.equal(await page.locator(".preview-carriage animate").count(), 0);
+    assert.equal(await page.locator('[data-input="speed"]').inputValue(), "35");
+    assert.equal(await page.locator("[data-auto-send]").isChecked(), false);
+    session.resetReceived = Promise.withResolvers();
+    await page.getByRole("button", { name: "Reset Position", exact: true }).click();
+    await session.resetReceived.promise;
+    await requestGuestStop(page, session);
+    assert.equal(session.stops, 1, "Stop must reach the peer before reset completes");
+    session.completeReset({ accepted: false, code: "cancelled" });
+    await page.waitForFunction(() => !document.querySelector("[data-send-button]")?.disabled);
+    assert.equal(session.requests.length, 1);
+    assert.equal(await page.locator("[data-browser-alert]").isVisible(), false);
+    assert.deepEqual(errors, []);
+  } finally {
+    session.completeReset?.({ accepted: false, code: "cancelled" });
+    await context.close();
+    sessions.delete(invitation);
+  }
+});
 
 test("admin Stop pauses the last sent preview and shows a yellow stopping notice", { timeout: 60_000 }, async () => {
   const settings = { pattern: 0, speed: 35, stroke: 10, depth: 20, sensation: 50 };
@@ -874,7 +974,7 @@ test("admin completed connection shows metadata and a JS duration without server
     assert.equal(await page.locator(".preview-carriage animate").count(), 0);
     assert.equal(
       await page.locator(".preview-rail").getAttribute("aria-label"),
-      "Pattern 4 preview at 27% speed, 38% stroke, 49% depth, and 61% sensation",
+      "Deeper preview at 27% speed, 38% stroke, 49% depth, and 61% sensation",
     );
     adminSession.state = userState({ ...adminSession.state.device, isConnected: true, connectedAt });
     await page.waitForFunction(() => document.querySelector('[data-testid="device-duration"]')?.dataset.connectedAt);
@@ -907,12 +1007,14 @@ test("admin requested settings never substitute observed values or defaults for 
       [{ pattern: null, speed: 17, stroke: null, depth: null, sensation: null }, ["17%", "Unknown", "Unknown", "Unknown"], 0, 0],
       [{ pattern: null, speed: 17, stroke: null, depth: 47, sensation: null }, ["17%", "Unknown", "47%", "Unknown"], 0, 0],
       [{ pattern: null, speed: 17, stroke: 36, depth: null, sensation: null }, ["17%", "36%", "Unknown", "Unknown"], 0, 0],
+      [{ pattern: null, speed: 17, stroke: 36, depth: 47, sensation: 59 }, ["17%", "36%", "47%", "59%"], 1, 0],
+      [{ pattern: 99, speed: 17, stroke: 36, depth: 47, sensation: 59 }, ["17%", "36%", "47%", "59%"], 1, 0],
       [{ pattern: 0, speed: null, stroke: 36, depth: 47, sensation: null }, ["Unknown", "36%", "47%", "Unknown"], 1, 0],
       [{ pattern: 0, speed: 0, stroke: 36, depth: 47, sensation: 59 }, ["0%", "36%", "47%", "59%"], 1, 0],
       [{ pattern: 5, speed: 28, stroke: 36, depth: 47, sensation: 59 }, ["28%", "36%", "47%", "59%"], 1, 1],
     ]) {
       adminSession.state = userState({ ...adminSession.state.device, transmittedSettings: settings });
-      const patternLabel = settings.pattern === null ? "Unknown" : settings.pattern === 0 ? "Simple stroke" : "Pattern 5";
+      const patternLabel = settings.pattern === null ? "Unknown" : settings.pattern === 0 ? "Simple stroke" : settings.pattern === 5 ? "Stop / go" : `Pattern ${settings.pattern}`;
       const label = `${patternLabel} preview at ${expected[0]} speed, ${expected[1]} stroke, ${expected[2]} depth, and ${expected[3]} sensation`;
       await page.waitForFunction((label) => document.querySelector(".preview-rail")?.getAttribute("aria-label") === label, label);
       assert.equal(await preview.getAttribute("aria-label"), label);
@@ -920,7 +1022,7 @@ test("admin requested settings never substitute observed values or defaults for 
       assert.equal(await page.locator(".preview-carriage animate").count(), animation);
       assert.equal(
         await page.getByTestId("preview-pattern").innerText(),
-        settings.pattern === null ? "Unknown" : settings.pattern === 0 ? "Simple stroke" : "Pattern 5",
+        patternLabel,
       );
     }
     assert.deepEqual(adminSession.calls, [], "displaying transmissions must not issue commands");
@@ -979,9 +1081,9 @@ test("admin preview derives illustrative timing only from requested speed", { ti
       const positions = await page.locator(".preview-rail").evaluate((rail) => {
         rail.pauseAnimations();
         rail.setCurrentTime(0.1);
-        const first = rail.querySelector(".preview-carriage").cx.animVal.value;
+        const first = rail.querySelector(".preview-carriage").getBBox().x;
         rail.setCurrentTime(0.3);
-        const second = rail.querySelector(".preview-carriage").cx.animVal.value;
+        const second = rail.querySelector(".preview-carriage").getBBox().x;
         rail.unpauseAnimations();
         return [first, second];
       });
@@ -1048,16 +1150,16 @@ test("guest preview catches up to rapid slider edits without replaying intermedi
       await page.evaluate(() => globalThis.releasePreviewDisplay());
       await page.waitForFunction(() => document.querySelector(".preview-rail")?.getAttribute("aria-label").includes("80% depth"));
       assert.deepEqual(await page.evaluate(() => globalThis.previewDepths), [21, 80], "only the latest pending preview position should follow the in-flight update");
-      assert.equal(await page.locator(".preview-range").getAttribute("x"), "43");
-      assert.equal(await page.locator(".preview-range").getAttribute("width"), "19");
+      assert.equal(await page.locator(".preview-range").getAttribute("x"), "133.2");
+      assert.equal(await page.locator(".preview-range").getAttribute("width"), "16.6");
       const positions = await page.locator(".preview-rail").evaluate((rail) => {
         rail.pauseAnimations();
         rail.setCurrentTime(0);
         rail.querySelector("animate").beginElement();
         rail.setCurrentTime(0.1);
-        const first = rail.querySelector(".preview-carriage").cx.animVal.value;
+        const first = rail.querySelector(".preview-carriage").getBBox().x;
         rail.setCurrentTime(0.3);
-        const second = rail.querySelector(".preview-carriage").cx.animVal.value;
+        const second = rail.querySelector(".preview-carriage").getBBox().x;
         rail.unpauseAnimations();
         return [first, second];
       });
@@ -1069,6 +1171,159 @@ test("guest preview catches up to rapid slider edits without replaying intermedi
       await page.evaluate(() => { globalThis.previewDisplayGate = null; });
     }
     assert.deepEqual(session.requests, [], "preview edits must not send device commands");
+    assert.deepEqual(errors, []);
+  } finally {
+    await context.close();
+    sessions.delete(invitation);
+  }
+});
+
+test("seven guest patterns keep requests and illustrative previews consistent", { timeout: 60_000 }, async () => {
+  const context = await browser.newContext();
+  const invitation = "seven-patterns";
+  const session = { requests: [], state: guestState() };
+  sessions.set(invitation, session);
+  try {
+    const { page, errors } = await openGuest(context, invitation);
+    await selectSpeed(page, 50);
+    await page.locator('[data-input="sensation"]').fill("75");
+    const labels = ["Simple stroke", "Teasing / pounding", "Robo stroke", "Half / half", "Deeper", "Stop / go", "Insist"];
+    const profiles = new Set();
+    for (let pattern = 0; pattern <= 6; pattern++) {
+      await page.getByLabel("Pattern", { exact: true }).selectOption(String(pattern));
+      await page.waitForFunction((label) => document.querySelector('[data-testid="preview-pattern"]')?.textContent.trim() === label, labels[pattern]);
+      const animation = page.locator(".preview-carriage animate");
+      const profile = await animation.evaluate((element) => ["values", "keyTimes", "keySplines", "dur"].map((name) => element.getAttribute(name)));
+      profiles.add(JSON.stringify(profile));
+      const values = profile[0].split(";").map((path) => Number(path.match(/^M(-?[\d.]+)/)[1]));
+      assert.ok(values.every((value) => value >= 21.6 && value <= 38.2), "motion stays between withdrawal and forward depth");
+      if (pattern === 5) {
+        const groups = [];
+        let strokes = 0;
+        for (let index = 1; index < values.length; index++) {
+          if (values[index] > values[0]) strokes++;
+          if (values[index] === values[0] && values[index - 1] === values[0]) {
+            groups.push(strokes);
+            strokes = 0;
+          }
+        }
+        assert.deepEqual(groups, [1, 2, 3, 4, 5, 4, 3, 2], "Stop / go turns around at each end without repeating the first group");
+      }
+      assert.equal(profile[1].split(";")[0], "0");
+      assert.equal(profile[1].split(";").at(-1), "1");
+      const motion = await page.locator(".preview-rail").evaluate((rail) => {
+        const animation = rail.querySelector("animate");
+        const segment = parseFloat(animation.getAttribute("dur")) * Number(animation.getAttribute("keyTimes").split(";")[1]);
+        rail.pauseAnimations();
+        rail.setCurrentTime(0);
+        animation.beginElement();
+        rail.setCurrentTime(segment * .25);
+        const first = rail.querySelector(".preview-carriage").getBBox().x;
+        rail.setCurrentTime(segment * .75);
+        const second = rail.querySelector(".preview-carriage").getBBox().x;
+        rail.unpauseAnimations();
+        return [first, second];
+      });
+      assert.ok(motion[1] > motion[0] + .01, "each pattern visibly inserts towards the right");
+      const count = session.requests.length;
+      const received = Promise.withResolvers();
+      session.requestReceived = received.resolve;
+      await page.locator("[data-send-button]").click();
+      await received.promise;
+      await page.waitForFunction(() => document.querySelector('[data-sent="sensation"]')?.textContent === "75");
+      await page.waitForFunction(() => document.querySelector('[data-send-status]')?.textContent.includes("sent"));
+      assert.equal(session.requests.length, count + 1);
+      assert.deepEqual([session.requests.at(-1).pattern, session.requests.at(-1).sensation, session.requests.at(-1).speed], [pattern, 75, 50]);
+      session.state = guestState({ device: { ...session.state.device, pattern: (pattern + 1) % 7 } });
+      assert.equal(await page.locator("[data-pattern]").inputValue(), String(pattern));
+    }
+    assert.equal(profiles.size, 7, "representative sensation distinguishes every illustrative pattern");
+    for (const viewport of viewports) {
+      await page.setViewportSize(viewport);
+      const back = await page.getByText("Back", { exact: true }).boundingBox();
+      const front = await page.getByText("Front / person", { exact: true }).boundingBox();
+      assert.ok(back.x < front.x);
+      assert.match(await page.locator(".preview-carriage").getAttribute("d"), /^M[\d.]+ 16H[\d.]+A7 7 0 0 1 [\d.]+ 30H[\d.]+Z$/, "the back is flat and the forward end is rounded");
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+      if (process.env.GUEST_SCREENSHOT_DIR) {
+        await page.screenshot({ path: join(process.env.GUEST_SCREENSHOT_DIR, `ossm-seven-patterns-${viewport.width}.png`), fullPage: true });
+      }
+    }
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    assert.equal(await page.locator(".preview-carriage").isVisible(), false);
+    assert.equal(await page.locator(".preview-still").isVisible(), true);
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    await page.locator("[data-auto-send]").check();
+    for (let pattern = 0; pattern <= 6; pattern++) {
+      const count = session.requests.length;
+      const received = Promise.withResolvers();
+      session.requestReceived = received.resolve;
+      await page.locator("[data-pattern]").selectOption(String(pattern));
+      await received.promise;
+      await page.waitForFunction((label) => document.querySelector('[data-testid="preview-pattern"]')?.textContent.trim() === label, labels[pattern]);
+      await page.waitForFunction(() => document.querySelector('[data-send-status]')?.textContent.includes("sent"));
+      assert.equal(session.requests.length, count + 1);
+      assert.equal(session.requests.at(-1).pattern, pattern);
+    }
+    await page.locator("[data-auto-send]").uncheck();
+    const profilesAtBoundary = async (pattern, sensation) => {
+      await page.locator("[data-pattern]").selectOption(String(pattern));
+      await page.locator('[data-input="sensation"]').fill(String(sensation));
+      await page.waitForFunction(([label, sensation]) => document.querySelector(".preview-rail")?.getAttribute("aria-label")
+        === `${label} preview at 50% speed, 10% stroke, 20% depth, and ${sensation}% sensation`, [labels[pattern], sensation]);
+      const animation = page.locator(".preview-carriage animate");
+      return await animation.evaluate((element) => ["values", "keyTimes", "keySplines", "dur"].map((name) => element.getAttribute(name)));
+    };
+    const simpleAtZero = await profilesAtBoundary(0, 0);
+    assert.deepEqual(await profilesAtBoundary(0, 100), simpleAtZero, "simple strokes ignore sensation");
+    for (const pattern of [1, 2, 3, 4, 5]) {
+      assert.notDeepEqual(await profilesAtBoundary(pattern, 0), await profilesAtBoundary(pattern, 100), "sensation changes the applicable pattern motion");
+    }
+    await page.locator("[data-pattern]").selectOption("6");
+    for (const sensation of [0, 100]) {
+      await page.locator('[data-input="sensation"]').fill(String(sensation));
+      await page.waitForFunction((value) => document.querySelector(".preview-rail")?.getAttribute("aria-label").includes(`${value}% sensation`), sensation);
+      assert.equal(await page.locator(".preview-carriage animate").count(), 0, "Insist has zero travel at sensation extremes");
+      const position = await page.locator(".preview-carriage").evaluate((shape) => shape.getBBox().x);
+      assert.ok(Math.abs(position - (sensation === 0 ? 21.6 : 38.2)) < .001);
+    }
+    await page.locator("[data-pattern]").selectOption("0");
+    for (const name of ["stroke", "depth"]) {
+      await page.locator(`[data-input="${name}"]`).fill("0");
+      await page.waitForFunction((name) => document.querySelector(".preview-rail")?.getAttribute("aria-label").includes(`0% ${name}`), name);
+      assert.equal(await page.locator(".preview-carriage animate").count(), 0);
+      await page.locator("[data-send-button]").click();
+      await page.waitForFunction((name) => document.querySelector(`[data-sent="${name}"]`)?.textContent === "0", name);
+      assert.equal(session.requests.at(-1)[name], 0);
+    }
+    await page.locator('[data-input="depth"]').fill("100");
+    await page.locator('[data-input="stroke"]').fill("100");
+    await selectSpeed(page, 100);
+    await page.waitForFunction(() => document.querySelector(".preview-carriage animate")?.getAttribute("dur") === "0.4s");
+    assert.equal(await page.locator(".preview-range").getAttribute("x"), "17");
+    assert.equal(await page.locator(".preview-range").getAttribute("width"), "166");
+    const carriageBounds = await page.locator(".preview-rail").evaluate((rail) => {
+      rail.pauseAnimations();
+      rail.setCurrentTime(0);
+      rail.querySelector("animate").beginElement();
+      const bounds = [0.001, 0.2].map((time) => {
+        rail.setCurrentTime(time);
+        const shape = rail.querySelector(".preview-carriage").getBBox();
+        return { left: shape.x, right: shape.x + shape.width };
+      });
+      rail.unpauseAnimations();
+      return bounds;
+    });
+    assert.ok(carriageBounds.every(({ left, right }) => left >= 5 && right <= 195), "the entire carriage stays inside the rail at both travel limits");
+    await page.locator("[data-pattern]").evaluate((select) => {
+      select.add(new Option("Unrecognised", "7"));
+      select.value = "7";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    const countBeforeInvalid = session.requests.length;
+    await page.locator("[data-send-button]").click();
+    await page.locator("[data-browser-alert]").waitFor({ state: "visible" });
+    assert.equal(session.requests.length, countBeforeInvalid, "interop rejects an unsupported pattern before sending");
     assert.deepEqual(errors, []);
   } finally {
     await context.close();

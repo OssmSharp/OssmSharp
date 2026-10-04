@@ -44,6 +44,18 @@ public interface IAdminApiClient : IAsyncDisposable
     Task<ControlResponse> StopAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Retracts once and stops without resuming settings or granting guest permission.
+    /// </summary>
+    /// <remarks>
+    /// Waits without the short response deadline. Use <see cref="StopAsync"/> to interrupt it;
+    /// cancelling the response wait does not cancel a dispatched server operation.
+    /// </remarks>
+    /// <returns>The completed position-reset response.</returns>
+    /// <exception cref="ApiClientException">The service rejects the request or the operation fails.</exception>
+    /// <exception cref="OperationCanceledException">The caller cancels the response wait.</exception>
+    Task<ControlResponse> ResetPositionAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Ends the current guest session and requests runtime Stop.
     /// </summary>
     /// <returns>The accepted session-ending response.</returns>

@@ -86,6 +86,11 @@ public static class ControlResponseCodes
     public const string Stopped = "stopped";
 
     /// <summary>
+    /// The one-shot position reset completed and stopped without resuming settings.
+    /// </summary>
+    public const string PositionReset = "position-reset";
+
+    /// <summary>
     /// The runtime device was not connected for the requested operation.
     /// </summary>
     public const string DeviceNotConnected = "device-not-connected";

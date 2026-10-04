@@ -59,6 +59,10 @@ public sealed class GuestApiClient(IRpcClient connection)
         InvokeRequestAsync("GuestStop", [NewCorrelation()], cancellationToken);
 
     /// <inheritdoc />
+    public Task<ControlResponse> ResetPositionAsync(CancellationToken cancellationToken = default) =>
+        InvokeRequestAsync("GuestResetPosition", [NewCorrelation()], cancellationToken);
+
+    /// <inheritdoc />
     public Task<ControlResponse> LeaveAsync(CancellationToken cancellationToken = default) =>
         InvokeRequestAsync("Leave", [NewCorrelation()], cancellationToken);
 

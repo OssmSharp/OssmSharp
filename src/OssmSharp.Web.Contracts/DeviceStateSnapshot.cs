@@ -16,6 +16,7 @@ namespace OssmSharp.Web.Contracts;
 /// <param name="Identifier">The selected device identifier when disclosed to the user.</param>
 /// <param name="ConnectedAt">When the current successful connection completed, if known.</param>
 /// <param name="TransmittedSettings">The last successfully sent requested selection disclosed to the user, not raw firmware velocity or observed motion.</param>
+/// <param name="IsResettingPosition">Whether a one-shot position reset is still running or cleaning up. Stop remains available.</param>
 public sealed record DeviceStateSnapshot(
     int? Pattern,
     double? Speed,
@@ -29,4 +30,5 @@ public sealed record DeviceStateSnapshot(
     string? Name = null,
     string? Identifier = null,
     DateTimeOffset? ConnectedAt = null,
-    DeviceSettingsSnapshot? TransmittedSettings = null);
+    DeviceSettingsSnapshot? TransmittedSettings = null,
+    bool IsResettingPosition = false);

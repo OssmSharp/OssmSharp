@@ -37,7 +37,7 @@ async function createGuest(invoke = async () => ({ ok: true }), url = "https://g
     if (!elements.has(selector)) elements.set(selector, new Element());
     return elements.get(selector);
   };
-  for (const [name, value] of Object.entries({ speed: 30, stroke: 10, depth: 20 }))
+  for (const [name, value] of Object.entries({ speed: 30, stroke: 10, depth: 20, sensation: 50 }))
     root.querySelector(`[data-input="${name}"]`).value = String(value);
   const storage = new Map();
   const location = new URL(url);
@@ -93,6 +93,24 @@ async function createGuest(invoke = async () => ({ ok: true }), url = "https://g
   };
 }
 
+test("all seven pattern selections survive snapshots and reach preview and requests", async () => {
+  const browser = await createGuest();
+  for (let pattern = 0; pattern <= 6; pattern++) {
+    const input = browser.element("[data-pattern]");
+    input.value = String(pattern);
+    input.dispatchEvent(new Event("change"));
+    browser.guest.updateState({ joined: true, ready: true, current: { pattern: 6 - pattern } });
+    browser.click("[data-send-button]");
+    await setImmediate();
+    assert.equal(browser.calls("SubmitSettings").at(-1).payload.pattern, pattern);
+    const display = browser.calls("UpdateDisplay").at(-1).payload;
+    assert.equal(display.selected.pattern, pattern);
+    assert.equal(display.sent.pattern, pattern);
+    assert.equal(input.value, String(pattern));
+  }
+  browser.guest.dispose();
+});
+
 test("speed is sent unchanged and retains the selected speed", async () => {
   const browser = await createGuest();
   for (const [speed, stroke, depth] of [
@@ -104,6 +122,8 @@ test("speed is sent unchanged and retains the selected speed", async () => {
     [0, 10, 20],
     [30, 1, 1],
     [100, 1, 1],
+    [50, 0, 20],
+    [50, 0, 0],
   ]) {
     for (const [name, value] of Object.entries({ depth, stroke, speed })) {
       const input = browser.element(`[data-input="${name}"]`);
@@ -125,6 +145,97 @@ test("speed is sent unchanged and retains the selected speed", async () => {
     await setImmediate();
     assert.equal(browser.calls("SubmitSettings").length, count + 1);
   }
+  browser.guest.dispose();
+});
+
+test("Reset Position preserves selection, discards stale sends, and allows independent Stop", async () => {
+  let completeRequest;
+  let completeReset;
+  const browser = await createGuest(async (method) => {
+    if (method === "SubmitSettings") return new Promise((resolve) => { completeRequest = resolve; });
+    if (method === "ResetPosition") return new Promise((resolve) => { completeReset = resolve; });
+    return { ok: true };
+  });
+  const auto = browser.element("[data-auto-send]");
+  auto.checked = true;
+  auto.dispatchEvent(new Event("change"));
+  await setImmediate();
+  browser.element('[data-input="speed"]').value = "40";
+  browser.element('[data-input="speed"]').dispatchEvent(new Event("input"));
+  browser.click("[data-reset-position-button]");
+  await setImmediate();
+  assert.equal(browser.calls("ResetPosition").length, 1);
+  assert.equal(auto.checked, false);
+  assert.equal(browser.element('[data-input="speed"]').value, "40");
+  assert.equal(browser.element("[data-send-button]").disabled, true);
+  assert.equal(browser.calls("UpdateDisplay").at(-1).payload.previewStopped, true);
+  completeRequest({ ok: true });
+  await setImmediate();
+  assert.equal(browser.calls("SubmitSettings").length, 1);
+  assert.equal(browser.calls("UpdateDisplay").at(-1).payload.sent, null);
+  browser.click("[data-stop-button]");
+  await setImmediate();
+  assert.equal(browser.calls("StopRun").length, 1);
+  completeReset({ ok: false, code: "cancelled" });
+  await setImmediate();
+  assert.equal(browser.calls("UpdateDisplay").at(-1).payload.error, null, "late reset cancellation cannot replace successful Stop");
+  assert.equal(browser.element("[data-send-button]").disabled, false, "successful concurrent Stop must not require a second Stop");
+  browser.guest.dispose();
+});
+
+test("Reset Position completion and remote reset keep preview paused until deliberate Send", async () => {
+  const browser = await createGuest();
+  browser.click("[data-reset-position-button]");
+  await setImmediate();
+  assert.equal(browser.calls("ResetPosition").length, 1);
+  assert.equal(browser.element('[data-input="speed"]').value, "30");
+  browser.guest.updateState({ joined: true, ready: true, stopped: true });
+  await setImmediate();
+  assert.equal(browser.calls("SubmitSettings").length, 0);
+  assert.equal(browser.calls("UpdateDisplay").at(-1).payload.previewStopped, true);
+  browser.click("[data-send-button]");
+  await setImmediate();
+  assert.equal(browser.calls("UpdateDisplay").at(-1).payload.previewStopped, false);
+  browser.guest.updateState({ joined: true, ready: true, resettingPosition: true });
+  await setImmediate();
+  assert.equal(browser.element("[data-send-button]").disabled, true);
+  assert.equal(browser.calls("UpdateDisplay").at(-1).payload.previewStopped, true);
+  browser.guest.updateState({ joined: true, ready: true, stopped: true });
+  await setImmediate();
+  assert.equal(browser.element('[data-input="speed"]').value, "30");
+  assert.equal(browser.calls("SubmitSettings").length, 1);
+  browser.guest.updateState({ joined: true, ready: false });
+  browser.click("[data-reset-position-button]");
+  await setImmediate();
+  assert.equal(browser.calls("ResetPosition").length, 1, "an unapproved guest cannot reset position");
+  browser.guest.dispose();
+});
+
+test("stale settings timeout cannot erase reset selection or hide reset failure", async () => {
+  let completeRequest;
+  let completeReset;
+  const browser = await createGuest(async (method) => {
+    if (method === "SubmitSettings") return new Promise((resolve) => { completeRequest = resolve; });
+    if (method === "ResetPosition") return new Promise((resolve) => { completeReset = resolve; });
+    return { ok: true };
+  });
+  browser.click("[data-send-button]");
+  await setImmediate();
+  browser.click("[data-reset-position-button]");
+  completeRequest({ ok: false, code: "outcome-unknown" });
+  await setImmediate();
+  assert.equal(browser.element('[data-input="speed"]').value, "30");
+  assert.equal(browser.calls("UpdateDisplay").at(-1).payload.sent, null);
+  completeReset({ ok: false, code: "device-io-failed" });
+  await setImmediate();
+  assert.equal(browser.calls("UpdateDisplay").at(-1).payload.error, "Reset Position failed (device-io-failed). Use Stop before sending again.");
+  browser.guest.updateState({ joined: true, ready: true });
+  browser.click("[data-send-button]");
+  await setImmediate();
+  assert.equal(browser.calls("SubmitSettings").length, 1, "a failed reset stays paused until Stop succeeds");
+  browser.click("[data-stop-button]");
+  await setImmediate();
+  assert.equal(browser.element("[data-send-button]").disabled, false);
   browser.guest.dispose();
 });
 
@@ -155,6 +266,28 @@ test("preview display skips intermediate slider edits while an update is in flig
   completeDisplay();
   await setImmediate();
   assert.equal(browser.calls("UpdateDisplay").length, 2, "disposal must discard pending display work");
+});
+
+test("pattern and sensation supersession keeps the latest preview after a snapshot", async () => {
+  let completeDisplay;
+  const browser = await createGuest(async (method) => method === "UpdateDisplay"
+    ? new Promise((resolve) => { completeDisplay = resolve; }) : { ok: true });
+  for (let pattern = 0; pattern <= 6; pattern++) {
+    browser.element("[data-pattern]").value = String(pattern);
+    browser.element("[data-pattern]").dispatchEvent(new Event("change"));
+    browser.element('[data-input="sensation"]').value = String(pattern * 10);
+    browser.element('[data-input="sensation"]').dispatchEvent(new Event("input"));
+  }
+  browser.guest.updateState({ joined: true, ready: true, current: { pattern: 0, sensation: 0 } });
+  assert.equal(browser.calls("UpdateDisplay").length, 1);
+  completeDisplay();
+  await setImmediate();
+  const selected = browser.calls("UpdateDisplay").at(-1).payload.selected;
+  assert.deepEqual([selected.pattern, selected.sensation], [6, 60]);
+  assert.equal(browser.calls("UpdateDisplay").length, 2);
+  assert.equal(browser.calls("SubmitSettings").length, 0);
+  browser.guest.dispose();
+  completeDisplay();
 });
 
 test("unknown outcome pauses queued and new sends until an acknowledged recovery Stop", async () => {

@@ -133,9 +133,11 @@ public sealed class AdminApiClientConnectionTests : MockerTestBase<AdminApiClien
         }
     }
 
-    [Fact]
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     [Trait("Category", "Integration")]
-    public async Task ConnectRemainsPendingBeyondRequestAcknowledgementDeadline()
+    public async Task LongCommandRemainsPendingBeyondRequestAcknowledgementDeadline(bool resetPosition)
     {
         var options = new RpcClientOptions
         {
@@ -158,7 +160,7 @@ public sealed class AdminApiClientConnectionTests : MockerTestBase<AdminApiClien
         await using var scope = new RpcClientTestScope(options);
         await using var client = new AdminApiClient(scope.Connection);
         using var pending = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
-        var connect = client.ConnectAsync(pending.Token);
+        var connect = resetPosition ? client.ResetPositionAsync(pending.Token) : client.ConnectAsync(pending.Token);
         try
         {
             await entered.Task.WaitAsync(TestContext.Current.CancellationToken);

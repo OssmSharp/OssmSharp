@@ -103,7 +103,7 @@ public partial class Home
             do
             {
                 var state = await Control.GetStateAsync(_lifetime.Token);
-                if (_previewStopped && !_safetyBusy && state.Device?.TransmittedSettings != _stoppedSettings)
+                if (_previewStopped && !_busy && !_safetyBusy && state.Device?.TransmittedSettings != _stoppedSettings)
                     _previewStopped = false;
                 if (!_loaded || _state != state || renderedMessage != _notice.Message || renderedCopyLabel != _notice.CopyLabel)
                 {
@@ -129,6 +129,7 @@ public partial class Home
 
     private Task AllowGuest() => RunAsync(Control.AllowGuestAsync, null);
     private Task Stop() => RunAsync(Control.StopAsync, "Stopping ...", safety: true, stopPreview: true);
+    private Task ResetPosition() => RunAsync(Control.ResetPositionAsync, "Position reset. Stopped.", stopPreview: true, pendingMessage: "Resetting position ...");
     private Task EndGuest() => RunAsync(Control.EndGuestAsync, "Guest session ended.", safety: true);
     private Task Connect() => RunAsync(Control.ConnectAsync, null, confirmConnection: true);
 
@@ -139,7 +140,7 @@ public partial class Home
         _notice.CopyCompleted(await _module.InvokeAsync<bool>("copy", InvitationText));
     }
 
-    private async Task RunAsync(Func<CancellationToken, Task<ControlResponse>> command, string? message, bool safety = false, bool confirmConnection = false, bool stopPreview = false)
+    private async Task RunAsync(Func<CancellationToken, Task<ControlResponse>> command, string? message, bool safety = false, bool confirmConnection = false, bool stopPreview = false, string? pendingMessage = null)
     {
         if (_safetyBusy || (!safety && _busy))
             return;
@@ -155,7 +156,7 @@ public partial class Home
         {
             _previewStopped = true;
             _stoppedSettings = _state?.Device?.TransmittedSettings;
-            _notice.Show(message);
+            _notice.Show(pendingMessage ?? message);
             await InvokeAsync(StateHasChanged);
         }
         try

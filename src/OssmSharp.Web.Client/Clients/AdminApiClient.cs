@@ -31,6 +31,10 @@ public sealed class AdminApiClient(IRpcClient connection)
         InvokeRequestAsync("Stop", cancellationToken);
 
     /// <inheritdoc />
+    public Task<ControlResponse> ResetPositionAsync(CancellationToken cancellationToken = default) =>
+        InvokeRequestAsync("ResetPosition", cancellationToken);
+
+    /// <inheritdoc />
     public Task<ControlResponse> EndGuestAsync(CancellationToken cancellationToken = default) =>
         InvokeRequestAsync("EndGuest", cancellationToken);
 

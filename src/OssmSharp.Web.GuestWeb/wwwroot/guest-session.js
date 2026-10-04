@@ -78,7 +78,7 @@ function showDisconnect() {
   document.documentElement.dataset.guestConnectionLost = "true";
   guestRoot?.setAttribute("data-connection-lost", "true");
   document.querySelector(".preview-rail")?.pauseAnimations();
-  for (const control of document.querySelectorAll?.(".guest-session button, .guest-session input") ?? []) control.disabled = true;
+  for (const control of document.querySelectorAll?.(".guest-session button, .guest-session input, .guest-session select") ?? []) control.disabled = true;
   document.querySelector("main > [data-testid='guest-disconnected']")?.removeAttribute("hidden");
   disconnectObserver?.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["disabled", "hidden"] });
 }
@@ -88,9 +88,11 @@ class Controls {
     this.root = root;
     this.reference = reference;
     this.listeners = new AbortController();
-    this.names = ["speed", "stroke", "depth"];
+    this.names = ["speed", "stroke", "depth", "sensation"];
     this.inputs = Object.fromEntries(this.names.map((name) => [name, root.querySelector(`[data-input="${name}"]`)]));
+    this.pattern = root.querySelector("[data-pattern]");
     this.sendButton = root.querySelector("[data-send-button]");
+    this.resetPositionButton = root.querySelector("[data-reset-position-button]");
     this.autoSendToggle = root.querySelector("[data-auto-send]");
     this.error = null;
     this.lastDisplayPayload = null;
@@ -101,6 +103,9 @@ class Controls {
     this.sentSelection = null;
     this.current = null;
     this.stopQueued = false;
+    this.resetQueued = false;
+    this.resettingPosition = false;
+    this.previewStopped = false;
     this.recoveryRequired = false;
     this.commandGeneration = 0;
     this.commandQueue = Promise.resolve();
@@ -108,7 +113,12 @@ class Controls {
     this.updatingDisplay = false;
     this.on(this.sendButton, "click", () => this.commitSelection());
     this.on(root.querySelector("[data-stop-button]"), "click", () => this.requestStop());
+    this.on(this.resetPositionButton, "click", () => this.requestResetPosition());
     this.on(this.autoSendToggle, "change", () => this.autoSendToggle.checked && this.commitSelection());
+    this.on(this.pattern, "change", () => {
+      this.render();
+      if (this.autoSendToggle.checked) this.commitSelection();
+    });
     for (const input of Object.values(this.inputs))
       this.on(input, "input", () => {
         this.constrainStroke();
@@ -124,19 +134,19 @@ class Controls {
     target.addEventListener(event, action, { signal: this.listeners.signal });
   }
   canSend() {
-    return !this.destroyed && !this.recoveryRequired && !this.stopQueued && this.joined && this.ready && document.visibilityState === "visible";
+    return !this.destroyed && !this.recoveryRequired && !this.stopQueued && !this.resetQueued && !this.resettingPosition && this.joined && this.ready && document.visibilityState === "visible";
   }
   constrainStroke() {
-    const depth = Math.max(1, Math.min(100, Number(this.inputs.depth.value)));
+    const depth = Math.max(0, Math.min(100, Number(this.inputs.depth.value)));
     this.inputs.depth.value = String(depth);
     this.inputs.stroke.max = String(depth);
-    this.inputs.stroke.value = String(Math.max(1, Math.min(depth, Number(this.inputs.stroke.value))));
+    this.inputs.stroke.value = String(Math.max(0, Math.min(depth, Number(this.inputs.stroke.value))));
     this.inputs.speed.value = String(Math.max(0, Math.min(100, Number(this.inputs.speed.value))));
+    this.inputs.sensation.value = String(Math.max(0, Math.min(100, Number(this.inputs.sensation.value))));
   }
   selected() {
     return {
-      pattern: 0,
-      sensation: 50,
+      pattern: Number(this.pattern.value),
       ...Object.fromEntries(this.names.map((name) => [name, Number(this.inputs[name].value)])),
     };
   }
@@ -149,17 +159,16 @@ class Controls {
       .then(async () => {
         if (generation !== this.commandGeneration || !this.canSend() || !this.changed(settings)) return;
         const reply = await this.reference.invokeMethodAsync("SubmitSettings", settings);
-        if (this.destroyed) return;
+        if (this.destroyed || generation !== this.commandGeneration) return;
         if (reply?.code === "outcome-unknown") {
           this.recoveryRequired = true;
           this.disarm();
           this.commandGeneration++;
           this.error = "Settings may have executed. The outcome is unknown. Use Stop before sending again.";
-        } else if (generation !== this.commandGeneration) {
-          return;
         } else if (reply?.ok) {
           this.sent = settings;
           this.sentSelection = settings;
+          this.previewStopped = false;
           this.error = null;
         } else {
           this.error = "Settings were rejected. Check the values and try again.";
@@ -172,11 +181,34 @@ class Controls {
     return !this.sentSelection || Object.keys(settings).some((key) => settings[key] !== this.sentSelection[key]);
   }
   disarm() {
-    this.autoSendToggle.checked = false;
+    this.pauseSelection();
     this.inputs.speed.value = "0";
     this.root.querySelector('[data-value="speed"]').textContent = "0";
+  }
+  pauseSelection() {
+    this.autoSendToggle.checked = false;
+    this.previewStopped = true;
     this.sent = null;
     this.sentSelection = null;
+  }
+  requestResetPosition() {
+    if (!this.canSend()) return;
+    this.pauseSelection();
+    const generation = ++this.commandGeneration;
+    this.resetQueued = true;
+    this.render();
+    this.reference
+      .invokeMethodAsync("ResetPosition")
+      .then((reply) => {
+        if (this.destroyed || generation !== this.commandGeneration) return;
+        this.error = reply?.ok ? null : `Reset Position failed (${reply?.code ?? "unknown"}). Use Stop before sending again.`;
+        this.recoveryRequired = !reply?.ok;
+      })
+      .catch(() => this.connectionLost())
+      .finally(() => {
+        this.resetQueued = false;
+        this.render();
+      });
   }
   requestStop() {
     this.disarm();
@@ -207,6 +239,11 @@ class Controls {
     this.joined = state?.joined === true;
     this.ready = state?.ready === true;
     this.current = state?.current ?? null;
+    this.resettingPosition = state?.resettingPosition === true;
+    if ((this.resettingPosition || state?.stopped === true) && !this.previewStopped) {
+      this.pauseSelection();
+      this.commandGeneration++;
+    }
     if (!this.joined || !this.ready) {
       this.disarm();
       this.commandGeneration++;
@@ -242,12 +279,16 @@ class Controls {
     }
     this.sendButton.disabled = !this.canSend();
     this.autoSendToggle.disabled = !this.canSend();
-    const status = this.sent ? "Last changed selection sent." : "Choose settings, then Send.";
+    this.resetPositionButton.disabled = !this.canSend();
+    this.pattern.disabled = this.resetQueued || this.resettingPosition;
+    for (const input of Object.values(this.inputs)) input.disabled = this.resetQueued || this.resettingPosition;
+    const status = this.resetQueued || this.resettingPosition ? "Resetting position ..." : this.sent ? "Last changed selection sent." : "Choose settings, then Send.";
     const display = {
       selected,
       sent: this.sentSelection,
       status,
       error: this.error,
+      previewStopped: this.previewStopped,
     };
     const serialized = JSON.stringify(display);
     if (serialized !== this.lastDisplayPayload) {
@@ -282,6 +323,7 @@ class Controls {
     this.pendingDisplay = null;
     this.listeners.abort();
     this.sendButton.disabled = true;
+    this.resetPositionButton.disabled = true;
     this.autoSendToggle.disabled = true;
   }
 }

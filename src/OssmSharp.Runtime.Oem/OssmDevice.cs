@@ -107,6 +107,12 @@ public sealed class OssmDevice : IOssmDevice
     private SetOperationContext? request;
 
     /// <summary>
+    /// Cancels the one-shot retract and excludes competing settings and rearming until Stop settles.
+    /// </summary>
+    [SuppressMessage("Usage", "CA2213", Justification = "ResetPositionAsync owns and disposes this source after joining Stop, including when device disposal interrupts it.")]
+    private CancellationTokenSource? resetPosition;
+
+    /// <summary>
     /// Last observed controls, retained across disconnection and never inferred from writes.
     /// </summary>
     private DeviceState? state;
@@ -484,6 +490,11 @@ public sealed class OssmDevice : IOssmDevice
                 throw new InvalidOperationException("Settings request was interrupted by Stop; submit again after it completes.");
             }
 
+            if (resetPosition is not null)
+            {
+                throw new InvalidOperationException("Reset Position is running; submit settings again after it completes.");
+            }
+
             if (!armed)
             {
                 throw new InvalidOperationException("Commands are disarmed; explicitly reset before submitting settings.");
@@ -646,7 +657,7 @@ public sealed class OssmDevice : IOssmDevice
         lock (sync)
         {
             EnsureConnected();
-            if (stop is { IsCompleted: false })
+            if (stop is { IsCompleted: false } || resetPosition is not null)
             {
                 throw new InvalidOperationException("Reset was interrupted by disarming or Stop; explicitly reset again after it completes.");
             }
@@ -662,7 +673,7 @@ public sealed class OssmDevice : IOssmDevice
             bool changed;
             lock (sync)
             {
-                if (stop is { IsCompleted: false } || version != connection)
+                if (stop is { IsCompleted: false } || resetPosition is not null || version != connection)
                 {
                     throw new InvalidOperationException("Reset was interrupted by disarming or Stop; explicitly reset again after it completes.");
                 }
@@ -681,6 +692,123 @@ public sealed class OssmDevice : IOssmDevice
         },
             requiresConnection: true,
             cancellationToken: cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task ResetPositionAsync(CancellationToken cancellationToken = default)
+    {
+        logger.ApiCalled("ResetPosition");
+        CancellationTokenSource pendingCancellation;
+        CancellationTokenSource session;
+        lock (sync)
+        {
+            EnsureConnected();
+            cancellationToken.ThrowIfCancellationRequested();
+            if (stop is { IsCompleted: false } || resetPosition is not null || !armed)
+            {
+                throw new InvalidOperationException("Reset Position requires armed requests and no Stop or Reset Position in progress.");
+            }
+
+            InterruptLocked();
+            resetPosition = pendingCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            stop = null;
+            session = connectionCancellation!;
+        }
+
+        Exception? failure = null;
+        try
+        {
+            await ExecuteAsync(
+                async token =>
+                {
+                    logger.OperationStarted("reset position");
+                    await WriteCommandAsync(new(FirmwareSetting.Speed, 0), token).ConfigureAwait(false);
+                    await SendRequestAsync(session, "setting.write", "setting.speedKnobAsLimit", new JsonObject { ["value"] = false }, leased: true, token).ConfigureAwait(false);
+                    var response = await SendRequestAsync(session, "target.set", "target.streaming", null, leased: true, token).ConfigureAwait(false);
+                    if (response.StateAfter != "streaming.idle")
+                    {
+                        throw new InvalidOperationException("The device is not ready to reset position. Wait for homing and preflight to finish.");
+                    }
+
+                    await Task.Delay(TimeSpan.FromMilliseconds(100), timeProvider, token).ConfigureAwait(false);
+                    await WriteCommandAsync(new(FirmwareSetting.Stroke, 100), token).ConfigureAwait(false);
+                    await WriteCommandAsync(new(FirmwareSetting.Depth, 100), token).ConfigureAwait(false);
+                    await WriteCommandAsync(new(FirmwareSetting.Sensation, 100), token).ConfigureAwait(false);
+                    await WriteCommandAsync(new(FirmwareSetting.Speed, 20), token).ConfigureAwait(false);
+                    await SendRequestAsync(session, "target.set", "motion.position", new JsonObject { ["value"] = 100, ["durationMs"] = 10000 }, leased: true, token).ConfigureAwait(false);
+                    while (true)
+                    {
+                        var position = (await SendRequestAsync(session, "sensor.read", "motion.position", null, leased: true, token).ConfigureAwait(false)).Result;
+                        if (position.ValueKind != JsonValueKind.Object
+                            || !position.TryGetProperty("path", out var path) || path.ValueKind != JsonValueKind.String || !path.ValueEquals("motion.position")
+                            || !position.TryGetProperty("value", out var value) || value.ValueKind != JsonValueKind.Number
+                            || !value.TryGetDouble(out var positionMm) || !double.IsFinite(positionMm))
+                        {
+                            throw new InvalidDataException("The device did not report a finite motion position in millimetres.");
+                        }
+
+                        if (positionMm == 0)
+                        {
+                            return true;
+                        }
+
+                        await Task.Delay(TimeSpan.FromMilliseconds(250), timeProvider, token).ConfigureAwait(false);
+                    }
+                },
+                requiresConnection: true,
+                connectionToken: session.Token,
+                cancellationToken: pendingCancellation.Token).ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            failure = exception;
+            if (exception is not OperationCanceledException)
+            {
+                logger.OperationFailed("reset position", exception);
+            }
+
+            throw;
+        }
+        finally
+        {
+            await Task.CompletedTask.ConfigureAwait(ConfigureAwaitOptions.ForceYielding);
+            try
+            {
+                Task? pendingStop;
+                TaskCompletionSource? started = null;
+                lock (sync)
+                {
+                    pendingStop = ReferenceEquals(session, connectionCancellation)
+                        ? stop ?? PrepareStop(out started)
+                        : null;
+                }
+
+                if (started is not null)
+                {
+                    _ = CompleteStopAsync(started);
+                }
+
+                if (pendingStop is not null)
+                {
+                    await pendingStop.ConfigureAwait(false);
+                }
+            }
+            catch (Exception cleanupError) when (failure is not null)
+            {
+                throw new AggregateException("Reset Position and Stop both failed.", failure, cleanupError);
+            }
+            finally
+            {
+                await Task.CompletedTask.ConfigureAwait(ConfigureAwaitOptions.ForceYielding);
+                lock (sync)
+                {
+                    resetPosition.Dispose();
+                    resetPosition = null;
+                }
+            }
+        }
+
+        logger.OperationCompleted("reset position");
     }
 
     /// <summary>
@@ -1367,6 +1495,7 @@ public sealed class OssmDevice : IOssmDevice
     {
         connection++;
         CancelPending();
+        resetPosition?.Cancel();
     }
 
     /// <summary>
@@ -1540,13 +1669,45 @@ public sealed class OssmDevice : IOssmDevice
     }
 
     /// <summary>
-    /// Owns the uncancellable zero-speed request and completes the shared Stop result, disarming on failure.
+    /// Owns zero velocity and, during Reset Position, streaming exit; completes shared Stop and disarms on failure.
     /// </summary>
     private async Task CompleteStopAsync(TaskCompletionSource completion)
     {
         try
         {
-            await WriteCommandAsync(new(FirmwareSetting.Speed, 0), CancellationToken.None).ConfigureAwait(false);
+            CancellationTokenSource current;
+            bool leaveStreaming;
+            lock (sync)
+            {
+                current = connectionCancellation!;
+                leaveStreaming = resetPosition is not null;
+            }
+
+            Exception? speedFailure = null;
+            try
+            {
+                await WriteCommandAsync(new(FirmwareSetting.Speed, 0), CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception exception)
+            {
+                speedFailure = exception;
+                throw;
+            }
+            finally
+            {
+                if (leaveStreaming)
+                {
+                    try
+                    {
+                        await SendRequestAsync(current, "target.set", "target.menu", null, leased: true, CancellationToken.None).ConfigureAwait(false);
+                    }
+                    catch (Exception menuFailure) when (speedFailure is not null)
+                    {
+                        throw new AggregateException("Zero velocity and streaming exit both failed.", speedFailure, menuFailure);
+                    }
+                }
+            }
+
             logger.StopCompleted();
             completion.TrySetResult();
         }

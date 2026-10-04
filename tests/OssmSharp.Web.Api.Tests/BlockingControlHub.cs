@@ -17,5 +17,7 @@ public sealed class BlockingControlHub(TaskCompletionSource entered, TaskComplet
         ? Task.FromResult(new ControlResponse(correlation, "stopped", true))
         : pendingStop.Task.WaitAsync(Context.ConnectionAborted);
 
+    public Task<ControlResponse> ResetPosition(string correlation) => Connect(correlation);
+
     public ControlResponse EndGuest(string correlation) => new(correlation, "stopped", true);
 }

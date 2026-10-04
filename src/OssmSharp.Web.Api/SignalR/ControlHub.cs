@@ -52,6 +52,20 @@ public sealed class ControlHub(IControlSession session) : Hub
         session.StopGuestAsync(Context.ConnectionId, correlation);
 
     /// <summary>
+    /// Retracts once and stops for the calling guest with active permission.
+    /// </summary>
+    [Authorize(Policy = ControlServicePolicies.GuestWeb)]
+    public Task<ControlResponse> GuestResetPosition(string correlation) =>
+        session.ResetPositionGuestAsync(Context.ConnectionId, correlation, Context.ConnectionAborted);
+
+    /// <summary>
+    /// Retracts once and stops without granting guest permission.
+    /// </summary>
+    [Authorize(Policy = ControlServicePolicies.AdminWeb)]
+    public Task<ControlResponse> ResetPosition(string correlation) =>
+        session.ResetPositionAsync(correlation, Context.ConnectionAborted);
+
+    /// <summary>
     /// Leaves the current guest session and requests runtime Stop.
     /// </summary>
     [Authorize(Policy = ControlServicePolicies.GuestWeb)]

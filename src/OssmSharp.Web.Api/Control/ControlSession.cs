@@ -41,6 +41,7 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
     private long _lastSentSequence;
     private CancellationTokenSource? _workCancellation;
     private Task _workCleanup = Task.CompletedTask;
+    private bool _resettingPosition;
 
     /// <summary>
     /// Initializes a control session that owns one caller-selected runtime device.
@@ -108,7 +109,7 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
         {
             var joined = string.Equals(_guestConnectionId, connectionId, StringComparison.Ordinal);
             var allowed = joined && HasActiveControlLocked();
-            return new(joined, allowed, null, joined ? device : null, joined && allowed && _guestStopped && !_stopRequired);
+            return new(joined, allowed, null, joined ? device : null, joined && allowed && _guestStopped && !_stopRequired && !_resettingPosition);
         }
     }
 
@@ -169,7 +170,7 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
             {
                 return Rejected(correlation, GuestNotJoined);
             }
-            if (_stopRequired || _device is not { IsConnected: true })
+            if (_stopRequired || _resettingPosition || _device is not { IsConnected: true })
             {
                 return Rejected(correlation, DeviceNotReady);
             }
@@ -189,7 +190,7 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
             cancellationToken.ThrowIfCancellationRequested();
             lock (_sync)
             {
-                if (_stopRequired || !device.IsConnected || version != _permissionVersion || !IsCurrentGuestLocked(guest))
+                if (_stopRequired || _resettingPosition || !device.IsConnected || version != _permissionVersion || !IsCurrentGuestLocked(guest))
                 {
                     throw new InvalidOperationException("Control permission was interrupted by Stop or a session change.");
                 }
@@ -273,7 +274,7 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
             {
                 rejection = ControlNotAllowed;
             }
-            else if (_stopRequired)
+            else if (_stopRequired || _resettingPosition)
             {
                 rejection = DeviceNotReady;
             }
@@ -326,6 +327,14 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
         string connectionId,
         string correlation) =>
         StopCoreAsync(connectionId, correlation, clearGuest: false);
+
+    /// <inheritdoc />
+    public Task<ControlResponse> ResetPositionGuestAsync(string connectionId, string correlation, CancellationToken cancellationToken) =>
+        ResetPositionCoreAsync(connectionId, correlation, cancellationToken);
+
+    /// <inheritdoc />
+    public Task<ControlResponse> ResetPositionAsync(string correlation, CancellationToken cancellationToken) =>
+        ResetPositionCoreAsync(null, correlation, cancellationToken);
 
     /// <inheritdoc />
     public Task<ControlResponse> LeaveGuestAsync(
@@ -474,6 +483,10 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
             return Rejected(correlation, DeviceNotReady);
         }
         catch (IOException)
+        {
+            return Rejected(correlation, DeviceIoFailed);
+        }
+        catch (AggregateException)
         {
             return Rejected(correlation, DeviceIoFailed);
         }
@@ -747,6 +760,76 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
         return await CompleteStopAsync(correlation, stop).ConfigureAwait(false);
     }
 
+    private Task<ControlResponse> ResetPositionCoreAsync(string? connectionId, string correlation, CancellationToken cancellationToken)
+    {
+        if (!ValidCorrelation(correlation))
+        {
+            return Task.FromResult(Rejected(correlation, InvalidCorrelation));
+        }
+
+        lock (_sync)
+        {
+            if (connectionId is not null && !IsCurrentGuestLocked(connectionId))
+            {
+                return Task.FromResult(Rejected(correlation, GuestNotJoined));
+            }
+            if (connectionId is not null && !HasActiveControlLocked())
+            {
+                return Task.FromResult(Rejected(correlation, ControlNotAllowed));
+            }
+            if (_shuttingDown || _stopRequired || _resettingPosition || _device is not { IsConnected: true })
+            {
+                return Task.FromResult(Rejected(correlation, DeviceNotReady));
+            }
+
+            CancelPendingWorkLocked();
+            _permissionVersion++;
+            _resettingPosition = true;
+            _guestStopped = _guestControlAllowed;
+            _lastSentSettings = null;
+            return DeviceCommandAsync(correlation, PositionReset, () => ResetPositionDeviceAsync(_device, cancellationToken));
+        }
+    }
+
+    private async Task ResetPositionDeviceAsync(IOssmDevice device, CancellationToken cancellationToken)
+    {
+        var version = _permissionVersion;
+        var connectionVersion = _connectionVersion;
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, GetWorkTokenLocked());
+        try
+        {
+            if (!device.IsArmed)
+            {
+                await device.ResetAsync(cancellation.Token).ConfigureAwait(false);
+            }
+
+            Task reset;
+            lock (_sync)
+            {
+                cancellation.Token.ThrowIfCancellationRequested();
+                if (_stopRequired || !device.IsConnected || version != _permissionVersion)
+                {
+                    throw new OperationCanceledException("Position reset was interrupted.");
+                }
+
+                reset = device.ResetPositionAsync(cancellation.Token);
+            }
+
+            await reset.ConfigureAwait(false);
+            cancellation.Token.ThrowIfCancellationRequested();
+        }
+        finally
+        {
+            lock (_sync)
+            {
+                if (connectionVersion == _connectionVersion)
+                {
+                    _resettingPosition = false;
+                }
+            }
+        }
+    }
+
     private async Task<DeviceStateSnapshot> GetDeviceStateAsync(CancellationToken cancellationToken, bool includeUserDetails = false)
     {
         IOssmDevice? device;
@@ -785,7 +868,8 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
                 includeUserDetails ? device.Name ?? _deviceName : null,
                 includeUserDetails ? _deviceIdentifier : null,
                 includeUserDetails ? _connectedAt : null,
-                includeUserDetails && connected && _pendingConnections == 0 && !_shuttingDown ? _lastSentSettings : null);
+                includeUserDetails && connected && _pendingConnections == 0 && !_shuttingDown ? _lastSentSettings : null,
+                _resettingPosition);
         }
     }
 
@@ -806,7 +890,7 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
         lock (_sync)
         {
             token.ThrowIfCancellationRequested();
-            if (!device.IsConnected || !IsCurrentGuestLocked(connectionId) || !_guestControlAllowed || _stopRequired || version != _permissionVersion)
+            if (!device.IsConnected || !IsCurrentGuestLocked(connectionId) || !_guestControlAllowed || _stopRequired || _resettingPosition || version != _permissionVersion)
             {
                 throw new InvalidOperationException("Guest control is no longer available.");
             }
@@ -849,12 +933,8 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
 
     private void DiscardDisconnectedWorkLocked()
     {
-        if (_workCancellation is { } cancellation)
-        {
-            _workCancellation = null;
-            _workCleanup = Task.WhenAll(_workCleanup, CancelWorkAsync(cancellation));
-        }
-
+        CancelPendingWorkLocked();
+        _resettingPosition = false;
         _connectionVersion++;
         _permissionVersion++;
         _connectedAt = null;
@@ -869,6 +949,15 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
         }
 
         _clearGuestAfterStop = false;
+    }
+
+    private void CancelPendingWorkLocked()
+    {
+        if (_workCancellation is { } cancellation)
+        {
+            _workCancellation = null;
+            _workCleanup = Task.WhenAll(_workCleanup, CancelWorkAsync(cancellation));
+        }
     }
 
     private void DeviceStateChanged(object? sender, EventArgs args)

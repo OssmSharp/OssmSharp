@@ -112,7 +112,7 @@ public interface IOssmDevice : IAsyncDisposable
     /// A newer request, Stop, or cancellation ends waits for earlier device responses after transfers already started finish.
     /// Commands already sent may still take effect even if the result does not count them as confirmed writes.
     /// </remarks>
-    /// <exception cref="InvalidOperationException">The device is disconnected, requests are disarmed, Stop is running, or the device is not ready to run patterns. No settings were sent.</exception>
+    /// <exception cref="InvalidOperationException">The device is disconnected, requests are disarmed, Stop or Reset Position is running, or the device is not ready to run patterns. No settings were sent.</exception>
     /// <exception cref="DeviceWriteException">A write failed. The error includes the known progress of the request.</exception>
     /// <exception cref="IOException">Asking the device to run patterns failed; no settings were sent and requests are disarmed.</exception>
     Task<SetResult> SetAsync(MotionSettings settings, CancellationToken cancellationToken = default);
@@ -145,6 +145,7 @@ public interface IOssmDevice : IAsyncDisposable
     /// Calls made while Stop is running wait for the same Stop command, even if the joining caller's token is cancelled.
     /// Stop is allowed while requests are disarmed. Success leaves <see cref="IsArmed"/> unchanged; failure disarms requests.
     /// Cancellation is checked before a new Stop starts. Once started, its command finishes even if cancelled.
+    /// During <see cref="ResetPositionAsync"/>, Stop also leaves streaming mode to interrupt the retract.
     /// </remarks>
     Task EmergencyStopAsync(CancellationToken cancellationToken = default);
 
@@ -153,12 +154,36 @@ public interface IOssmDevice : IAsyncDisposable
     /// </summary>
     /// <returns>Permission to send settings requests again.</returns>
     /// <remarks>
-    /// Reset does not clear <see cref="ConnectionFailure"/> and cannot allow requests while Stop is running.
+    /// Reset does not clear <see cref="ConnectionFailure"/> and cannot allow requests while Stop or
+    /// <see cref="ResetPositionAsync"/> is running.
     /// Caller cancellation applies to the I/O gate wait and is checked again before enabling requests.
     /// Once that step begins, it ignores cancellation and sends no device commands.
     /// Disposal can cancel a queued Reset; Stop, disarming, or disconnection can instead reject it as interrupted.
     /// </remarks>
-    /// <exception cref="InvalidOperationException">The device is disconnected, Stop is running, or a Stop or operation failure interrupted the reset.</exception>
+    /// <exception cref="InvalidOperationException">The device is disconnected, Stop or Reset Position is running, or a Stop or operation failure interrupted the reset.</exception>
     /// <exception cref="OperationCanceledException">Caller cancellation or disposal cancelled Reset before its enabling step began.</exception>
     Task ResetAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Moves the rail fully back, away from the person, then stops without resuming any pattern or disarming.
+    /// </summary>
+    /// <returns>Completion after a fresh position reading reaches the initial endpoint and required Stop cleanup finishes.</returns>
+    /// <remarks>
+    /// Requires a connected, armed device ready for streaming motion. Drops pending settings and rejects
+    /// settings, rearming, and another Reset Position until cleanup finishes.
+    /// Uses 100% stroke and depth and 20% speed. These controls replace the previous settings; they are not restored.
+    /// Waits for the endpoint without an elapsed-time completion limit; Stop or cancellation can end the wait.
+    /// Success, interruption, and retract failures do not independently change whether requests are armed.
+    /// Stop, caller cancellation, disconnection, and disposal interrupt pending work and the retract wait.
+    /// Issued transfers settle first; required zero-speed and streaming-exit cleanup ignores caller cancellation.
+    /// An interrupted retract need not reach the endpoint. Cancellation throws only after cleanup settles.
+    /// Failures propagate. Disconnection and failed Stop retain their existing disarming behavior.
+    /// This is distinct from software rearming through <see cref="ResetAsync"/>.
+    /// </remarks>
+    /// <exception cref="InvalidOperationException">The device is disconnected, disarmed, not ready, or Stop or Reset Position is already running.</exception>
+    /// <exception cref="OperationCanceledException">Caller cancellation, Stop, disconnection, or disposal interrupted the retract.</exception>
+    /// <exception cref="InvalidDataException">A position reading is missing, malformed, or nonfinite.</exception>
+    /// <exception cref="IOException">A device command or Stop failed.</exception>
+    /// <exception cref="AggregateException">The retract and its Stop cleanup both failed.</exception>
+    Task ResetPositionAsync(CancellationToken cancellationToken = default);
 }

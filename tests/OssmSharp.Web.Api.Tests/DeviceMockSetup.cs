@@ -16,6 +16,7 @@ internal static class DeviceMockSetup
         device.Setup(device => device.ConnectAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
         device.Setup(device => device.DisconnectAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
         device.Setup(device => device.ResetAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        device.Setup(device => device.ResetPositionAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
         device.Setup(device => device.EmergencyStopAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
         device.Setup(device => device.SetAsync(It.IsAny<MotionSettings>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SetResult(SetStatus.Completed, 5));

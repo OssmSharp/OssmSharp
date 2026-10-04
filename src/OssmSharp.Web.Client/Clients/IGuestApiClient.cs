@@ -79,6 +79,18 @@ public interface IGuestApiClient : IAsyncDisposable
     Task<ControlResponse> StopAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Retracts once and stops for the joined, permitted guest without resuming settings.
+    /// </summary>
+    /// <remarks>
+    /// Waits without the short response deadline. Use <see cref="StopAsync"/> to interrupt it;
+    /// cancelling the response wait does not cancel a dispatched server operation.
+    /// </remarks>
+    /// <returns>The completed position-reset response.</returns>
+    /// <exception cref="ApiClientException">The guest lacks permission, the service rejects the request, or the operation fails.</exception>
+    /// <exception cref="OperationCanceledException">The caller cancels the response wait.</exception>
+    Task<ControlResponse> ResetPositionAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Ends the joined guest session and requests runtime Stop.
     /// </summary>
     /// <remarks>

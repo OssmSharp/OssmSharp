@@ -57,6 +57,18 @@ public interface IControlSession
         string correlation);
 
     /// <summary>
+    /// Retracts once and stops for the permitted guest, discarding pending settings.
+    /// Stop, cancellation, or disconnect interrupts the operation; settings are never replayed.
+    /// </summary>
+    Task<ControlResponse> ResetPositionGuestAsync(string connectionId, string correlation, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Retracts once and stops for the user without granting guest permission.
+    /// Stop, cancellation, or disconnect interrupts the operation; settings are never replayed.
+    /// </summary>
+    Task<ControlResponse> ResetPositionAsync(string correlation, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Removes the admitted guest and requests runtime Stop.
     /// </summary>
     Task<ControlResponse> LeaveGuestAsync(

@@ -29,7 +29,7 @@ public partial class Join
     {
         if (!Ready)
             return new(false, "not-ready");
-        if (settings is not { Pattern: 0, Sensation: 50, Speed: >= 0 and <= 100, Stroke: >= 1 and <= 100, Depth: >= 1 and <= 100 }
+        if (settings is not { Pattern: >= 0 and <= 6, Sensation: >= 0 and <= 100, Speed: >= 0 and <= 100, Stroke: >= 0 and <= 100, Depth: >= 0 and <= 100 }
             || settings.Stroke > settings.Depth)
         {
             return new(false, "invalid-input");
@@ -62,27 +62,15 @@ public partial class Join
     /// <returns>The accepted reply code, or a rejection or unknown-outcome code.</returns>
     [JSInvokable]
     public async Task<BrowserReply> StopRun()
-    {
-        if (_disposed || !_joined)
-            return new(false, "not-joined");
-        try
-        {
-            var response = await Client.StopAsync(_lifetime.Token);
-            return new(response.Accepted, response.Code);
-        }
-        catch (RpcClientRequestTimeoutException)
-        {
-            return new(false, "outcome-unknown");
-        }
-        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
-        {
-            return new(false, "outcome-unknown");
-        }
-        catch (ApiClientException error)
-        {
-            return new(false, error.Code);
-        }
-    }
+        => await RunPositionCommandAsync(resetPosition: false);
+
+    /// <summary>
+    /// Retracts once and stops for the permitted guest without resuming a pattern.
+    /// </summary>
+    /// <returns>The completed reply code or the service's failure code.</returns>
+    [JSInvokable]
+    public async Task<BrowserReply> ResetPosition()
+        => await RunPositionCommandAsync(resetPosition: true);
 
     /// <summary>
     /// Cancels and awaits polling before releasing browser and control resources.
@@ -108,5 +96,30 @@ public partial class Join
         _reference?.Dispose();
         _lifetime.Dispose();
         GC.SuppressFinalize(this);
+    }
+
+    private async Task<BrowserReply> RunPositionCommandAsync(bool resetPosition)
+    {
+        if (_disposed || !_joined)
+            return new(false, "not-joined");
+        if (resetPosition && !Ready)
+            return new(false, "not-ready");
+        try
+        {
+            var response = await (resetPosition ? Client.ResetPositionAsync(_lifetime.Token) : Client.StopAsync(_lifetime.Token));
+            return new(response.Accepted, response.Code);
+        }
+        catch (RpcClientRequestTimeoutException)
+        {
+            return new(false, "outcome-unknown");
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
+        {
+            return new(false, "outcome-unknown");
+        }
+        catch (ApiClientException error)
+        {
+            return new(false, error.Code);
+        }
     }
 }

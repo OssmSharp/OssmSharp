@@ -109,7 +109,7 @@ internal sealed class SignalRRpcClient(IHubConnectionFactory factory, IOptions<R
                     throw new ApiClientException("connection-unavailable");
 
                 using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                if (method != "Connect")
+                if (method is not ("Connect" or "ResetPosition" or "GuestResetPosition"))
                     deadline.CancelAfter(_requestTimeout);
                 try
                 {

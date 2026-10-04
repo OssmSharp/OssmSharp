@@ -3,7 +3,10 @@
 .key.selected { background: var(--rw-primary); border-radius: 50%; }
 .key.sent { height: 0; border-top: 2px dashed var(--rw-warning); }
 .key.current { height: 0; border-top: 2px solid var(--rw-success); }
-.slider-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
+.pattern-selection { display: grid; gap: .3rem; margin-block: .8rem; }
+.pattern-selection select { width: 100%; min-width: 0; padding: .4rem .6rem; font: inherit; color: var(--rw-text); background: var(--rw-background); border: 1px solid var(--rw-border); }
+.pattern-selection select:focus-visible { outline: 2px solid var(--rw-focus); outline-offset: 3px; }
+.slider-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1rem; }
 .vertical-slider { text-align: center; min-width: 0; }
 .slider-heading { display: grid; gap: .3rem; }
 .slider-heading label { font-weight: 700; font-size: .9rem; }

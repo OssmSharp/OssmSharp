@@ -57,20 +57,23 @@ a:focus-visible { outline: 2px solid var(--rw-focus); outline-offset: 3px; }
 .preview-track { fill: none; stroke: var(--rw-border); stroke-width: 1.5; }
 .preview-ticks { stroke: var(--rw-border); stroke-width: 1; }
 .preview-range { fill: color-mix(in srgb, var(--rw-secondary) 24%, transparent); stroke: var(--rw-secondary); stroke-width: 1; }
-.preview-carriage {
+.preview-carriage, .preview-still {
     fill: var(--rw-success);
     stroke: var(--rw-background);
     stroke-width: 1.5;
 }
+.preview-still { display: none; }
+.preview-ends { display: flex; justify-content: space-between; gap: 1rem; width: 100%; max-width: 374px; margin-inline: auto; font-size: .85rem; color: var(--rw-muted); }
 .hint { font-size: .85rem; color: var(--rw-muted); line-height: 1.5; }
 .card-footer { display: grid; gap: .8rem; }
 
 @media (prefers-reduced-motion: reduce) {
-    .preview-carriage animate { display: none; }
+    .preview-carriage { display: none; }
+    .preview-still { display: initial; }
 }
 
 @media (forced-colors: active) {
     .preview-track, .preview-ticks, .preview-range { stroke: CanvasText; }
     .preview-range { fill: Canvas; }
-    .preview-carriage { fill: Highlight; stroke: CanvasText; }
+    .preview-carriage, .preview-still { fill: Highlight; stroke: CanvasText; }
 }
