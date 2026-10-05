@@ -1,3 +1,1 @@
-1. allow other patterns to be selected. the pattern preview must work. implement all 5.
-2. add a new button on the guest and admin UIs called "Reset Position".  It removes the rail to the end of its range of motion and then stops.
-3. Make the preview clearly show where the front of the machine is (and the person is layer), and similarly which end of the rectangle is forward with a rounded edge.
+**The 5% reset offset remains blocked.** Reset now requests 40% speed and a five-second move, but still retracts fully. The documented interface provides neither calibrated rail length nor a position-specific arrival signal for a 95% target. Changing the target alone would leave the existing endpoint check waiting indefinitely; a timed guess would weaken it.
