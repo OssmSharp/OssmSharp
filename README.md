@@ -86,6 +86,52 @@ This follows the firmware's [stroke timing calculation](https://github.com/Kinky
 [OSSM-BLE-Web](https://github.com/ReadieFur/OSSM-BLE-Web/blob/main/src/OssmBleClient.ts)
 passes speed percentages through unchanged; it does not convert speed to raw velocity.
 
+## Web Tests
+
+Run from the repository root with .NET 10 and Node's built-in test runner.
+The default fast scope uses an explicit file list. Browser tests retain only
+native controls, assets, Blazor circuits and UI-to-RPC wiring; deterministic
+matrices live in the fast tests. HTTP policy checks do not need a browser.
+
+```sh
+node --experimental-vm-modules --test src/OssmSharp.Web.GuestWeb/tests/guest-session.test.mjs src/OssmSharp.Web.GuestWeb/tests/admin.test.mjs src/OssmSharp.Web.GuestWeb/tests/connection-ui.test.mjs src/OssmSharp.Web.GuestWeb/tests/guest-start.test.mjs
+dotnet build tests/OssmSharp.Web.Api.Tests/OssmSharp.Web.Api.Tests.csproj --no-restore
+dotnet test --project tests/OssmSharp.Web.Api.Tests/OssmSharp.Web.Api.Tests.csproj --no-build --filter-class OssmSharp.Web.Api.Tests.ControlSessionTests OssmSharp.Web.Api.Tests.GuestAccessPolicyTests OssmSharp.Web.Api.Tests.ServiceAuthorizationTests OssmSharp.Web.Api.Tests.GuestApiClientConnectionTests OssmSharp.Web.Api.Tests.AdminApiClientConnectionTests OssmSharp.Web.Api.Tests.AdminOptionsTests OssmSharp.Web.Api.Tests.PatternPreviewTests OssmSharp.Web.Api.Tests.JoinComponentTests OssmSharp.Web.Api.Tests.HomeComponentTests
+dotnet build tests/OssmSharp.Runtime.Oem.Tests/OssmSharp.Runtime.Oem.Tests.csproj --no-restore
+dotnet test --project tests/OssmSharp.Runtime.Oem.Tests/OssmSharp.Runtime.Oem.Tests.csproj --no-build --filter-class OssmSharp.Runtime.Oem.Tests.MotionSettingsTests OssmSharp.Runtime.Oem.Tests.DeviceStateTests
+```
+
+Run each integration scope explicitly after building its hosts:
+
+```sh
+dotnet build src/OssmSharp.Web.GuestWeb/OssmSharp.Web.GuestWeb.csproj --no-restore
+dotnet build src/OssmSharp.Web.AdminWeb/OssmSharp.Web.AdminWeb.csproj --no-restore
+node --test src/OssmSharp.Web.GuestWeb/tests/guest-protocol.test.mjs
+node --test src/OssmSharp.Web.GuestWeb/tests/guest-browser.mjs
+node --test src/OssmSharp.Web.GuestWeb/tests/guest-presentation.mjs
+```
+
+Protocol checks use only Node built-ins. Functional browser and presentation
+checks require an existing Playwright installation. Set `PLAYWRIGHT_MODULE` to
+an absolute `createRequire` anchor if the installation is outside the repository.
+For example, use its `node_modules/playwright/package.json` path. Set
+`PLAYWRIGHT_CHROMIUM_EXECUTABLE` if Chromium is not supplied by that installation.
+The browser-only HTTPS proxy also requires `openssl`. The suites do not discover
+external tooling or install dependencies. Missing restored assets or browser
+configuration are verification blockers, not passing or skipped tests.
+
+The separate presentation suite checks desktop/mobile overflow, reduced motion,
+and actual preview pause/resume. It has no screenshot, color, theme, or exact SVG
+geometry gates. Fixtures own ephemeral loopback hosts, synthetic API sessions,
+temporary homes and cleanup; they do not use devices or Aspire.
+
+Bare `node --experimental-vm-modules --test` discovers all `.test.mjs` files,
+including protocol checks. It is not the default fast command.
+Both browser suites use opt-in filenames and are never discovered implicitly.
+Check .NET discovery with
+`dotnet test --project tests/OssmSharp.Web.Api.Tests/OssmSharp.Web.Api.Tests.csproj --no-build --list-tests`;
+solution-wide discovery is `dotnet test --solution OssmSharp.slnx --list-tests`.
+
 ## Troubleshooting
 
 **Error:**
