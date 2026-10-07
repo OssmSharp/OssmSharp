@@ -94,6 +94,12 @@ Keep the terminal open. Press <kbd>Ctrl</kbd>+<kbd>C</kbd> to stop all three
 applications. Use `pwsh -File ./run-web.ps1 -?` to see port and device-selection
 options.
 
+Both web panels use the shared dashboard style: graphite surfaces, blue accents,
+small corners, and thin section separators instead of raised cards or shadows.
+Dark mode is the default. The user panel's theme button switches to light mode
+and remembers the selection when browser storage is available. Layouts adapt to
+narrow screens, and preview motion respects the browser's reduced-motion preference.
+
 ## Quick start: CLI
 
 Clone the repository if you did not do so above:

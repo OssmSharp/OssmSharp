@@ -13,17 +13,19 @@
 .pattern-selection { display: grid; gap: 9px; margin-block: 24px; }
 .pattern-selection label { font-size: 12px; font-weight: 500; }
 .pattern-selection select { width: min(100%, 15rem); }
+.guest-session .widget { padding-bottom: 26px; border-bottom: 1px solid var(--line); }
 .slider-grid { display: flex; gap: 1rem; }
 .vertical-slider { flex: 1 1 0; min-width: 0; text-align: center; }
 /* Sensation has no effect on a simple stroke, so guest-session.js reveals it only for the
    patterns that use it. The hidden input keeps its value and stays in the submitted request. */
 .guest-session:not([data-sensation]) .vertical-slider[data-slider="sensation"] { display: none; }
 .slider-heading { display: grid; gap: .3rem; }
-.slider-heading label { font-size: .9rem; font-weight: 700; }
+.slider-heading label { font-size: .9rem; font-weight: 550; }
 .slider-heading output {
     color: var(--accent);
     font-size: 2rem;
-    font-weight: 700;
+    font-weight: 550;
+    letter-spacing: -.8px;
     font-variant-numeric: tabular-nums;
 }
 .slider-well {
@@ -48,9 +50,8 @@
     flex-shrink: 0;
     margin: 0;
     border: 1px solid var(--line);
-    border-radius: 8px;
+    border-radius: var(--radius);
     background: var(--field);
-    box-shadow: var(--small-inset);
     cursor: pointer;
     accent-color: var(--accent);
 }
@@ -62,23 +63,21 @@
     height: 25px;
     margin-top: 0;
     margin-left: calc((.5rem - 1.25rem) / 2 - 1px);
-    border: 5px solid var(--surface);
-    border-radius: 50%;
-    background: var(--accent-fill);
-    box-shadow: var(--control-shadow), 0 0 0 1px var(--line);
+    border: 2px solid var(--accent);
+    border-radius: 2px;
+    background: var(--background);
 }
 .vertical-range::-moz-range-thumb {
-    width: 15px;
-    height: 15px;
-    border: 5px solid var(--surface);
-    border-radius: 50%;
-    background: var(--accent-fill);
-    box-shadow: var(--control-shadow), 0 0 0 1px var(--line);
+    width: 21px;
+    height: 21px;
+    border: 2px solid var(--accent);
+    border-radius: 2px;
+    background: var(--background);
 }
 .setting-values { display: grid; gap: .3rem; color: var(--muted); font-size: .75rem; }
 [data-sent] { color: var(--warning); font-variant-numeric: tabular-nums; }
 .vertical-slider[data-state="sent"] .slider-heading output { color: var(--warning); }
-.card-footer { display: grid; gap: 1rem; margin-top: 28px; }
+.card-footer { display: grid; gap: 1rem; margin-top: 28px; padding-top: 26px; border-top: 1px solid var(--line); }
 .send-bar { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: .8rem; }
 .send-options { display: flex; flex: 1 1 20rem; justify-content: flex-end; align-items: center; gap: .8rem; }
 .auto-send { display: flex; align-items: center; flex: 0 0 auto; white-space: nowrap; }

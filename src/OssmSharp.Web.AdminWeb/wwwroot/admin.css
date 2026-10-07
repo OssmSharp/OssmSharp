@@ -2,9 +2,10 @@
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     align-items: stretch;
-    gap: 32px;
+    gap: 42px 32px;
 }
 
+.user-grid > .widget { padding-top: 26px; border-top: 1px solid var(--line); }
 .user-status-heading { flex-wrap: wrap; }
 .user-status-heading .status-mark { margin-left: auto; }
 .invite-row { display: flex; align-items: center; gap: 14px; }
@@ -15,10 +16,10 @@
 .field-unit { color: var(--muted); }
 .connection-details { display: grid; gap: 14px; margin: 0 0 24px; }
 .connection-details > div {
-    padding: 14px 16px;
-    border-radius: 10px;
-    background: var(--field);
-    box-shadow: var(--inset);
+    padding: 12px 14px;
+    border-left: 2px solid var(--neutral);
+    border-radius: var(--radius);
+    background: var(--neutral-bg);
 }
 .connection-details dt { color: var(--muted); font-size: .78rem; }
 .connection-details dd { margin: 3px 0 0; overflow-wrap: anywhere; font-weight: 550; }
