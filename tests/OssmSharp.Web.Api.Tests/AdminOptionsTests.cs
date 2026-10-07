@@ -1,3 +1,4 @@
+using FastMoq;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
@@ -7,8 +8,15 @@ using Xunit;
 
 namespace OssmSharp.Web.Api.Tests;
 
-public sealed class AdminOptionsTests
+public sealed class AdminOptionsTests : MockerTestBase<AdminOptions>
 {
+    [Fact]
+    public void LengthSettingsHaveDocumentedDefaults()
+    {
+        Assert.Equal(40, Component.RailLengthCm);
+        Assert.Equal(LengthUnit.Centimetres, Component.LengthUnit);
+    }
+
     [Theory]
     [InlineData("https://guest.example", true)]
     [InlineData("https://guest.example:8443/", true)]
@@ -40,5 +48,56 @@ public sealed class AdminOptionsTests
             Assert.Equal(origin, provider.GetRequiredService<IOptions<AdminOptions>>().Value.GuestHostname);
         else
             Assert.Throws<OptionsValidationException>(() => provider.GetRequiredService<IOptions<AdminOptions>>().Value);
+    }
+
+    [Theory]
+    [InlineData("1", 1d)]
+    [InlineData("32.5", 32.5d)]
+    [InlineData("500", 500d)]
+    public void RailLengthIsConfiguredInCentimetres(string configured, double expected)
+    {
+        var options = Resolve(new() { ["OSSM:Admin:RailLengthCm"] = configured });
+
+        Assert.Equal(expected, options.Value.RailLengthCm);
+        Assert.Equal(LengthUnit.Centimetres, options.Value.LengthUnit);
+    }
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("-5")]
+    [InlineData("501")]
+    public void RailLengthOutsideTheSupportedRangeIsRejected(string configured)
+    {
+        var options = Resolve(new() { ["OSSM:Admin:RailLengthCm"] = configured });
+
+        Assert.Throws<OptionsValidationException>(() => options.Value);
+    }
+
+    [Theory]
+    [InlineData("Inches", LengthUnit.Inches)]
+    [InlineData("Centimetres", LengthUnit.Centimetres)]
+    public void LengthUnitSelectsHowLengthsAreEntered(string configured, LengthUnit expected)
+    {
+        var options = Resolve(new() { ["OSSM:Admin:LengthUnit"] = configured });
+
+        Assert.Equal(expected, options.Value.LengthUnit);
+    }
+
+    [Fact]
+    public void UndefinedLengthUnitIsRejected()
+    {
+        var options = Resolve(new() { ["OSSM:Admin:LengthUnit"] = "42" });
+
+        Assert.Throws<OptionsValidationException>(() => options.Value);
+    }
+
+    private static IOptions<AdminOptions> Resolve(Dictionary<string, string?> settings)
+    {
+        var builder = WebApplication.CreateBuilder();
+        settings["OSSM:Admin:ListenPort"] = "5002";
+        settings["OSSM:Admin:GuestHostname"] = "https://guest.example";
+        builder.Configuration.AddInMemoryCollection(settings.Where(setting => setting.Value is not null));
+        builder.Services.AddAdminConfiguration();
+        return builder.Services.BuildServiceProvider().GetRequiredService<IOptions<AdminOptions>>();
     }
 }
