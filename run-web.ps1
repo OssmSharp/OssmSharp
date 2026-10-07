@@ -6,6 +6,10 @@ Builds and runs the local user and guest web applications.
 Builds the control API, user web application, and guest web application, then starts
 them on fixed IPv4 loopback ports with a temporary administrator service key. The
 script remains attached so that Ctrl+C stops every process it started.
+Application console logs start at Warning. Information and higher are retained
+in logs/<application>/ at the repository root with daily rotation, a 10 MiB file size limit,
+and at most seven files per application. ASP.NET Core file logs start at Warning.
+Other launch methods default to Information for both console and file logs.
 
 The selected ports must be different and available. The device identifier is optional;
 when omitted, the user can connect to a discovered device from the user web application.
@@ -17,10 +21,15 @@ The loopback port for the guest web application. The default is 5001.
 The loopback port for the private control API. The default is 5003.
 .PARAMETER DeviceIdentifier
 The device identifier to select automatically. Leave empty to use discovery.
+.PARAMETER Verbosity
+The .NET build and run verbosity: quiet, minimal, normal, detailed, or diagnostic.
+Defaults to quiet. This does not change application log levels.
 .EXAMPLE
 pwsh -File ./run-web.ps1
 .EXAMPLE
 pwsh -File ./run-web.ps1 -AdminPort 5102 -GuestPort 5101 -ApiPort 5103
+.EXAMPLE
+pwsh -File ./run-web.ps1 -Verbosity diagnostic
 .EXAMPLE
 pwsh -File ./run-web.ps1 -WhatIf
 .OUTPUTS
@@ -37,7 +46,10 @@ param(
     [ValidateRange(1024, 65535)]
     [int] $ApiPort = 5003,
 
-    [string] $DeviceIdentifier = ''
+    [string] $DeviceIdentifier = '',
+
+    [ValidateSet('quiet', 'minimal', 'normal', 'detailed', 'diagnostic')]
+    [string] $Verbosity = 'quiet'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -72,6 +84,7 @@ function Invoke-DotNet {
         [string[]] $Arguments
     )
 
+    $Arguments += @('--verbosity', $Verbosity)
     Write-Verbose "dotnet $($Arguments -join ' ')"
     & $script:DotNet @Arguments
     if ($LASTEXITCODE -ne 0) {
@@ -89,6 +102,7 @@ function New-ProcessEnvironment {
         'ASPNETCORE_ENVIRONMENT' = 'Development'
         'DOTNET_ENVIRONMENT' = 'Development'
         'DOTNET_NOLOGO' = 'true'
+        'Logging__Console__LogLevel__Default' = 'Warning'
     }
     foreach ($entry in $Values.GetEnumerator()) {
         $environment[$entry.Key] = $entry.Value
@@ -119,8 +133,11 @@ function Start-WebProcess {
         '--framework', $Framework,
         '--no-build',
         '--no-restore',
-        '--no-launch-profile'
+        '--no-launch-profile',
+        '--verbosity', $Verbosity
     )
+    $Environment['OSSM__FileLogging__Directory'] = Join-Path $script:RepositoryRoot (
+        "logs/$([IO.Path]::GetFileNameWithoutExtension($Project))")
     return Start-Process -FilePath $script:DotNet -ArgumentList $arguments `
         -WorkingDirectory $script:RepositoryRoot -NoNewWindow -PassThru `
         -Environment (New-ProcessEnvironment $Environment)

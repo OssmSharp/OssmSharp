@@ -3,13 +3,19 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using OpenTelemetry;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
 using OssmSharp.Web.ServiceDefaults.Models;
+using Serilog;
+using Serilog.Extensions.Logging;
+using Serilog.Formatting.Json;
 
 namespace OssmSharp.Web.ServiceDefaults;
 
@@ -22,13 +28,21 @@ public static class BuilderExtensions
     private const string AlivenessEndpointPath = "/alive";
 
     /// <summary>
-    /// Registers shared telemetry and health checks.
+    /// Registers shared logging, telemetry, and health checks.
     /// </summary>
     /// <param name="builder">The application host builder.</param>
     /// <returns>The configured host builder.</returns>
+    /// <remarks>
+    /// Structured file logs start at Information, rotate daily and at 10 MiB,
+    /// and retain at most seven files. ASP.NET Core file logs start at Warning
+    /// to avoid recording request URLs that can contain credentials. Console
+    /// settings are unchanged. The host owns and disposes the file logger.
+    /// </remarks>
     public static TBuilder AddServiceDefaults<TBuilder>(this TBuilder builder)
         where TBuilder : IHostApplicationBuilder
     {
+        builder.AddFileLogging();
+
         var telemetry = builder.Services.AddOpenTelemetry()
             .WithMetrics(metrics => metrics.AddAspNetCoreInstrumentation())
             .WithTracing(tracing =>
@@ -46,6 +60,35 @@ public static class BuilderExtensions
 
         builder.AddDefaultHealthChecks();
 
+        return builder;
+    }
+
+    /// <summary>
+    /// Registers structured file logging at Information and higher.
+    /// </summary>
+    /// <param name="builder">The application host builder.</param>
+    /// <returns>The configured host builder.</returns>
+    /// <remarks>
+    /// Writes to <c>logs</c> in the content root by default. The
+    /// <c>OSSM:FileLogging:Directory</c> setting overrides this with a nonempty directory.
+    /// Files contain
+    /// Information and higher, except ASP.NET Core logs which start at Warning to
+    /// exclude request URLs. Files rotate daily and at 10 MiB, retaining seven files.
+    /// Console settings are unchanged. The host owns and disposes the file logger.
+    /// </remarks>
+    public static TBuilder AddFileLogging<TBuilder>(this TBuilder builder)
+        where TBuilder : IHostApplicationBuilder
+    {
+        var configuration = builder.Configuration.GetSection("OSSM:FileLogging");
+        builder.Services.AddOptions<FileLoggingOptions>()
+            .Configure(options => options.Directory = Path.Combine(builder.Environment.ContentRootPath, "logs"))
+            .Bind(configuration)
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+        builder.Logging
+            .AddFilter<SerilogLoggerProvider>(null, LogLevel.Information)
+            .AddFilter<SerilogLoggerProvider>("Microsoft.AspNetCore", LogLevel.Warning);
+        builder.Services.AddSingleton<ILoggerProvider>(CreateFileLogger);
         return builder;
     }
 
@@ -163,4 +206,22 @@ public static class BuilderExtensions
         });
     }
 
+    private static SerilogLoggerProvider CreateFileLogger(IServiceProvider services)
+    {
+        var logDirectory = services.GetRequiredService<IOptions<FileLoggingOptions>>().Value.Directory;
+        Directory.CreateDirectory(logDirectory);
+        var logger = new LoggerConfiguration()
+            .MinimumLevel.Information()
+            .Enrich.FromLogContext()
+            .WriteTo.File(
+                new JsonFormatter(),
+                Path.Combine(logDirectory, "web-.log"),
+                rollingInterval: RollingInterval.Day,
+                fileSizeLimitBytes: 10 * 1024 * 1024,
+                rollOnFileSizeLimit: true,
+                retainedFileCountLimit: 7,
+                shared: true)
+            .CreateLogger();
+        return new SerilogLoggerProvider(logger, dispose: true);
+    }
 }
