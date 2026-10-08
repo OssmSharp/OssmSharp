@@ -18,6 +18,8 @@ Before creating or changing tests, check whether MockerTestBase<T> supports the 
 
 User-facing prose must not describe the device as OEM.
 
+Write [README.md](README.md) for nontechnical device users: include only plain-English setup, usage, and troubleshooting details they need; omit developer jargon and implementation details.
+
 Use only OssmSharp OEM runtime source and documentation; treat ossm-rs as out of scope.
 
 ## Assumptions
