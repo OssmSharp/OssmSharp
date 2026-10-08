@@ -4,6 +4,8 @@
     <TargetFrameworks>$(BaseTargetFramework)</TargetFrameworks>
     <TargetFrameworks Condition="'$(NativeTargetFramework)' != ''">$(NativeTargetFramework);$(BaseTargetFramework)</TargetFrameworks>
     <EnableConfigurationBindingGenerator>true</EnableConfigurationBindingGenerator>
+    <!-- The control API has no static web assets; only the two web panels publish them. -->
+    <StaticWebAssetsEnabled>false</StaticWebAssetsEnabled>
   </PropertyGroup>
   <PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'macos'">
     <ServerGarbageCollection>false</ServerGarbageCollection>

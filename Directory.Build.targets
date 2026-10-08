@@ -1,0 +1,29 @@
+<Project>
+  <Target Name="GetWebApplicationAssets"
+          DependsOnTargets="Build;StaticWebAssetsPrepareForPublish"
+          Returns="@(_WebApplicationAssets)"
+          Condition="'$(MSBuildProjectName)' == 'OssmSharp.Web.AdminWeb' Or '$(MSBuildProjectName)' == 'OssmSharp.Web.GuestWeb'">
+    <ComputeStaticWebAssetsForCurrentProject Assets="@(StaticWebAsset)"
+        ProjectMode="$(StaticWebAssetProjectMode)" AssetKind="Publish" Source="$(PackageId)">
+      <Output TaskParameter="StaticWebAssets" ItemName="_ApplicationStaticAssets" />
+    </ComputeStaticWebAssetsForCurrentProject>
+    <ComputeStaticWebAssetsTargetPaths Assets="@(_ApplicationStaticAssets)" PathPrefix="wwwroot">
+      <Output TaskParameter="AssetsWithTargetPath" ItemName="_ApplicationAssetPaths" />
+    </ComputeStaticWebAssetsTargetPaths>
+    <ItemGroup>
+      <_WebApplicationAssets Include="@(_ApplicationAssetPaths)" Condition="'%(_ApplicationAssetPaths.CopyToPublishDirectory)' != 'Never'">
+        <RelativePath>applications/$(MSBuildProjectName)/%(_ApplicationAssetPaths.TargetPath)</RelativePath>
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </_WebApplicationAssets>
+      <_WebApplicationAssets Include="$(StaticWebAssetEndpointsPublishManifestPath)">
+        <RelativePath>$(MSBuildProjectName).staticwebassets.endpoints.json</RelativePath>
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </_WebApplicationAssets>
+      <_WebApplicationAssets Update="@(_WebApplicationAssets)">
+        <TargetPath>%(_WebApplicationAssets.RelativePath)</TargetPath>
+      </_WebApplicationAssets>
+    </ItemGroup>
+  </Target>
+</Project>

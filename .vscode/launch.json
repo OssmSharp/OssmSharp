@@ -2,6 +2,25 @@
   "version": "0.2.0",
   "configurations": [
     {
+      "name": "Web applications (single process)",
+      "type": "coreclr",
+      "request": "launch",
+      "program": "${workspaceFolder:OssmSharp}/.artifacts/bin/OssmSharp.Web/debug_net10.0/OssmSharp.Web.dll",
+      "cwd": "${workspaceFolder:OssmSharp}",
+      "console": "integratedTerminal",
+      "preLaunchTask": "build web (single process)",
+      "env": {
+        "DOTNET_ENVIRONMENT": "Development",
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      },
+      "windows": {
+        "program": "${workspaceFolder:OssmSharp}/.artifacts/bin/OssmSharp.Web/debug_net10.0-windows10.0.19041.0/OssmSharp.Web.exe"
+      },
+      "osx": {
+        "program": "${workspaceFolder:OssmSharp}/.artifacts/bin/OssmSharp.Web/debug_net10.0-macos27.0/OssmSharp.Web.app/Contents/MacOS/OssmSharp.Web"
+      }
+    },
+    {
       "name": "CLI prompt (debug)",
       "type": "coreclr",
       "request": "launch",

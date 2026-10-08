@@ -1,29 +1,18 @@
 # OssmSharp
 
-OssmSharp is a .NET 10 toolkit for controlling a compatible OSSM device over
-Bluetooth on Windows and macOS. It provides:
+OssmSharp connects to your OSSM device over Bluetooth. Use your browser to connect
+the device, stop motion, and give a guest access to the controls.
 
-- a local user web application for connecting the device, stopping motion, and
-  sharing a guest invitation;
-- a guest web application with requested-setting controls and motion previews;
-- an interactive command-line interface for direct local control; and
-- a reusable runtime and control API for .NET applications.
+You need a compatible OSSM device and a computer with Bluetooth.
 
-The web applications and API listen on loopback by default. The guest application
-can be exposed through a same-machine HTTPS reverse proxy, but the user application
-and control API must remain private.
+## Install the tools
 
-## Prerequisites
-
-The quick starts require a compatible OSSM device, Bluetooth, Git, PowerShell 7.4
-or later, and the .NET 10 SDK. Install the **SDK**, not only the .NET runtime.
+Follow the instructions for your computer. You only need to do this once.
 
 ### Windows
 
-The supported quick starts target 64-bit Windows 10 version 2004 (build 19041) or
-later.
-
-Open Windows Terminal or PowerShell and install the tools:
+Use 64-bit Windows 10 (version 2004 or later) or Windows 11.
+Open PowerShell and paste:
 
 ```powershell
 winget install --exact --id Microsoft.DotNet.SDK.10
@@ -31,47 +20,34 @@ winget install --exact --id Microsoft.PowerShell
 winget install --exact --id Git.Git
 ```
 
-Open a new terminal after installation, then verify the commands:
-
-```powershell
-dotnet --version
-pwsh --version
-git --version
-```
-
-Enable Bluetooth before starting OssmSharp. Windows may ask for Bluetooth
-permission the first time the application scans.
+Close PowerShell and open it again after installation.
 
 ### macOS
 
-The supported quick starts target Apple silicon and macOS 26 or later.
+Use an Apple silicon Mac running macOS 26 or later.
+Install [Homebrew](https://brew.sh), then open Terminal and paste:
 
-1. Install the Arm64 [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0).
-2. Install [PowerShell 7](https://learn.microsoft.com/powershell/scripting/install/installing-powershell-on-macos).
-3. Install Xcode 27 from the App Store, open it once, and let it finish installing
-   its components. Xcode includes Git.
-4. Open a new terminal and install the matching .NET macOS workload:
-
-   ```powershell
-   dotnet workload install macos
-   ```
-
-Verify the commands:
-
-```powershell
-dotnet --version
-pwsh --version
-git --version
+```sh
+brew install --cask dotnet-sdk
+brew install git powershell
 ```
 
-Enable Bluetooth before starting OssmSharp. macOS may ask for Bluetooth
-permission the first time the application scans.
+Install Xcode 27 from the App Store, open it once, and let it finish installing
+its components. Then run:
 
-## Quick start: user and guest web applications
+```sh
+sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
+sudo dotnet workload install macos
+```
 
-This path runs the web applications without .NET Aspire AppHost. It builds and
-starts the private control API, local user application, and guest application with
-matching settings.
+Enter your Mac password if prompted, then open a new Terminal window.
+
+## Start OssmSharp
+
+Turn on Bluetooth and power on your device. Allow Bluetooth access if your
+computer asks.
+
+Run these commands in PowerShell on Windows or Terminal on macOS:
 
 ```powershell
 git clone https://github.com/argium/OssmSharp.git
@@ -79,220 +55,86 @@ cd OssmSharp
 pwsh -File ./run-web.ps1
 ```
 
-Wait for the script to print:
+The first start may take a few minutes. Wait until you see **User controls**,
+then open [http://127.0.0.1:5002](http://127.0.0.1:5002) in your browser.
 
-```text
-User controls: http://127.0.0.1:5002
-Guest web:     http://127.0.0.1:5001
-```
+Keep the terminal open while using the app. Press <kbd>Ctrl</kbd>+<kbd>C</kbd>
+in that terminal when you want to close OssmSharp.
 
-Open `http://127.0.0.1:5002`, connect the device, and use the invitation shown
-there for the guest browser. The control API remains private at
-`http://127.0.0.1:5003`.
-
-Keep the terminal open. Press <kbd>Ctrl</kbd>+<kbd>C</kbd> to stop all three
-applications. Use `pwsh -File ./run-web.ps1 -?` to see port and device-selection
-options.
-
-Both web panels use the shared dashboard style: graphite surfaces, blue accents,
-small corners, and thin section separators instead of raised cards or shadows.
-Dark mode is the default. The user panel's theme button switches to light mode
-and remembers the selection when browser storage is available. Layouts adapt to
-narrow screens, and preview motion respects the browser's reduced-motion preference.
-
-## Quick start: CLI
-
-Clone the repository if you did not do so above:
+To start it again later, open a terminal in the `OssmSharp` folder and run:
 
 ```powershell
-git clone https://github.com/argium/OssmSharp.git
-cd OssmSharp
+pwsh -File ./run-web.ps1
 ```
 
-Publish the self-contained CLI once:
+## Connect and invite a guest
+
+1. Click **Connect device** and wait for the device to connect.
+2. Copy the link under **Invite a guest** and give it to your guest.
+3. After the guest opens the link and joins, click **Allow control**.
+
+Click **Stop** to stop motion. Click **End guest** to end the guest's session.
+Only share an invitation with the person you want to join.
+
+Guest links work on the computer running OssmSharp by default. A guest on another
+device needs the setup below.
+
+## Guest access from another device
+
+Set up an HTTPS tunnel using [Tailscale Funnel](https://tailscale.com/kb/1223/funnel)
+or [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/).
+Point it at `http://127.0.0.1:5001`. Expose only this guest address, not the
+control page or any other ports.
+
+Replace `https://guest.example` below with your tunnel's HTTPS address.
+Stop OssmSharp first, then restart it with that address.
+
+**Windows PowerShell:**
 
 ```powershell
-pwsh -File ./make.ps1
+$env:OSSM__Guest__Hostname = 'https://guest.example'
+pwsh -File ./run-web.ps1
 ```
 
-List nearby devices:
+**macOS Terminal:**
 
-```powershell
-pwsh -File ./make.ps1 run list
+```sh
+OSSM__Guest__Hostname=https://guest.example pwsh -File ./run-web.ps1
 ```
 
-Start the interactive prompt and connect to the first discovered device:
+Copy a new invitation from the control page and share it with your guest.
+Use an address such as `https://guest.example`, without a page path or extra
+text after the hostname.
 
-```powershell
-pwsh -File ./make.ps1 run prompt
-```
+<details>
+<summary>Tunnel settings if the guest page will not open</summary>
 
-To select a specific device, copy its identifier from `list`:
-
-```powershell
-pwsh -File ./make.ps1 run prompt --device <identifier>
-```
-
-Type `help` inside the prompt for motion, status, stop, and reset commands.
-
-## Using .NET Aspire AppHost
-
-AppHost starts the same control API, user application, and guest application with
-service discovery and an Aspire dashboard:
-
-```powershell
-dotnet run --project ./src/OssmSharp.AppHost
-```
-
-Development ports and the optional reverse-proxy hostname are configured in
-[`src/OssmSharp.AppHost/appsettings.Development.json`](src/OssmSharp.AppHost/appsettings.Development.json).
-The checked-in settings use fixed user and guest ports so their URLs stay stable.
-AppHost generates the private user-service key automatically.
-
-## Remote guest access
-
-The guest application supports a same-machine HTTPS reverse proxy, including
-Tailscale and Cloudflare Tunnel. Expose **only the guest application**, not the
-user application or control API. A guest still needs an invitation, and the local
-user must allow control.
-
-Set the public origin and fixed listener ports in
-[`src/OssmSharp.AppHost/appsettings.Development.json`](src/OssmSharp.AppHost/appsettings.Development.json):
-
-```json
-{
-  "Parameters": {
-    "guest-hostname": "https://guest.example",
-    "guest-port": 5001,
-    "admin-port": 5002
-  }
-}
-```
-
-Restart AppHost, then configure the tunnel to forward HTTPS and WebSockets to
-`http://127.0.0.1:5001`. Preserve the browser's public `Host` and `Origin`, and
-forward `X-Forwarded-Proto: https`. Do not rewrite `Host` to the loopback target.
-Share the invitation link from the local user application.
-
-[Tailscale Serve](https://tailscale.com/kb/1242/tailscale-serve) requires the guest
-to be on your tailnet; Funnel provides public access. For Cloudflare, route the
-public hostname to the loopback target and set
+The tunnel must support WebSockets, preserve the public `Host` and `Origin`,
+and send `X-Forwarded-Proto: https`. For Cloudflare, set
 [`httpHostHeader`](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/configure-tunnels/origin-parameters/)
-to the public authority if the tunnel rewrites `Host`.
+to your public hostname, such as `guest.example`.
 
-The public origin must be HTTPS with no path, credentials, query, or fragment.
-Root hosting is supported, not a subpath. Restart when the public URL changes.
-Without `guest-hostname`, access remains local-only.
+</details>
 
-For standalone hosts, configure:
+## If something goes wrong
 
-| Host | Settings |
-| --- | --- |
-| Guest web | `OSSM__Guest__GuestPort=5001`, `OSSM__Guest__Hostname=https://guest.example`, and `OSSM__ControlClient__EndpointUri=http://127.0.0.1:5003` |
-| User web | `OSSM__Admin__ListenPort=5002`, `OSSM__Admin__GuestHostname=https://guest.example`, the same control origin, and `OSSM__ControlClient__ServiceKey` |
-| Control API | `ASPNETCORE_URLS=http://127.0.0.1:5003` and `OSSM__Control__AdminWebServiceKey` matching the user web service key |
-
-Use a random canonical Base64url-encoded 32-byte service key. Keep the standalone
-API and user application private. The guest application always listens on IPv4
-loopback; listener overrides are rejected.
-
-The guest application authenticates its server-side API connection with the
-invitation. Joining consumes the invitation and binds that connection. Invitation
-rotation blocks replay without terminating an admitted connection. Control remains
-separately approved and is revoked when the guest leaves, the local user ends the
-guest session, or the connection closes.
-
-## Speed control
-
-The runtime, CLI, control API, sliders, and previews use speed percentages.
-Requested speed and stroke are integers in `[0, 100]`, using `50` for 50%.
-Only the device runtime converts requested speed to raw velocity:
-
-```text
-raw velocity = floor(speed * stroke / 100)
-```
-
-Depth and sensation do not affect the conversion. Zero speed or stroke, or a
-calculated raw velocity below 1%, sends zero raw velocity.
-
-Current speed comes from raw velocity and stroke in the same device snapshot. The
-runtime preserves decimals and values above 100%, without rounding or limiting.
-Speed is unknown at zero device stroke. Pending selections cannot change it.
-
-For example, 53% requested speed at 10% stroke sends 5% raw velocity and reads
-back as 50% current speed, not 53%. CLI status shows `%` or `Unknown`.
-
-The guest preview uses the requested selection. The user preview uses the last
-complete requested selection successfully sent by the API session. Rejected,
-cancelled, superseded, or partial requests do not replace it. Stop retains that
-selection. Preview timing is illustrative and depends on speed, not stroke length
-or depth. These percentages are not physical speed or strokes per minute, and the
-previews are not measurements of physical position or calibrated cycle time.
-
-## Web Tests
-
-Run from the repository root with .NET 10 and Node's built-in test runner.
-The default fast scope uses an explicit file list. Browser tests retain only
-native controls, assets, Blazor circuits and UI-to-RPC wiring; deterministic
-matrices live in the fast tests. HTTP policy checks do not need a browser.
-
-```sh
-node --experimental-vm-modules --test src/OssmSharp.Web.GuestWeb/tests/guest-session.test.mjs src/OssmSharp.Web.GuestWeb/tests/admin.test.mjs src/OssmSharp.Web.GuestWeb/tests/connection-ui.test.mjs src/OssmSharp.Web.GuestWeb/tests/guest-start.test.mjs
-dotnet build tests/OssmSharp.Web.Api.Tests/OssmSharp.Web.Api.Tests.csproj --no-restore
-dotnet test --project tests/OssmSharp.Web.Api.Tests/OssmSharp.Web.Api.Tests.csproj --no-build --filter-class OssmSharp.Web.Api.Tests.ControlSessionTests OssmSharp.Web.Api.Tests.GuestAccessPolicyTests OssmSharp.Web.Api.Tests.ServiceAuthorizationTests OssmSharp.Web.Api.Tests.GuestApiClientConnectionTests OssmSharp.Web.Api.Tests.AdminApiClientConnectionTests OssmSharp.Web.Api.Tests.AdminOptionsTests OssmSharp.Web.Api.Tests.PatternPreviewTests OssmSharp.Web.Api.Tests.JoinComponentTests OssmSharp.Web.Api.Tests.HomeComponentTests
-dotnet build tests/OssmSharp.Runtime.Oem.Tests/OssmSharp.Runtime.Oem.Tests.csproj --no-restore
-dotnet test --project tests/OssmSharp.Runtime.Oem.Tests/OssmSharp.Runtime.Oem.Tests.csproj --no-build --filter-class OssmSharp.Runtime.Oem.Tests.MotionSettingsTests OssmSharp.Runtime.Oem.Tests.DeviceStateTests
-```
-
-Run each integration scope explicitly after building its hosts:
-
-```sh
-dotnet build src/OssmSharp.Web.GuestWeb/OssmSharp.Web.GuestWeb.csproj --no-restore
-dotnet build src/OssmSharp.Web.AdminWeb/OssmSharp.Web.AdminWeb.csproj --no-restore
-node --test src/OssmSharp.Web.GuestWeb/tests/guest-protocol.test.mjs
-node --test src/OssmSharp.Web.GuestWeb/tests/guest-browser.mjs
-node --test src/OssmSharp.Web.GuestWeb/tests/guest-presentation.mjs
-```
-
-Protocol checks use only Node built-ins. Functional browser and presentation
-checks require an existing Playwright installation. Set `PLAYWRIGHT_MODULE` to
-an absolute `createRequire` anchor if the installation is outside the repository.
-For example, use its `node_modules/playwright/package.json` path. Set
-`PLAYWRIGHT_CHROMIUM_EXECUTABLE` if Chromium is not supplied by that installation.
-The browser-only HTTPS proxy also requires `openssl`. The suites do not discover
-external tooling or install dependencies. Missing restored assets or browser
-configuration are verification blockers, not passing or skipped tests.
-
-The separate presentation suite checks desktop/mobile overflow, reduced motion,
-and actual preview pause/resume. It has no screenshot, color, theme, or exact SVG
-geometry gates. Fixtures own ephemeral loopback hosts, synthetic API sessions,
-temporary homes and cleanup; they do not use devices or Aspire.
-
-Bare `node --experimental-vm-modules --test` discovers all `.test.mjs` files,
-including protocol checks. It is not the default fast command.
-Both browser suites use opt-in filenames and are never discovered implicitly.
-Check .NET discovery with
-`dotnet test --project tests/OssmSharp.Web.Api.Tests/OssmSharp.Web.Api.Tests.csproj --no-build --list-tests`;
-solution-wide discovery is `dotnet test --solution OssmSharp.slnx --list-tests`.
-
-## Troubleshooting
-
-### A port is already in use
-
-The standalone launcher reports the unavailable port before building. Stop the
-other application or select three different ports:
+- **Device will not connect:** check that it is powered on, Bluetooth is enabled,
+  and OssmSharp has Bluetooth permission.
+- **A command is not found:** close and reopen your terminal after installing
+  the tools.
+- **A port is already in use:** close the other copy of OssmSharp. If another
+  app uses those ports, start OssmSharp with:
 
 ```powershell
 pwsh -File ./run-web.ps1 -GuestPort 5101 -AdminPort 5102 -ApiPort 5103
 ```
 
-### The macOS workload requires a different Xcode version
+- **Xcode version error on macOS:** update Xcode, open it to finish setup, then
+  run:
 
-If the build says the installed .NET macOS workload requires a different Xcode
-version, update Xcode and refresh the workload for the SDK selected by
-[`global.json`](global.json):
-
-```powershell
-dotnet workload update
-dotnet workload install macos
+```sh
+sudo dotnet workload update
+sudo dotnet workload install macos
 ```
+
+Logs are saved in the `logs` folder inside your `OssmSharp` folder.

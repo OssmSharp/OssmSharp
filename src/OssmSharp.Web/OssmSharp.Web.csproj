@@ -1,0 +1,57 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework />
+    <TargetFrameworks>$(BaseTargetFramework)</TargetFrameworks>
+    <TargetFrameworks Condition="'$(NativeTargetFramework)' != ''">$(NativeTargetFramework);$(BaseTargetFramework)</TargetFrameworks>
+    <EnableConfigurationBindingGenerator>true</EnableConfigurationBindingGenerator>
+    <_HostSettingsPath>$([MSBuild]::NormalizePath('$(MSBuildProjectDirectory)', 'appsettings.json'))</_HostSettingsPath>
+    <!-- Referenced web executables are consumed as libraries; only this host's apphost/runtime is used. -->
+    <ValidateExecutableReferencesMatchSelfContained>false</ValidateExecutableReferencesMatchSelfContained>
+    <PublishTrimmed Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) != 'macos'">false</PublishTrimmed>
+  </PropertyGroup>
+  <PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'macos'">
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <RunWithOpen>false</RunWithOpen>
+    <LinkMode>None</LinkMode>
+    <NoWarn>$(NoWarn);XCODE_27_0_PREVIEW</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="../OssmSharp.Web.Api/OssmSharp.Web.Api.csproj" />
+    <ProjectReference Include="../OssmSharp.Web.AdminWeb/OssmSharp.Web.AdminWeb.csproj" />
+    <ProjectReference Include="../OssmSharp.Web.GuestWeb/OssmSharp.Web.GuestWeb.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="appsettings.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Using Include="Microsoft.AspNetCore.Builder" />
+    <Using Include="Microsoft.Extensions.Configuration" />
+    <Using Include="Microsoft.Extensions.DependencyInjection" />
+    <InternalsVisibleTo Include="OssmSharp.Web.Api.Tests" />
+  </ItemGroup>
+  <Target Name="CollectApplicationAssets" BeforeTargets="AssignTargetPaths;_CollectBundleResources" DependsOnTargets="ResolveProjectReferences">
+    <MSBuild Projects="../OssmSharp.Web.AdminWeb/OssmSharp.Web.AdminWeb.csproj;../OssmSharp.Web.GuestWeb/OssmSharp.Web.GuestWeb.csproj"
+             Targets="GetWebApplicationAssets"
+             RemoveProperties="RuntimeIdentifier;SelfContained;PublishDir;PublishProfile;NoBuild"
+             Properties="Configuration=$(Configuration);TargetFramework=net10.0">
+      <Output TaskParameter="TargetOutputs" ItemName="_ApplicationAssets" />
+    </MSBuild>
+    <Copy SourceFiles="@(_ApplicationAssets)"
+          DestinationFiles="@(_ApplicationAssets->'$(IntermediateOutputPath)web/%(RelativePath)')"
+          SkipUnchangedFiles="true" />
+    <ItemGroup>
+      <_PackagedApplicationAssets Include="@(_ApplicationAssets->'$(IntermediateOutputPath)web/%(RelativePath)')" />
+      <FileWrites Include="@(_PackagedApplicationAssets)" />
+      <Content Include="@(_PackagedApplicationAssets)" Link="%(_PackagedApplicationAssets.RelativePath)" />
+      <BundleResource Include="@(_PackagedApplicationAssets)" LogicalName="%(_PackagedApplicationAssets.RelativePath)"
+          Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'macos'" />
+    </ItemGroup>
+  </Target>
+  <Target Name="SelectApplicationPublishFiles" AfterTargets="ComputeFilesToPublish">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+          Condition="('%(ResolvedFileToPublish.Filename)%(ResolvedFileToPublish.Extension)' == 'appsettings.json' And '%(ResolvedFileToPublish.FullPath)' != '$(_HostSettingsPath)') Or $([System.String]::Copy('%(ResolvedFileToPublish.RelativePath)').EndsWith('.staticwebassets.endpoints.json'))" />
+      <ResolvedFileToPublish Include="@(_PackagedApplicationAssets)" />
+    </ItemGroup>
+  </Target>
+</Project>

@@ -11,8 +11,9 @@ public static class GuestApplication
     /// Builds the loopback guest application and maps its interactive control route.
     /// </summary>
     /// <param name="builder">The configured web application builder.</param>
+    /// <param name="staticAssetsManifestPath">The endpoint manifest path, or null to use the application's default.</param>
     /// <returns>The guest application, ready to run and dispose.</returns>
-    public static WebApplication Build(WebApplicationBuilder builder)
+    public static WebApplication Build(WebApplicationBuilder builder, string? staticAssetsManifestPath = null)
     {
         builder.AddServiceDefaults();
         builder.Services.AddGuestConfiguration().AddLocalBlazor().AddGuestSession();
@@ -25,16 +26,24 @@ public static class GuestApplication
         builder.WebHost.UseStaticWebAssets();
 
         var app = builder.Build();
-        app.UseWebSockets();
-        app.UseGuestAccessPolicy(app.Services.GetRequiredService<IOptions<GuestOptions>>().Value);
-        app.UseStaticFiles();
-        app.UseAntiforgery();
-        app.MapStaticAssets();
-        app.MapDefaultEndpoints();
-        app.MapRazorComponents<App>().AddInteractiveServerRenderMode(options =>
+        try
         {
-            options.ContentSecurityFrameAncestorsPolicy = "'none'";
-        });
-        return app;
+            app.UseWebSockets();
+            app.UseGuestAccessPolicy(app.Services.GetRequiredService<IOptions<GuestOptions>>().Value);
+            app.UseStaticFiles();
+            app.UseAntiforgery();
+            app.MapStaticAssets(staticAssetsManifestPath);
+            app.MapDefaultEndpoints();
+            app.MapRazorComponents<App>().AddInteractiveServerRenderMode(options =>
+            {
+                options.ContentSecurityFrameAncestorsPolicy = "'none'";
+            });
+            return app;
+        }
+        catch
+        {
+            ((IDisposable)app).Dispose();
+            throw;
+        }
     }
 }

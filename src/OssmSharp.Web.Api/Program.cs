@@ -6,29 +6,8 @@ internal static class Program
 
     private static async Task RunAsync(string[] args)
     {
-#if MACOS
-        using var bluetoothQueue = new CoreFoundation.DispatchQueue("OssmSharp.Web.Api.Bluetooth");
-#endif
         var builder = WebApplication.CreateBuilder(args);
-        builder.AddServiceDefaults();
-#if MACOS
-        Shiny.BleServiceCollectionExtensions.AddBluetoothLE(
-            builder.Services,
-            new Shiny.BluetoothLE.AppleBleConfiguration(DispatchQueue: bluetoothQueue));
-#endif
-        builder.Services
-            .AddApiServices()
-            .AddSignalR();
-        builder.Services.AddProblemDetails();
-
-        await using var app = builder.Build();
-
-        app.UseExceptionHandler();
-        app.UseWebSockets();
-        app.UseAuthentication();
-        app.UseAuthorization();
-        app.MapDefaultEndpoints();
-        app.MapControlHubV2();
+        await using var app = ApiApplication.Build(builder);
         await app.RunAsync().ConfigureAwait(false);
     }
 }

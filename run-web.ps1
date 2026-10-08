@@ -1,18 +1,23 @@
 #Requires -Version 7.4
 <#
 .SYNOPSIS
-Builds and runs the local user and guest web applications.
+Builds and runs the single-process web host.
 .DESCRIPTION
-Builds the control API, user web application, and guest web application, then starts
-them on fixed IPv4 loopback ports with a temporary administrator service key. The
-script remains attached so that Ctrl+C stops every process it started.
+Builds OssmSharp.Web and starts the control API, user web application, and guest web
+application in one process on fixed IPv4 loopback ports. The host generates the
+temporary service key and coordinates startup and shutdown. The script remains
+attached so that Ctrl+C stops the host.
 Application console logs start at Warning. Information and higher are retained
-in logs/<application>/ at the repository root with daily rotation, a 10 MiB file size limit,
-and at most seven files per application. ASP.NET Core file logs start at Warning.
+in logs/<application>/ at the repository root; coordinating host logs are in logs/.
+Files rotate daily and at 10 MiB, retaining at most seven files per application.
+ASP.NET Core file logs start at Warning.
 Other launch methods default to Information for both console and file logs.
 
 The selected ports must be different and available. The device identifier is optional;
 when omitted, the user can connect to a discovered device from the user web application.
+OSSM__Guest__Hostname configures an optional public HTTPS guest origin.
+If the host does not exit within five seconds of script cleanup, the script terminates
+it and its child processes. Use -WhatIf to preview without building or starting it.
 .PARAMETER AdminPort
 The loopback port for the local user web application. The default is 5002.
 .PARAMETER GuestPort
@@ -54,11 +59,6 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $false
-
-function New-ServiceKey {
-    $bytes = [Security.Cryptography.RandomNumberGenerator]::GetBytes(32)
-    return [Convert]::ToBase64String($bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_')
-}
 
 function Assert-PortAvailable {
     param(
@@ -136,8 +136,7 @@ function Start-WebProcess {
         '--no-launch-profile',
         '--verbosity', $Verbosity
     )
-    $Environment['OSSM__FileLogging__Directory'] = Join-Path $script:RepositoryRoot (
-        "logs/$([IO.Path]::GetFileNameWithoutExtension($Project))")
+    $Environment['OSSM__FileLogging__Directory'] = Join-Path $script:RepositoryRoot 'logs'
     return Start-Process -FilePath $script:DotNet -ArgumentList $arguments `
         -WorkingDirectory $script:RepositoryRoot -NoNewWindow -PassThru `
         -Environment (New-ProcessEnvironment $Environment)
@@ -195,7 +194,7 @@ else {
 
 if (-not $PSCmdlet.ShouldProcess(
     $RepositoryRoot,
-    "Build and run the local web applications on ports $AdminPort, $GuestPort, and $ApiPort")) {
+    "Build and run the single-process web host on ports $AdminPort, $GuestPort, and $ApiPort")) {
     return
 }
 
@@ -203,72 +202,47 @@ foreach ($port in @($AdminPort, $GuestPort, $ApiPort)) {
     Assert-PortAvailable $port
 }
 
-$apiProject = 'src/OssmSharp.Web.Api/OssmSharp.Web.Api.csproj'
-$guestProject = 'src/OssmSharp.Web.GuestWeb/OssmSharp.Web.GuestWeb.csproj'
-$adminProject = 'src/OssmSharp.Web.AdminWeb/OssmSharp.Web.AdminWeb.csproj'
+$project = 'src/OssmSharp.Web/OssmSharp.Web.csproj'
 
 Push-Location -LiteralPath $RepositoryRoot
 try {
-    Write-Host 'Building the web applications...'
-    Invoke-DotNet @('build', $apiProject, '--framework', $nativeFramework)
-    Invoke-DotNet @('build', $guestProject, '--framework', 'net10.0')
-    Invoke-DotNet @('build', $adminProject, '--framework', 'net10.0')
+    Write-Host 'Building the single-process web host...'
+    Invoke-DotNet @('build', $project, '--framework', $nativeFramework)
 }
 finally {
     Pop-Location
 }
 
-$serviceKey = New-ServiceKey
 $apiOrigin = "http://127.0.0.1:$ApiPort"
 $guestOrigin = "http://127.0.0.1:$GuestPort"
 $adminOrigin = "http://127.0.0.1:$AdminPort"
-$processes = [Collections.Generic.List[Diagnostics.Process]]::new()
+$process = $null
 
 try {
-    $api = Start-WebProcess 'control API' $apiProject $nativeFramework @{
-        'ASPNETCORE_URLS' = $apiOrigin
-        'OSSM__Control__AdminWebServiceKey' = $serviceKey
+    $process = Start-WebProcess -Name 'single-process web host' -Project $project -Framework $nativeFramework -Environment @{
+        'OSSM__Web__ApiPort' = "$ApiPort"
+        'OSSM__Web__GuestPort' = "$GuestPort"
+        'OSSM__Web__AdminPort' = "$AdminPort"
         'OSSM__Control__DeviceIdentifier' = $DeviceIdentifier
     }
-    $processes.Add($api)
-    Wait-Healthy 'Control API' "$apiOrigin/health" $api
-
-    $guest = Start-WebProcess 'guest web application' $guestProject 'net10.0' @{
-        'OSSM__ControlClient__EndpointUri' = $apiOrigin
-        'OSSM__ControlClient__ServiceKey' = $null
-        'OSSM__Guest__GuestPort' = "$GuestPort"
-        'OSSM__Guest__Hostname' = ''
-    }
-    $processes.Add($guest)
-
-    $admin = Start-WebProcess 'user web application' $adminProject 'net10.0' @{
-        'OSSM__Admin__GuestHostname' = $guestOrigin
-        'OSSM__Admin__ListenPort' = "$AdminPort"
-        'OSSM__ControlClient__EndpointUri' = $apiOrigin
-        'OSSM__ControlClient__ServiceKey' = $serviceKey
-    }
-    $processes.Add($admin)
-
-    Wait-Healthy 'Guest web application' "$guestOrigin/health" $guest
-    Wait-Healthy 'User web application' "$adminOrigin/health" $admin
+    Wait-Healthy -Name 'Control API' -Uri "$apiOrigin/health" -Process $process
+    Wait-Healthy -Name 'Guest web application' -Uri "$guestOrigin/health" -Process $process
+    Wait-Healthy -Name 'User web application' -Uri "$adminOrigin/health" -Process $process
 
     Write-Host ''
     Write-Host "User controls: $adminOrigin"
     Write-Host "Guest web:     $guestOrigin"
-    Write-Host 'Press Ctrl+C to stop all three applications.'
+    Write-Host 'Press Ctrl+C to stop the web host and all three applications.'
 
-    while ($true) {
-        foreach ($process in $processes) {
-            if ($process.HasExited) {
-                throw "A web process exited unexpectedly with code $($process.ExitCode)."
-            }
-        }
-        Start-Sleep -Seconds 1
+    $process.WaitForExit()
+    if ($process.ExitCode -ne 0) {
+        throw "The web host exited with code $($process.ExitCode)."
     }
 }
 finally {
-    foreach ($process in $processes) {
-        if (-not $process.HasExited) {
+    if ($null -ne $process) {
+        if (-not $process.HasExited -and -not $process.WaitForExit(5000)) {
+            Write-Warning 'The web host did not exit within five seconds; terminating it and its child processes.'
             $process.Kill($true)
             $process.WaitForExit(5000) | Out-Null
         }

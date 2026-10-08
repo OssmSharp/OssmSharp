@@ -23,7 +23,7 @@ Describe 'run-web.ps1' {
         { & $scriptPath -Verbosity unsupported -WhatIf } | Should -Throw
     }
 
-    Context 'Standalone application logging' {
+    Context 'Combined host configuration' {
         BeforeEach {
             . $scriptPath -WhatIf
             Mock Start-Process {}
@@ -35,19 +35,33 @@ Describe 'run-web.ps1' {
             $environment['Logging__Console__LogLevel__Default'] | Should -Be 'Warning'
         }
 
-        It 'enables separate file logs for <Application>' -ForEach @(
-            @{ Application = 'OssmSharp.Web.Api' }
-            @{ Application = 'OssmSharp.Web.AdminWeb' }
-            @{ Application = 'OssmSharp.Web.GuestWeb' }
-        ) {
-            $project = "src/$Application/$Application.csproj"
-            $expectedDirectory = Join-Path $script:RepositoryRoot "logs/$Application"
+        It 'sets the repository log root for the host and its applications' {
+            $project = 'src/OssmSharp.Web/OssmSharp.Web.csproj'
+            $expectedDirectory = Join-Path $script:RepositoryRoot 'logs'
 
-            Start-WebProcess 'test application' $project 'net10.0' @{}
+            Start-WebProcess 'web host' $project $nativeFramework @{}
 
             Should -Invoke Start-Process -Times 1 -Exactly -ParameterFilter {
                 $Environment['OSSM__FileLogging__Directory'] -eq $expectedDirectory -and
                 $Environment['Logging__Console__LogLevel__Default'] -eq 'Warning'
+            }
+        }
+
+        It 'passes the combined host ports and device selection without a launcher service key' {
+            Start-WebProcess 'web host' 'src/OssmSharp.Web/OssmSharp.Web.csproj' $nativeFramework @{
+                'OSSM__Web__ApiPort' = '5103'
+                'OSSM__Web__GuestPort' = '5101'
+                'OSSM__Web__AdminPort' = '5102'
+                'OSSM__Control__DeviceIdentifier' = 'test-device'
+            }
+
+            Should -Invoke Start-Process -Times 1 -Exactly -ParameterFilter {
+                $Environment['OSSM__Web__ApiPort'] -eq '5103' -and
+                $Environment['OSSM__Web__GuestPort'] -eq '5101' -and
+                $Environment['OSSM__Web__AdminPort'] -eq '5102' -and
+                $Environment['OSSM__Control__DeviceIdentifier'] -eq 'test-device' -and
+                -not $Environment.ContainsKey('OSSM__Control__AdminWebServiceKey') -and
+                -not $Environment.ContainsKey('OSSM__ControlClient__ServiceKey')
             }
         }
     }
