@@ -5,6 +5,26 @@ the device, stop motion, and give a guest access to the controls.
 
 You need a compatible OSSM device and a computer with Bluetooth.
 
+## Choose how your guest will connect
+
+A guest on another device needs one of these options. Choose and set it up
+before sharing an invitation. Skip this step if you are only trying the app
+on your own computer.
+
+- **[Tailscale](https://tailscale.com/kb/1223/funnel):** use Funnel for a public
+  link, or [Serve](https://tailscale.com/kb/1242/tailscale-serve) if your guest
+  also uses your Tailscale network.
+- **[ngrok](https://ngrok.com/docs/universal-gateway/http):** create an HTTPS
+  link to the app without changing your router settings.
+- **[Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/):**
+  use a hostname on your domain without opening router ports.
+- **Port forwarding (advanced):** forward your router's HTTPS port to an HTTPS
+  proxy on the computer running OssmSharp. You need a valid certificate and
+  an internet connection that allows incoming connections.
+
+Follow [Guest access from another device](#guest-access-from-another-device)
+to connect your choice to OssmSharp. Do not forward the app's ports directly.
+
 ## Install the tools
 
 Follow the instructions for your computer. You only need to do this once.
@@ -81,12 +101,12 @@ device needs the setup below.
 
 ## Guest access from another device
 
-Set up an HTTPS tunnel using [Tailscale Funnel](https://tailscale.com/kb/1223/funnel)
-or [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/).
+Run your chosen tunnel or HTTPS proxy on the computer running OssmSharp.
 Point it at `http://127.0.0.1:5001`. Expose only this guest address, not the
-control page or any other ports.
+control page or any other app ports. For port forwarding, forward to the HTTPS
+proxy, not directly to port 5001.
 
-Replace `https://guest.example` below with your tunnel's HTTPS address.
+Replace `https://guest.example` below with your guest's HTTPS address.
 Stop OssmSharp first, then restart it with that address.
 
 **Windows PowerShell:**
@@ -118,10 +138,7 @@ to your public hostname, such as `guest.example`.
 
 ## If something goes wrong
 
-- **Device will not connect:** check that it is powered on, Bluetooth is enabled,
-  and OssmSharp has Bluetooth permission.
-- **A command is not found:** close and reopen your terminal after installing
-  the tools.
+
 - **A port is already in use:** close the other copy of OssmSharp. If another
   app uses those ports, start OssmSharp with:
 
