@@ -1376,9 +1376,11 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>, IAsync
             Assert.False(request.IsCompleted);
             Assert.True((await Component.EndGuestAsync("end-1")).Accepted);
             await JoinAndAllowAsync("guest-2");
-            pendingSet.SetResult(new(SetStatus.Completed, 2));
 
-            Assert.Equal(new SettingsResponse("set-1", SettingsResponseStatus.Cancelled, 0), await request);
+            // End guest cancels through thread-pool callbacks; observe that before releasing the late device result.
+            Assert.Equal(new SettingsResponse("set-1", SettingsResponseStatus.Cancelled, 0),
+                await request.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
+            pendingSet.SetResult(new(SetStatus.Completed, 2));
             var replacement = await Component.GetGuestStateAsync("guest-2", TestContext.Current.CancellationToken);
             Assert.True(replacement.Joined);
             Assert.True(replacement.ControlAllowed);
