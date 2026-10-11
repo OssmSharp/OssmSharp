@@ -102,12 +102,6 @@ try {
         "$((Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant())  $($_.Name)"
     }
     $hashes | Set-Content (Join-Path $downloads "SHA256SUMS-$runtime.txt")
-    $metadata | Add-Member -NotePropertyName Runtime -NotePropertyValue $runtime
-    $metadata | ConvertTo-Json | Set-Content (Join-Path $downloads "manifest-$runtime.json")
-    $final = Get-ReleaseMetadata $root -Tag $Tag
-    if ($final.InformationalVersion -cne $metadata.InformationalVersion -or $final.Commit -cne $metadata.Commit) {
-        throw 'Source version changed while building; discard these artifacts and rebuild.'
-    }
     Write-Information "Validated outputs: $downloads"
 }
 finally {

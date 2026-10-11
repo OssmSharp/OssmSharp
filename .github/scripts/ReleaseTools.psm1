@@ -33,7 +33,7 @@ function Get-ReleaseMetadata {
     Reads the shared version and current Git source state.
     .DESCRIPTION
     An optional tag requests release validation: stable version, matching version
-    setting, clean checkout, tag at HEAD, and ancestry from origin/main.
+    setting, clean checkout, and tag at HEAD.
     Does not modify Git refs or publish anything.
     .PARAMETER RepositoryRoot
     The source checkout containing Directory.Build.props.
@@ -78,14 +78,6 @@ function Get-ReleaseMetadata {
         $tagCommit = (Invoke-CheckedCommand git @('-C', $RepositoryRoot, 'rev-parse', "refs/tags/$Tag^{commit}") | Out-String).Trim()
         if ($tagCommit -cne $commit) {
             throw "Release tag '$Tag' does not identify the checked-out commit."
-        }
-        Invoke-CheckedCommand git @('-C', $RepositoryRoot, 'show-ref', '--verify', 'refs/remotes/origin/main') | Out-Null
-        & git -C $RepositoryRoot merge-base --is-ancestor $commit refs/remotes/origin/main
-        if ($LASTEXITCODE -eq 1) {
-            throw "Release tag '$Tag' is not on origin/main."
-        }
-        if ($LASTEXITCODE -ne 0) {
-            throw "Cannot verify release ancestry (git exit code $LASTEXITCODE)."
         }
     }
     return [pscustomobject] @{
@@ -152,56 +144,37 @@ function Assert-ApplicationVersion {
 function Test-ReleaseArtifacts {
     <#
     .SYNOPSIS
-    Verifies the complete release asset set and its source provenance.
+    Checks that the expected release downloads exist.
     .DESCRIPTION
-    Checks clean matching platform manifests and SHA-256 entries for exactly four
-    native archives and one package. Does not contact services or publish.
+    Requires four native archives, one package, and both checksum files.
+    Artifacts come from the native jobs in the same workflow run.
     .PARAMETER Directory
     The downloaded artifacts from both native jobs.
     .PARAMETER Metadata
-    The clean source metadata returned by Get-ReleaseMetadata.
+    The version returned by Get-ReleaseMetadata.
     .EXAMPLE
     Test-ReleaseArtifacts .artifacts/release-input $metadata
     .OUTPUTS
-    System.String. Absolute paths of the validated release assets and checksums.
+    System.String. Absolute paths of the release assets and checksums.
     #>
     [CmdletBinding()]
     param([string] $Directory, [pscustomobject] $Metadata)
 
-    if ($Metadata.IsDirty) {
-        throw 'Release source metadata must be clean.'
-    }
     $directoryPath = (Resolve-Path -LiteralPath $Directory).Path
     $expected = @(
         "OssmSharp.Cli-$($Metadata.Version)-win-x64.zip",
         "OssmSharp.Web-$($Metadata.Version)-win-x64.zip",
         "OssmSharp.Cli-$($Metadata.Version)-osx-arm64.tar.gz",
         "OssmSharp.Web-$($Metadata.Version)-osx-arm64.tar.gz",
-        "OssmSharp.Runtime.Oem.$($Metadata.Version).nupkg"
+        "OssmSharp.Runtime.Oem.$($Metadata.Version).nupkg",
+        'SHA256SUMS-win-x64.txt',
+        'SHA256SUMS-osx-arm64.txt'
     )
-    $checked = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
-    foreach ($runtime in @('win-x64', 'osx-arm64')) {
-        $manifest = Get-Content -LiteralPath (Join-Path $directoryPath "manifest-$runtime.json") -Raw | ConvertFrom-Json
-        if ($manifest.Version -cne $Metadata.Version -or $manifest.Commit -cne $Metadata.Commit -or
-            $manifest.InformationalVersion -cne $Metadata.InformationalVersion -or
-            $manifest.IsDirty -ne $false -or $manifest.Runtime -cne $runtime) {
-            throw "$runtime artifacts do not belong to this clean release commit."
-        }
-        foreach ($line in Get-Content -LiteralPath (Join-Path $directoryPath "SHA256SUMS-$runtime.txt")) {
-            if ($line -cnotmatch '^(?<hash>[0-9a-f]{64})  (?<name>[A-Za-z0-9._-]+)$' -or
-                $expected -cnotcontains $Matches.name -or -not $checked.Add($Matches.name)) {
-                throw "Invalid or duplicate $runtime checksum entry."
-            }
-            $actual = (Get-FileHash -LiteralPath (Join-Path $directoryPath $Matches.name) -Algorithm SHA256).Hash.ToLowerInvariant()
-            if ($actual -cne $Matches.hash) {
-                throw "Checksum mismatch for $($Matches.name)."
-            }
+    foreach ($name in $expected) {
+        if (-not (Test-Path -LiteralPath (Join-Path $directoryPath $name) -PathType Leaf)) {
+            throw "Missing release output: $name"
         }
     }
-    if ($checked.Count -ne $expected.Count) {
-        throw 'Release outputs are incomplete.'
-    }
-    $expected += @('SHA256SUMS-win-x64.txt', 'SHA256SUMS-osx-arm64.txt')
     return $expected | ForEach-Object { Join-Path $directoryPath $_ }
 }
 

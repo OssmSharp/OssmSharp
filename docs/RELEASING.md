@@ -84,13 +84,12 @@ web application; [make.ps1](../make.ps1) publishes or runs the CLI.
 Complete these steps before pushing a release tag:
 
 1. Make `argium/OssmSharp` public so users can access the AGPL source, including
-   its exact tagged version. The workflow refuses private source publication.
+   its exact tagged version. Public source is a release prerequisite.
 2. Enable Actions and run [Validate](../.github/workflows/validate.yml). Configure
    branch protection for `main` to require both native checks. Select their actual
    displayed names after the first run. These are account-side settings; the
    workflow does not configure them.
-3. Protect `v*` tags against unauthorized creation, update, or deletion. Release
-   tags must point to commits reachable from `origin/main`.
+3. Protect `v*` tags against unauthorized creation, update, or deletion.
 4. Create a GitHub environment named `release`, restrict it to version tags, and
    add any required approval rules. Only the publication job uses write and OIDC
    permissions.
@@ -131,35 +130,48 @@ git push origin v0.1.0
 ```
 
 4. Monitor [Release](../.github/workflows/release.yml). The tag's exact commit is
-   rebuilt and checked. It must be on `main`, clean, and match the shared version.
+   rebuilt and checked. The checkout must be clean and match the shared version.
 5. Verify the public GitHub release and NuGet listing after publication. Download
    the archives and compare their SHA-256 values against the included checksum
    files. A queued job or locally passing build is not proof of publication.
 
 The final stable GitHub release contains two Windows ZIPs, two macOS tar.gz
-archives, the single nupkg, and the two checksum files. It is not marked prerelease.
+archives, the single nupkg, and the two checksum files. GitHub generates the
+changelog alongside the download instructions. It is not marked prerelease.
 
 ## Failures and recovery
 
-The GitHub and NuGet services are not transactional. Publication first creates a
-GitHub draft with the validated assets, then pushes NuGet, then makes the draft a
-stable public release. Runs for the same tag are serialized and are not cancelled
-in mid-publication.
+Publication has four visible workflow steps: create or reuse a GitHub draft,
+upload downloads, publish NuGet, and publish the stable GitHub release. Runs for
+the same tag are serialized and are not cancelled during publication.
 
-- **Build or validation fails:** no publication runs. Fix the cause through a PR.
-  Use a new version/tag if a tagged release must change; do not move an existing
-  public tag.
-- **GitHub draft creation fails:** NuGet has not been pushed. Inspect conflicting
-  releases, permissions, and availability before retrying.
-- **NuGet push fails after draft creation:** inspect whether NuGet accepted the
-  version. If it did not, resolve authentication/policy errors and either publish
-  the exact validated package manually or remove the failed draft before rerunning
-  the same unchanged tag.
-- **NuGet succeeds but final GitHub publication fails:** do not rebuild or push
-  the version again. Verify the existing draft's assets and checksums, then finish
-  publishing that draft with `gh release edit v0.1.0 --draft=false --prerelease=false --latest`.
-- **A published package or asset is wrong:** prepare a new version. The workflow
-  fails on existing versions rather than silently skipping or replacing them.
+If publication fails, fix the service or authentication issue and **rerun failed
+jobs** in the original workflow run. The publish job downloads the original native
+build artifacts. Existing GitHub assets are retained when their SHA-256 digest
+matches; missing assets are uploaded to the draft without replacing existing ones.
+An existing NuGet package is skipped only when its contents match, excluding the
+repository signature added by nuget.org. A different asset or package stops the
+release. GitHub and NuGet are not transactional, so a draft or NuGet version can
+remain after failure.
+
+Do not rerun successful native build jobs to recover publication: rebuilt archives
+can differ even at the same commit. If the original artifacts have expired after
+seven days, recover using the exact original downloads or prepare a new version.
+
+Local recovery uses the same script; `-WhatIf` checks local inputs without network
+access or publication. With credentials configured, run all stages again using
+the original downloads:
+
+```powershell
+./.github/scripts/Publish-Release.ps1 -Tag v0.1.0 -Directory .artifacts/release-input -WhatIf
+./.github/scripts/Publish-Release.ps1 -Tag v0.1.0 -Directory .artifacts/release-input
+```
+
+`-Stage Prepare`, `Upload`, `NuGet`, and `Publish` expose individual steps for
+manual recovery; run the upload and package checks before publishing the draft.
+A published GitHub release cannot receive missing or replacement assets through
+this script. For incorrect published content or source changes, prepare a new
+version and tag; do not move an existing public tag.
 
 Test results are retained for seven days. Build binlogs remain in generated build
 output for local diagnosis; CI does not upload binlogs or application logs because

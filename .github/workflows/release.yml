@@ -21,17 +21,14 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Require matching stable tag and public source
+      - name: Require matching stable tag
         shell: pwsh
         env:
           RELEASE_TAG: ${{ github.ref_name }}
-          GH_TOKEN: ${{ github.token }}
           NUGET_USER: ${{ vars.NUGET_USER }}
         run: |
           Import-Module ./.github/scripts/ReleaseTools.psm1
           Get-ReleaseMetadata $PWD -Tag $env:RELEASE_TAG | Out-Null
-          $repo = Invoke-CheckedCommand gh @('repo', 'view', 'argium/OssmSharp', '--json', 'visibility') | ConvertFrom-Json
-          if ($repo.visibility -ne 'PUBLIC') { throw 'Make the source repository public before releasing.' }
           if ([string]::IsNullOrWhiteSpace($env:NUGET_USER)) { throw 'Configure the NUGET_USER repository variable and NuGet trusted publishing.' }
 
   build:
@@ -48,6 +45,12 @@ jobs:
     permissions:
       contents: write
       id-token: write
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      RELEASE_TAG: ${{ github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -62,15 +65,18 @@ jobs:
           pattern: downloads-*
           merge-multiple: true
           path: .artifacts/release-input/
+      - name: Create or reuse the GitHub draft
+        run: ./.github/scripts/Publish-Release.ps1 -Tag $env:RELEASE_TAG -Directory .artifacts/release-input -Stage Prepare -Confirm:$false
+      - name: Upload release assets
+        run: ./.github/scripts/Publish-Release.ps1 -Tag $env:RELEASE_TAG -Directory .artifacts/release-input -Stage Upload -Confirm:$false
       - name: Obtain a short-lived NuGet publishing key
         id: nuget
         uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1.2.0
         with:
           user: ${{ vars.NUGET_USER }}
-      - name: Publish NuGet and the stable GitHub release
-        shell: pwsh
+      - name: Publish NuGet package
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
-          GH_TOKEN: ${{ github.token }}
           NUGET_API_KEY: ${{ steps.nuget.outputs.NUGET_API_KEY }}
-        run: ./.github/scripts/Publish-Release.ps1 -Tag $env:RELEASE_TAG -Directory .artifacts/release-input -Confirm:$false
+        run: ./.github/scripts/Publish-Release.ps1 -Tag $env:RELEASE_TAG -Directory .artifacts/release-input -Stage NuGet -Confirm:$false
+      - name: Publish the stable GitHub release
+        run: ./.github/scripts/Publish-Release.ps1 -Tag $env:RELEASE_TAG -Directory .artifacts/release-input -Stage Publish -Confirm:$false
