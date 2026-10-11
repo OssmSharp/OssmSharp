@@ -59,6 +59,27 @@ public sealed class PatternPreviewTests : MockerTestBase<PatternPreview>
     }
 
     [Fact]
+    public void AttachmentAndInsertionUseTheSameLengthScale()
+    {
+        foreach (var (attachment, rail, stroke, depth, minimum, maximum) in new[]
+        {
+            (24.0, 40.0, 100, 100, 0.0, 24.0),
+            (24.0, 40.0, 20, 60, 0.0, 8.0),
+            (24.0, 40.0, 0, 50, 4.0, 4.0),
+            (0.0, 40.0, 100, 100, 0.0, 0.0),
+            (80.0, 40.0, 100, 100, 40.0, 80.0),
+        })
+        {
+            ComponentTestAccess.Set(Component, nameof(PatternPreview.AttachmentLength), attachment);
+            ComponentTestAccess.Set(Component, nameof(PatternPreview.RailLength), rail);
+            SetParameters(0, 50, stroke, depth, 50);
+            Assert.Equal(attachment / rail, Read<double>("AttachmentTravel"));
+            Assert.Equal(minimum, Read<double>("MinimumInsertionCm"), precision: 6);
+            Assert.Equal(maximum, Read<double>("MaximumInsertionCm"), precision: 6);
+        }
+    }
+
+    [Fact]
     public void SevenProfilesPreserveNormalizationDirectionAndPatternPartitions()
     {
         var profiles = new List<PreviewProfile>();

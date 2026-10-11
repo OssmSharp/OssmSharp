@@ -110,14 +110,14 @@ public sealed class OssmDeviceResetPositionTests : OssmDeviceTestBase
             ControlRequests().Select(request => request["path"]!.GetValue<string>()));
         var position = Assert.Single(context.RequestsFor("target.set", "motion.position"));
         Assert.Equal(100, position["args"]!["value"]!.GetValue<int>());
-        Assert.Equal(10000, position["args"]!["durationMs"]!.GetValue<int>());
+        Assert.Equal(5000, position["args"]!["durationMs"]!.GetValue<int>());
         Assert.Equal(42u, position["lease"]!.GetValue<uint>());
         foreach (var path in new[] { "motion.stroke", "motion.depth", "motion.sensation" })
         {
             Assert.Equal(100, Assert.Single(context.RequestsFor("setting.write", path))["args"]!["value"]!.GetValue<int>());
         }
 
-        Assert.Equal([0, 20, 0], context.RequestsFor("setting.write", "motion.speed").Select(request => request["args"]!["value"]!.GetValue<int>()));
+        Assert.Equal([0, 40, 0], context.RequestsFor("setting.write", "motion.speed").Select(request => request["args"]!["value"]!.GetValue<int>()));
         Assert.Empty(context.RequestsFor("setting.write", "motion.pattern"));
         Assert.True(Component.IsArmed);
         Assert.Contains(logger.Entries, entry => entry.Level == LogLevel.Information && entry.Message.Contains("ResetPosition", StringComparison.Ordinal));
@@ -167,7 +167,7 @@ public sealed class OssmDeviceResetPositionTests : OssmDeviceTestBase
             context.Write = null;
         }
 
-        Assert.Equal([0, 20, 0], context.RequestsFor("setting.write", "motion.speed").Select(request => request["args"]!["value"]!.GetValue<int>()));
+        Assert.Equal([0, 40, 0], context.RequestsFor("setting.write", "motion.speed").Select(request => request["args"]!["value"]!.GetValue<int>()));
         Assert.Single(context.RequestsFor("target.set", "target.menu"));
         Assert.Empty(context.RequestsFor("setting.write", "motion.pattern"));
         Assert.True(Component.IsArmed);
@@ -443,7 +443,7 @@ public sealed class OssmDeviceResetPositionTests : OssmDeviceTestBase
         context.Clock.Advance(TimeSpan.FromMilliseconds(250));
         await reset;
         Assert.Single(context.RequestsFor("setting.write", "motion.pattern"));
-        Assert.Equal([0, 20, 0], context.RequestsFor("setting.write", "motion.speed").Select(request => request["args"]!["value"]!.GetValue<int>()));
+        Assert.Equal([0, 40, 0], context.RequestsFor("setting.write", "motion.speed").Select(request => request["args"]!["value"]!.GetValue<int>()));
         Assert.Equal(["motion.speed", "target.menu"], ControlRequests().TakeLast(2).Select(request => request["path"]!.GetValue<string>()));
         context.Write = null;
     }

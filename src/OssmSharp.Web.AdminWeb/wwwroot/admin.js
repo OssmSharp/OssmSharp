@@ -54,13 +54,12 @@ export function readAttachmentLength(fallback) {
   }
 }
 
-/** Stores the illustrative attachment length, in centimetres, for this browser. */
+/**
+ * Stores the illustrative attachment length, in centimetres, for this browser.
+ * @throws {DOMException} Browser storage is unavailable or full.
+ */
 export function writeAttachmentLength(value) {
-  try {
-    localStorage.setItem(attachmentLengthKey, String(value));
-  } catch {
-    // Storage is unavailable; the setting simply does not persist.
-  }
+  localStorage.setItem(attachmentLengthKey, String(value));
 }
 
 export async function copy(text) {  try {

@@ -23,20 +23,20 @@ test("public guest manual and auto send wire controls to RPC and leave scrubs ca
     assert.equal(await page.getByLabel("Speed", { exact: true }).inputValue(), String(expected), "Native step=1 coercion");
     assert.equal(session.requests.length, 0);
   }
-  await page.getByLabel("Pattern", { exact: true }).selectOption("5");
+  await button(page, "Stop / go").click();
   await setRange(page, "Sensation", 75);
   await button(page, "Send").click();
   await sent(page, "Speed", 13);
   assert.equal(session.requests.length, 1);
   assert.deepEqual(pickSettings(session.requests[0]), { pattern: 5, speed: 13, stroke: 10, depth: 20, sensation: 75 });
   await page.getByLabel("Auto send", { exact: true }).check();
-  await page.getByLabel("Pattern", { exact: true }).selectOption("4");
+  await button(page, "Deeper").click();
   await sent(page, "Speed", 13);
   await until(() => page.getByTestId("preview-pattern").innerText(), "Deeper", "Auto preview");
   await waitFor(() => session.requests.length === 2, "Auto Submit");
   assert.deepEqual(pickSettings(session.requests[1]), { pattern: 4, speed: 13, stroke: 10, depth: 20, sensation: 75 });
   await page.getByLabel("Auto send", { exact: true }).uncheck();
-  await until(() => page.getByRole("status").filter({ hasText: "Last changed selection sent." }).count(), 1, "send status");
+  await until(() => page.getByRole("status").filter({ hasText: "Settings sent." }).count(), 1, "send status");
   session.state.device = { ...session.state.device, speed: 33.333333333333336, stroke: 30 };
   await currentSpeed(page, "33.333333333333336");
   await setRange(page, "Depth", 80);
@@ -109,7 +109,7 @@ test("guest reset and acknowledged Stop permit only deliberate recovery", option
   const fixture = await createBrowserFixture(t, browser);
   const { page, session, errors } = await fixture.openGuest("guest-safety");
   await setRange(page, "Speed", 35);
-  await page.getByLabel("Pattern", { exact: true }).selectOption("6");
+  await button(page, "Insist").click();
   await page.getByLabel("Auto send", { exact: true }).check();
   await sent(page, "Speed", 35);
   await button(page, "Reset Position").click();
@@ -118,7 +118,7 @@ test("guest reset and acknowledged Stop permit only deliberate recovery", option
   assert.equal(await button(page, "Send").isDisabled(), true);
   assert.equal(await page.getByLabel("Auto send", { exact: true }).isChecked(), false);
   assert.equal(await page.getByLabel("Speed", { exact: true }).inputValue(), "35");
-  assert.equal(await page.getByLabel("Pattern", { exact: true }).inputValue(), "6");
+  assert.equal(await button(page, "Insist").getAttribute("aria-pressed"), "true");
   assert.equal(await button(page, "Stop").isEnabled(), true);
   session.holdStop = true;
   await button(page, "Stop").click();
@@ -346,7 +346,7 @@ function pickSettings(request) {
 }
 
 function commands(session) {
-  return session.calls.filter((name) => !["Join", "GetGuestState", "GetUserState"].includes(name));
+  return session.calls.filter((name) => !["Join", "GetGuestState", "GetUserState", "SetPreviewDimensions"].includes(name));
 }
 
 async function currentSpeed(page, value) {

@@ -10,7 +10,7 @@ internal sealed class RpcClientTestScope : IAsyncDisposable
     private readonly ServiceProvider _provider;
     private readonly AsyncServiceScope _scope;
 
-    public RpcClientTestScope(RpcClientOptions options, bool guest = false)
+    public RpcClientTestScope(RpcClientOptions options, bool guest = false, TimeProvider? timeProvider = null)
     {
         var services = new ServiceCollection();
         if (guest)
@@ -18,6 +18,8 @@ internal sealed class RpcClientTestScope : IAsyncDisposable
         else
             services.AddAdminApiClient("Client");
         services.AddSingleton(Options.Create(options));
+        if (timeProvider is not null)
+            services.AddSingleton(timeProvider);
         _provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true });
         _scope = _provider.CreateAsyncScope();
     }

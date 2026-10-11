@@ -1,7 +1,32 @@
+.dashboard-grid { width: min(1180px, 100%); padding: 8px 24px; gap: 12px; }
+.guest-session { gap: 12px; }
+.guest-workspace { display: grid; grid-template-columns: 164px minmax(0, 1fr); gap: 16px; align-items: start; }
+.guest-panel { min-width: 0; display: grid; gap: 8px; }
+.guest-session h2 { font-size: 20px; letter-spacing: -.4px; }
+.guest-session .widget-heading { min-height: 24px; margin-bottom: 8px; gap: 10px; }
+.guest-session .preview-rail { height: clamp(96px, 16vh, 150px); }
+.pattern-sidebar { padding: 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
+.pattern-sidebar h2 { margin-bottom: 10px; }
+.pattern-sidebar .page-actions { margin-top: 12px; }
+.pattern-list { display: grid; gap: 4px; }
+.pattern-button {
+    min-height: 44px;
+    padding: 8px 10px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    color: var(--text);
+    background: transparent;
+    text-align: left;
+    font-size: 12px;
+    line-height: 1.3;
+}
+.pattern-button:hover:not(:disabled) { border-color: var(--accent); }
+.pattern-button[aria-pressed="true"] { color: var(--accent-ink); background: var(--accent-fill); border-color: var(--accent-fill); }
+.pattern-button:disabled { opacity: .6; }
 .settings-legend {
     display: flex;
     flex-wrap: wrap;
-    gap: 1rem;
+    gap: .6rem;
     color: var(--muted);
     font-size: .75rem;
 }
@@ -10,33 +35,31 @@
 .key.sent { height: 0; border-top: 2px dashed var(--warning); }
 .key.current { height: 0; border-top: 2px solid var(--success); }
 
-.pattern-selection { display: grid; gap: 9px; margin-block: 24px; }
-.pattern-selection label { font-size: 12px; font-weight: 500; }
-.pattern-selection select { width: min(100%, 15rem); }
-.guest-session .widget { padding-bottom: 26px; border-bottom: 1px solid var(--line); }
-.slider-grid { display: flex; gap: 1rem; }
+.slider-grid { display: flex; gap: .6rem; }
 .vertical-slider { flex: 1 1 0; min-width: 0; text-align: center; }
 /* Sensation has no effect on a simple stroke, so guest-session.js reveals it only for the
    patterns that use it. The hidden input keeps its value and stays in the submitted request. */
 .guest-session:not([data-sensation]) .vertical-slider[data-slider="sensation"] { display: none; }
-.slider-heading { display: grid; gap: .3rem; }
-.slider-heading label { font-size: .9rem; font-weight: 550; }
+.slider-heading { display: grid; grid-template-columns: minmax(0, 1fr); gap: .15rem; }
+.slider-heading label { overflow-wrap: anywhere; font-size: .9rem; font-weight: 550; }
 .slider-heading output {
     color: var(--accent);
-    font-size: 2rem;
+    font-size: 1.65rem;
     font-weight: 550;
     letter-spacing: -.8px;
     font-variant-numeric: tabular-nums;
 }
 .slider-well {
-    height: clamp(150px, 28vh, 240px);
-    margin: 1rem auto;
+    --slider-thumb-size: 24px;
+    height: clamp(100px, calc(100dvh - 500px), 220px);
+    margin: 8px auto;
     display: flex;
     align-items: center;
     justify-content: center;
     gap: .45rem;
 }
-.slider-markers { width: 26px; height: calc(100% - 1.25rem); overflow: visible; flex-shrink: 0; }
+/* Native thumb centres stop half a thumb inside the border at each end. */
+.slider-markers { width: 26px; height: calc(100% - var(--slider-thumb-size) - 2px); overflow: visible; flex-shrink: 0; }
 .current-marker, .sent-marker { stroke-width: 2; vector-effect: non-scaling-stroke; }
 .current-marker { stroke: var(--success); }
 .sent-marker { stroke: var(--warning); stroke-dasharray: 3 2; }
@@ -45,46 +68,49 @@
     appearance: none;
     writing-mode: vertical-lr;
     direction: rtl;
-    width: 2.75rem;
+    width: 40px;
     height: 100%;
     flex-shrink: 0;
     margin: 0;
     border: 1px solid var(--line);
     border-radius: var(--radius);
-    background: var(--field);
+    background: linear-gradient(to top, var(--accent) var(--range-progress), var(--surface) var(--range-progress))
+        center / 8px calc(100% - var(--slider-thumb-size)) no-repeat var(--field);
     cursor: pointer;
     accent-color: var(--accent);
 }
-.vertical-range::-webkit-slider-runnable-track { width: .5rem; height: 100%; }
-.vertical-range::-moz-range-track { width: .5rem; height: 100%; }
+.vertical-range::-webkit-slider-runnable-track { width: 8px; height: 100%; background: transparent; }
+.vertical-range::-moz-range-track { width: 8px; height: 100%; background: transparent; }
 .vertical-range::-webkit-slider-thumb {
     appearance: none;
-    width: 25px;
-    height: 25px;
+    width: var(--slider-thumb-size);
+    height: var(--slider-thumb-size);
     margin-top: 0;
-    margin-left: calc((.5rem - 1.25rem) / 2 - 1px);
+    margin-left: calc((8px - var(--slider-thumb-size)) / 2);
     border: 2px solid var(--accent);
     border-radius: 2px;
     background: var(--background);
 }
 .vertical-range::-moz-range-thumb {
-    width: 21px;
-    height: 21px;
+    box-sizing: border-box;
+    width: var(--slider-thumb-size);
+    height: var(--slider-thumb-size);
     border: 2px solid var(--accent);
     border-radius: 2px;
     background: var(--background);
 }
-.setting-values { display: grid; gap: .3rem; color: var(--muted); font-size: .75rem; }
+.setting-values { display: grid; align-content: start; min-height: 48px; gap: .2rem; color: var(--muted); font-size: .75rem; }
+.setting-values strong { overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 [data-sent] { color: var(--warning); font-variant-numeric: tabular-nums; }
+[data-current] { color: var(--success); }
 .vertical-slider[data-state="sent"] .slider-heading output { color: var(--warning); }
-.card-footer { display: grid; gap: 1rem; margin-top: 28px; padding-top: 26px; border-top: 1px solid var(--line); }
-.send-bar { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: .8rem; }
-.send-options { display: flex; flex: 1 1 20rem; justify-content: flex-end; align-items: center; gap: .8rem; }
+.card-footer { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+.send-bar { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 8px; }
+.send-options { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .auto-send { display: flex; align-items: center; flex: 0 0 auto; white-space: nowrap; }
-.send-actions { display: flex; align-items: center; flex: 0 0 auto; gap: 15px; }
-.settings-legend { flex: 0 0 auto; margin-inline-end: auto; }
+.send-actions { display: flex; align-items: center; gap: 8px; }
 .guest-session .page-actions { justify-content: flex-start; }
-.send-status { margin-inline-end: auto; color: var(--muted); font-size: .8rem; }
+.send-status { color: var(--status, var(--neutral)); font-size: .8rem; }
 
 .guest-session[data-connection-lost] .guest-session-message,
 .guest-session[data-connection-lost] [data-browser-alert] { display: none; }
@@ -95,10 +121,16 @@ html[data-guest-connection-lost] .connection-notice,
 html[data-guest-connection-lost] #blazor-error-ui.fatal-notice { display: none !important; }
 
 @media (max-width: 700px) {
+    .dashboard-grid { padding: 12px; }
+    .guest-workspace { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+    .pattern-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .guest-session .widget-heading { flex-wrap: wrap; }
     .slider-grid { gap: .45rem; }
     .slider-well { height: clamp(150px, 24vh, 210px); gap: .15rem; }
     .slider-markers { width: 18px; }
-    .send-options { flex-basis: 100%; }
+    .send-bar { display: flex; flex-wrap: wrap; }
+    .send-options { flex-basis: 100%; min-width: 0; }
+    .send-actions { justify-content: flex-end; }
 }
 
 @media (forced-colors: active) {
@@ -108,4 +140,5 @@ html[data-guest-connection-lost] #blazor-error-ui.fatal-notice { display: none !
     .vertical-range { background: Canvas; border-color: CanvasText; }
     .vertical-range::-webkit-slider-thumb { background: ButtonText; border-color: Canvas; }
     .vertical-range::-moz-range-thumb { background: ButtonText; border-color: Canvas; }
+    .pattern-button[aria-pressed="true"] { color: HighlightText; background: Highlight; border-color: Highlight; forced-color-adjust: none; }
 }

@@ -23,6 +23,7 @@ public partial class Home
     private bool _connectionLost;
     private bool _previewStopped;
     private double _attachmentLengthCm = DefaultAttachmentLengthCm;
+    private bool _sharingPreview;
 
     private DeviceSettingsSnapshot? _stoppedSettings;
     private string _noticeVariant = "success";
@@ -35,6 +36,8 @@ public partial class Home
     private TimeProvider Time { get; set; } = null!;
     [Inject]
     private IOptions<AdminOptions> Options { get; set; } = null!;
+    [Inject]
+    private ILogger<Home> Logger { get; set; } = null!;
 
     private string InvitationText =>
         $"{Options.Value.GuestHostname.TrimEnd('/')}/join#invite={Uri.EscapeDataString(_state!.Invitation.Token)}";
@@ -102,15 +105,21 @@ public partial class Home
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender)
+        try
         {
-            _module = await Js.InvokeAsync<IJSObjectReference>("import", "./admin.js");
-            _attachmentLengthCm = ClampAttachmentLength(await _module.InvokeAsync<double>("readAttachmentLength", _attachmentLengthCm));
-            StateHasChanged();
-            _pollingTask = PollAsync();
+            if (firstRender)
+            {
+                _module = await Js.InvokeAsync<IJSObjectReference>("import", _lifetime.Token, "./admin.js");
+                _attachmentLengthCm = ClampAttachmentLength(await _module.InvokeAsync<double>("readAttachmentLength", _lifetime.Token, _attachmentLengthCm));
+                await SharePreviewDimensionsAsync();
+                _lifetime.Token.ThrowIfCancellationRequested();
+                StateHasChanged();
+                _pollingTask = PollAsync();
+            }
+            if (_module is not null)
+                await _module.InvokeVoidAsync("updateConnectionTimer", _lifetime.Token);
         }
-        if (_module is not null)
-            await _module.InvokeVoidAsync("updateConnectionTimer");
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
     }
 
     private async Task PollAsync()
@@ -148,7 +157,7 @@ public partial class Home
     }
 
     private Task AllowGuest() => RunAsync(Control.AllowGuestAsync, null);
-    private Task Stop() => RunAsync(Control.StopAsync, "Stopping ...", safety: true, stopPreview: true);
+    private Task Stop() => RunAsync(Control.StopAsync, "Stopped.", safety: true, stopPreview: true, pendingMessage: "Stopping ...");
     private Task ResetPosition() => RunAsync(Control.ResetPositionAsync, "Position reset. Stopped.", stopPreview: true, pendingMessage: "Resetting position ...");
     private Task EndGuest() => RunAsync(Control.EndGuestAsync, "Guest session ended.", safety: true);
     private Task Connect() => RunAsync(Control.ConnectAsync, null, confirmConnection: true);
@@ -157,10 +166,58 @@ public partial class Home
     {
         if (!double.TryParse(args.Value?.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var entered)
             || !double.IsFinite(entered))
+        {
+            _notice.Show("Enter a valid attachment length.", true);
+            Logger.InvalidPreviewLength();
             return;
-        _attachmentLengthCm = ClampAttachmentLength(Unit is LengthUnit.Inches ? entered * CentimetresPerInch : entered);
-        if (_module is not null)
-            await _module.InvokeVoidAsync("writeAttachmentLength", _attachmentLengthCm);
+        }
+        var centimetres = Unit is LengthUnit.Inches ? entered * CentimetresPerInch : entered;
+        if (centimetres < 0 || centimetres > Options.Value.RailLengthCm)
+        {
+            _notice.Show($"Enter an attachment length from 0 to {RailLengthText} {LengthUnitLabel}.", true);
+            Logger.InvalidPreviewLength();
+            return;
+        }
+        _attachmentLengthCm = centimetres;
+        await SharePreviewDimensionsAsync();
+    }
+
+    private async Task SharePreviewDimensionsAsync()
+    {
+        if (_sharingPreview)
+            return;
+        _sharingPreview = true;
+        try
+        {
+            do
+            {
+                var dimensions = new PreviewDimensions(Options.Value.RailLengthCm, _attachmentLengthCm);
+                await Control.SetPreviewDimensionsAsync(dimensions, _lifetime.Token);
+                if (dimensions.AttachmentLengthCm == _attachmentLengthCm)
+                {
+                    if (_module is not null)
+                        await _module.InvokeVoidAsync("writeAttachmentLength", _lifetime.Token, dimensions.AttachmentLengthCm);
+                    if (dimensions.AttachmentLengthCm != _attachmentLengthCm)
+                        continue;
+                    _noticeVariant = "success";
+                    _notice.Show("Preview dimensions updated.");
+                    return;
+                }
+            }
+            while (!_lifetime.IsCancellationRequested);
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Exception exception) when (exception is ApiClientException or RpcClientRequestTimeoutException)
+        {
+            Logger.PreviewUpdateFailed(exception);
+            _notice.Show("Unable to share preview dimensions. Enter the length again to retry.", true);
+        }
+        catch (JSException exception)
+        {
+            Logger.PreviewPreferenceSaveFailed(exception);
+            _notice.Show("Preview dimensions shared, but this browser could not save the length. Enter it again to retry.", true);
+        }
+        finally { _sharingPreview = false; }
     }
 
     private double ClampAttachmentLength(double centimetres) =>
@@ -187,7 +244,7 @@ public partial class Home
             _busy = true;
             _connecting = confirmConnection;
         }
-        _noticeVariant = stopPreview ? "warning" : "success";
+        _noticeVariant = stopPreview ? "warning" : "info";
         if (stopPreview)
         {
             _previewStopped = true;
@@ -205,7 +262,10 @@ public partial class Home
             if (confirmConnection && _state?.Device?.IsConnected != true)
                 _notice.Show("Device connection is not confirmed. Check the connection state.", true);
             else
+            {
+                _noticeVariant = "success";
                 _notice.Show(message);
+            }
         }
         catch (RpcClientRequestTimeoutException)
         {

@@ -1,1 +1,0 @@
-**The 5% reset offset remains blocked.** Reset now requests 40% speed and a five-second move, but still retracts fully. The documented interface provides neither calibrated rail length nor a position-specific arrival signal for a 95% target. Changing the target alone would leave the existing endpoint check waiting indefinitely; a timed guess would weaken it.

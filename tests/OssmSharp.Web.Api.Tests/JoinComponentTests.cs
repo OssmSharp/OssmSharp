@@ -245,11 +245,105 @@ public sealed class JoinComponentTests : MockerTestBase<Join>, IAsyncDisposable
         Assert.Equal(speed, Read<double?>("DeviceSpeed"));
         Assert.Equal(speed, ComponentTestAccess.Get<double?>(current, "speed"));
         Assert.Equal(stroke, ComponentTestAccess.Get<int?>(current, "stroke"));
+        Assert.Equal(50, ComponentTestAccess.Get<int?>(current, "sensation"));
         Assert.True(ComponentTestAccess.Get<bool>(pushed, "stopped"));
         Assert.True(ComponentTestAccess.Get<bool>(pushed, "resettingPosition"));
         Assert.True(ComponentTestAccess.Get<bool>(pushed, "ready"));
         Assert.Same(display, Read<GuestDisplayState>("_display"));
         AssertNoMotion();
+    }
+
+    [Fact]
+    public void GuestPreviewUsesSharedDimensionsWithoutChangingSelectionOrCallingTheDevice()
+    {
+        var dimensions = new PreviewDimensions(48.5, 27.25);
+        SetState(new(true, true, null, Device()) { Preview = dimensions });
+        var preview = Assert.Single(ComponentTestAccess.Parameters(Component, "PatternPreview"));
+        Assert.Equal(48.5, (double)preview["RailLength"]!);
+        Assert.Equal(27.25, (double)preview["AttachmentLength"]!);
+        Assert.Equal(0.0, (double)preview["Speed"]!);
+        AssertNoMotion();
+    }
+
+    [Fact]
+    public async Task BrowserCallUsesLifetimeCancellationWithoutFailingDisposal()
+    {
+        ComponentTestAccess.Set(Component, "_module", _module);
+        _module.BeforeInvoke = async token =>
+        {
+            Assert.Equal(Read<CancellationTokenSource>("_lifetime").Token, token);
+            await Read<CancellationTokenSource>("_lifetime").CancelAsync();
+            token.ThrowIfCancellationRequested();
+        };
+        await ComponentTestAccess.InvokeTask(Component, "BrowserCallAsync", "updateState", Array.Empty<object?>());
+        Assert.False(Read<bool>("_connectionLost"));
+        _module.BeforeInvoke = null;
+        AssertNoMotion();
+    }
+
+    [Fact]
+    public async Task UnexpectedBrowserFailureClosesControlAndDiscardsLateDisplay()
+    {
+        SetState(new(true, true, null, Device()));
+        ComponentTestAccess.Set(Component, "_module", _module);
+        var selection = new BrowserSettings(6, 35, 10, 20, 75);
+        var previousDisplay = new GuestDisplayState(selection, selection, "Settings sent.", null, CanSend: true);
+        ComponentTestAccess.Set(Component, "_display", previousDisplay);
+        _module.BeforeInvoke = _ => Task.FromException(new JSException("Browser call failed."));
+        try
+        {
+            await _renderer.RunAsync(() => ComponentTestAccess.InvokeTask(Component, "BrowserCallAsync", "updateState", Array.Empty<object?>()));
+            Assert.True(Read<bool>("_connectionLost"));
+            _client.Verify<ValueTask>(client => client.DisposeAsync(), Times.Once);
+            Assert.True(Read<CancellationTokenSource>("_lifetime").IsCancellationRequested);
+            Assert.False(Read<bool>("_joined"));
+            Assert.False(Read<bool>("Ready"));
+            Assert.Null(Read<GuestSessionState?>("_status"));
+            var display = Read<GuestDisplayState>("_display");
+            Assert.Equal(0, display.Selected.Speed);
+            Assert.Null(display.Sent);
+            Assert.True(display.PreviewStopped);
+            Assert.False(display.CanSend);
+            await _renderer.RunAsync(() => Component.UpdateDisplay(previousDisplay));
+            Assert.Same(display, Read<GuestDisplayState>("_display"));
+            Assert.Equal(new BrowserReply(false, "not-ready"), await Component.SubmitSettings(selection));
+            AssertNoMotion();
+        }
+        finally
+        {
+            _module.BeforeInvoke = null;
+        }
+    }
+
+    [Fact]
+    public async Task LeavingDisarmsBrowserBeforeWaitingForService()
+    {
+        SetState(new(true, true, null, Device()));
+        ComponentTestAccess.Set(Component, "_attached", true);
+        ComponentTestAccess.Set(Component, "_module", _module);
+        var completed = new TaskCompletionSource<ControlResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _client.Setup(client => client.LeaveAsync(It.IsAny<CancellationToken>())).Returns(completed.Task);
+        Task leaving = Task.CompletedTask;
+        await _renderer.RunAsync(() =>
+        {
+            leaving = ComponentTestAccess.InvokeTask(Component, "LeaveAsync");
+            return Task.CompletedTask;
+        });
+        try
+        {
+            var pushed = Assert.Single(_module.Calls, call => call.Method == "updateState").Arguments[0]!;
+            Assert.False(ComponentTestAccess.Get<bool>(pushed, "ready"));
+            Assert.False(Read<bool>("Ready"));
+            Assert.False(leaving.IsCompleted);
+            Assert.Equal(new BrowserReply(false, "not-ready"), await Component.SubmitSettings(new(0, 50, 10, 20, 75)));
+            AssertNoMotion();
+        }
+        finally
+        {
+            completed.TrySetResult(new("leave", "guest-left", true));
+            await leaving;
+        }
+        Assert.False(Read<bool>("_joined"));
     }
 
     [Fact]

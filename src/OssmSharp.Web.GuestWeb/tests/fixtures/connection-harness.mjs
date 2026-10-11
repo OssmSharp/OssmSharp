@@ -54,7 +54,10 @@ export async function attachGuest(h) {
     checked = false;
     disabled = false;
     attributes = new Map();
+    dataset = {};
+    style = { setProperty() {} };
     setAttribute(name, value) { this.attributes.set(name, String(value)); }
+    getAttribute(name) { return this.attributes.get(name) ?? null; }
     removeAttribute(name) { this.attributes.delete(name); }
     toggleAttribute(name, enabled) { enabled ? this.setAttribute(name, "") : this.removeAttribute(name); }
   }
@@ -63,15 +66,22 @@ export async function attachGuest(h) {
     for (const kind of ["input", "value", "sent", "current", "sent-marker", "current-marker"])
       elements.set(`[data-${kind}="${name}"]`, new Control());
   }
-  for (const selector of ["[data-pattern]", "[data-send-button]", "[data-reset-position-button]", "[data-stop-button]", "[data-auto-send]", "[data-leave-button]"])
+  const patterns = Array.from({ length: 7 }, (_, pattern) => {
+    const button = new Control();
+    button.dataset.pattern = String(pattern);
+    button.setAttribute("aria-pressed", String(pattern === 6));
+    elements.set(`[data-pattern="${pattern}"]`, button);
+    return button;
+  });
+  for (const selector of ["[data-send-button]", "[data-reset-position-button]", "[data-stop-button]", "[data-auto-send]", "[data-leave-button]"])
     elements.set(selector, new Control());
   for (const [name, value] of Object.entries({ speed: 35, stroke: 10, depth: 20, sensation: 75 }))
     elements.get(`[data-input="${name}"]`).value = String(value);
-  elements.get("[data-pattern]").value = "6";
   const controls = [...elements].filter(([selector]) => /\[data-(input|pattern|.*button|auto-send)/.test(selector)).map(([, control]) => control);
   const storage = new Map();
   const root = new Control();
   root.querySelector = (selector) => elements.get(selector) ?? null;
+  root.querySelectorAll = (selector) => selector === "[data-pattern]" ? patterns : [];
   h.document.querySelector = (selector) => selector === ".preview-rail" ? h.rail : root.querySelector(selector);
   h.document.querySelectorAll = (selector) => selector === ".preview-rail" ? [h.rail] : controls;
   Object.assign(h.context, {

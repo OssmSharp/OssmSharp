@@ -22,7 +22,8 @@ public sealed class AdminOptions : IValidatableObject
 
     /// <summary>
     /// Gets or sets the usable rail travel, in centimetres, from 1 through 500. The attachment length is
-    /// entered against this value, which only affects the illustration on the user control page.
+    /// entered against this value. Both lengths are shared with the guest and only affect previews,
+    /// not device calibration or motion settings.
     /// </summary>
     [Range(1, 500)]
     public double RailLengthCm { get; set; } = 40;

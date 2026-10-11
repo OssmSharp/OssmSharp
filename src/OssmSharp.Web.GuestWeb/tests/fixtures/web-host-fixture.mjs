@@ -129,6 +129,8 @@ export async function createWebHostFixture({ inherited = process.env, api = {} }
           });
         } else if (message.target === "GetUserState") {
           reply({ invitation: { token: "isolated-admin-invite" }, guestJoined: true, guestControlAllowed: false, controlExpiresAt: null, device: null });
+        } else if (message.target === "SetPreviewDimensions" && authorization === `ServiceKey ${adminKey}`) {
+          reply({ accepted: true, code: "preview-updated" });
         } else if (message.target === "Join" || message.target === "Leave") {
           reply({ accepted: true, code: "accepted" });
         } else if (message.target === "GuestStop") {
@@ -299,13 +301,14 @@ export async function openCircuit(fixture, host, { invitation = null, headers = 
           let result = null;
           if (identifier === "import") result = { __jsObjectId: 1 };
           else if (identifier === "takeInvitation") result = invitation;
+          else if (identifier === "readAttachmentLength") result = JSON.parse(argumentsJson)[0];
           else if (identifier === "attach") reference = JSON.parse(argumentsJson)[1].__dotNetObject;
           else if (identifier === "Blazor._internal.PageTitle.getAndRemoveExistingTitle") result = "";
           else if (![
             "Blazor._internal.attachWebRendererInterop",
             "Blazor._internal.navigationManager.enableNavigationInterception",
             "Blazor._internal.domWrapper.focusBySelector",
-            "updateState", "updateConnectionTimer", "disposeConnectionTimer", "dispose", "disconnect", "disarm",
+            "updateState", "updateConnectionTimer", "disposeConnectionTimer", "writeAttachmentLength", "dispose", "disconnect", "disarm",
           ].includes(identifier))
             throw new Error(`Unsupported circuit JS collaborator method: ${identifier}`);
           wire.send(hubMessage([1, {}, null, "EndInvokeJSFromDotNet", [handle, true, JSON.stringify([handle, true, result])], []]));

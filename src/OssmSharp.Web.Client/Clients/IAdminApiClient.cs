@@ -9,7 +9,7 @@ namespace OssmSharp.Web.Client.Clients;
 /// <remarks>
 /// The first request starts the RPC connection. Cancellation can interrupt connection startup or the caller's
 /// wait for a response; it does not roll back a dispatched request. Dispose the client when it is no longer
-/// needed. Disposal waits for pending operations before releasing the RPC connection.
+/// needed. Disposal cancels pending client waits, drains them, and releases the RPC connection.
 /// </remarks>
 public interface IAdminApiClient : IAsyncDisposable
 {
@@ -21,6 +21,20 @@ public interface IAdminApiClient : IAsyncDisposable
     /// <exception cref="RpcClientRequestTimeoutException">The response deadline expires before a response is received.</exception>
     /// <exception cref="OperationCanceledException">The caller cancels connection startup or the wait for a response.</exception>
     Task<UserSessionState> GetStateAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Shares preview-only rail and attachment lengths with the guest without changing device settings.
+    /// </summary>
+    /// <param name="dimensions">Lengths in centimetres: rail from 1 to 500 and attachment from 0 to 500.</param>
+    /// <param name="cancellationToken" />
+    /// <returns>The accepted preview update.</returns>
+    /// <remarks>
+    /// Cancellation ends startup or the response wait; it does not roll back a dispatched update.
+    /// </remarks>
+    /// <exception cref="ApiClientException">The API is unavailable or rejects the dimensions.</exception>
+    /// <exception cref="RpcClientRequestTimeoutException">The update response deadline expires.</exception>
+    /// <exception cref="OperationCanceledException">The caller cancels startup or the response wait.</exception>
+    Task<ControlResponse> SetPreviewDimensionsAsync(PreviewDimensions dimensions, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Re-arms the device if needed and allows the admitted guest to submit settings until permission is revoked.

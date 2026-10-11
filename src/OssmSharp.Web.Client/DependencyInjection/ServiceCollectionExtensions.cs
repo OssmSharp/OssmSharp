@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using OssmSharp.Web.Client.Clients;
@@ -43,6 +44,7 @@ public static class ServiceCollectionExtensions
     private static void AddClientOptions(IServiceCollection services, string configurationSection, bool guest)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(configurationSection);
+        services.TryAddSingleton(TimeProvider.System);
         services.AddOptions<RpcClientOptions>()
             .BindConfiguration(configurationSection, options => options.ErrorOnUnknownConfiguration = true)
             .ValidateDataAnnotations()
@@ -55,6 +57,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IRpcClient>(provider => new SignalRRpcClient(
             provider.GetRequiredService<IHubConnectionFactory>(),
             provider.GetRequiredService<IOptions<RpcClientOptions>>(),
+            provider.GetRequiredService<TimeProvider>(),
             provider.GetService<ILogger<SignalRRpcClient>>()));
     }
 }

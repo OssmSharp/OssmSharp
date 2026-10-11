@@ -13,4 +13,10 @@ public sealed record UserSessionState(
     bool GuestJoined,
     bool GuestControlAllowed,
     DateTimeOffset? ControlExpiresAt,
-    DeviceStateSnapshot? Device);
+    DeviceStateSnapshot? Device)
+{
+    /// <summary>
+    /// Gets the shared preview-only lengths, or null when unavailable from an older service.
+    /// </summary>
+    public PreviewDimensions? Preview { get; init; }
+}

@@ -189,4 +189,38 @@ public sealed class AdminApiClientConnectionTests : MockerTestBase<AdminApiClien
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
             () => client.GetStateAsync(cancellation.Token));
     }
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    public async Task DisposalCancelsPendingConnectionStartup()
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var response = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var builder = WebApplication.CreateBuilder();
+        builder.Logging.ClearProviders();
+        await using var app = builder.Build();
+        app.Urls.Add("http://127.0.0.1:0");
+        app.Run(context =>
+        {
+            entered.TrySetResult();
+            return response.Task.WaitAsync(context.RequestAborted);
+        });
+        var token = TestContext.Current.CancellationToken;
+        await app.StartAsync(token);
+        _options.EndpointUri = app.Urls.Single();
+        var startup = Component.GetStateAsync(token);
+        await entered.Task.WaitAsync(token);
+        var disposal = Component.DisposeAsync().AsTask();
+        try
+        {
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                () => startup.WaitAsync(TimeSpan.FromSeconds(5), token));
+            await disposal.WaitAsync(TimeSpan.FromSeconds(5), token);
+        }
+        finally
+        {
+            response.TrySetResult();
+            await disposal;
+        }
+    }
 }

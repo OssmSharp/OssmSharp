@@ -16,11 +16,18 @@ class Element extends EventTarget {
   checked = false;
   disabled = false;
   paused = false;
+  style = {
+    setProperty(name, value) { this[name] = String(value); },
+    getPropertyValue(name) { return this[name] ?? ""; },
+  };
   pauseAnimations() {
     this.paused = true;
   }
   setAttribute(name, value) {
     this.attributes.set(name, String(value));
+  }
+  getAttribute(name) {
+    return this.attributes.get(name) ?? null;
   }
   removeAttribute(name) {
     this.attributes.delete(name);
@@ -37,6 +44,13 @@ async function createGuest(invoke = async () => ({ ok: true }), url = "https://g
     if (!elements.has(selector)) elements.set(selector, new Element());
     return elements.get(selector);
   };
+  const patterns = Array.from({ length: 7 }, (_, pattern) => {
+    const button = root.querySelector(`[data-pattern="${pattern}"]`);
+    button.dataset.pattern = String(pattern);
+    button.setAttribute("aria-pressed", String(pattern === 0));
+    return button;
+  });
+  root.querySelectorAll = (selector) => selector === "[data-pattern]" ? patterns : [];
   for (const [name, value] of Object.entries({ speed: 30, stroke: 10, depth: 20, sensation: 50 }))
     root.querySelector(`[data-input="${name}"]`).value = String(value);
   const storage = new Map();
@@ -96,9 +110,8 @@ async function createGuest(invoke = async () => ({ ok: true }), url = "https://g
 test("all seven pattern selections survive snapshots and reach preview and requests", async () => {
   const browser = await createGuest();
   for (let pattern = 0; pattern <= 6; pattern++) {
-    const input = browser.element("[data-pattern]");
-    input.value = String(pattern);
-    input.dispatchEvent(new Event("change"));
+    const input = browser.element(`[data-pattern="${pattern}"]`);
+    input.dispatchEvent(new Event("click"));
     browser.guest.updateState({ joined: true, ready: true, current: { pattern: 6 - pattern } });
     browser.click("[data-send-button]");
     await setImmediate();
@@ -106,7 +119,8 @@ test("all seven pattern selections survive snapshots and reach preview and reque
     const display = browser.calls("UpdateDisplay").at(-1).payload;
     assert.equal(display.selected.pattern, pattern);
     assert.equal(display.sent.pattern, pattern);
-    assert.equal(input.value, String(pattern));
+    assert.equal(input.getAttribute("aria-pressed"), "true");
+    assert.equal(browser.root.querySelectorAll("[data-pattern]").filter((button) => button.getAttribute("aria-pressed") === "true").length, 1);
   }
   browser.guest.dispose();
 });
@@ -146,6 +160,152 @@ test("speed is sent unchanged and retains the selected speed", async () => {
     assert.equal(browser.calls("SubmitSettings").length, count + 1);
   }
   browser.guest.dispose();
+});
+
+test("Send is unavailable when unchanged or Auto send is on", async () => {
+  const browser = await createGuest();
+  browser.click("[data-send-button]");
+  await setImmediate();
+  assert.equal(browser.element("[data-send-button]").disabled, true);
+  browser.element('[data-input="speed"]').value = "57";
+  browser.element('[data-input="speed"]').dispatchEvent(new Event("input"));
+  assert.equal(browser.element("[data-send-button]").disabled, false);
+  const auto = browser.element("[data-auto-send]");
+  auto.checked = true;
+  auto.dispatchEvent(new Event("change"));
+  await setImmediate();
+  assert.equal(browser.element("[data-send-button]").disabled, true);
+  browser.element('[data-input="stroke"]').value = "15";
+  browser.element('[data-input="stroke"]').dispatchEvent(new Event("input"));
+  assert.equal(browser.element("[data-send-button]").disabled, true);
+  auto.checked = false;
+  auto.dispatchEvent(new Event("change"));
+  await setImmediate();
+  browser.guest.dispose();
+});
+
+test("slider fills and equal markers share the selected range including zero", async () => {
+  const browser = await createGuest();
+  for (const value of [0, 25, 57, 100]) {
+    for (const [name, selection] of Object.entries({ depth: 100, stroke: value, speed: value, sensation: value })) {
+      browser.element(`[data-input="${name}"]`).value = String(selection);
+      browser.element(`[data-input="${name}"]`).dispatchEvent(new Event("input"));
+    }
+    browser.guest.updateState({ joined: true, ready: true, current: { speed: value, stroke: value, depth: 100, sensation: value } });
+    browser.click("[data-send-button]");
+    await setImmediate();
+    for (const name of ["speed", "stroke", "sensation"]) {
+      assert.equal(browser.element(`[data-input="${name}"]`).style.getPropertyValue("--range-progress"), `${value}%`);
+      assert.equal(browser.element(`[data-sent-marker="${name}"]`).attributes.get("y1"),
+        browser.element(`[data-current-marker="${name}"]`).attributes.get("y1"));
+    }
+  }
+  browser.guest.disarm();
+  assert.equal(browser.element('[data-input="speed"]').style.getPropertyValue("--range-progress"), "0%");
+  browser.guest.dispose();
+});
+
+test("Auto send coalesces waiting edits to the latest complete selection", async () => {
+  let completeRequest;
+  const browser = await createGuest(async (method) => {
+    if (method === "SubmitSettings" && !completeRequest)
+      return new Promise((resolve) => { completeRequest = resolve; });
+    return { ok: true };
+  });
+  const auto = browser.element("[data-auto-send]");
+  auto.checked = true;
+  auto.dispatchEvent(new Event("change"));
+  await setImmediate();
+  for (const speed of [40, 50, 57]) {
+    browser.element('[data-input="speed"]').value = String(speed);
+    browser.element('[data-input="speed"]').dispatchEvent(new Event("input"));
+    await setImmediate();
+  }
+  completeRequest({ ok: true });
+  await setImmediate();
+  assert.equal(browser.calls("SubmitSettings").length, 2);
+  assert.equal(browser.calls("SubmitSettings").at(-1).payload.speed, 57);
+  assert.equal(browser.calls("UpdateDisplay").at(-1).payload.sent.speed, 57);
+  browser.guest.dispose();
+});
+
+test("settings response timeout permits a newer request without Stop", async () => {
+  let completeRequest;
+  const browser = await createGuest(async (method) => {
+    if (method === "SubmitSettings" && !completeRequest)
+      return new Promise((resolve) => { completeRequest = resolve; });
+    return { ok: true };
+  });
+  browser.click("[data-send-button]");
+  await setImmediate();
+  browser.element('[data-input="stroke"]').value = "15";
+  browser.element('[data-input="stroke"]').dispatchEvent(new Event("input"));
+  browser.click("[data-send-button]");
+  completeRequest({ ok: false, code: "outcome-unknown" });
+  await setImmediate();
+  assert.equal(browser.calls("SubmitSettings").length, 2);
+  assert.equal(browser.calls("SubmitSettings").at(-1).payload.stroke, 15);
+  assert.equal(browser.calls("StopRun").length, 0);
+  assert.equal(browser.calls("UpdateDisplay").at(-1).payload.error, null);
+  assert.equal(browser.element('[data-input="speed"]').value, "30");
+  browser.guest.dispose();
+});
+
+for (const code of ["outcome-unknown", "device-write-failed"]) {
+  test(`${code} allows sending the previously completed selection again`, async (t) => {
+    let requests = 0;
+    const browser = await createGuest(async (method) => {
+      if (method === "SubmitSettings" && ++requests === 2) return { ok: false, code };
+      return { ok: true };
+    });
+    t.after(() => browser.guest.dispose());
+    browser.click("[data-send-button]");
+    await setImmediate();
+    const speed = browser.element('[data-input="speed"]');
+    speed.value = "40";
+    speed.dispatchEvent(new Event("input"));
+    browser.click("[data-send-button]");
+    await setImmediate();
+    speed.value = "30";
+    speed.dispatchEvent(new Event("input"));
+    assert.equal(browser.element("[data-send-button]").disabled, false);
+    browser.click("[data-send-button]");
+    await setImmediate();
+    assert.equal(browser.calls("SubmitSettings").length, 3);
+    assert.equal(browser.calls("SubmitSettings").at(-1).payload.speed, 30);
+    assert.equal(browser.calls("UpdateDisplay").at(-1).payload.error, null);
+    assert.equal(browser.calls("StopRun").length, 0);
+  });
+}
+
+test("browser disarming discards waiting edits and ignores the active request's late success", async (t) => {
+  let completeRequest;
+  const browser = await createGuest(async (method) => {
+    if (method === "SubmitSettings")
+      return new Promise((resolve) => { completeRequest = resolve; });
+    return { ok: true };
+  });
+  t.after(() => {
+    browser.guest.dispose();
+    completeRequest?.({ ok: true });
+  });
+  const auto = browser.element("[data-auto-send]");
+  auto.checked = true;
+  auto.dispatchEvent(new Event("change"));
+  await setImmediate();
+  browser.element('[data-input="speed"]').value = "40";
+  browser.element('[data-input="speed"]').dispatchEvent(new Event("input"));
+  browser.guest.disarm();
+  await setImmediate();
+  assert.equal(browser.calls("UpdateDisplay").at(-1).payload.previewStopped, true);
+  completeRequest({ ok: true });
+  await setImmediate();
+  const display = browser.calls("UpdateDisplay").at(-1).payload;
+  assert.equal(display.selected.speed, 0);
+  assert.equal(display.sent, null);
+  assert.equal(display.previewStopped, true);
+  assert.equal(browser.calls("SubmitSettings").length, 1);
+  assert.equal(auto.checked, false);
 });
 
 test("Reset Position preserves selection, discards stale sends, and allows independent Stop", async () => {
@@ -288,8 +448,7 @@ test("pattern and sensation supersession keeps the latest preview after a snapsh
   const browser = await createGuest(async (method) => method === "UpdateDisplay"
     ? new Promise((resolve) => { completeDisplay = resolve; }) : { ok: true });
   for (let pattern = 0; pattern <= 6; pattern++) {
-    browser.element("[data-pattern]").value = String(pattern);
-    browser.element("[data-pattern]").dispatchEvent(new Event("change"));
+    browser.click(`[data-pattern="${pattern}"]`);
     browser.element('[data-input="sensation"]').value = String(pattern * 10);
     browser.element('[data-input="sensation"]').dispatchEvent(new Event("input"));
   }
@@ -305,37 +464,20 @@ test("pattern and sensation supersession keeps the latest preview after a snapsh
   completeDisplay();
 });
 
-test("unknown outcome pauses queued and new sends until an acknowledged recovery Stop", async () => {
-  let completeRequest;
+test("a pending or failed Stop still blocks settings until Stop succeeds", async () => {
   let completeStop;
   const browser = await createGuest(async (method) => {
-    if (method === "SubmitSettings")
-      return new Promise((resolve) => {
-        completeRequest = resolve;
-      });
     if (method === "StopRun")
       return new Promise((resolve) => {
         completeStop = resolve;
       });
+    return { ok: true };
   });
-  browser.click("[data-send-button]");
-  await setImmediate();
-  browser.element('[data-input="speed"]').value = "40";
-  browser.click("[data-send-button]");
-  completeRequest({ ok: false, code: "outcome-unknown" });
-  await setImmediate();
-  assert.equal(browser.calls("SubmitSettings").length, 1, "queued work must not follow an unknown outcome");
-  assert.equal(browser.element("[data-send-button]").disabled, true);
-  assert.match(browser.calls("UpdateDisplay").at(-1).payload.error, /may have|unknown/i);
-  browser.guest.updateState({ joined: true, ready: true });
-  browser.click("[data-send-button]");
-  await setImmediate();
-  assert.equal(browser.calls("SubmitSettings").length, 1, "polling must not clear uncertainty");
   browser.click("[data-stop-button]");
   browser.guest.updateState({ joined: true, ready: true });
   browser.click("[data-send-button]");
   await setImmediate();
-  assert.equal(browser.calls("SubmitSettings").length, 1, "a pending Stop acknowledgement must block sends even when polling says ready");
+  assert.equal(browser.calls("SubmitSettings").length, 0, "a pending Stop must block sends even when polling says ready");
   assert.equal(browser.element("[data-send-button]").disabled, true);
   completeStop({ ok: false, code: "outcome-unknown" });
   await setImmediate();
@@ -345,9 +487,7 @@ test("unknown outcome pauses queued and new sends until an acknowledged recovery
   await setImmediate();
   browser.click("[data-send-button]");
   await setImmediate();
-  assert.equal(browser.calls("SubmitSettings").length, 2);
-  completeRequest({ ok: true });
-  await setImmediate();
+  assert.equal(browser.calls("SubmitSettings").length, 1);
   browser.guest.dispose();
 });
 
@@ -534,7 +674,14 @@ async function createObservedGuest({ storage = new Map(), url = "https://guest.e
     for (const kind of ["input", "value", "sent", "current", "sent-marker", "current-marker"])
       elements.set(`[data-${kind}="${name}"]`, new Element());
   }
-  for (const selector of ["[data-pattern]", "[data-send-button]", "[data-reset-position-button]", "[data-stop-button]", "[data-auto-send]",
+  const patterns = Array.from({ length: 7 }, (_, pattern) => {
+    const button = new Element();
+    button.dataset.pattern = String(pattern);
+    button.setAttribute("aria-pressed", String(pattern === 0));
+    elements.set(`[data-pattern="${pattern}"]`, button);
+    return button;
+  });
+  for (const selector of ["[data-send-button]", "[data-reset-position-button]", "[data-stop-button]", "[data-auto-send]",
     "[data-leave-button]", ".preview-rail", "main > [data-testid='guest-disconnected']"])
     elements.set(selector, new Element());
   for (const [name, value] of Object.entries({ speed: 30, stroke: 10, depth: 20, sensation: 50 }))
@@ -542,6 +689,7 @@ async function createObservedGuest({ storage = new Map(), url = "https://guest.e
   const controls = () => [...elements].filter(([selector]) => /\[data-(input|pattern|.*button|auto-send)/.test(selector)).map(([, element]) => element);
   const root = new Element();
   root.querySelector = (selector) => elements.get(selector) ?? null;
+  root.querySelectorAll = (selector) => selector === "[data-pattern]" ? patterns : [];
   const document = Object.assign(new EventTarget(), {
     body: {}, visibilityState: "visible", documentElement: new Element(),
     querySelector: root.querySelector, querySelectorAll: controls,
@@ -587,9 +735,8 @@ test("all seven patterns reach manual and auto requests without snapshot replace
     toggle.checked = automatic; // Pattern change, not enabling the toggle, owns each request below.
     for (let pattern = 0; pattern <= 6; pattern++) {
       const count = browser.calls("SubmitSettings").length;
-      const input = browser.element("[data-pattern]");
-      input.value = String(pattern);
-      input.dispatchEvent(new Event("change"));
+      const input = browser.element(`[data-pattern="${pattern}"]`);
+      input.dispatchEvent(new Event("click"));
       browser.guest.updateState({ joined: true, ready: true, current: { pattern: (pattern + 1) % 7 } });
       if (!automatic) browser.click("[data-send-button]");
       await setImmediate();
@@ -598,7 +745,7 @@ test("all seven patterns reach manual and auto requests without snapshot replace
       assert.deepEqual([payload.pattern, payload.sensation, payload.speed], [pattern, 75, 50]);
       const display = browser.calls("UpdateDisplay").at(-1).payload;
       assert.deepEqual([display.selected.pattern, display.sent.pattern, display.selected.sensation], [pattern, pattern, 75]);
-      assert.equal(input.value, String(pattern));
+      assert.equal(input.getAttribute("aria-pressed"), "true");
     }
     browser.guest.dispose();
   }
@@ -670,10 +817,11 @@ test("permission and device transitions disarm without replay or false transport
       assert.equal(browser.element("[data-auto-send]").checked, false);
       assert.equal(browser.element("[data-send-button]").disabled, true);
       browser.element("[data-send-button]").dispatchEvent(new Event("click"));
-      browser.guest.updateState({ joined: true, ready: true });
+      browser.guest.updateState({ joined: true, ready: true, stopped: true });
       await setImmediate();
       assert.equal(browser.calls.filter(({ method }) => method === "SubmitSettings" || method === "Renew").length, 0);
       assert.equal(browser.calls.at(-1).payload.previewStopped, true);
+      assert.equal(browser.calls.at(-1).payload.selected.speed, 0, "an acknowledged Stop must preserve the zero-speed selection");
       assert.equal(browser.storage.get(disconnectedKey), undefined);
       assert.equal(browser.document.documentElement.dataset.guestConnectionLost, undefined);
     }
@@ -776,7 +924,7 @@ test("preview supersession delivers exactly depths 21 and 80 without device requ
 test("Reset Position preserves speed 35 and pattern 6 with no completion replay", async () => {
   const browser = await createGuest();
   browser.element('[data-input="speed"]').value = "35";
-  browser.element("[data-pattern]").value = "6";
+  browser.click('[data-pattern="6"]');
   browser.element("[data-auto-send]").checked = true;
   browser.element("[data-auto-send]").dispatchEvent(new Event("change"));
   await setImmediate();
@@ -787,7 +935,7 @@ test("Reset Position preserves speed 35 and pattern 6 with no completion replay"
   assert.equal(browser.calls("ResetPosition").length, 1);
   assert.equal(browser.calls("SubmitSettings").length, 1);
   assert.equal(browser.element('[data-input="speed"]').value, "35");
-  assert.equal(browser.element("[data-pattern]").value, "6");
+  assert.equal(browser.element('[data-pattern="6"]').getAttribute("aria-pressed"), "true");
   assert.equal(browser.element("[data-auto-send]").checked, false);
   assert.equal(browser.calls("UpdateDisplay").at(-1).payload.previewStopped, true);
   browser.guest.dispose();

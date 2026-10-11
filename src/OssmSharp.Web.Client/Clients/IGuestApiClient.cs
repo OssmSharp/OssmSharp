@@ -9,8 +9,8 @@ namespace OssmSharp.Web.Client.Clients;
 /// <remarks>
 /// Complete <see cref="JoinAsync"/> successfully before making other requests. Other methods wait for
 /// connection startup to finish; their cancellation tokens do not cancel that wait. Cancellation of a response
-/// wait does not roll back a dispatched request. Dispose the client when it is no longer needed; disposal waits
-/// for pending operations before releasing the RPC connection.
+/// wait does not roll back a dispatched request. Dispose the client when it is no longer needed; disposal
+/// cancels pending client waits, drains them, and releases the RPC connection.
 /// </remarks>
 public interface IGuestApiClient : IAsyncDisposable
 {
@@ -47,10 +47,10 @@ public interface IGuestApiClient : IAsyncDisposable
     /// <remarks>
     /// Inspect <see cref="SettingsResponse.Status"/> and <see cref="SettingsResponse.ErrorCode"/>;
     /// settings rejection and runtime failure are returned as results rather than thrown as client exceptions.
+    /// Settings use caller cancellation and the connection lifetime, not the short ordinary response deadline.
     /// </remarks>
     /// <exception cref="ArgumentNullException"><paramref name="request"/> is null.</exception>
     /// <exception cref="ApiClientException">The guest has not joined, the connection is unavailable, or the API invocation is rejected.</exception>
-    /// <exception cref="RpcClientRequestTimeoutException">The response deadline expires; the settings result is unknown.</exception>
     /// <exception cref="OperationCanceledException">Connection startup or the request is cancelled.</exception>
     Task<SettingsResponse> SubmitAsync(SettingsRequest request, CancellationToken cancellationToken = default);
 

@@ -44,8 +44,8 @@ internal static partial class Log
     [LoggerMessage(14, LogLevel.Debug, "Bluetooth connection setup: {Stage}.")]
     public static partial void ConnectionSetupStage(this ILogger logger, string stage);
 
-    [LoggerMessage(15, LogLevel.Debug, "Device request {RequestId} for {Operation}: GATT transfer {Attempt} completed; awaiting terminal response.")]
-    public static partial void RequestTransferred(this ILogger logger, uint requestId, string operation, int attempt);
+    [LoggerMessage(15, LogLevel.Debug, "Device request {RequestId} for {Operation}: GATT transfer {Attempt} completed in {TransferDurationMilliseconds} ms; awaiting terminal response.")]
+    public static partial void RequestTransferred(this ILogger logger, uint requestId, string operation, int attempt, double transferDurationMilliseconds);
 
     [LoggerMessage(16, LogLevel.Trace, "Device request {RequestId} received response stage {Stage} with success {Success}.")]
     public static partial void RequestResponseReceived(this ILogger logger, uint requestId, string stage, bool success);
@@ -73,4 +73,13 @@ internal static partial class Log
 
     [LoggerMessage(24, LogLevel.Debug, "Device request {RequestId} received its terminal response with success {Success}.")]
     public static partial void RequestCompleted(this ILogger logger, uint requestId, bool success);
+
+    [LoggerMessage(25, LogLevel.Debug, "Device request {RequestId} for {Operation} left the transfer queue after {QueueDurationMilliseconds} ms.")]
+    public static partial void RequestTransferStarted(this ILogger logger, uint requestId, string operation, double queueDurationMilliseconds);
+
+    [LoggerMessage(26, LogLevel.Debug, "Device request {RequestId} was rejected with {Code} in state {DeviceState}.")]
+    public static partial void RequestRejected(this ILogger logger, uint requestId, string code, string? deviceState);
+
+    [LoggerMessage(27, LogLevel.Debug, "Pattern request is not ready in device state {DeviceState}; no motion settings were written.")]
+    public static partial void PatternNotReady(this ILogger logger, string? deviceState);
 }

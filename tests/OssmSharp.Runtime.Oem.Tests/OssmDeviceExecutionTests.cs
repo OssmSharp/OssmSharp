@@ -12,6 +12,37 @@ namespace OssmSharp.Runtime.Oem.Tests;
 public sealed class OssmDeviceExecutionTests : OssmDeviceTestBase
 {
     [Fact]
+    public async Task DelayedFreshReadCannotReplaceANewerSpeedAndStrokeSnapshot()
+    {
+        var token = TestContext.Current.CancellationToken;
+        await context.ConnectAsync(Component, token);
+        var settings = new MotionSettings(StrokePattern.SimpleStroke, 57, 37, 100, 50);
+        Assert.Equal(new(SetStatus.Completed, 5), await Component.SetAsync(settings, token));
+        Assert.Equal(new FirmwareCommand(FirmwareSetting.Speed, 21), Writes()[^1]);
+        var reading = Component.GetStateAsync(bypassCache: true, cancellationToken: token);
+        var stateLock = Assert.IsType<Lock>(typeof(OssmDevice)
+            .GetFields(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+            .Single(field => field.FieldType == typeof(Lock)).GetValue(Component));
+        var frame = JsonNode.Parse(BleTestContext.InitialMotion)!.AsObject();
+        frame["stroke"] = 37;
+        frame["speed"] = 20;
+        // Both frames arrive before the waiting read can republish its first frame.
+        using (stateLock.EnterScope())
+        {
+            context.Publish(frame.ToJsonString());
+            frame["speed"] = 21;
+            context.Publish(frame.ToJsonString());
+        }
+
+        Assert.Equal(54.054054054054056, (await reading)!.Speed);
+        var latest = await Component.GetStateAsync(cancellationToken: token);
+        Assert.Equal(56.75675675675676, latest!.Speed);
+        Assert.Equal(37, latest.Stroke);
+        Assert.Equal(21, latest.CurrentDeviceVelocityPercent);
+        Assert.Equal(settings.ToCommands(), Writes());
+    }
+
+    [Fact]
     public async Task SupersessionResponseCancellationPreservesSynchronousCallerLatestRequest()
     {
         var token = TestContext.Current.CancellationToken;
@@ -737,13 +768,25 @@ public sealed class OssmDeviceExecutionTests : OssmDeviceTestBase
     {
         var token = TestContext.Current.CancellationToken;
         await context.ConnectAsync(Component, token);
+        context.State = "menu.idle";
+        context.Write = request =>
+        {
+            if (BleTestContext.Operation(request) == "target.set")
+            {
+                context.State = "strokeEngine.idle";
+            }
+
+            return null;
+        };
         await Component.SetAsync(new(0, 0, 20, 0, 0), token);
         Publish(new(0, 0, 20, 0, 0));
+        context.State = "menu.idle";
         context.Write = request =>
         {
             if (BleTestContext.Operation(request) == "target.set")
             {
                 Assert.Equal(5, Writes().Count);
+                context.State = "strokeEngine.idle";
                 Publish(new(0, 0, 50, 10, 50));
             }
 
@@ -774,6 +817,7 @@ public sealed class OssmDeviceExecutionTests : OssmDeviceTestBase
     {
         var token = TestContext.Current.CancellationToken;
         await context.ConnectAsync(Component, token);
+        context.State = "menu.idle";
         context.Write = request =>
         {
             if (BleTestContext.Operation(request) != "target.set")

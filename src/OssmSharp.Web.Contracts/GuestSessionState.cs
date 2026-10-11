@@ -13,4 +13,10 @@ public sealed record GuestSessionState(
     bool ControlAllowed,
     DateTimeOffset? ControlExpiresAt,
     DeviceStateSnapshot? Device,
-    bool CanResumeAfterStop = false);
+    bool CanResumeAfterStop = false)
+{
+    /// <summary>
+    /// Gets preview-only lengths for an admitted guest, or null when unavailable.
+    /// </summary>
+    public PreviewDimensions? Preview { get; init; }
+}

@@ -6,26 +6,47 @@
             <span class="status-mark neutral" data-testid="preview-pattern"><i class="dot"></i>@PatternLabel</span>
         }
     </div>
-    <svg class="preview-rail" viewBox="0 8 200 30" role="img" aria-label="@PreviewLabel">
+    <svg class="preview-rail" viewBox="@ViewBox" role="img" aria-label="@PreviewLabel" aria-describedby="@_descriptionId">
         <defs>
             <clipPath id="@_clipId">
-                <rect x="-20" y="-32" width="@Format(EntryX + 20)" height="120" />
+                <rect x="0" y="0" width="@Format(EntryX)" height="120" />
+            </clipPath>
+            <clipPath id="@_insideClipId">
+                <rect x="@Format(EntryX)" y="0" width="@Format(DrawingWidth - EntryX)" height="120" />
             </clipPath>
         </defs>
-        <path class="preview-track" d="M5 23H195 M5 15V31 M195 15V31" />
-        <path class="preview-ticks" d="M52.5 18V28 M100 18V28 M147.5 18V28" />
+        <path class="preview-track" d="M24 82H224 M24 76V88 M224 76V88" />
+        <path class="preview-ticks" d="M74 79V85 M124 79V85 M174 79V85" />
+        <g class="preview-person" aria-hidden="true">
+            <circle cx="@Format(EntryX + 66)" cy="20" r="10" />
+            <path d="@PersonPath" />
+        </g>
+        <path class="preview-entry" d="M224 48V88" />
+        <text class="preview-label" x="@Format(EntryX + 45)" y="10">Person</text>
+        <text class="preview-label" x="24" y="101">Rail</text>
+        <text class="preview-label" x="@Format(EntryX - 12)" y="101">Entry</text>
         @if (BoundedStroke is not null && BoundedDepth is not null)
         {
-            <rect class="preview-range" x="@RangeStart" y="18" width="@RangeWidth" height="10" rx="2" />
+            <rect class="preview-range" x="@RangeStart" y="78" width="@RangeWidth" height="8" rx="2" />
             <g clip-path="url(#@_clipId)" aria-hidden="true">
-                <rect class="preview-attachment" x="@AttachmentX" y="19" width="@AttachmentWidth" height="8" rx="4">
+                <rect class="preview-attachment" x="@AttachmentX" y="64" width="@AttachmentWidth" height="8" rx="4">
                     @if (ShowAnimation)
                     {
                         <animate attributeName="x" values="@AttachmentValues" keyTimes="@AnimationTimes" calcMode="spline"
                                  keySplines="@AnimationSplines" dur="@AnimationDuration" repeatCount="indefinite" />
                     }
                 </rect>
-                <rect class="preview-attachment-still" x="@AttachmentX" y="19" width="@AttachmentWidth" height="8" rx="4" />
+                <rect class="preview-attachment-still" x="@AttachmentX" y="64" width="@AttachmentWidth" height="8" rx="4" />
+            </g>
+            <g clip-path="url(#@_insideClipId)" aria-hidden="true">
+                <rect class="preview-inserted" x="@AttachmentX" y="64" width="@AttachmentWidth" height="8" rx="4">
+                    @if (ShowAnimation)
+                    {
+                        <animate attributeName="x" values="@AttachmentValues" keyTimes="@AnimationTimes" calcMode="spline"
+                                 keySplines="@AnimationSplines" dur="@AnimationDuration" repeatCount="indefinite" />
+                    }
+                </rect>
+                <rect class="preview-inserted-still" x="@AttachmentX" y="64" width="@AttachmentWidth" height="8" rx="4" />
             </g>
             <path class="preview-carriage" d="@CarriagePath" aria-hidden="true">
                 @if (ShowAnimation)
@@ -37,24 +58,55 @@
             <path class="preview-still" d="@CarriagePath" aria-hidden="true" />
         }
     </svg>
+    <div class="preview-legend" aria-hidden="true">
+        <span><i class="preview-key carriage"></i>Carriage</span>
+        <span><i class="preview-key attachment"></i>Attachment</span>
+        <span><i class="preview-key inserted"></i>Inside</span>
+    </div>
+    <p class="preview-caption" id="@_descriptionId" data-testid="preview-dimensions">
+        Rail @Format(RailLength) cm; attachment @Format(AttachmentLength) cm.
+        @if (BoundedStroke is not null && BoundedDepth is not null)
+        {
+            <span> Insertion @Format(MinimumInsertionCm) to @Format(MaximumInsertionCm) cm.</span>
+        }
+        <span> Person and timing are illustrative.</span>
+    </p>
 </section>
 
 @code {
-    /// <summary>The distance along the rail, in user units, at which the seated person is reached.</summary>
-    private const double EntryX = 188;
+    private const double RailStart = 24;
+    private const double EntryX = 224;
     /// <summary>User units per percent of rail travel.</summary>
-    private const double Scale = 1.66;
+    private const double Scale = 2;
 
     private readonly string _clipId = $"preview-entry-{Guid.NewGuid():N}";
+    private readonly string _insideClipId = $"preview-inside-{Guid.NewGuid():N}";
+    private readonly string _descriptionId = $"preview-description-{Guid.NewGuid():N}";
 
+    /// <summary>
+    /// Gets or sets the heading and accessible region name.
+    /// </summary>
     [Parameter] public string Title { get; set; } = "Pattern preview";
+    /// <summary>
+    /// Gets or sets the illustrated pattern; null preserves an unknown pattern.
+    /// </summary>
     [Parameter] public int? Pattern { get; set; } = 0;
     /// <summary>
-    /// Gets or sets the illustrative speed; null is unknown.
+    /// Gets or sets speed as a percentage, using 50 for 50%; null is unknown.
+    /// Fractional values and values above 100 are preserved. Timing is illustrative, not physical speed.
     /// </summary>
     [Parameter] public double? Speed { get; set; }
+    /// <summary>
+    /// Gets or sets the illustrated travel as a percentage of rail length, from 0 to 100; null is unknown.
+    /// </summary>
     [Parameter] public int? Stroke { get; set; }
+    /// <summary>
+    /// Gets or sets the deepest carriage position as a percentage of rail length, from 0 to 100; null is unknown.
+    /// </summary>
     [Parameter] public int? Depth { get; set; }
+    /// <summary>
+    /// Gets or sets the illustrated pattern bias, from 0 to 100; null preserves an unknown value.
+    /// </summary>
     [Parameter] public int? Sensation { get; set; }
     /// <summary>
     /// Gets or sets the illustrative attachment length, in centimetres. The attachment is fixed to the
@@ -64,10 +116,14 @@
     [Parameter] public double AttachmentLength { get; set; } = 24;
     /// <summary>
     /// Gets or sets the usable rail travel, in centimetres, that <see cref="AttachmentLength"/> is drawn
-    /// against. An attachment at least this long is drawn across the full travel; a rail length of zero
-    /// or less draws no attachment.
+    /// against. Both lengths use the same scale, including attachments longer than the rail.
+    /// A non-positive or non-finite rail length draws no attachment.
     /// </summary>
     [Parameter] public double RailLength { get; set; } = 40;
+    /// <summary>
+    /// Gets or sets whether travel is animated. Zero speed or zero travel remains still;
+    /// reduced-motion preferences also select the still drawing.
+    /// </summary>
     [Parameter] public bool Animate { get; set; } = true;
 
     private string PatternLabel => Pattern switch
@@ -78,26 +134,33 @@
     private int? BoundedStroke => Bound(Stroke);
     private int? BoundedDepth => Bound(Depth);
     private int? BoundedSensation => Bound(Sensation);
-    private double Start => 17 + Math.Max(0, BoundedDepth!.Value - BoundedStroke!.Value) * Scale;
-    private double End => 17 + BoundedDepth!.Value * Scale;
+    private double Start => RailStart + Math.Max(0, BoundedDepth!.Value - BoundedStroke!.Value) * Scale;
+    private double End => RailStart + BoundedDepth!.Value * Scale;
     private double Mid => (Start + End) / 2;
     private string RangeStart => Format(Start);
     private string RangeWidth => Format(Math.Max(1, End - Start));
-    private double CarriageX => (Pattern == 6 ? Start + _positions[0] * (End - Start) : Mid) - 12;
+    private double CarriageX => (Pattern == 6 ? Start + _positions[0] * (End - Start) : Mid) - 18;
     private string CarriagePath => Shape(CarriageX);
-    private string AttachmentX => Format(CarriageX + 17);
+    private string AttachmentX => Format(CarriageX + 18);
     private string AttachmentWidth => Format(AttachmentTravel * 100 * Scale);
     /// <summary>The attachment length as a fraction of the full rail travel.</summary>
     private double AttachmentTravel => RailLength > 0 && double.IsFinite(RailLength) && double.IsFinite(AttachmentLength)
-        ? Math.Clamp(AttachmentLength / RailLength, 0, 1)
+        ? Math.Max(0, AttachmentLength / RailLength)
         : 0;
+    private double DrawingWidth => Math.Max(EntryX + 112, EntryX + AttachmentTravel * 100 * Scale + 16);
+    private string ViewBox => $"0 0 {Format(DrawingWidth)} 120";
+    private string PersonPath => FormattableString.Invariant($"M{EntryX + 57} 33Q{EntryX + 46} 40 {EntryX + 46} 50L{EntryX + 25} 57Q{EntryX + 10} 57 {EntryX} 63V76H{EntryX + 38}L{EntryX + 67} 101H{EntryX + 86}L{EntryX + 52} 65L{EntryX + 59} 52L{EntryX + 75} 62L{EntryX + 81} 54L{EntryX + 62} 36Z");
+    private double MinimumInsertionCm => InsertionAt(Start + _positions.Min() * (End - Start));
+    private double MaximumInsertionCm => InsertionAt(Start + _positions.Max() * (End - Start));
+    private double InsertionAt(double position) => AttachmentTravel <= 0 ? 0
+        : Math.Clamp((position + AttachmentTravel * 100 * Scale - EntryX) / (100 * Scale) * RailLength, 0, AttachmentLength);
     private double[] _positions = [0, 1, 0];
     private double[] _times = [0, .5, 1];
     private double _cycles = 1;
     private bool ShowAnimation => Animate && Speed > 0 && double.IsFinite(Speed.Value) && End > Start
         && Pattern is >= 0 and <= 6 && (Pattern == 0 || BoundedSensation is not null) && _positions.Distinct().Count() > 1;
     private string AnimationValues => string.Join(';', _positions.Select(position => Shape(Travel(position))));
-    private string AttachmentValues => string.Join(';', _positions.Select(position => Format(Travel(position) + 17)));
+    private string AttachmentValues => string.Join(';', _positions.Select(position => Format(Travel(position) + 18)));
     private string AnimationTimes => string.Join(';', _times.Select(time => time.ToString("0.######", CultureInfo.InvariantCulture)));
     private string AnimationSplines => string.Join(';', Enumerable.Repeat(Pattern == 2 ? "0 0 1 1" : ".33 0 .67 1", _positions.Length - 1));
     private string AnimationDuration => FormattableString.Invariant($"{40 * _cycles / Speed:0.####}s");
@@ -160,9 +223,9 @@
         }
     }
 
-    private double Travel(double position) => Start + position * (End - Start) - 12;
+    private double Travel(double position) => Start + position * (End - Start) - 18;
     private static int? Bound(int? value) => value is { } known ? Math.Clamp(known, 0, 100) : null;
-    private static string Shape(double position) => $"M{Format(position)} 16H{Format(position + 17)}A7 7 0 0 1 {Format(position + 17)} 30H{Format(position)}Z";
+    private static string Shape(double position) => $"M{Format(position)} 58H{Format(position + 18)}V80H{Format(position)}Z";
     private static string Value(double? value) => value is { } known ? FormattableString.Invariant($"{known}%") : "Unknown";
     private static string Format(double value) => value.ToString("0.##", CultureInfo.InvariantCulture);
 }

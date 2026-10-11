@@ -13,14 +13,16 @@ namespace OssmSharp.Web.Client.Connections;
 /// </summary>
 /// <param name="factory">The factory for an isolated authenticated connection.</param>
 /// <param name="options">The validated request deadline settings.</param>
+/// <param name="timeProvider">The clock for ordinary request deadlines.</param>
 /// <param name="logger">The logger for connection and request results.</param>
-internal sealed class SignalRRpcClient(IHubConnectionFactory factory, IOptions<RpcClientOptions> options, ILogger<SignalRRpcClient>? logger = null)
+internal sealed class SignalRRpcClient(IHubConnectionFactory factory, IOptions<RpcClientOptions> options, TimeProvider timeProvider, ILogger<SignalRRpcClient>? logger = null)
     : IRpcClient
 {
     private readonly ILogger _logger = logger ?? NullLogger<SignalRRpcClient>.Instance;
     private readonly TimeSpan _requestTimeout = TimeSpan.FromSeconds(options.Value.RequestTimeoutSeconds);
     private readonly SemaphoreSlim _requestGate = new(1, 1);
     private readonly SemaphoreSlim _stopGate = new(1, 1);
+    private readonly CancellationTokenSource _lifetime = new();
     private readonly object _disposeSync = new();
     private readonly TaskCompletionSource _operationsDrained = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private Task<HubConnection>? _connectionTask;
@@ -30,7 +32,7 @@ internal sealed class SignalRRpcClient(IHubConnectionFactory factory, IOptions<R
     private int _state;
 
     /// <summary>
-    /// Stops the owned hub connection and releases the command gate.
+    /// Cancels owned response waits, drains active operations, and closes the hub connection.
     /// </summary>
     public ValueTask DisposeAsync()
     {
@@ -48,6 +50,7 @@ internal sealed class SignalRRpcClient(IHubConnectionFactory factory, IOptions<R
 
         try
         {
+            using var startup = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
             if (Interlocked.CompareExchange(ref _state, -1, 0) != 0)
                 throw new InvalidOperationException("The control connection has already started or closed.");
 
@@ -56,7 +59,7 @@ internal sealed class SignalRRpcClient(IHubConnectionFactory factory, IOptions<R
             connection.Closed += OnClosedAsync;
             try
             {
-                await connection.StartAsync(cancellationToken);
+                await connection.StartAsync(startup.Token);
                 if (Interlocked.CompareExchange(ref _state, 1, -1) != -1)
                     throw new OperationCanceledException("The control connection closed while it was starting.", cancellationToken);
             }
@@ -83,7 +86,7 @@ internal sealed class SignalRRpcClient(IHubConnectionFactory factory, IOptions<R
     }
 
     /// <summary>
-    /// Serializes ordinary requests separately from stop requests, preserving unknown results on deadline expiry.
+    /// Serializes ordinary requests separately from Stop; device-duration operations use caller and connection cancellation.
     /// </summary>
     /// <typeparam name="T">The service acknowledgement type.</typeparam>
     /// <param name="method">The hub method to invoke.</param>
@@ -100,17 +103,18 @@ internal sealed class SignalRRpcClient(IHubConnectionFactory factory, IOptions<R
 
         try
         {
+            using var operation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
             var gate = method is "Stop" or "GuestStop" or "Leave" or "EndGuest" ? _stopGate : _requestGate;
-            await gate.WaitAsync(cancellationToken);
+            await gate.WaitAsync(operation.Token);
             try
             {
                 var connection = _connectionTask is { } connectionTask ? await connectionTask : null;
                 if (Volatile.Read(ref _state) != 1 || connection is null)
                     throw new ApiClientException("connection-unavailable");
 
-                using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                if (method is not ("Connect" or "ResetPosition" or "GuestResetPosition"))
-                    deadline.CancelAfter(_requestTimeout);
+                using var timeout = new CancellationTokenSource(
+                    method is "Connect" or "Submit" or "ResetPosition" or "GuestResetPosition" ? Timeout.InfiniteTimeSpan : _requestTimeout, timeProvider);
+                using var deadline = CancellationTokenSource.CreateLinkedTokenSource(operation.Token, timeout.Token);
                 try
                 {
                     return await connection.InvokeCoreAsync<T>(method, arguments, deadline.Token);
@@ -124,10 +128,14 @@ internal sealed class SignalRRpcClient(IHubConnectionFactory factory, IOptions<R
                 {
                     throw new ApiClientException("connection-unavailable", error);
                 }
-                catch (OperationCanceledException error) when (!cancellationToken.IsCancellationRequested)
+                catch (OperationCanceledException error) when (!cancellationToken.IsCancellationRequested
+                    && (Volatile.Read(ref _state) != 1 || connection.State != HubConnectionState.Connected))
                 {
-                    if (method != "Submit")
-                        Log.RequestOutcomeUnknown(_logger, method);
+                    throw new ApiClientException("connection-unavailable", error);
+                }
+                catch (OperationCanceledException error) when (!cancellationToken.IsCancellationRequested && timeout.IsCancellationRequested)
+                {
+                    Log.RequestOutcomeUnknown(_logger, method);
                     throw new RpcClientRequestTimeoutException(error);
                 }
             }
@@ -135,6 +143,10 @@ internal sealed class SignalRRpcClient(IHubConnectionFactory factory, IOptions<R
             {
                 gate.Release();
             }
+        }
+        catch (OperationCanceledException error) when (!cancellationToken.IsCancellationRequested && _lifetime.IsCancellationRequested)
+        {
+            throw new ApiClientException("connection-unavailable", error);
         }
         finally
         {
@@ -146,6 +158,7 @@ internal sealed class SignalRRpcClient(IHubConnectionFactory factory, IOptions<R
     {
         Interlocked.Exchange(ref _disposed, 1);
         Interlocked.Exchange(ref _state, 2);
+        await _lifetime.CancelAsync();
         if (Volatile.Read(ref _operationUsers) != 0)
         {
             await _operationsDrained.Task;
@@ -166,6 +179,7 @@ internal sealed class SignalRRpcClient(IHubConnectionFactory factory, IOptions<R
         {
             _requestGate.Dispose();
             _stopGate.Dispose();
+            _lifetime.Dispose();
         }
     }
 

@@ -16,6 +16,14 @@ public interface IControlSession
     Task<GuestSessionState> GetGuestStateAsync(string connectionId, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Updates shared illustration lengths without issuing device commands.
+    /// </summary>
+    /// <param name="correlation">The non-empty request identifier, at most 64 characters without control characters.</param>
+    /// <param name="dimensions">Rail length from 1 to 500 cm and attachment length from 0 to 500 cm.</param>
+    /// <returns>An accepted preview update or an explicit validation or shutdown rejection.</returns>
+    ControlResponse SetPreviewDimensions(string correlation, PreviewDimensions? dimensions);
+
+    /// <summary>
     /// Checks an invitation token without redeeming it.
     /// </summary>
     /// <param name="token">The invitation token to check.</param>

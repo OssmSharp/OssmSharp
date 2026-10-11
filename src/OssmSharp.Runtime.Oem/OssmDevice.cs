@@ -365,7 +365,7 @@ public sealed class OssmDevice : IOssmDevice
 
             attemptCancellation.Token.ThrowIfCancellationRequested();
             logger.ConnectionSetupStage("waiting for initial motion observation");
-            UpdateState(await ReadStateAsync(attemptCancellation.Token).ConfigureAwait(false), session);
+            await ReadStateAsync(attemptCancellation.Token).ConfigureAwait(false);
             lock (sync)
             {
                 ThrowIfInterrupted(attempt);
@@ -553,7 +553,6 @@ public sealed class OssmDevice : IOssmDevice
     public Task<DeviceState?> GetStateAsync(bool bypassCache = false, CancellationToken cancellationToken = default)
     {
         logger.ApiCalled("GetState");
-        CancellationTokenSource session;
         CancellationToken connectionToken;
         lock (sync)
         {
@@ -565,9 +564,8 @@ public sealed class OssmDevice : IOssmDevice
             }
 
             EnsureConnected();
-            session = connectionCancellation!;
             // Only a fresh read needs the session token. Cached state remains available after disconnection.
-            connectionToken = session.Token;
+            connectionToken = connectionCancellation!.Token;
         }
 
         return ExecuteAsync<DeviceState?>(
@@ -575,9 +573,7 @@ public sealed class OssmDevice : IOssmDevice
         {
             try
             {
-                var observation = await ReadStateAsync(token).ConfigureAwait(false);
-                UpdateState(observation, session);
-                return observation;
+                return await ReadStateAsync(token).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
@@ -734,8 +730,8 @@ public sealed class OssmDevice : IOssmDevice
                     await WriteCommandAsync(new(FirmwareSetting.Stroke, 100), token).ConfigureAwait(false);
                     await WriteCommandAsync(new(FirmwareSetting.Depth, 100), token).ConfigureAwait(false);
                     await WriteCommandAsync(new(FirmwareSetting.Sensation, 100), token).ConfigureAwait(false);
-                    await WriteCommandAsync(new(FirmwareSetting.Speed, 20), token).ConfigureAwait(false);
-                    await SendRequestAsync(session, "target.set", "motion.position", new JsonObject { ["value"] = 100, ["durationMs"] = 10000 }, leased: true, token).ConfigureAwait(false);
+                    await WriteCommandAsync(new(FirmwareSetting.Speed, 40), token).ConfigureAwait(false);
+                    await SendRequestAsync(session, "target.set", "motion.position", new JsonObject { ["value"] = 100, ["durationMs"] = 5000 }, leased: true, token).ConfigureAwait(false);
                     while (true)
                     {
                         var position = (await SendRequestAsync(session, "sensor.read", "motion.position", null, leased: true, token).ConfigureAwait(false)).Result;
@@ -909,36 +905,7 @@ public sealed class OssmDevice : IOssmDevice
     }
 
     /// <summary>
-    /// Records an incoming observation without changing arming or cancelling settings.
-    /// </summary>
-    /// <param name="observation">Decoded controls from a bluetooth read or notification.</param>
-    /// <param name="current">The connection that supplied the observation.</param>
-    /// <remarks>
-    /// Observations never cause motion writes and are ignored without an active or pending connection.
-    /// Subscriber failures are logged and cannot interrupt device execution.
-    /// </remarks>
-    private void UpdateState(DeviceState observation, CancellationTokenSource current)
-    {
-        bool changed;
-        lock (sync)
-        {
-            if (!ReferenceEquals(current, connectionCancellation) || phase is not (ConnectionPhase.Connecting or ConnectionPhase.Connected))
-            {
-                return;
-            }
-
-            changed = state != observation;
-            state = observation;
-        }
-
-        if (changed)
-        {
-            NotifyStateChanged();
-        }
-    }
-
-    /// <summary>
-    /// Establishes fresh connectivity and subscriptions that deliver observations through <see cref="UpdateState"/>.
+    /// Establishes fresh connectivity and subscriptions that record complete motion observations.
     /// </summary>
     /// <returns>Completion of setup, without any motion writes.</returns>
     /// <remarks>
@@ -1034,10 +1001,10 @@ public sealed class OssmDevice : IOssmDevice
     /// <summary>
     /// Asks the firmware to run patterns before a request writes its controls.
     /// </summary>
-    /// <returns>Whether the firmware now runs patterns; false when it is waiting for homing or its speed knob.</returns>
+    /// <returns>Whether the firmware is ready to run patterns.</returns>
     /// <remarks>
-    /// Writes speedKnobAsLimit=false for every settings request, then selects the stroke engine and checks readiness from its terminal response.
-    /// Homing and preflight report not ready.
+    /// Writes speedKnobAsLimit=false and uses that response's state to avoid re-entering an active stroke engine.
+    /// Homing and preflight are not ready; other modes require selecting the stroke engine.
     /// Called once per request, including when patterns already run.
     /// The firmware decides whether motion is safe to start.
     /// Request cancellation stops issuance waits and terminal-response waits, not issued transfers.
@@ -1050,11 +1017,26 @@ public sealed class OssmDevice : IOssmDevice
             current = connectionCancellation!;
         }
 
-        await SendRequestAsync(current, "setting.write", "setting.speedKnobAsLimit", new JsonObject { ["value"] = false }, leased: true, cancellationToken).ConfigureAwait(false);
+        var setup = await SendRequestAsync(current, "setting.write", "setting.speedKnobAsLimit", new JsonObject { ["value"] = false }, leased: true, cancellationToken).ConfigureAwait(false);
+        if (setup.StateAfter is "strokeEngine.idle" or "strokeEngine.pattern")
+        {
+            return true;
+        }
 
-        // TODO: Check whether the device is ready from the state callbacks instead of issuing a request each time.
+        if (setup.StateAfter is "strokeEngine.preflight" or "strokeEngine.homing")
+        {
+            logger.PatternNotReady(setup.StateAfter);
+            return false;
+        }
+
         var response = await SendRequestAsync(current, "target.set", "target.strokeEngine", null, leased: true, cancellationToken).ConfigureAwait(false);
-        return response.StateAfter is "strokeEngine.idle" or "strokeEngine.pattern";
+        var ready = response.StateAfter is "strokeEngine.idle" or "strokeEngine.pattern";
+        if (!ready)
+        {
+            logger.PatternNotReady(response.StateAfter);
+        }
+
+        return ready;
     }
 
     /// <summary>
@@ -1364,7 +1346,7 @@ public sealed class OssmDevice : IOssmDevice
 
         if (!ready)
         {
-            throw new InvalidOperationException("The device is not ready to run patterns. Wait for homing to finish and turn the speed knob to zero, then submit the settings again.");
+            throw new InvalidOperationException("The device is not ready to run patterns. Wait for homing and preflight to finish, then request the settings again.");
         }
 
         foreach (var command in current.Settings.ToCommands())
@@ -1434,6 +1416,12 @@ public sealed class OssmDevice : IOssmDevice
 
             logger.OperationFailed("settings write", connectionError);
             throw failure(connectionError);
+        }
+        catch (IOException exception) when (current.CommandsWritten == 0
+            && exception.GetBaseException() is DeviceRequestException { Code: "guard_rejected" } rejection)
+        {
+            logger.PatternNotReady(rejection.DeviceState);
+            throw new InvalidOperationException("The device is not ready to run patterns. Wait for homing and preflight to finish, then request the settings again.", exception);
         }
         catch (Exception exception)
         {
@@ -1839,7 +1827,8 @@ public sealed class OssmDevice : IOssmDevice
         string? path,
         JsonObject? arguments,
         bool leased,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Action? onFirstIssuance = null)
     {
         var response = new TaskCompletionSource<RadResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
         var priority = operation == "setting.write" && path == "motion.speed"
@@ -1888,8 +1877,20 @@ public sealed class OssmDevice : IOssmDevice
             for (var attempt = 1; ; attempt++)
             {
                 logger.RequestSending(id, operation, path, attempt);
-                await WriteRequestAsync(current, selected, payload, priority, cancellationToken).ConfigureAwait(false);
-                logger.RequestTransferred(id, operation, attempt);
+                var queued = timeProvider.GetTimestamp();
+                var issued = queued;
+                Action onIssuing = () =>
+                {
+                    issued = timeProvider.GetTimestamp();
+                    if (attempt == 1)
+                    {
+                        onFirstIssuance?.Invoke();
+                    }
+
+                    logger.RequestTransferStarted(id, operation, timeProvider.GetElapsedTime(queued, issued).TotalMilliseconds);
+                };
+                await WriteRequestAsync(current, selected, payload, priority, onIssuing, cancellationToken).ConfigureAwait(false);
+                logger.RequestTransferred(id, operation, attempt, timeProvider.GetElapsedTime(issued).TotalMilliseconds);
                 try
                 {
                     var terminalResponse = await response.Task.WaitAsync(options.ResponseTimeout, timeProvider, cancellationToken).ConfigureAwait(false);
@@ -1935,6 +1936,7 @@ public sealed class OssmDevice : IOssmDevice
         IPeripheral selected,
         byte[] payload,
         TaskCompletionSource? priority,
+        Action onIssuing,
         CancellationToken cancellationToken)
     {
         while (true)
@@ -1959,6 +1961,7 @@ public sealed class OssmDevice : IOssmDevice
 
                 if (higherPriority is null)
                 {
+                    onIssuing();
                     await selected
                         .WriteCharacteristic(BleProtocolConstants.Service, BleProtocolConstants.Request, payload, withResponse: true)
                         .ToTask()
@@ -2010,7 +2013,9 @@ public sealed class OssmDevice : IOssmDevice
         }
         else if (response.Stage != "accepted")
         {
-            pending.TrySetException(new IOException($"The device rejected the request: {response.Code ?? "unknown"}{(response.Message is null ? string.Empty : $" ({response.Message})")}."));
+            var rejection = new DeviceRequestException(response.Code ?? "unknown", response.StateAfter, response.Message);
+            logger.RequestRejected(response.Id, rejection.Code, rejection.DeviceState);
+            pending.TrySetException(new IOException(rejection.Message, rejection));
         }
     }
 
@@ -2030,7 +2035,15 @@ public sealed class OssmDevice : IOssmDevice
         {
             requested = timeProvider.GetUtcNow();
             const string noLease = "The device did not return a control lease.";
-            var granted = ReadResult((await SendRequestAsync(current, "control.acquire", null, null, leased: false, stopping).ConfigureAwait(false)).Result, RadJsonContext.Default.LeaseResult, noLease);
+            var response = await SendRequestAsync(
+                current,
+                "control.acquire",
+                null,
+                null,
+                leased: false,
+                stopping,
+                onFirstIssuance: () => requested = timeProvider.GetUtcNow()).ConfigureAwait(false);
+            var granted = ReadResult(response.Result, RadJsonContext.Default.LeaseResult, noLease);
             var token = granted.Lease != 0 ? granted.Lease : throw new InvalidDataException(noLease);
             lifetime = ReadLeaseLifetime(granted);
             lock (sync)
@@ -2066,7 +2079,17 @@ public sealed class OssmDevice : IOssmDevice
             }
 
             requested = timeProvider.GetUtcNow();
-            var renewal = SendRequestAsync(current, "control.renew", null, null, leased: true, stopping);
+            var queued = requested;
+            // Lease lifetime starts at first issuance, not while waiting behind an owned native transfer.
+            // Retries keep that origin because the firmware may return a cached response.
+            var renewal = SendRequestAsync(
+                current,
+                "control.renew",
+                null,
+                null,
+                leased: true,
+                stopping,
+                onFirstIssuance: () => requested = timeProvider.GetUtcNow());
             logger.LeaseRenewalStarted((expires - timeProvider.GetUtcNow()).TotalMilliseconds);
             try
             {
@@ -2074,7 +2097,7 @@ public sealed class OssmDevice : IOssmDevice
                 // Issued renewal is bounded by lease expiry, not by disconnect.
                 var renewed = (await renewal.WaitAsync(remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero, timeProvider, CancellationToken.None).ConfigureAwait(false)).Result;
                 lifetime = ReadLeaseLifetime(ReadResult(renewed, RadJsonContext.Default.LeaseResult, "The device did not report a positive control lease lifetime."));
-                logger.LeaseRenewed((timeProvider.GetUtcNow() - requested).TotalMilliseconds, lifetime.TotalMilliseconds);
+                logger.LeaseRenewed((timeProvider.GetUtcNow() - queued).TotalMilliseconds, lifetime.TotalMilliseconds);
             }
             catch (OperationCanceledException) when (stopping.IsCancellationRequested)
             {
@@ -2084,7 +2107,7 @@ public sealed class OssmDevice : IOssmDevice
             {
                 if (exception is TimeoutException)
                 {
-                    logger.LeaseRenewalExpired((expires - requested).TotalMilliseconds);
+                    logger.LeaseRenewalExpired((expires - queued).TotalMilliseconds);
                 }
 
                 var failure = exception is TimeoutException
@@ -2183,6 +2206,7 @@ public sealed class OssmDevice : IOssmDevice
         }
 
         TaskCompletionSource<DeviceState>? read;
+        bool changed;
         lock (sync)
         {
             if (!IsCurrent(current))
@@ -2192,15 +2216,15 @@ public sealed class OssmDevice : IOssmDevice
 
             read = liveRead;
             liveRead = null;
+            // Record at arrival, not after a read's continuation, which can run after a newer frame.
+            changed = state != observation;
+            state = observation;
         }
 
-        if (read is null)
+        read?.TrySetResult(observation);
+        if (changed)
         {
-            UpdateState(observation, current);
-        }
-        else
-        {
-            read.TrySetResult(observation);
+            NotifyStateChanged();
         }
     }
 

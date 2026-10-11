@@ -60,6 +60,7 @@ public interface IOssmDevice : IAsyncDisposable
     /// A connection error raises <see cref="StateChanged"/>, disarms requests, and ends the connection.
     /// A successful <see cref="ConnectAsync"/> clears the error; <see cref="ResetAsync"/> does not.
     /// Use <see cref="IsConnected"/> to check the connection, even when this value is null.
+    /// Control lease expiry or lost ownership is a connection error; control is not reacquired automatically.
     /// </remarks>
     Exception? ConnectionFailure { get; }
 
@@ -96,14 +97,15 @@ public interface IOssmDevice : IAsyncDisposable
     Task DisconnectAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Asks the device to run patterns, then sends the requested settings, replacing older commands not yet sent.
+    /// Sends settings in pattern mode, replacing older commands not yet sent.
     /// </summary>
     /// <param name="settings">The requested pattern, speed, stroke, depth, and sensation. Speed is an integer percentage from zero through 100.</param>
     /// <param name="cancellationToken" />
     /// <returns>The result, including why the request ended and how many writes the device confirmed.</returns>
     /// <remarks>
-    /// Entering pattern mode can reset the device's controls before the settings are sent. This does not disarm requests.
-    /// Completion does not confirm physical motion.
+    /// Reuses an already active pattern mode. Entering pattern mode can reset the controls before settings
+    /// are sent. Preparation or homing produces a readiness error without disarming requests.
+    /// Firmware rejection details are retained as <see cref="DeviceRequestException"/> in the exception chain.
     /// Caller cancellation drops commands not yet sent and ends response waits for an accepted request.
     /// A newer accepted request marks its predecessor <see cref="SetStatus.Superseded"/>; Stop, disarming,
     /// disconnection, or disposal marks the current request <see cref="SetStatus.Cancelled"/>.
@@ -130,6 +132,8 @@ public interface IOssmDevice : IAsyncDisposable
     /// Caller cancellation is checked before both cached and fresh reads. For a fresh read, caller cancellation,
     /// disconnection, and disposal can cancel the I/O gate wait or the wait for the next valid observation.
     /// Cancelling an observation wait does not stop the motion stream; a connection or read failure can instead be propagated.
+    /// Cached state updates in observation arrival order. A fresh read returns its next valid observation;
+    /// a newer observation can already be cached by the time that read completes.
     /// </remarks>
     /// <exception cref="OperationCanceledException">The caller token was cancelled on entry, or a fresh-read wait was cancelled.</exception>
     Task<DeviceState?> GetStateAsync(bool bypassCache = false, CancellationToken cancellationToken = default);
@@ -171,7 +175,8 @@ public interface IOssmDevice : IAsyncDisposable
     /// <remarks>
     /// Requires a connected, armed device ready for streaming motion. Drops pending settings and rejects
     /// settings, rearming, and another Reset Position until cleanup finishes.
-    /// Uses 100% stroke and depth and 20% speed. These controls replace the previous settings; they are not restored.
+    /// Uses 100% stroke and depth and 40% speed, with a requested travel duration of five seconds.
+    /// These controls replace the previous settings; they are not restored.
     /// Waits for the endpoint without an elapsed-time completion limit; Stop or cancellation can end the wait.
     /// Success, interruption, and retract failures do not independently change whether requests are armed.
     /// Stop, caller cancellation, disconnection, and disposal interrupt pending work and the retract wait.

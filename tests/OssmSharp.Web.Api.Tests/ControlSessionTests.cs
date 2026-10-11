@@ -46,6 +46,57 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>, IAsync
     }
 
     [Fact]
+    public async Task PreviewDimensionsAreSharedOnlyWithTheJoinedGuestAndIssueNoDeviceCommands()
+    {
+        var token = TestContext.Current.CancellationToken;
+        Assert.Equal(new PreviewDimensions(), (await Component.GetUserStateAsync(token)).Preview);
+        Assert.Null((await Component.GetGuestStateAsync("not-joined", token)).Preview);
+        var invitation = (await Component.GetUserStateAsync(token)).Invitation;
+        Assert.True(Component.JoinGuest("guest-1", Component.AuthenticateInvitation(invitation.Token), new("join", invitation.Token)).Accepted);
+        var dimensions = new PreviewDimensions(45.5, 27.25);
+
+        Assert.Equal(new ControlResponse("preview", ControlResponseCodes.PreviewUpdated, true), Component.SetPreviewDimensions("preview", dimensions));
+
+        Assert.Equal(dimensions, (await Component.GetUserStateAsync(token)).Preview);
+        Assert.Equal(dimensions, (await Component.GetGuestStateAsync("guest-1", token)).Preview);
+        Assert.Null((await Component.GetGuestStateAsync("not-joined", token)).Preview);
+        Assert.False((await Component.GetGuestStateAsync("guest-1", token)).ControlAllowed);
+        Mocks.Verify<IOssmDevice>(device => device.SetAsync(FastArg.Any<MotionSettings>(), FastArg.Any<CancellationToken>()), TimesSpec.NeverCalled);
+        Mocks.Verify<IOssmDevice>(device => device.ResetAsync(FastArg.Any<CancellationToken>()), TimesSpec.NeverCalled);
+        Mocks.Verify<IOssmDevice>(device => device.ResetPositionAsync(FastArg.Any<CancellationToken>()), TimesSpec.NeverCalled);
+        Mocks.Verify<IOssmDevice>(device => device.EmergencyStopAsync(FastArg.Any<CancellationToken>()), TimesSpec.NeverCalled);
+    }
+
+    [Theory]
+    [InlineData(1, 0)]
+    [InlineData(500, 500)]
+    [InlineData(40, 80)]
+    [InlineData(40.5, 24.25)]
+    public async Task PreviewDimensionBoundariesPreserveTheirValues(double rail, double attachment)
+    {
+        var dimensions = new PreviewDimensions(rail, attachment);
+        Assert.True(Component.SetPreviewDimensions("preview", dimensions).Accepted);
+        Assert.Equal(dimensions, (await Component.GetUserStateAsync(TestContext.Current.CancellationToken)).Preview);
+    }
+
+    [Theory]
+    [InlineData(0, 24)]
+    [InlineData(501, 24)]
+    [InlineData(40, -1)]
+    [InlineData(40, 501)]
+    [InlineData(double.NaN, 24)]
+    [InlineData(40, double.PositiveInfinity)]
+    public async Task InvalidPreviewDimensionsDoNotReplaceSharedValues(double rail, double attachment)
+    {
+        var original = (await Component.GetUserStateAsync(TestContext.Current.CancellationToken)).Preview;
+        var response = Component.SetPreviewDimensions("preview", new(rail, attachment));
+        Assert.Equal(new ControlResponse("preview", ControlResponseCodes.InvalidPreviewDimensions, false), response);
+        Assert.Equal(original, (await Component.GetUserStateAsync(TestContext.Current.CancellationToken)).Preview);
+        Assert.Equal(ControlResponseCodes.InvalidPreviewDimensions, Component.SetPreviewDimensions("missing", null).Code);
+        Assert.Equal(ControlResponseCodes.InvalidCorrelation, Component.SetPreviewDimensions(string.Empty, new()).Code);
+    }
+
+    [Fact]
     public async Task AllowControlRearmsOnlyWhenRequiredWithoutSendingSettings()
     {
         await JoinAndAllowAsync("guest-1");
@@ -435,6 +486,26 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>, IAsync
         Assert.Equal(
             new DeviceSettingsSnapshot(0, 53, 10, 20, 50),
             (await Component.GetUserStateAsync(TestContext.Current.CancellationToken)).Device!.TransmittedSettings);
+    }
+
+    [Fact]
+    public async Task FirmwareRejectionsRetainTheirCauseInsteadOfBecomingInvalidInput()
+    {
+        await JoinAndAllowAsync("guest-1");
+        foreach (var (code, expected) in new[]
+        {
+            ("invalid_value", "invalid-settings"),
+            ("guard_rejected", "device-not-ready"),
+            ("lease_required", "device-control-lost"),
+        })
+        {
+            Device.Setup(device => device.SetAsync(It.IsAny<MotionSettings>(), It.IsAny<CancellationToken>()))
+                .ThrowsAsync(new DeviceWriteException(2, new IOException("Request failed.", new DeviceRequestException(code, "strokeEngine.pattern"))));
+            var result = await Component.SubmitAsync("guest-1", new("set", 0, 57, 37, 100, 50), TestContext.Current.CancellationToken);
+            Assert.Equal(SettingsResponseStatus.Failed, result.Status);
+            Assert.Equal(2, result.CommandsWritten);
+            Assert.Equal(expected, result.ErrorCode);
+        }
     }
 
     [Fact]

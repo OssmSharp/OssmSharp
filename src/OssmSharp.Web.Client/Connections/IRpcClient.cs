@@ -4,7 +4,8 @@ namespace OssmSharp.Web.Client.Connections;
 /// Owns one authenticated RPC connection and its requests.
 /// </summary>
 /// <remarks>
-/// Start the connection before invoking requests. Disposal waits for active operations and closes the connection.
+/// Start the connection before invoking requests. Disposal cancels startup, queued requests, and response waits,
+/// then drains active operations and closes the connection. It does not roll back dispatched server work.
 /// </remarks>
 public interface IRpcClient : IAsyncDisposable
 {

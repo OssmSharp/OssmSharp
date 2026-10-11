@@ -639,13 +639,53 @@ public sealed class OssmDeviceTests : OssmDeviceTestBase
     }
 
     [Fact]
-    public async Task SetWaitsForDirectSpeedSetupBeforeSelectingModeOrWritingMotion()
+    public async Task RepeatedStrokeChangesDoNotReenterAnActivePattern()
     {
         var token = TestContext.Current.CancellationToken;
+        await context.ConnectAsync(Component, token);
+        context.State = "strokeEngine.pattern";
+        context.Write = request =>
+        {
+            if (BleTestContext.Operation(request) != "target.set")
+            {
+                return null;
+            }
+
+            context.Respond(request, "failed", ok: false, code: "guard_rejected");
+            return Observable.Return(BleTestContext.WriteResult([]));
+        };
+
+        foreach (var stroke in new[] { 37, 73 })
+        {
+            var settings = new MotionSettings(StrokePattern.SimpleStroke, 57, stroke, 100, 50);
+            Assert.Equal(new(SetStatus.Completed, 5), await Component.SetAsync(settings, token));
+            Assert.Equal(settings.ToCommands(), context.RequestsFor("setting.write", "motion.").TakeLast(5)
+                .Select(request => new FirmwareCommand(
+                    Enum.Parse<FirmwareSetting>(request["path"]!.GetValue<string>()["motion.".Length..], ignoreCase: true),
+                    request["args"]!["value"]!.GetValue<int>())));
+        }
+
+        Assert.Empty(context.RequestsFor("target.set"));
+        Assert.True(Component.IsArmed);
+    }
+
+    [Fact]
+    public async Task SetWaitsForDirectSpeedSetupBeforeSelectingModeOrWritingMotion()
+    {
+        context.State = "menu.idle";
+        var token = TestContext.Current.CancellationToken;
         var device = await context.ConnectAsync(Component, token);
-        context.Write = request => request["path"]?.GetValue<string>() == "setting.speedKnobAsLimit"
-            ? Observable.Return(BleTestContext.WriteResult([]))
-            : null;
+        context.Write = request =>
+        {
+            if (BleTestContext.Operation(request) == "target.set")
+            {
+                context.State = "strokeEngine.idle";
+            }
+
+            return request["path"]?.GetValue<string>() == "setting.speedKnobAsLimit"
+                ? Observable.Return(BleTestContext.WriteResult([]))
+                : null;
+        };
 
         var set = device.SetAsync(new(StrokePattern.SimpleStroke, 5, 5, 5, 5), token);
         try
@@ -715,19 +755,24 @@ public sealed class OssmDeviceTests : OssmDeviceTestBase
         context.RequestsFor("setting.write", "motion.").Should().BeEmpty();
     }
 
-    [Fact]
-    public async Task SetDuringPreflightSendsNoSettings()
+    [Theory]
+    [InlineData("strokeEngine.preflight")]
+    [InlineData("strokeEngine.homing")]
+    public async Task SetDuringPreparationSendsNoSettings(string state)
     {
         var token = TestContext.Current.CancellationToken;
         var device = await context.ConnectAsync(Component, token);
-        context.State = "strokeEngine.preflight";
+        context.State = state;
 
         await device.Invoking(value => value.SetAsync(new(0, 5, 5, 5, 5), token))
-            .Should().ThrowAsync<InvalidOperationException>().WithMessage("*speed knob*");
+            .Should().ThrowAsync<InvalidOperationException>().WithMessage("*homing and preflight*");
 
-        context.RequestsFor("target.set").Should().ContainSingle();
+        context.RequestsFor("target.set").Should().BeEmpty();
         context.RequestsFor("setting.write", "motion.").Should().BeEmpty();
         device.IsArmed.Should().BeTrue();
+        Assert.Contains(logger.Entries, entry => entry.Level == LogLevel.Debug
+            && entry.Message.Contains(state, StringComparison.Ordinal)
+            && entry.Message.Contains("no motion settings were written", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -943,6 +988,63 @@ public sealed class OssmDeviceRequestTests : OssmDeviceTestBase
 public sealed class OssmDeviceLifecycleTests : OssmDeviceTestBase
 {
     [Fact]
+    public async Task LeaseClockStartsWhenQueuedRenewalIsIssued()
+    {
+        var token = TestContext.Current.CancellationToken;
+        await context.ConnectAsync(Component, token);
+        context.Clock.Advance(TimeSpan.FromSeconds(4));
+        using var transfer = new Subject<BleCharacteristicResult>();
+        var held = new TaskCompletionSource<JsonObject>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var renewed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        context.Write = request =>
+        {
+            if (BleTestContext.IsMotionWrite(request) && held.TrySetResult(request))
+            {
+                return transfer;
+            }
+
+            if (BleTestContext.Operation(request) == "control.renew")
+            {
+                renewed.TrySetResult();
+            }
+
+            return null;
+        };
+        var set = Component.SetAsync(new(StrokePattern.SimpleStroke, 57, 37, 100, 50), token);
+        var motion = await held.Task.WaitAsync(token);
+        var queued = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        context.TimerCreated = delay =>
+        {
+            if (delay == TimeSpan.FromSeconds(5))
+            {
+                queued.TrySetResult();
+            }
+        };
+        context.Clock.Advance(TimeSpan.FromSeconds(1));
+        await queued.Task.WaitAsync(token);
+        context.Clock.Advance(TimeSpan.FromSeconds(3));
+        var nextRenewalDelay = new TaskCompletionSource<TimeSpan>(TaskCreationOptions.RunContinuationsAsynchronously);
+        context.TimerCreated = delay => nextRenewalDelay.TrySetResult(delay);
+        try
+        {
+            context.Complete(motion);
+            transfer.OnNext(BleTestContext.WriteResult([]));
+            transfer.OnCompleted();
+            await renewed.Task.WaitAsync(token);
+            await set;
+            Assert.Equal(TimeSpan.FromSeconds(5), await nextRenewalDelay.Task.WaitAsync(token));
+            Assert.True(Component.IsConnected);
+            Assert.True(Component.IsArmed);
+        }
+        finally
+        {
+            context.TimerCreated = null;
+            context.Write = null;
+            transfer.OnCompleted();
+        }
+    }
+
+    [Fact]
     public async Task RenewsLeaseAtHalfItsReportedLifetime()
     {
         var token = TestContext.Current.CancellationToken;
@@ -1129,12 +1231,18 @@ public sealed class OssmDeviceLifecycleTests : OssmDeviceTestBase
     public async Task DisposeAwaitsIssuedTransferAndDisconnectAcknowledgement()
     {
         context.CompleteDisconnect = false;
+        context.State = "menu.idle";
         var token = TestContext.Current.CancellationToken;
         var device = await context.ConnectAsync(Component, token);
         using var transfer = new Subject<BleCharacteristicResult>();
         var issued = new TaskCompletionSource<JsonObject>(TaskCreationOptions.RunContinuationsAsynchronously);
         context.Write = request =>
         {
+            if (BleTestContext.Operation(request) == "target.set")
+            {
+                context.State = "strokeEngine.idle";
+            }
+
             if (!BleTestContext.IsMotionWrite(request)
                 || request["path"]!.GetValue<string>() == "motion.speed" && request["args"]!["value"]!.GetValue<double>() == 0)
             {

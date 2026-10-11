@@ -23,6 +23,10 @@ public sealed class AdminApiClient(IRpcClient connection)
     }
 
     /// <inheritdoc />
+    public Task<ControlResponse> SetPreviewDimensionsAsync(PreviewDimensions dimensions, CancellationToken cancellationToken = default) =>
+        InvokeRequestAsync("SetPreviewDimensions", [NewCorrelation(), dimensions], cancellationToken);
+
+    /// <inheritdoc />
     public Task<ControlResponse> AllowGuestAsync(CancellationToken cancellationToken = default) =>
         InvokeRequestAsync("AllowGuest", cancellationToken);
 
@@ -47,10 +51,13 @@ public sealed class AdminApiClient(IRpcClient connection)
 
     private static string NewCorrelation() => Guid.NewGuid().ToString("N");
 
-    private async Task<ControlResponse> InvokeRequestAsync(string method, CancellationToken cancellationToken)
+    private Task<ControlResponse> InvokeRequestAsync(string method, CancellationToken cancellationToken) =>
+        InvokeRequestAsync(method, [NewCorrelation()], cancellationToken);
+
+    private async Task<ControlResponse> InvokeRequestAsync(string method, object?[] arguments, CancellationToken cancellationToken)
     {
         await EnsureStartedAsync(cancellationToken);
-        var response = await _connection.InvokeAsync<ControlResponse>(method, [NewCorrelation()], cancellationToken);
+        var response = await _connection.InvokeAsync<ControlResponse>(method, arguments, cancellationToken);
         if (!response.Accepted)
             throw new ApiClientException(response.Code);
         return response;

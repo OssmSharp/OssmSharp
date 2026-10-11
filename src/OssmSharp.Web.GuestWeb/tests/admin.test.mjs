@@ -5,13 +5,14 @@ import { createContext, SourceTextModule } from "node:vm";
 
 const source = await readFile(new URL("../../OssmSharp.Web.AdminWeb/wwwroot/admin.js", import.meta.url), "utf8");
 
-async function timerHarness() {
+async function timerHarness(storage) {
   let now = Date.parse("2026-01-01T00:00:00Z");
   let element;
   let next = 0;
   const intervals = new Map();
   const context = createContext({
     document: { querySelector: () => element },
+    localStorage: storage,
     Date: { parse: Date.parse, now: () => now },
     setInterval: (callback, milliseconds) => {
       assert.equal(milliseconds, 1000);
@@ -100,4 +101,20 @@ test("timer releases detached or disconnected elements and restarts on recovery"
   h.api.disposeConnectionTimer();
   h.api.disposeConnectionTimer();
   assert.equal(h.intervals.size, 0);
+});
+
+test("saving attachment length preserves centimetres and surfaces unavailable storage", async () => {
+  const stored = new Map();
+  const failure = new Error("Storage unavailable.");
+  const storage = {
+    setItem(key, value) { stored.set(key, value); },
+    getItem(key) { return stored.get(key) ?? null; },
+  };
+  const h = await timerHarness(storage);
+  h.api.writeAttachmentLength(27.25);
+  assert.equal(stored.get("ossm-admin-attachment-length-cm"), "27.25");
+  assert.equal(h.api.readAttachmentLength(24), 27.25);
+  storage.setItem = () => { throw failure; };
+  assert.throws(() => h.api.writeAttachmentLength(28), (error) => error === failure);
+  assert.equal(stored.get("ossm-admin-attachment-length-cm"), "27.25");
 });

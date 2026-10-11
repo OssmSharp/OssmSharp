@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Time.Testing;
 using Moq;
 using OssmSharp.Runtime;
 using OssmSharp.Runtime.Oem;
@@ -27,6 +28,7 @@ namespace OssmSharp.Web.Api.Tests;
 public sealed class GuestApiClientConnectionTests : MockerTestBase<GuestApiClient>, IAsyncDisposable
 {
     private const string AdminKey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    private readonly FakeTimeProvider _clock = new();
     private RpcClientOptions _options = null!;
     private RpcClientTestScope _rpcScope = null!;
     private ControlSession _session = null!;
@@ -40,7 +42,7 @@ public sealed class GuestApiClientConnectionTests : MockerTestBase<GuestApiClien
         mocks.SetupOptions(new ControlServiceOptions { DeviceIdentifier = "test", AdminWebServiceKey = AdminKey });
         _session = mocks.CreateInstance<ControlSession>()!;
         _options = new() { EndpointUri = "http://127.0.0.1:1" };
-        _rpcScope = new(_options, guest: true);
+        _rpcScope = new(_options, guest: true, timeProvider: _clock);
         mocks.AddType<IRpcClient>(_rpcScope.Connection);
     };
 
@@ -52,7 +54,7 @@ public sealed class GuestApiClientConnectionTests : MockerTestBase<GuestApiClien
             try
             {
                 await _session.DisposeAsync();
-                Mocks.Verify<IOssmDevice>(device => device.DisposeAsync(), TimesSpec.Once);
+                _device.Verify<ValueTask>(device => device.DisposeAsync(), Times.Once);
                 _device.VerifyAdd(device => device.StateChanged += It.IsAny<EventHandler>(), Times.Once);
                 _device.VerifyRemove(device => device.StateChanged -= It.IsAny<EventHandler>(), Times.Once);
             }
@@ -61,6 +63,98 @@ public sealed class GuestApiClientConnectionTests : MockerTestBase<GuestApiClien
                 try { await _rpcScope.DisposeAsync(); }
                 finally { base.Dispose(); }
             }
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    public async Task SettingsCanCompleteBeyondTheOrdinaryRequestDeadline()
+    {
+        await using var app = await StartApiAsync();
+        var token = TestContext.Current.CancellationToken;
+        var invitation = (await _session.GetUserStateAsync(token)).Invitation;
+        await Component.JoinAsync(invitation.Token, token);
+        await _session.AllowGuestAsync("allow", token);
+        var (entered, completed) = HoldDeviceSettings();
+        var pending = Component.SubmitAsync(new("first", 0, 57, 37, 100, 50), token);
+        try
+        {
+            await entered.WaitAsync(token);
+            _clock.Advance(TimeSpan.FromSeconds(3));
+            completed.TrySetResult(new(SetStatus.Completed, 5));
+            Assert.Equal(SettingsResponseStatus.Completed, (await pending).Status);
+            Assert.Equal(
+                SettingsResponseStatus.Completed,
+                (await Component.SubmitAsync(new("second", 0, 57, 73, 100, 50), token)).Status);
+            Mocks.Verify<IOssmDevice>(device => device.EmergencyStopAsync(FastArg.Any<CancellationToken>()), TimesSpec.NeverCalled);
+        }
+        finally
+        {
+            completed.TrySetResult(new(SetStatus.Completed, 5));
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    public async Task DisposalInterruptsPendingSettingsAndQueuedState()
+    {
+        var disconnected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var app = await StartApiAsync(disconnected: disconnected);
+        var token = TestContext.Current.CancellationToken;
+        var invitation = (await _session.GetUserStateAsync(token)).Invitation;
+        await Component.JoinAsync(invitation.Token, token);
+        await _session.AllowGuestAsync("allow", token);
+        var (entered, completed) = HoldDeviceSettings();
+        var settings = Component.SubmitAsync(new("pending", 0, 57, 37, 100, 50), token);
+        await entered.WaitAsync(token);
+        var state = Component.GetStateAsync(token);
+        var disposal = Component.DisposeAsync().AsTask();
+        try
+        {
+            var settingsError = await Assert.ThrowsAsync<ApiClientException>(
+                () => settings.WaitAsync(TimeSpan.FromSeconds(5), token));
+            var stateError = await Assert.ThrowsAsync<ApiClientException>(
+                () => state.WaitAsync(TimeSpan.FromSeconds(5), token));
+            Assert.Equal("connection-unavailable", settingsError.Code);
+            Assert.Equal("connection-unavailable", stateError.Code);
+            await disposal.WaitAsync(TimeSpan.FromSeconds(5), token);
+            Assert.False(completed.Task.IsCompleted);
+            await disconnected.Task.WaitAsync(token);
+            Assert.False((await _session.GetUserStateAsync(token)).GuestJoined);
+            Mocks.Verify<IOssmDevice>(device => device.EmergencyStopAsync(FastArg.Any<CancellationToken>()), TimesSpec.Once);
+        }
+        finally
+        {
+            completed.TrySetResult(new(SetStatus.Completed, 5));
+            try { await Task.WhenAll(settings, state); }
+            catch (ApiClientException) { }
+            await disposal;
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    public async Task CallerCancellationStillCancelsSettingsResponseWait()
+    {
+        await using var app = await StartApiAsync();
+        var token = TestContext.Current.CancellationToken;
+        var invitation = (await _session.GetUserStateAsync(token)).Invitation;
+        await Component.JoinAsync(invitation.Token, token);
+        await _session.AllowGuestAsync("allow", token);
+        var (entered, completed) = HoldDeviceSettings();
+        using var caller = CancellationTokenSource.CreateLinkedTokenSource(token);
+        var settings = Component.SubmitAsync(new("pending", 0, 57, 37, 100, 50), caller.Token);
+        try
+        {
+            await entered.WaitAsync(token);
+            await caller.CancelAsync();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => settings);
+            Assert.False(completed.Task.IsCompleted);
+            Mocks.Verify<IOssmDevice>(device => device.EmergencyStopAsync(FastArg.Any<CancellationToken>()), TimesSpec.NeverCalled);
+        }
+        finally
+        {
+            completed.TrySetResult(new(SetStatus.Completed, 5));
         }
     }
 
@@ -116,6 +210,7 @@ public sealed class GuestApiClientConnectionTests : MockerTestBase<GuestApiClien
         await Assert.ThrowsAsync<HubException>(() => stale.InvokeAsync<UserSessionState>("GetUserState", TestContext.Current.CancellationToken));
         await Assert.ThrowsAsync<HubException>(() => stale.InvokeAsync<ControlResponse>("Stop", "stop", TestContext.Current.CancellationToken));
         await Assert.ThrowsAsync<HubException>(() => stale.InvokeAsync<ControlResponse>("ResetPosition", "position", TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<HubException>(() => stale.InvokeAsync<ControlResponse>("SetPreviewDimensions", "preview", new PreviewDimensions(50, 25), TestContext.Current.CancellationToken));
         Assert.Equal("guest-not-joined", (await stale.InvokeAsync<ControlResponse>("GuestResetPosition", "position", TestContext.Current.CancellationToken)).Code);
         Mocks.Verify<IOssmDevice>(device => device.ResetPositionAsync(FastArg.Any<CancellationToken>()), TimesSpec.NeverCalled);
         Assert.Null((await stale.InvokeAsync<GuestSessionState>("GetGuestState", TestContext.Current.CancellationToken)).Device);
@@ -123,6 +218,12 @@ public sealed class GuestApiClientConnectionTests : MockerTestBase<GuestApiClien
         await using var adminScope = new RpcClientTestScope(new() { EndpointUri = _options.EndpointUri, ServiceKey = AdminKey });
         await using var admin = new AdminApiClient(adminScope.Connection);
         Assert.True((await admin.GetStateAsync(TestContext.Current.CancellationToken)).GuestJoined);
+        var dimensions = new PreviewDimensions(50, 25.5);
+        Assert.True((await admin.SetPreviewDimensionsAsync(dimensions, TestContext.Current.CancellationToken)).Accepted);
+        Assert.Equal(dimensions, (await Component.GetStateAsync(TestContext.Current.CancellationToken)).Preview);
+        Assert.Equal(dimensions, (await admin.GetStateAsync(TestContext.Current.CancellationToken)).Preview);
+        var invalid = await Assert.ThrowsAsync<ApiClientException>(() => admin.SetPreviewDimensionsAsync(new(0, 25), TestContext.Current.CancellationToken));
+        Assert.Equal(ControlResponseCodes.InvalidPreviewDimensions, invalid.Code);
         Assert.True((await admin.EndGuestAsync(TestContext.Current.CancellationToken)).Accepted);
         var fresh = (await admin.GetStateAsync(TestContext.Current.CancellationToken)).Invitation;
         var rejected = await stale.InvokeAsync<ControlResponse>("Join", new GuestJoinRequest("join", fresh.Token), TestContext.Current.CancellationToken);
@@ -309,6 +410,15 @@ public sealed class GuestApiClientConnectionTests : MockerTestBase<GuestApiClien
         if (controlConnection)
             disconnected?.TrySetResult();
     });
+
+    private (Task Entered, TaskCompletionSource<SetResult> Completed) HoldDeviceSettings()
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var completed = new TaskCompletionSource<SetResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _device.Setup(device => device.SetAsync(It.IsAny<MotionSettings>(), It.IsAny<CancellationToken>()))
+            .Callback(() => entered.TrySetResult()).Returns(completed.Task);
+        return (entered.Task, completed);
+    }
 
     private async Task<WebApplication> StartApiAsync(
         ConcurrentQueue<ClaimsPrincipal>? identities = null,

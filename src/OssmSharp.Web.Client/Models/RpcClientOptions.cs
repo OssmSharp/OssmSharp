@@ -32,7 +32,8 @@ public sealed class RpcClientOptions : IValidatableObject
     public int ServerTimeoutSeconds { get; set; } = 3;
 
     /// <summary>
-    /// Gets or sets the request timeout in seconds, excluding device connection setup.
+    /// Gets or sets the ordinary request timeout in seconds. Connection setup, settings, and position reset
+    /// instead use caller cancellation and the device operation's response and connection lifetime.
     /// </summary>
     [Range(1, 30)]
     public int RequestTimeoutSeconds { get; set; } = 2;

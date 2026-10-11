@@ -6,13 +6,17 @@ public partial class Join
     /// Accepts the latest browser-side display state for the local preview.
     /// </summary>
     /// <param name="display">The browser's current selection and bounded feedback text.</param>
-    /// <exception cref="ArgumentException">The display has missing values or feedback longer than 200 characters.</exception>
+    /// <remarks>
+    /// Display updates after disposal or connection loss are discarded.
+    /// </remarks>
+    /// <exception cref="ArgumentException">The display has missing values, an invalid feedback style, or text longer than 200 characters.</exception>
     [JSInvokable]
     public Task UpdateDisplay(GuestDisplayState display)
     {
-        if (_disposed)
+        if (_disposed || _connectionLost)
             return Task.CompletedTask;
-        if (display.Selected is null || display.Status is not { Length: <= 200 } || display.Error?.Length > 200)
+        if (display.Selected is null || display.Status is not { Length: <= 200 } || display.Error?.Length > 200
+            || display.ErrorVariant is not ("danger" or "warning" or "info"))
             throw new ArgumentException("Invalid guest display state.", nameof(display));
         _display = display;
         StateHasChanged();
@@ -57,7 +61,7 @@ public partial class Join
     }
 
     /// <summary>
-    /// Stops guest motion without treating command acceptance as device verification.
+    /// Requests Stop for this guest without resuming pending settings.
     /// </summary>
     /// <returns>The accepted reply code, or a rejection or unknown-outcome code.</returns>
     [JSInvokable]

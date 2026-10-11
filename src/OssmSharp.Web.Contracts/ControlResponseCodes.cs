@@ -6,6 +6,16 @@ namespace OssmSharp.Web.Contracts;
 public static class ControlResponseCodes
 {
     /// <summary>
+    /// The shared preview dimensions were updated without changing motion settings.
+    /// </summary>
+    public const string PreviewUpdated = "preview-updated";
+
+    /// <summary>
+    /// Preview dimensions were missing, non-finite, or outside their allowed centimetre ranges.
+    /// </summary>
+    public const string InvalidPreviewDimensions = "invalid-preview-dimensions";
+
+    /// <summary>
     /// The request correlation was missing, too long, or contained a control character.
     /// </summary>
     public const string InvalidCorrelation = "invalid-correlation";
@@ -69,6 +79,11 @@ public static class ControlResponseCodes
     /// The runtime device operation failed because of an I/O error.
     /// </summary>
     public const string DeviceIoFailed = "device-io-failed";
+
+    /// <summary>
+    /// The device no longer grants this connection control.
+    /// </summary>
+    public const string DeviceControlLost = "device-control-lost";
 
     /// <summary>
     /// The runtime device connected successfully.

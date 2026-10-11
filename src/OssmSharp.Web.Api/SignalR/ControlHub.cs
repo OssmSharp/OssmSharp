@@ -17,6 +17,16 @@ public sealed class ControlHub(IControlSession session) : Hub
     public Task<UserSessionState> GetUserState() => session.GetUserStateAsync(Context.ConnectionAborted);
 
     /// <summary>
+    /// Updates shared preview-only lengths using user authority, without controlling motion.
+    /// </summary>
+    /// <param name="correlation">The request identifier.</param>
+    /// <param name="dimensions">Rail and attachment lengths in centimetres.</param>
+    /// <returns>The accepted update or an explicit validation rejection.</returns>
+    [Authorize(Policy = ControlServicePolicies.AdminWeb)]
+    public ControlResponse SetPreviewDimensions(string correlation, PreviewDimensions? dimensions) =>
+        session.SetPreviewDimensions(correlation, dimensions);
+
+    /// <summary>
     /// Returns state visible to the calling guest connection.
     /// </summary>
     [Authorize(Policy = ControlServicePolicies.GuestWeb)]

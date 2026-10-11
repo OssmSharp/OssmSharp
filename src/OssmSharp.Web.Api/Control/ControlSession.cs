@@ -17,6 +17,8 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
     private readonly Func<string, IOssmDevice> _deviceFactory;
     private readonly IDeviceDiscovery _discovery;
     private readonly TimeProvider _timeProvider;
+    private readonly ILogger<ControlSession> _logger;
+    private PreviewDimensions _previewDimensions = new();
     private IOssmDevice? _device;
     private string? _deviceIdentifier;
     private string? _deviceName;
@@ -50,6 +52,7 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
     /// <param name="discovery">Finds the first nearby device when no identifier is configured.</param>
     /// <param name="timeProvider">The time source used for connection timestamps.</param>
     /// <param name="options">The validated control-service configuration.</param>
+    /// <param name="logger">Structured diagnostics for session-owned updates and failures.</param>
     /// <remarks>
     /// A configured identifier bypasses discovery. Otherwise, Connect discovers before constructing the device.
     /// The selected device is retained for reconnects and asynchronously disposed with this session.
@@ -60,7 +63,8 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
         Func<string, IOssmDevice> deviceFactory,
         IDeviceDiscovery discovery,
         TimeProvider timeProvider,
-        IOptions<ControlServiceOptions> options)
+        IOptions<ControlServiceOptions> options,
+        ILogger<ControlSession> logger)
     {
         _deviceFactory = deviceFactory;
         _discovery = discovery;
@@ -72,6 +76,7 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
         }
 
         _timeProvider = timeProvider;
+        _logger = logger;
         _invitationToken = CapabilityTokens.NewToken();
         _invitationHash = CapabilityTokens.Hash(_invitationToken);
     }
@@ -83,12 +88,12 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
         lock (_sync)
         {
             var controlAllowed = HasActiveControlLocked();
-            return new(
+            return new UserSessionState(
                 new(_invitationToken),
                 _guestConnectionId is not null,
                 controlAllowed,
                 null,
-                device);
+                device) { Preview = _previewDimensions };
         }
     }
 
@@ -109,8 +114,39 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
         {
             var joined = string.Equals(_guestConnectionId, connectionId, StringComparison.Ordinal);
             var allowed = joined && HasActiveControlLocked();
-            return new(joined, allowed, null, joined ? device : null, joined && allowed && _guestStopped && !_stopRequired && !_resettingPosition);
+            return new GuestSessionState(joined, allowed, null, joined ? device : null, joined && allowed && _guestStopped && !_stopRequired && !_resettingPosition)
+            {
+                Preview = joined ? _previewDimensions : null,
+            };
         }
+    }
+
+    /// <inheritdoc />
+    public ControlResponse SetPreviewDimensions(string correlation, PreviewDimensions? dimensions)
+    {
+        if (!ValidCorrelation(correlation))
+        {
+            _logger.PreviewRejected(InvalidCorrelation);
+            return Rejected(correlation, InvalidCorrelation);
+        }
+        if (dimensions is null || !double.IsFinite(dimensions.RailLengthCm) || !double.IsFinite(dimensions.AttachmentLengthCm)
+            || dimensions.RailLengthCm is < PreviewDimensions.MinimumRailLengthCm or > PreviewDimensions.MaximumLengthCm
+            || dimensions.AttachmentLengthCm is < 0 or > PreviewDimensions.MaximumLengthCm)
+        {
+            _logger.PreviewRejected(InvalidPreviewDimensions);
+            return Rejected(correlation, InvalidPreviewDimensions);
+        }
+        lock (_sync)
+        {
+            if (_shuttingDown)
+            {
+                _logger.PreviewRejected(Cancelled);
+                return Rejected(correlation, Cancelled);
+            }
+            _previewDimensions = dimensions;
+        }
+        _logger.PreviewUpdated(dimensions.RailLengthCm, dimensions.AttachmentLengthCm);
+        return Accepted(correlation, ControlResponseCodes.PreviewUpdated);
     }
 
     /// <inheritdoc />
@@ -306,7 +342,7 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
         }
         catch (DeviceWriteException exception)
         {
-            return new(request.Correlation, SettingsResponseStatus.Failed, exception.CommandsWritten, DeviceWriteFailed);
+            return new(request.Correlation, SettingsResponseStatus.Failed, exception.CommandsWritten, SettingsFailureCode(exception, DeviceWriteFailed));
         }
         catch (OperationCanceledException)
         {
@@ -316,9 +352,9 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
         {
             return new(request.Correlation, SettingsResponseStatus.Failed, 0, DeviceNotReady);
         }
-        catch (IOException)
+        catch (IOException exception)
         {
-            return new(request.Correlation, SettingsResponseStatus.Failed, 0, DeviceIoFailed);
+            return new(request.Correlation, SettingsResponseStatus.Failed, 0, SettingsFailureCode(exception, DeviceIoFailed));
         }
     }
 
@@ -825,6 +861,17 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
             }
         }
     }
+
+    private string SettingsFailureCode(Exception exception, string fallback) =>
+        exception.GetBaseException() is DeviceRequestException rejection
+            ? rejection.Code switch
+            {
+                "invalid_value" => InvalidSettings,
+                "guard_rejected" => DeviceNotReady,
+                "lease_required" => DeviceControlLost,
+                _ => fallback,
+            }
+            : _device?.IsConnected != true ? DeviceNotConnected : fallback;
 
     private async Task<DeviceStateSnapshot> GetDeviceStateAsync(CancellationToken cancellationToken, bool includeUserDetails = false)
     {

@@ -19,7 +19,7 @@ public partial class Join
     private bool _attached;
     private bool _leaving;
     private bool _disposed;
-    private GuestDisplayState _display = new(new(0, 0, 10, 20, 50), null, "Choose settings, then Send.", null);
+    private GuestDisplayState _display = new(new(0, 0, 10, 20, 50), null, string.Empty, null);
 
     [Inject]
     private IGuestApiClient Client { get; set; } = null!;
@@ -106,6 +106,7 @@ public partial class Join
             while (await timer.WaitForNextTickAsync(_lifetime.Token))
             {
                 var state = await Client.GetStateAsync(_lifetime.Token);
+                _lifetime.Token.ThrowIfCancellationRequested();
                 if (!state.Joined)
                 {
                     _status = state;
@@ -144,11 +145,12 @@ public partial class Join
         if (_leaving || _disposed || !_joined)
             return;
         _leaving = true;
-        await BrowserCallAsync("disarm");
+        await PushStateAsync();
         try
         {
             await Client.LeaveAsync(_lifetime.Token);
         }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
         catch (RpcClientRequestTimeoutException) { }
         catch (ApiClientException error)
         {
@@ -164,16 +166,34 @@ public partial class Join
         ready = Ready,
         resettingPosition = _status?.Device?.IsResettingPosition == true,
         stopped = _status?.CanResumeAfterStop == true,
-        current = _status?.Device is { } device ? new { speed = DeviceSpeed, stroke = device.Stroke, depth = device.Depth } : null,
+        current = _status?.Device is { } device ? new { speed = DeviceSpeed, stroke = device.Stroke, depth = device.Depth, sensation = device.Sensation } : null,
     });
 
     private async Task BrowserCallAsync(string methodIdentifier, params object?[] arguments)
     {
         if (_module is null || _disposed)
             return;
-        try { await _module.InvokeVoidAsync(methodIdentifier, arguments); }
-        catch (JSDisconnectedException) { }
-        catch (JSException) { _connectionLost = true; }
+        try { await _module.InvokeVoidAsync(methodIdentifier, _lifetime.Token, arguments); }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (JSDisconnectedException) when (_disposed || _lifetime.IsCancellationRequested) { }
+        catch (Exception exception) when (exception is JSException or OperationCanceledException)
+        {
+            Logger.BrowserCallFailed(methodIdentifier, exception);
+            _connectionLost = true;
+            _joined = false;
+            _status = null;
+            _display = _display with
+            {
+                Selected = _display.Selected with { Speed = 0 },
+                Sent = null,
+                Status = string.Empty,
+                Error = null,
+                PreviewStopped = true,
+                CanSend = false,
+            };
+            await _lifetime.CancelAsync();
+            await Client.DisposeAsync();
+        }
     }
 
 }

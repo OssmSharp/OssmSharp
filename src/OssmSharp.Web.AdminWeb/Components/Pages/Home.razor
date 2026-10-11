@@ -40,7 +40,7 @@
               Allow control
             </button>
             <button type="button" class="button danger" disabled="@_safetyBusy" @onclick="Stop">Stop</button>
-            <button type="button" class="button secondary" data-reset-position-button
+            <button type="button" class="button warning" data-reset-position-button
                     disabled="@(_busy || _safetyBusy || DeviceUnavailable || _state.Device is { IsResettingPosition: true })"
                     @onclick="ResetPosition">Reset Position</button>
             <button type="button" class="button danger" disabled="@(_safetyBusy || !_state.GuestJoined)" @onclick="EndGuest">
@@ -51,7 +51,7 @@
             <label for="attachment-length">Attachment length</label>
             <input id="attachment-length" type="number" inputmode="decimal" data-testid="attachment-length"
                    min="0" max="@RailLengthText" step="@LengthStep" aria-describedby="attachment-length-unit"
-                   disabled="@DeviceUnavailable" value="@AttachmentLengthText" @oninput="SetAttachmentLength" />
+                   disabled="@_connectionLost" value="@AttachmentLengthText" @onchange="SetAttachmentLength" />
             <span id="attachment-length-unit" class="field-unit">@LengthUnitLabel (rail @RailLengthText @LengthUnitLabel)</span>
           </div>
         </section>

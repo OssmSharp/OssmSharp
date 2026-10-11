@@ -37,7 +37,7 @@ for (const role of ["user", "guest"]) {
         assert.equal(guest.storage.get("ossm-guest-connection-lost"), "true");
         assert.equal(guest.elements.get('[data-input="speed"]').value, "0");
         assert.deepEqual(["stroke", "depth", "sensation"].map((name) => guest.elements.get(`[data-input="${name}"]`).value), ["10", "20", "75"]);
-        assert.equal(guest.elements.get("[data-pattern]").value, "6");
+        assert.equal(guest.elements.get('[data-pattern="6"]').getAttribute("aria-pressed"), "true");
         guest.api.updateState({ joined: true, ready: true });
         assert.equal(guest.controls.every((control) => control.disabled), true);
         guest.api.dispose();
