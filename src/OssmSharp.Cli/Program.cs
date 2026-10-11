@@ -60,6 +60,11 @@ internal static class Program
 
         try
         {
+            if (ApplicationVersion.TryWrite(args, output))
+            {
+                return 0;
+            }
+
             var parsed = root.Parse(args);
             if (parsed.Errors.Count > 0)
             {

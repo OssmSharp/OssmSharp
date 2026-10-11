@@ -1,3 +1,4 @@
+using System.Reflection;
 using AwesomeAssertions;
 using Xunit;
 
@@ -39,6 +40,20 @@ public sealed class ProgramTests
         (await Program.InvokeAsync(["--version"], output, error)).Should().Be(0);
 
         output.ToString().Trim().Should().MatchRegex(@"^\d+\.\d+\.\d+[^\r\n]*$");
+        error.ToString().Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task MainVersionMatchesApplicationMetadataExactly()
+    {
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        var version = typeof(Program).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>();
+
+        (await Program.InvokeAsync(["--version"], output, error)).Should().Be(0);
+
+        version.Should().NotBeNull();
+        output.ToString().Should().Be(version!.InformationalVersion + Environment.NewLine);
         error.ToString().Should().BeEmpty();
     }
 

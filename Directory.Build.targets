@@ -1,4 +1,44 @@
 <Project>
+  <!-- Shared native defaults, application version output, Git stamps, and web-panel assets. -->
+  <PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'macos'">
+    <SupportedOSPlatformVersion>26.0</SupportedOSPlatformVersion>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(OutputType)' == 'Exe' And '$(IsTestProject)' != 'true'">
+    <!-- Compile the helper into each application so it reads that application's version. -->
+    <Compile Include="$(MSBuildThisFileDirectory).github/scripts/ApplicationVersion.cs" Link="ApplicationVersion.cs" />
+  </ItemGroup>
+
+  <!-- Read Git on every real build so incremental builds reflect commits and uncommitted
+       changes. Preserve the full revision in package metadata and use seven characters
+       plus an optional -private suffix in the informational version. -->
+  <Target Name="SetSourceVersion"
+          BeforeTargets="GetAssemblyAttributes;GenerateNuspec"
+          Condition="'$(DesignTimeBuild)' != 'true'">
+    <Exec Command="git rev-parse HEAD"
+          WorkingDirectory="$(MSBuildThisFileDirectory)"
+          ConsoleToMSBuild="true" StandardOutputImportance="Low" StandardErrorImportance="Low"
+          IgnoreExitCode="true">
+      <Output TaskParameter="ConsoleOutput" ItemName="_GitRevision" />
+      <Output TaskParameter="ExitCode" PropertyName="_GitRevisionExitCode" />
+    </Exec>
+    <PropertyGroup>
+      <SourceRevisionId>@(_GitRevision)</SourceRevisionId>
+    </PropertyGroup>
+    <Error Condition="'$(_GitRevisionExitCode)' != '0' Or !$([System.Text.RegularExpressions.Regex]::IsMatch('$(SourceRevisionId)', '^[0-9a-f]{40}$'))"
+           Text="Cannot determine the source revision. Build from a Git checkout with a committed HEAD and Git installed." />
+    <Exec Command="git status --porcelain=v1 --untracked-files=normal"
+          WorkingDirectory="$(MSBuildThisFileDirectory)"
+          ConsoleToMSBuild="true" StandardOutputImportance="Low" StandardErrorImportance="Low">
+      <Output TaskParameter="ConsoleOutput" ItemName="_GitChanges" />
+    </Exec>
+    <PropertyGroup>
+      <RepositoryCommit>$(SourceRevisionId)</RepositoryCommit>
+      <InformationalVersion>$(VersionPrefix)+$(SourceRevisionId.Substring(0, 7))</InformationalVersion>
+      <InformationalVersion Condition="'@(_GitChanges)' != ''">$(InformationalVersion)-private</InformationalVersion>
+    </PropertyGroup>
+  </Target>
+
+  <!-- Return each panel's published assets and endpoint manifest for the combined host. -->
   <Target Name="GetWebApplicationAssets"
           DependsOnTargets="Build;StaticWebAssetsPrepareForPublish"
           Returns="@(_WebApplicationAssets)"

@@ -2,6 +2,11 @@ using System.Buffers.Text;
 using System.Security.Cryptography;
 using Microsoft.Extensions.Configuration;
 
+if (OssmSharp.ApplicationVersion.TryWrite(args, Console.Out))
+{
+    return;
+}
+
 var builder = DistributedApplication.CreateBuilder(args);
 
 var adminServiceKey = builder.AddParameter("admin-web-service-key", NewToken, secret: true);

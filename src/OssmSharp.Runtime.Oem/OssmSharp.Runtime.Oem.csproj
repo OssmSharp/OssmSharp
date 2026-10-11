@@ -5,13 +5,35 @@
     <TargetFrameworks>$(BaseTargetFramework)</TargetFrameworks>
     <TargetFrameworks Condition="'$(NativeTargetFramework)' != ''">
       $(TargetFrameworks);$(NativeTargetFramework)</TargetFrameworks>
+    <!-- Release packing builds every supported target; ordinary builds keep the host's targets. -->
+    <TargetFrameworks Condition="'$(PackAllPlatforms)' == 'true'">$(BaseTargetFramework);$(BaseTargetFramework)-windows10.0.19041.0;$(BaseTargetFramework)-macos27.0</TargetFrameworks>
+    <EnableWindowsTargeting Condition="'$(PackAllPlatforms)' == 'true'">true</EnableWindowsTargeting>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <IsPackable>true</IsPackable>
+    <PackageLicenseExpression>AGPL-3.0-only</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageProjectUrl>$(RepositoryUrl)</PackageProjectUrl>
+    <Description>Bluetooth discovery and control for OSSM devices on Windows and macOS. Includes the shared OssmSharp runtime contracts.</Description>
+    <Authors>OssmSharp contributors</Authors>
+    <TargetsForTfmSpecificBuildOutput>$(TargetsForTfmSpecificBuildOutput);IncludeRuntimeAssembly</TargetsForTfmSpecificBuildOutput>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="../OssmSharp.Runtime/OssmSharp.Runtime.csproj" />
+    <ProjectReference Include="../OssmSharp.Runtime/OssmSharp.Runtime.csproj">
+      <!-- Bundle Runtime without a separate package dependency, but keep normal project references transitive. -->
+      <PrivateAssets Condition="'$(PackAllPlatforms)' == 'true' Or '$(_IsPacking)' == 'true'">all</PrivateAssets>
+    </ProjectReference>
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.Options" />
     <PackageReference Include="Shiny.BluetoothLE" />
     <InternalsVisibleTo Include="OssmSharp.Runtime.Oem.Tests" />
+    <None Include="../../LICENSE" Pack="true" PackagePath="" />
+    <None Remove="README.md" />
+    <None Include="README.md" Pack="true" PackagePath="" />
   </ItemGroup>
+  <!-- Include the shared contracts and their documentation beside each target's device assembly. -->
+  <Target Name="IncludeRuntimeAssembly" DependsOnTargets="ResolveReferences">
+    <ItemGroup>
+      <BuildOutputInPackage Include="$(OutputPath)OssmSharp.Runtime.dll;$(OutputPath)OssmSharp.Runtime.xml" />
+    </ItemGroup>
+  </Target>
 </Project>

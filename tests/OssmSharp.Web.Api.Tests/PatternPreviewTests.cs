@@ -4,8 +4,6 @@ using Xunit;
 
 namespace OssmSharp.Web.Api.Tests;
 
-#pragma warning disable BL0006 // Deliberate test-only access to the existing Razor animation eligibility branch.
-
 public sealed class PatternPreviewTests : MockerTestBase<PatternPreview>
 {
     public static TheoryData<int?, double?, int?, int?, int?, string, bool, bool> PartialSettings =>
@@ -134,21 +132,7 @@ public sealed class PatternPreviewTests : MockerTestBase<PatternPreview>
         ComponentTestAccess.Invoke(Component, "OnParametersSet");
     }
 
-    private bool HasTravel()
-    {
-        // Invoke the authoritative Razor render branch rather than copy its eligibility predicate.
-        using var builder = new Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder();
-        ComponentTestAccess.Invoke(Component, "BuildRenderTree", builder);
-        var frames = builder.GetFrames();
-        var content = frames.Array.Take(frames.Count)
-            .Where(frame => frame.FrameType == Microsoft.AspNetCore.Components.RenderTree.RenderTreeFrameType.Attribute && frame.AttributeName == "ChildContent")
-            .Select(frame => frame.AttributeValue).OfType<Microsoft.AspNetCore.Components.RenderFragment>().Single();
-        builder.Clear();
-        content(builder);
-        frames = builder.GetFrames();
-        return frames.Array.Take(frames.Count).Any(frame =>
-            frame.FrameType == Microsoft.AspNetCore.Components.RenderTree.RenderTreeFrameType.Element && frame.ElementName == "animate");
-    }
+    private bool HasTravel() => ComponentTestAccess.HasElement(Component, "animate");
 
     private PreviewProfile Profile() => new(Read<double[]>("_positions"), Read<double[]>("_times"), Read<string>("AnimationSplines"), Read<double>("_cycles"));
 

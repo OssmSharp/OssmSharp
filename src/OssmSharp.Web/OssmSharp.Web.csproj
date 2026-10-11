@@ -11,6 +11,8 @@
     <PublishTrimmed Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) != 'macos'">false</PublishTrimmed>
   </PropertyGroup>
   <PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'macos'">
+    <!-- Native macOS builds use the host architecture unless RIDs were explicitly selected. -->
+    <RuntimeIdentifier Condition="$([MSBuild]::IsOSPlatform('OSX')) And '$(RuntimeIdentifier)' == '' And '$(RuntimeIdentifiers)' == ''">$(NETCoreSdkRuntimeIdentifier)</RuntimeIdentifier>
     <ServerGarbageCollection>false</ServerGarbageCollection>
     <RunWithOpen>false</RunWithOpen>
     <LinkMode>None</LinkMode>
@@ -18,9 +20,9 @@
   </PropertyGroup>
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
-    <ProjectReference Include="../OssmSharp.Web.Api/OssmSharp.Web.Api.csproj" />
-    <ProjectReference Include="../OssmSharp.Web.AdminWeb/OssmSharp.Web.AdminWeb.csproj" />
-    <ProjectReference Include="../OssmSharp.Web.GuestWeb/OssmSharp.Web.GuestWeb.csproj" />
+    <ProjectReference Include="../OssmSharp.Web.Api/OssmSharp.Web.Api.csproj" GlobalPropertiesToRemove="PublishProfile" />
+    <ProjectReference Include="../OssmSharp.Web.AdminWeb/OssmSharp.Web.AdminWeb.csproj" GlobalPropertiesToRemove="PublishProfile" />
+    <ProjectReference Include="../OssmSharp.Web.GuestWeb/OssmSharp.Web.GuestWeb.csproj" GlobalPropertiesToRemove="PublishProfile" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="appsettings.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />

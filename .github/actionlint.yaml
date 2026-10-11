@@ -1,0 +1,4 @@
+# GitHub's official Xcode 27 image is newer than actionlint's built-in catalogue.
+self-hosted-runner:
+  labels:
+    - xcode-27

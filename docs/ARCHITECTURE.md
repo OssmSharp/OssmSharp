@@ -133,7 +133,7 @@ classDiagram
     OssmDevice "<span class=runtimeEdge>1</span>" --> "<span class=runtimeEdge>0..1</span>" DeviceState : last known state
     MotionSettings ..> FirmwareCommand : creates
     OssmDevice ..> FirmwareCommand : writes
-    OssmDevice ..> Request : serializes
+    OssmDevice ..> Request : uses to encode requests
     DeviceState ..> MotionSettings : validates controls
 
     classDef contract fill:#26ceaa,color:#000000

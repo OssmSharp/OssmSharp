@@ -42,19 +42,27 @@ internal static class ComponentTestAccess
     internal static Dictionary<string, bool> Buttons(object component)
     {
         var buttons = new Dictionary<string, bool>();
-        foreach (var parameters in Parameters(component, "RwButton"))
+        foreach (var frames in ContentFrames(component))
         {
-            var fragment = (RenderFragment)parameters["ChildContent"]!;
-            using var builder = new RenderTreeBuilder();
-            fragment(builder);
-            var frames = builder.GetFrames();
-            var label = string.Concat(frames.Array.Take(frames.Count)
-                .Where(frame => frame.FrameType is RenderTreeFrameType.Text or RenderTreeFrameType.Markup)
-                .Select(frame => frame.FrameType == RenderTreeFrameType.Text ? frame.TextContent : frame.MarkupContent)).Trim();
-            buttons.Add(label, parameters.TryGetValue("Disabled", out var disabled) && disabled is true);
+            for (var index = 0; index < frames.Length; index++)
+            {
+                if (frames[index].FrameType != RenderTreeFrameType.Element || frames[index].ElementName != "button")
+                    continue;
+                var content = frames.Skip(index + 1).Take(frames[index].ElementSubtreeLength - 1).ToArray();
+                var label = string.Concat(content
+                    .Where(frame => frame.FrameType is RenderTreeFrameType.Text or RenderTreeFrameType.Markup)
+                    .Select(frame => frame.FrameType == RenderTreeFrameType.Text ? frame.TextContent : frame.MarkupContent)).Trim();
+                var disabled = content.TakeWhile(frame => frame.FrameType == RenderTreeFrameType.Attribute)
+                    .Any(frame => frame.AttributeName == "disabled" && frame.AttributeValue is true);
+                buttons.Add(label, disabled);
+            }
         }
         return buttons;
     }
+
+    internal static bool HasElement(object component, string name) => ContentFrames(component)
+        .SelectMany(frames => frames)
+        .Any(frame => frame.FrameType == RenderTreeFrameType.Element && frame.ElementName == name);
 
     internal static IEnumerable<Dictionary<string, object?>> Parameters(object component, string typeName)
     {

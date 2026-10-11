@@ -10,6 +10,11 @@ internal static class Program
     // Native Bluetooth callbacks must not depend on a console application's macOS main thread.
     private static Task<int> Main(string[] args) => Task.Run(async () =>
     {
+        if (ApplicationVersion.TryWrite(args, Console.Out))
+        {
+            return 0;
+        }
+
         var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings
         {
             Args = args,
@@ -20,7 +25,21 @@ internal static class Program
                 AppContext.BaseDirectory,
 #endif
         });
-        builder.AddFileLogging();
+        string? defaultLogDirectory = null;
+        if (builder.Configuration["OSSM:FileLogging:Directory"] is null)
+        {
+#if MACOS
+            // Native startup changes the current directory to the bundle before Main.
+            var launchDirectory = ObjCRuntime.Runtime.OriginalWorkingDirectory;
+            if (string.IsNullOrEmpty(launchDirectory))
+                throw new InvalidOperationException(
+                    "The launch folder is unknown. Configure OSSM:FileLogging:Directory.");
+#else
+            var launchDirectory = Environment.CurrentDirectory;
+#endif
+            defaultLogDirectory = Path.Combine(launchDirectory, "logs");
+        }
+        builder.AddFileLogging(defaultLogDirectory);
         builder.Services.AddOptions<WebOptions>()
             .BindConfiguration("OSSM:Web")
             .ValidateOnStart();

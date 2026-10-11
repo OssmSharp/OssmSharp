@@ -25,66 +25,67 @@ on your own computer.
 Follow [Guest access from another device](#guest-access-from-another-device)
 to connect your choice to OssmSharp. Do not forward the app's ports directly.
 
-## Install the tools
+## Download OssmSharp
 
-Follow the instructions for your computer. You only need to do this once.
+Open [Releases](https://github.com/argium/OssmSharp/releases/latest) and download
+the **OssmSharp.Web** file for your computer:
 
-### Windows
+- **Windows:** choose the file ending in `win-x64.zip`. Use 64-bit Windows 10
+  (version 2004 or later) or Windows 11.
+- **macOS:** choose the file ending in `osx-arm64.tar.gz`. Use an Apple silicon
+  Mac running macOS 26 or later.
 
-Use 64-bit Windows 10 (version 2004 or later) or Windows 11.
-Open PowerShell and paste:
+Extract the whole download into a folder you can write to. Keep its files
+together. You do not need to install .NET or development tools.
 
-```powershell
-winget install --exact --id Microsoft.DotNet.SDK.10
-winget install --exact --id Microsoft.PowerShell
-winget install --exact --id Git.Git
-```
-
-Close PowerShell and open it again after installation.
-
-### macOS
-
-Use an Apple silicon Mac running macOS 26 or later.
-Install [Homebrew](https://brew.sh), then open Terminal and paste:
-
-```sh
-brew install --cask dotnet-sdk
-brew install git powershell
-```
-
-Install Xcode 27 from the App Store, open it once, and let it finish installing
-its components. Then run:
-
-```sh
-sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
-sudo dotnet workload install macos
-```
-
-Enter your Mac password if prompted, then open a new Terminal window.
+The separate **OssmSharp.Cli** download is for people who prefer terminal controls.
+Most people should use **OssmSharp.Web**.
 
 ## Start OssmSharp
 
 Turn on Bluetooth and power on your device. Allow Bluetooth access if your
 computer asks.
 
-Run these commands in PowerShell on Windows or Terminal on macOS:
+### Windows
+
+Open the extracted folder, right-click its background, and choose **Open in
+Terminal**. Run:
 
 ```powershell
-git clone https://github.com/argium/OssmSharp.git
-cd OssmSharp
-pwsh -File ./run-web.ps1
+.\OssmSharp.Web.exe
 ```
 
-The first start may take a few minutes. Wait until you see **User controls**,
-then open [http://127.0.0.1:5002](http://127.0.0.1:5002) in your browser.
+Windows may warn that the download is unfamiliar. Only allow it if you downloaded
+it from the OssmSharp release page and trust it.
 
-Keep the terminal open while using the app. Press <kbd>Ctrl</kbd>+<kbd>C</kbd>
-in that terminal when you want to close OssmSharp.
+### macOS
 
-To start it again later, open a terminal in the `OssmSharp` folder and run:
+Open Terminal, type `cd ` (including the space), drag the extracted folder into
+Terminal, and press <kbd>Return</kbd>. Then run:
+
+```sh
+./OssmSharp.Web.app/Contents/MacOS/OssmSharp.Web
+```
+
+These downloads are not notarized by Apple. If macOS blocks the app, open
+**System Settings > Privacy & Security** and use **Open Anyway** for OssmSharp,
+then try again. Only do this for a download you trust. Do not move the executable
+out of its `.app` folder.
+
+### Open the controls
+
+Open [http://127.0.0.1:5002](http://127.0.0.1:5002) in your browser after the app
+starts. Keep the terminal open while using the app. Press
+<kbd>Ctrl</kbd>+<kbd>C</kbd> in that terminal when you want to close OssmSharp.
+
+To check which version you downloaded, run the same command with `--version`:
 
 ```powershell
-pwsh -File ./run-web.ps1
+.\OssmSharp.Web.exe --version
+```
+
+```sh
+./OssmSharp.Web.app/Contents/MacOS/OssmSharp.Web --version
 ```
 
 ## Connect and invite a guest
@@ -113,13 +114,13 @@ Stop OssmSharp first, then restart it with that address.
 
 ```powershell
 $env:OSSM__Guest__Hostname = 'https://guest.example'
-pwsh -File ./run-web.ps1
+.\OssmSharp.Web.exe
 ```
 
 **macOS Terminal:**
 
 ```sh
-OSSM__Guest__Hostname=https://guest.example pwsh -File ./run-web.ps1
+OSSM__Guest__Hostname=https://guest.example ./OssmSharp.Web.app/Contents/MacOS/OssmSharp.Web
 ```
 
 Copy a new invitation from the control page and share it with your guest.
@@ -138,20 +139,20 @@ to your public hostname, such as `guest.example`.
 
 ## If something goes wrong
 
-
 - **A port is already in use:** close the other copy of OssmSharp. If another
-  app uses those ports, start OssmSharp with:
+  app uses those ports, add these settings to your usual start command:
 
-```powershell
-pwsh -File ./run-web.ps1 -GuestPort 5101 -AdminPort 5102 -ApiPort 5103
+```text
+--OSSM:Web:GuestPort=5101 --OSSM:Web:AdminPort=5102 --OSSM:Web:ApiPort=5103
 ```
 
-- **Xcode version error on macOS:** update Xcode, open it to finish setup, then
-  run:
+  Open `http://127.0.0.1:5102` for the controls and point your guest tunnel at
+  `http://127.0.0.1:5101`.
+- **The device does not appear:** check that Bluetooth is on, Bluetooth access
+  is allowed for OssmSharp, and another app is not connected to the device.
+- **macOS says it cannot open the app:** follow the opening steps above and keep
+  the whole `.app` folder intact.
+- **A newer download behaves differently:** run `--version` and include that
+  value when asking for help.
 
-```sh
-sudo dotnet workload update
-sudo dotnet workload install macos
-```
-
-Logs are saved in the `logs` folder inside your `OssmSharp` folder.
+Logs are saved in the `logs` folder in your terminal's current folder.

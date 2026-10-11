@@ -67,21 +67,26 @@ public static class BuilderExtensions
     /// Registers structured file logging at Information and higher.
     /// </summary>
     /// <param name="builder">The application host builder.</param>
+    /// <param name="defaultDirectory">
+    /// The default log directory, or <see langword="null"/> for <c>logs</c> in the content root.
+    /// Explicit <c>OSSM:FileLogging:Directory</c> configuration overrides this default.
+    /// </param>
     /// <returns>The configured host builder.</returns>
     /// <remarks>
-    /// Writes to <c>logs</c> in the content root by default. The
-    /// <c>OSSM:FileLogging:Directory</c> setting overrides this with a nonempty directory.
+    /// Writes to <paramref name="defaultDirectory"/> when supplied, otherwise to
+    /// <c>logs</c> in the content root. The <c>OSSM:FileLogging:Directory</c>
+    /// setting overrides either default and must be nonempty.
     /// Files contain
     /// Information and higher, except ASP.NET Core logs which start at Warning to
     /// exclude request URLs. Files rotate daily and at 10 MiB, retaining seven files.
     /// Console settings are unchanged. The host owns and disposes the file logger.
     /// </remarks>
-    public static TBuilder AddFileLogging<TBuilder>(this TBuilder builder)
+    public static TBuilder AddFileLogging<TBuilder>(this TBuilder builder, string? defaultDirectory = null)
         where TBuilder : IHostApplicationBuilder
     {
         var configuration = builder.Configuration.GetSection("OSSM:FileLogging");
         builder.Services.AddOptions<FileLoggingOptions>()
-            .Configure(options => options.Directory = Path.Combine(builder.Environment.ContentRootPath, "logs"))
+            .Configure(options => options.Directory = defaultDirectory ?? Path.Combine(builder.Environment.ContentRootPath, "logs"))
             .Bind(configuration)
             .ValidateDataAnnotations()
             .ValidateOnStart();

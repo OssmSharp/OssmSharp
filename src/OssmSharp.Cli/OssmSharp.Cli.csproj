@@ -7,6 +7,8 @@
       $(TargetFrameworks);$(NativeTargetFramework)</TargetFrameworks>
   </PropertyGroup>
   <PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'macos'">
+    <!-- Native macOS builds use the host architecture unless RIDs were explicitly selected. -->
+    <RuntimeIdentifier Condition="$([MSBuild]::IsOSPlatform('OSX')) And '$(RuntimeIdentifier)' == '' And '$(RuntimeIdentifiers)' == ''">$(NETCoreSdkRuntimeIdentifier)</RuntimeIdentifier>
     <NoWarn>$(NoWarn);XCODE_27_0_PREVIEW</NoWarn>
   </PropertyGroup>
   <ItemGroup>
