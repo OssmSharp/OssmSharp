@@ -181,7 +181,8 @@ if ((@($AdminPort, $GuestPort, $ApiPort) | Sort-Object -Unique).Count -ne 3) {
 }
 
 $script:RepositoryRoot = $PSScriptRoot
-$script:DotNet = (Get-Command dotnet -CommandType Application -ErrorAction Stop).Path
+# Use the first dotnet on PATH, as a shell would; Get-Command returns every match when several are installed.
+$script:DotNet = (Get-Command dotnet -CommandType Application -TotalCount 1 -ErrorAction Stop).Path
 $nativeFramework = if ($IsWindows) {
     'net10.0-windows10.0.19041.0'
 }
