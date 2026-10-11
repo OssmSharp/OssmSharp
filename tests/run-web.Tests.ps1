@@ -23,28 +23,6 @@ Describe 'run-web.ps1' {
         { & $scriptPath -Verbosity unsupported -WhatIf } | Should -Throw
     }
 
-    It 'uses the first dotnet on PATH when several are installed' {
-        $first = (Get-Command dotnet -CommandType Application -TotalCount 1).Path
-        $shadow = Join-Path $TestDrive 'shadow'
-        New-Item -ItemType Directory -Path $shadow | Out-Null
-        $stub = Join-Path $shadow ($IsWindows ? 'dotnet.exe' : 'dotnet')
-        New-Item -ItemType File -Path $stub | Out-Null
-        if (-not $IsWindows) {
-            [IO.File]::SetUnixFileMode($stub, [IO.UnixFileMode]'UserRead, UserWrite, UserExecute')
-        }
-        $originalPath = $env:PATH
-        try {
-            $env:PATH = $env:PATH + [IO.Path]::PathSeparator + $shadow
-            . $scriptPath -WhatIf
-
-            $script:DotNet | Should -BeOfType [string]
-            $script:DotNet | Should -Be $first
-        }
-        finally {
-            $env:PATH = $originalPath
-        }
-    }
-
     Context 'Combined host configuration' {
         BeforeEach {
             . $scriptPath -WhatIf

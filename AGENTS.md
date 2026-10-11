@@ -75,3 +75,8 @@ In OssmSharp.Runtime.Oem OssmDevice:
 - Connection state changes and api calls must be logged and at the information level
 - Commands and step logged at the debug level.
 - Add logging proactively but not overwhelmingly.
+
+## CI
+
+Never simulate a CI runner environment in tests or local reproductions, for example with altered `PATH` entries, stub executables, or symlinks.
+Diagnose CI failures from the run's logs and artifacts.
