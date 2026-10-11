@@ -359,7 +359,7 @@ public sealed class OssmDevice : IOssmDevice
             {
                 if (phase != ConnectionPhase.Disposing)
                 {
-                    ThrowIfInterrupted(attempt);
+                    ThrowIfInterrupted(attempt, session);
                 }
             }
 
@@ -368,7 +368,7 @@ public sealed class OssmDevice : IOssmDevice
             await ReadStateAsync(attemptCancellation.Token).ConfigureAwait(false);
             lock (sync)
             {
-                ThrowIfInterrupted(attempt);
+                ThrowIfInterrupted(attempt, session);
                 if (phase != ConnectionPhase.Connecting)
                 {
                     // SetFaulted ended this attempt during setup.
@@ -1545,11 +1545,21 @@ public sealed class OssmDevice : IOssmDevice
     /// <summary>
     /// Prevents an interrupted connection attempt from completing setup or arming a later lifecycle.
     /// </summary>
-    private void ThrowIfInterrupted(long attempt)
+    /// <param name="attempt">The connection attempt being completed.</param>
+    /// <param name="session">The attempt's session, once created; its cancellation reports the interruption as cancellation.</param>
+    private void ThrowIfInterrupted(long attempt, CancellationTokenSource? session = null)
     {
         ObjectDisposedException.ThrowIf(phase == ConnectionPhase.Disposing, this);
         if (attempt != connection)
         {
+            // Stop and Disconnect cancel the session with CancelAsync, which marks it cancelled immediately but
+            // runs linked-token callbacks later. Setup can finish in between, so check the session itself to report
+            // the same cancellation the linked token would have. IsCancellationRequested stays readable after disposal.
+            if (session?.IsCancellationRequested == true)
+            {
+                throw new OperationCanceledException("The connection attempt was interrupted.");
+            }
+
             throw new InvalidOperationException("The connection attempt was interrupted by a disconnect.");
         }
     }
