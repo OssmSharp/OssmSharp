@@ -22,6 +22,7 @@ public sealed class DeviceLeaseManagementServiceTests : MockerTestBase<object>
     protected override Func<Mocker, object> CreateComponentAction => mocks => new DeviceLeaseManagementService(
         mocks.GetOrCreateMock<IControlSession>().Instance,
         mocks.GetRequiredObject<IOptions<ControlServiceOptions>>(),
+        TimeProvider.System,
         NullLogger<DeviceLeaseManagementService>.Instance);
 
     private new DeviceLeaseManagementService Component => (DeviceLeaseManagementService)base.Component;

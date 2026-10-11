@@ -58,7 +58,23 @@ export async function createWebHostFixture({ inherited = process.env, api = {} }
   const calls = [];
   const pending = new Map();
   const faults = [];
+  const savedSessions = new Map();
+  const redeemedInvitations = new Map();
+  let currentInvitation = "isolated-admin-invite";
+  let stopRequired = false;
   let disposed = false;
+  const validSavedSession = (saved) => saved?.valid && saved.expiresAt > new Date().toISOString();
+  function revokeSavedSessions() {
+    currentInvitation = `replacement-${randomUUID()}`;
+    for (const saved of savedSessions.values()) {
+      if (!saved.valid) continue;
+      stopRequired = true;
+      saved.valid = false;
+      saved.owner = null;
+      api.revoked?.(saved);
+    }
+    api.invitationChanged?.(currentInvitation);
+  }
   const peer = createServer((req, res) => {
     if (!req.url.startsWith("/hubs/control/v2/negotiate")) {
       res.writeHead(404).end();
@@ -66,7 +82,9 @@ export async function createWebHostFixture({ inherited = process.env, api = {} }
     }
     const authorization = req.headers.authorization;
     handshakes.push({ kind: "negotiate", authorization, path: req.url });
-    if (!(authorization?.startsWith("Bearer ") || authorization === `ServiceKey ${adminKey}`) || api.authorize?.(authorization) === false) {
+    const invitationAuthorized = authorization?.startsWith("Bearer ") && !redeemedInvitations.has(authorization.slice("Bearer ".length));
+    const savedAuthorized = authorization?.startsWith("Session ") && validSavedSession(savedSessions.get(authorization.slice("Session ".length)));
+    if (!(invitationAuthorized || savedAuthorized || authorization === `ServiceKey ${adminKey}`) || api.authorize?.(authorization) === false) {
       res.writeHead(401).end();
       return;
     }
@@ -94,11 +112,19 @@ export async function createWebHostFixture({ inherited = process.env, api = {} }
     acceptUpgrade(req, socket);
     const wire = new WireSocket(socket, { head });
     wire.on("fault", (error) => faults.push(error));
-    const session = { authorization, wire, calls: [], closed: false };
+    const saved = authorization.startsWith("Session ") ? savedSessions.get(authorization.slice("Session ".length)) : null;
+    const session = {
+      authorization, wire, calls: [], closed: false, saved,
+      invitationToken: saved?.invitationToken ?? (authorization.startsWith("Bearer ") ? authorization.slice("Bearer ".length) : null),
+    };
     sessions.set(token, session);
     socket.on("close", () => {
       session.closed = true;
       for (const [key, value] of pending) if (value.session === session) pending.delete(key);
+      if (saved?.owner === session) {
+        saved.owner = null;
+        api.detached?.(saved, session);
+      }
     });
     let text = "";
     wire.on("message", (data) => {
@@ -119,19 +145,76 @@ export async function createWebHostFixture({ inherited = process.env, api = {} }
         const call = { session, target: message.target, arguments: message.arguments };
         calls.push(call);
         session.calls.push(call);
-        const reply = (result) => wire.send(`${JSON.stringify({ type: 3, invocationId: message.invocationId, result })}\u001e`);
+        const reply = (result) => {
+          if (["Stop", "EndGuest", "RefreshInvitation", "LeaveSavedSession", "Leave"].includes(message.target) && result.accepted) {
+            stopRequired = false;
+            for (const saved of savedSessions.values()) saved.stopPending = false;
+          }
+          wire.send(`${JSON.stringify({ type: 3, invocationId: message.invocationId, result })}\u001e`);
+        };
         const reject = () => wire.send(`${JSON.stringify({ type: 3, invocationId: message.invocationId, error: "Isolated API failure" })}\u001e`);
+        if (authorization.startsWith("Bearer ") && message.target !== "Redeem") {
+          reject();
+          continue;
+        }
+        if (saved && !validSavedSession(saved)) {
+          if (message.target === "GetSavedSession") reply(null);
+          else if (message.target === "GetGuestState") reply({ joined: false, controlAllowed: false, device: null });
+          else reply({ accepted: false, code: "invalid-guest-session" });
+          continue;
+        }
+        if (["GetGuestState", "Submit", "Renew", "GuestStop", "GuestResetPosition", "Leave"].includes(message.target) && saved?.owner !== session) {
+          reply({ accepted: false, code: "guest-not-joined" });
+          continue;
+        }
+        if (message.target === "LeaveSavedSession" && saved?.owner) {
+          reply({ accepted: false, code: "guest-already-joined" });
+          continue;
+        }
+        if (message.target === "LeaveSavedSession" || message.target === "Leave") {
+          stopRequired = true;
+          saved.valid = false;
+          saved.owner = null;
+          api.revoked?.(saved);
+        } else if (message.target === "RefreshInvitation" || message.target === "EndGuest") {
+          assert.equal(authorization, `ServiceKey ${adminKey}`);
+          revokeSavedSessions();
+        }
         if (api.invoke?.(call, { reply, reject }) === true) continue;
-        if (message.target === "GetGuestState") {
+        if (message.target === "Redeem") {
+          const request = message.arguments[0];
+          if (stopRequired || request.invitationToken !== session.invitationToken || redeemedInvitations.has(request.invitationToken)) {
+            reply({ correlation: request.correlation, accepted: false, code: "invalid-invitation" });
+            continue;
+          }
+          const credential = randomUUID();
+          const admission = {
+            invitationToken: request.invitationToken, credential, valid: true, owner: null, stopPending: false,
+            expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+          };
+          savedSessions.set(credential, admission);
+          redeemedInvitations.set(request.invitationToken, admission);
+          api.admitted?.(admission);
+          reply({ correlation: request.correlation, accepted: true, code: "invitation-redeemed", sessionToken: credential, expiresAt: admission.expiresAt });
+        } else if (message.target === "GetSavedSession") {
+          reply({ connected: saved.owner !== null, expiresAt: saved.expiresAt, canAttach: saved.owner === null && !saved.stopPending && !stopRequired });
+        } else if (message.target === "Join") {
+          if (saved.owner || saved.stopPending || stopRequired) {
+            reply({ accepted: false, code: saved.owner ? "guest-already-joined" : "device-not-ready" });
+          } else {
+            saved.owner = session;
+            reply({ accepted: true, code: "joined" });
+          }
+        } else if (message.target === "GetGuestState") {
           reply({
-            joined: true, controlAllowed: true, controlExpiresAt: null, canResumeAfterStop: false,
+            joined: true, controlAllowed: true, controlExpiresAt: null, canResumeAfterStop: false, sessionExpiresAt: saved.expiresAt,
             device: { pattern: 0, speed: 0, stroke: 10, depth: 20, sensation: 50, isArmed: true, isConnected: true, connectionFailed: false },
           });
         } else if (message.target === "GetUserState") {
-          reply({ invitation: { token: "isolated-admin-invite" }, guestJoined: true, guestControlAllowed: false, controlExpiresAt: null, device: null });
+          reply({ invitation: { token: currentInvitation }, guestJoined: true, guestConnected: true, guestControlAllowed: false, controlExpiresAt: null, device: null });
         } else if (message.target === "SetPreviewDimensions" && authorization === `ServiceKey ${adminKey}`) {
           reply({ accepted: true, code: "preview-updated" });
-        } else if (message.target === "Join" || message.target === "Leave") {
+        } else if (["Leave", "LeaveSavedSession", "RefreshInvitation", "EndGuest"].includes(message.target)) {
           reply({ accepted: true, code: "accepted" });
         } else if (message.target === "GuestStop") {
           pending.set(`${token}:${message.invocationId}`, { session, reply });
@@ -144,7 +227,7 @@ export async function createWebHostFixture({ inherited = process.env, api = {} }
   });
 
   const fixture = {
-    home, hosts, connections, sockets, tokenMap, sessions, handshakes, calls, pending, faults, adminKey,
+    home, hosts, connections, sockets, tokenMap, sessions, savedSessions, handshakes, calls, pending, faults, adminKey,
     async startHost(kind, { publicOrigin = "", settings = {} } = {}) {
       const reservation = createServer();
       const port = await listen(reservation);
@@ -223,6 +306,8 @@ export async function createWebHostFixture({ inherited = process.env, api = {} }
       tokenMap.clear();
       sessions.clear();
       pending.clear();
+      savedSessions.clear();
+      redeemedInvitations.clear();
       handshakes.length = 0;
       calls.length = 0;
       await rm(home, { recursive: true, force: true });
@@ -239,8 +324,46 @@ export async function createWebHostFixture({ inherited = process.env, api = {} }
   }
 }
 
+async function bootstrapGuestCookie(host, invitation, headers) {
+  const cookies = new Map();
+  const request = async (path, options = {}) => {
+    const response = await exchange(host.origin, path, {
+      ...options,
+      headers: { ...headers, Cookie: [...cookies].map(([name, value]) => `${name}=${value}`).join("; "), ...options.headers },
+    });
+    for (const value of response.headers["set-cookie"] ?? []) {
+      const [name, token] = value.split(";", 1)[0].split("=");
+      if (token) cookies.set(name, token);
+      else cookies.delete(name);
+    }
+    return { ...response, state: JSON.parse(response.body) };
+  };
+  let response = await request("/guest-session");
+  if (invitation && response.state.code === "no-session") {
+    response = await request("/guest-session/redeem", {
+      method: "POST",
+      headers: {
+        Origin: host.publicOrigin || host.origin,
+        "Content-Type": "application/json", "X-CSRF-TOKEN": response.state.requestToken,
+      },
+      body: JSON.stringify({ token: invitation }),
+    });
+    if (response.state.code === "saved") response = await request("/guest-session");
+  }
+  return {
+    code: response.state.code,
+    headers: { ...headers, Cookie: [...cookies].map(([name, value]) => `${name}=${value}`).join("; ") },
+  };
+}
+
 /** Supplies JS interop replies on a real circuit; does not simulate or assert browser behavior. */
 export async function openCircuit(fixture, host, { invitation = null, headers = {}, path = host.kind === "guest" ? "/join" : "/" } = {}) {
+  let sessionCode = "no-session";
+  if (host.kind === "guest") {
+    const bootstrap = await bootstrapGuestCookie(host, invitation, headers);
+    headers = bootstrap.headers;
+    sessionCode = bootstrap.code;
+  }
   const response = await exchange(host.origin, path, { headers });
   assert.equal(response.status, 200);
   const records = [...response.body.matchAll(/<!--Blazor:(.*?)-->/g)]
@@ -290,7 +413,7 @@ export async function openCircuit(fixture, host, { invitation = null, headers = 
         if (target === "JS.RenderBatch") {
           renders.push({
             batch: args[0],
-            afterInvitation: jsCalls.includes("takeInvitation"),
+            afterBootstrap: jsCalls.includes("getSessionCode"),
             invalidInvitation: args[1].includes(Buffer.from("guest-invalid")),
           });
           wire.send(hubMessage([1, {}, null, "OnRenderCompleted", [args[0], null], []]));
@@ -300,7 +423,7 @@ export async function openCircuit(fixture, host, { invitation = null, headers = 
           jsCalls.push(identifier);
           let result = null;
           if (identifier === "import") result = { __jsObjectId: 1 };
-          else if (identifier === "takeInvitation") result = invitation;
+          else if (identifier === "getSessionCode") result = sessionCode;
           else if (identifier === "readAttachmentLength") result = JSON.parse(argumentsJson)[0];
           else if (identifier === "attach") reference = JSON.parse(argumentsJson)[1].__dotNetObject;
           else if (identifier === "Blazor._internal.PageTitle.getAndRemoveExistingTitle") result = "";
@@ -308,7 +431,7 @@ export async function openCircuit(fixture, host, { invitation = null, headers = 
             "Blazor._internal.attachWebRendererInterop",
             "Blazor._internal.navigationManager.enableNavigationInterception",
             "Blazor._internal.domWrapper.focusBySelector",
-            "updateState", "updateConnectionTimer", "disposeConnectionTimer", "writeAttachmentLength", "dispose", "disconnect", "disarm",
+            "updateState", "updateConnectionTimer", "disposeConnectionTimer", "writeAttachmentLength", "dispose", "disconnect", "endSession", "disarm",
           ].includes(identifier))
             throw new Error(`Unsupported circuit JS collaborator method: ${identifier}`);
           wire.send(hubMessage([1, {}, null, "EndInvokeJSFromDotNet", [handle, true, JSON.stringify([handle, true, result])], []]));

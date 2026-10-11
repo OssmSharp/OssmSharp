@@ -42,7 +42,7 @@ test("guest controls fit desktop viewports with a rounded pattern sidebar and co
   await button(page, "Stop").click();
   await page.getByRole("alert").filter({ hasText: "Reset Position failed" }).waitFor({ state: "hidden" });
   session.state.controlAllowed = false;
-  await page.getByRole("status").filter({ hasText: "Waiting for the other person to start." }).waitFor();
+  await page.getByRole("status").filter({ hasText: "Connected. Waiting for the other person to allow control." }).waitFor();
   await desktopFit(page);
   await page.setViewportSize({ width: 390, height: 844 });
   await noOverflow(page);
@@ -241,6 +241,7 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 390, height: 844 
     assert.equal(await admin.page.getByTestId("device-identifier").innerText(), admin.session.state.device.identifier);
     await injectFatal(admin.page);
     await admin.page.getByRole("alert").filter({ hasText: "Connection lost." }).waitFor();
+    guest.session.holdDisconnectStop = true;
     await guest.session.api.wire.dispose();
     await guest.page.getByTestId("guest-disconnected").waitFor({ state: "visible" });
     await noOverflow(admin.page);
@@ -255,6 +256,9 @@ test("reduced motion suppresses travel while retaining a still preview", options
   const { page, errors } = await fixture.openGuest("reduced-motion");
   await setRange(page, "Speed", 35);
   await until(() => preview(page).getAttribute("aria-label"), (label) => label.includes("35% speed"), "active preview");
+  await motion(page, false);
+  await button(page, "Send").click();
+  await sent(page, "Speed", 35);
   await motion(page, true);
   await page.emulateMedia({ reducedMotion: "reduce" });
   assert.equal(await preview(page).isVisible(), true);
@@ -270,6 +274,10 @@ test("guest preview motion pauses on safety and loss and resumes only deliberate
   const fixture = await createBrowserFixture(t, browser);
   const { page, session, errors } = await fixture.openGuest("guest-motion");
   await setRange(page, "Speed", 35);
+  await motion(page, false);
+  assert.equal(session.requests.length, 0);
+  await button(page, "Send").click();
+  await sent(page, "Speed", 35);
   await motion(page, true);
   await button(page, "Reset Position").click();
   await until(() => button(page, "Send").isDisabled(), true, "reset queued");
@@ -278,7 +286,7 @@ test("guest preview motion pauses on safety and loss and resumes only deliberate
   await complete(session, "GuestResetPosition", { accepted: true, code: "position-reset" });
   await until(() => button(page, "Send").isEnabled(), true, "reset completion");
   await motion(page, false);
-  assert.equal(session.requests.length, 0);
+  assert.equal(session.requests.length, 1);
   await button(page, "Send").click();
   await sent(page, "Speed", 35);
   await motion(page, true);
@@ -286,7 +294,7 @@ test("guest preview motion pauses on safety and loss and resumes only deliberate
   await until(() => page.getByLabel("Speed", { exact: true }).inputValue(), "0", "Stop zeroes speed");
   await until(() => button(page, "Send").isEnabled(), true, "Stop acknowledgement");
   await motion(page, false);
-  assert.equal(session.requests.length, 1);
+  assert.equal(session.requests.length, 2);
   await setRange(page, "Speed", 35);
   await button(page, "Send").click();
   await sent(page, "Speed", 35);
@@ -298,11 +306,12 @@ test("guest preview motion pauses on safety and loss and resumes only deliberate
   session.state = guestState();
   await until(() => button(page, "Send").isEnabled(), true, "device recovered");
   await motion(page, false);
-  assert.equal(session.requests.length, 2);
+  assert.equal(session.requests.length, 3);
   await setRange(page, "Speed", 35);
   await button(page, "Send").click();
   await sent(page, "Speed", 35);
   await motion(page, true);
+  session.holdDisconnectStop = true;
   await session.api.wire.dispose();
   await page.getByTestId("guest-disconnected").waitFor({ state: "visible" });
   await motion(page, false);

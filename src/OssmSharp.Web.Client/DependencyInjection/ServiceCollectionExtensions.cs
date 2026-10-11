@@ -9,7 +9,7 @@ using OssmSharp.Web.Client.Models;
 namespace OssmSharp.Web.Client.DependencyInjection;
 
 /// <summary>
-/// Registers validated, circuit-scoped control-service clients.
+/// Registers validated, scope-owned control-service clients.
 /// </summary>
 public static class ServiceCollectionExtensions
 {
@@ -28,7 +28,7 @@ public static class ServiceCollectionExtensions
     }
 
     /// <summary>
-    /// Adds a guest client that connects only after receiving an invitation.
+    /// Registers one scope-owned, server-side guest client and connection for invitation redemption or saved-session requests.
     /// </summary>
     /// <param name="services">The service collection.</param>
     /// <param name="configurationSection">The settings section for the API URL and connection timings, without a service key.</param>

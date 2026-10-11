@@ -9,7 +9,7 @@ using static OssmSharp.Web.Contracts.ControlResponseCodes;
 namespace OssmSharp.Web.Api.Control;
 
 /// <summary>
-/// Owns UI invitation and guest-permission state while delegating device behavior to the runtime.
+/// Owns invitation redemption, saved guest admission, and control permission while delegating device behavior to the runtime.
 /// </summary>
 public sealed class ControlSession : IControlSession, IAsyncDisposable
 {
@@ -29,12 +29,13 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
     private string _invitationToken;
     private byte[] _invitationHash;
     private string _invitationId = Guid.NewGuid().ToString("N");
+    private byte[] _guestCredentialHash = [];
+    private DateTimeOffset? _guestExpiresAt;
     private string? _guestConnectionId;
     private bool _guestControlAllowed;
     private bool _guestStopped;
     private long _permissionVersion;
     private Task? _pendingStop;
-    private bool _clearGuestAfterStop;
     private bool _stopRequired;
     private int _pendingConnections;
     private long _connectionVersion;
@@ -48,17 +49,11 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
     /// <summary>
     /// Initializes a control session that owns one caller-selected runtime device.
     /// </summary>
-    /// <param name="deviceFactory">Creates the session-owned runtime device for a selected identifier.</param>
+    /// <param name="deviceFactory">Creates the device retained for reconnects and disposed with this session.</param>
     /// <param name="discovery">Finds the first nearby device when no identifier is configured.</param>
-    /// <param name="timeProvider">The time source used for connection timestamps.</param>
-    /// <param name="options">The validated control-service configuration.</param>
+    /// <param name="timeProvider">The time source used for connection timestamps and fixed guest-session expiry.</param>
+    /// <param name="options">The validated control-service configuration; a configured device identifier bypasses discovery.</param>
     /// <param name="logger">Structured diagnostics for session-owned updates and failures.</param>
-    /// <remarks>
-    /// A configured identifier bypasses discovery. Otherwise, Connect discovers before constructing the device.
-    /// The selected device is retained for reconnects and asynchronously disposed with this session.
-    /// Disconnection discards outstanding work and guest control permission; reconnect does not replay it.
-    /// Outstanding settings and Stop waits are cancelled; device I/O already issued may still finish.
-    /// </remarks>
     public ControlSession(
         Func<string, IOssmDevice> deviceFactory,
         IDeviceDiscovery discovery,
@@ -87,13 +82,20 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
         var device = await GetDeviceStateAsync(cancellationToken, includeUserDetails: true).ConfigureAwait(false);
         lock (_sync)
         {
+            ExpireSessionLocked();
             var controlAllowed = HasActiveControlLocked();
             return new UserSessionState(
                 new(_invitationToken),
-                _guestConnectionId is not null,
+                _guestExpiresAt is not null,
                 controlAllowed,
                 null,
-                device) { Preview = _previewDimensions };
+                device)
+            {
+                Preview = _previewDimensions,
+                GuestConnected = _guestConnectionId is not null,
+                GuestSessionExpiresAt = _guestExpiresAt,
+                InvitationConsumed = _guestExpiresAt is not null,
+            };
         }
     }
 
@@ -112,11 +114,12 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
         var device = await GetDeviceStateAsync(cancellationToken).ConfigureAwait(false);
         lock (_sync)
         {
-            var joined = string.Equals(_guestConnectionId, connectionId, StringComparison.Ordinal);
+            var joined = IsCurrentGuestLocked(connectionId);
             var allowed = joined && HasActiveControlLocked();
             return new GuestSessionState(joined, allowed, null, joined ? device : null, joined && allowed && _guestStopped && !_stopRequired && !_resettingPosition)
             {
                 Preview = joined ? _previewDimensions : null,
+                SessionExpiresAt = joined ? _guestExpiresAt : null,
             };
         }
     }
@@ -153,15 +156,18 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
     public string? AuthenticateInvitation(string? token)
     {
         lock (_sync)
-            return !_shuttingDown && CapabilityTokens.Matches(_invitationHash, token) ? _invitationId : null;
+        {
+            ExpireSessionLocked();
+            return !_shuttingDown && _guestExpiresAt is null && CapabilityTokens.Matches(_invitationHash, token) ? _invitationId : null;
+        }
     }
 
     /// <inheritdoc />
-    public ControlResponse JoinGuest(string connectionId, string? invitationId, GuestJoinRequest request)
+    public GuestRedemptionResponse RedeemInvitation(string? invitationId, GuestJoinRequest request)
     {
         if (!ValidCorrelation(request.Correlation))
         {
-            return Rejected(request.Correlation, InvalidCorrelation);
+            return new(request.Correlation, InvalidCorrelation, false);
         }
 
         lock (_sync)
@@ -171,21 +177,64 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
                 DiscardDisconnectedWorkLocked();
             }
 
-            if (_guestConnectionId is not null || _stopRequired)
+            ExpireSessionLocked();
+            if (_guestExpiresAt is not null || _stopRequired)
             {
-                return Rejected(request.Correlation, GuestAlreadyJoined);
+                return new(request.Correlation, GuestAlreadyJoined, false);
             }
 
-            if (!string.Equals(_invitationId, invitationId, StringComparison.Ordinal)
+            if (_shuttingDown || !string.Equals(_invitationId, invitationId, StringComparison.Ordinal)
                 || !CapabilityTokens.Matches(_invitationHash, request.InvitationToken))
             {
-                return Rejected(request.Correlation, InvalidInvitation);
+                return new(request.Correlation, InvalidInvitation, false);
             }
 
-            _guestConnectionId = connectionId;
+            var credential = CapabilityTokens.NewToken();
+            _guestCredentialHash = CapabilityTokens.Hash(credential);
+            _guestExpiresAt = _timeProvider.GetUtcNow().AddHours(24);
             _guestControlAllowed = false;
-            RotateInvitationLocked();
-            return Accepted(request.Correlation, Joined);
+            _logger.GuestSessionChanged("admitted");
+            return new(request.Correlation, InvitationRedeemed, true, credential, _guestExpiresAt);
+        }
+    }
+
+    /// <inheritdoc />
+    public string? AuthenticateGuestSession(string? token)
+    {
+        lock (_sync)
+        {
+            ExpireSessionLocked();
+            return !_shuttingDown && _guestExpiresAt is not null && CapabilityTokens.Matches(_guestCredentialHash, token) ? _invitationId : null;
+        }
+    }
+
+    /// <inheritdoc />
+    public SavedGuestSession? GetSavedGuestSession(string? sessionId)
+    {
+        lock (_sync)
+        {
+            return IsSavedGuestLocked(sessionId)
+                ? new(_guestConnectionId is not null, _guestExpiresAt!.Value, _guestConnectionId is null && !_stopRequired && !_resettingPosition)
+                : null;
+        }
+    }
+
+    /// <inheritdoc />
+    public ControlResponse JoinGuest(string connectionId, string? sessionId, string correlation)
+    {
+        if (!ValidCorrelation(correlation))
+            return Rejected(correlation, InvalidCorrelation);
+        lock (_sync)
+        {
+            if (!IsSavedGuestLocked(sessionId))
+                return Rejected(correlation, InvalidGuestSession);
+            if (_guestConnectionId is not null)
+                return Rejected(correlation, GuestAlreadyJoined);
+            if (_stopRequired || _resettingPosition)
+                return Rejected(correlation, DeviceNotReady);
+            _guestConnectionId = connectionId;
+            _logger.GuestSessionChanged("attached");
+            return Accepted(correlation, Joined);
         }
     }
 
@@ -202,7 +251,8 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
         long version;
         lock (_sync)
         {
-            if (_guestConnectionId is null)
+            ExpireSessionLocked();
+            if (_guestExpiresAt is null)
             {
                 return Rejected(correlation, GuestNotJoined);
             }
@@ -212,7 +262,7 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
             }
 
             device = _device;
-            guest = _guestConnectionId;
+            guest = _invitationId;
             version = _permissionVersion;
         }
 
@@ -226,7 +276,7 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
             cancellationToken.ThrowIfCancellationRequested();
             lock (_sync)
             {
-                if (_stopRequired || _resettingPosition || !device.IsConnected || version != _permissionVersion || !IsCurrentGuestLocked(guest))
+                if (_stopRequired || _resettingPosition || !device.IsConnected || version != _permissionVersion || !IsSavedGuestLocked(guest))
                 {
                     throw new InvalidOperationException("Control permission was interrupted by Stop or a session change.");
                 }
@@ -379,6 +429,23 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
         StopCoreAsync(connectionId, correlation, clearGuest: true);
 
     /// <inheritdoc />
+    public Task<ControlResponse> LeaveSavedGuestAsync(string? sessionId, string correlation)
+    {
+        if (!ValidCorrelation(correlation))
+            return Task.FromResult(Rejected(correlation, InvalidCorrelation));
+        Task stop;
+        lock (_sync)
+        {
+            if (!IsSavedGuestLocked(sessionId))
+                return Task.FromResult(Rejected(correlation, InvalidGuestSession));
+            if (_guestConnectionId is not null)
+                return Task.FromResult(Rejected(correlation, GuestAlreadyJoined));
+            stop = RequestStopLocked(clearGuest: true);
+        }
+        return CompleteStopAsync(correlation, stop);
+    }
+
+    /// <inheritdoc />
     public async Task GuestDisconnectedAsync(string connectionId)
     {
         Task? stop = null;
@@ -386,7 +453,11 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
         {
             if (IsCurrentGuestLocked(connectionId))
             {
-                stop = RequestStopLocked(clearGuest: true);
+                _guestConnectionId = null;
+                _lastSentSettings = null;
+                CancelPendingWorkLocked();
+                _logger.GuestSessionChanged("detached");
+                stop = RequestStopLocked(clearGuest: false, preservePermission: true);
             }
         }
 
@@ -405,6 +476,27 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
         UserStopCoreAsync(correlation, clearGuest: true);
 
     /// <inheritdoc />
+    public async Task<ControlResponse> RefreshInvitationAsync(string correlation)
+    {
+        if (!ValidCorrelation(correlation))
+            return Rejected(correlation, InvalidCorrelation);
+        Task? stop;
+        lock (_sync)
+        {
+            var requiresStop = _guestExpiresAt is not null || _stopRequired;
+            RotateInvitationLocked();
+            stop = requiresStop ? RequestStopLocked(clearGuest: false) : null;
+        }
+        if (stop is not null)
+        {
+            var result = await CompleteStopAsync(correlation, stop).ConfigureAwait(false);
+            if (!result.Accepted)
+                return result;
+        }
+        return Accepted(correlation, InvitationRefreshed);
+    }
+
+    /// <inheritdoc />
     public Task<ControlResponse> ConnectAsync(string correlation, CancellationToken cancellationToken) =>
         DeviceCommandAsync(correlation, Connected, () => ConnectDeviceAsync(cancellationToken));
 
@@ -414,6 +506,7 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
         Task? stop = null;
         lock (_sync)
         {
+            ExpireSessionLocked();
             if (_device is not { IsConnected: true })
             {
                 DiscardDisconnectedWorkLocked();
@@ -440,6 +533,7 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
         lock (_sync)
         {
             _shuttingDown = true;
+            ClearGuestLocked();
             DiscardDisconnectedWorkLocked();
             workCleanup = _workCleanup;
             selectionStop = _selectionCancellation is { } cancellation && _selection is { IsCompleted: false } selection
@@ -489,6 +583,7 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
             {
                 _selectionCancellation?.Dispose();
                 CryptographicOperations.ZeroMemory(_invitationHash);
+                CryptographicOperations.ZeroMemory(_guestCredentialHash);
                 _invitationHash = [];
                 _invitationToken = string.Empty;
             }
@@ -659,8 +754,12 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
         {
             await FinishStopAsync(stop).ConfigureAwait(false);
         }
-        catch (Exception exception) when (exception is IOException or InvalidOperationException or OperationCanceledException)
+        catch (OperationCanceledException)
         {
+        }
+        catch (Exception exception) when (exception is IOException or InvalidOperationException)
+        {
+            _logger.GuestStopCleanupIncomplete(exception is IOException ? DeviceIoFailed : DeviceNotConnected);
         }
     }
 
@@ -680,6 +779,8 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
 
     private Task RequestStopLocked(bool clearGuest, bool preservePermission = false)
     {
+        if (clearGuest)
+            RotateInvitationLocked();
         _permissionVersion++;
         if (!preservePermission)
         {
@@ -690,7 +791,6 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
         {
             _guestStopped = _guestControlAllowed;
         }
-        _clearGuestAfterStop |= clearGuest;
         if (_device is not { IsConnected: true } && _pendingConnections == 0)
         {
             DiscardDisconnectedWorkLocked();
@@ -739,11 +839,6 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
                     else if (succeeded)
                     {
                         _stopRequired = false;
-                        if (_clearGuestAfterStop)
-                        {
-                            ClearGuestLocked();
-                        }
-                        _clearGuestAfterStop = false;
                     }
                 }
             }
@@ -986,12 +1081,6 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
         _pendingStop = null;
         _stopRequired = false;
         _lastSentSettings = null;
-        if (_clearGuestAfterStop)
-        {
-            ClearGuestLocked();
-        }
-
-        _clearGuestAfterStop = false;
     }
 
     private void CancelPendingWorkLocked()
@@ -1045,22 +1134,50 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
         }
     }
 
-    private bool IsCurrentGuestLocked(string connectionId) =>
-        string.Equals(_guestConnectionId, connectionId, StringComparison.Ordinal);
+    private bool IsCurrentGuestLocked(string connectionId)
+    {
+        ExpireSessionLocked();
+        return !_shuttingDown && _guestExpiresAt is not null && string.Equals(_guestConnectionId, connectionId, StringComparison.Ordinal);
+    }
+
+    private bool IsSavedGuestLocked(string? sessionId)
+    {
+        ExpireSessionLocked();
+        return !_shuttingDown && _guestExpiresAt is not null && string.Equals(_invitationId, sessionId, StringComparison.Ordinal);
+    }
+
+    private void ExpireSessionLocked()
+    {
+        if (_guestExpiresAt is { } expiry && _timeProvider.GetUtcNow() >= expiry)
+        {
+            RotateInvitationLocked();
+            _logger.GuestSessionChanged("expired");
+            if (_device is { IsConnected: true })
+                _ = ObserveStopAsync(RequestStopLocked(clearGuest: false));
+        }
+    }
 
     private void ClearGuestLocked()
     {
         _guestConnectionId = null;
         _guestControlAllowed = false;
         _guestStopped = false;
+        _guestExpiresAt = null;
+        CryptographicOperations.ZeroMemory(_guestCredentialHash);
+        _guestCredentialHash = [];
+        CancelPendingWorkLocked();
+        _permissionVersion++;
+        _lastSentSettings = null;
     }
 
     private void RotateInvitationLocked()
     {
+        ClearGuestLocked();
         CryptographicOperations.ZeroMemory(_invitationHash);
         _invitationToken = CapabilityTokens.NewToken();
         _invitationHash = CapabilityTokens.Hash(_invitationToken);
         _invitationId = Guid.NewGuid().ToString("N");
+        _logger.GuestSessionChanged("invitation-replaced");
     }
 
 }

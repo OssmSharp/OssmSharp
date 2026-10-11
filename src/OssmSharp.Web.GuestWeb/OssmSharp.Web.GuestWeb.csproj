@@ -18,5 +18,6 @@
     <Using Include="Microsoft.AspNetCore.Components" />
     <Using Include="Microsoft.AspNetCore.Components.Server.Circuits" />
     <Using Include="Microsoft.JSInterop" />
+    <InternalsVisibleTo Include="OssmSharp.Web.Api.Tests" />
   </ItemGroup>
 </Project>

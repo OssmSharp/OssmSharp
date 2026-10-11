@@ -17,7 +17,7 @@ public interface IAdminApiClient : IAsyncDisposable
     /// Gets the current invitation, guest permissions, and device state.
     /// </summary>
     /// <returns>The current user-visible session state.</returns>
-    /// <exception cref="ApiClientException">The API connection is unavailable or the API rejects the request.</exception>
+    /// <exception cref="ApiClientException">The API connection is unavailable, the API rejects the request, or no state is returned.</exception>
     /// <exception cref="RpcClientRequestTimeoutException">The response deadline expires before a response is received.</exception>
     /// <exception cref="OperationCanceledException">The caller cancels connection startup or the wait for a response.</exception>
     Task<UserSessionState> GetStateAsync(CancellationToken cancellationToken = default);
@@ -28,9 +28,6 @@ public interface IAdminApiClient : IAsyncDisposable
     /// <param name="dimensions">Lengths in centimetres: rail from 1 to 500 and attachment from 0 to 500.</param>
     /// <param name="cancellationToken" />
     /// <returns>The accepted preview update.</returns>
-    /// <remarks>
-    /// Cancellation ends startup or the response wait; it does not roll back a dispatched update.
-    /// </remarks>
     /// <exception cref="ApiClientException">The API is unavailable or rejects the dimensions.</exception>
     /// <exception cref="RpcClientRequestTimeoutException">The update response deadline expires.</exception>
     /// <exception cref="OperationCanceledException">The caller cancels startup or the response wait.</exception>
@@ -46,11 +43,8 @@ public interface IAdminApiClient : IAsyncDisposable
     Task<ControlResponse> AllowGuestAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Revokes guest control permission and requests runtime Stop.
+    /// Revokes guest control permission and requests runtime Stop, including during <see cref="ConnectAsync"/>.
     /// </summary>
-    /// <remarks>
-    /// This request can run while <see cref="ConnectAsync"/> is pending.
-    /// </remarks>
     /// <returns>The accepted stop response.</returns>
     /// <exception cref="ApiClientException">The API connection is unavailable or the API rejects the request.</exception>
     /// <exception cref="RpcClientRequestTimeoutException">The response deadline expires; request acceptance is unknown.</exception>
@@ -59,34 +53,38 @@ public interface IAdminApiClient : IAsyncDisposable
 
     /// <summary>
     /// Retracts once and stops without resuming settings or granting guest permission.
+    /// Use <see cref="StopAsync"/> to interrupt it.
     /// </summary>
-    /// <remarks>
-    /// Waits without the short response deadline. Use <see cref="StopAsync"/> to interrupt it;
-    /// cancelling the response wait does not cancel a dispatched server operation.
-    /// </remarks>
-    /// <returns>The completed position-reset response.</returns>
+    /// <returns>The completed position-reset response, without the ordinary response deadline.</returns>
     /// <exception cref="ApiClientException">The service rejects the request or the operation fails.</exception>
-    /// <exception cref="OperationCanceledException">The caller cancels the response wait.</exception>
+    /// <exception cref="OperationCanceledException">The caller cancels the response wait; a dispatched server operation may continue.</exception>
     Task<ControlResponse> ResetPositionAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Ends the current guest session and requests runtime Stop.
+    /// Revokes the current saved guest session before requesting runtime Stop, including when the guest is offline.
+    /// Can run alongside pending device work.
     /// </summary>
     /// <returns>The accepted session-ending response.</returns>
-    /// <exception cref="ApiClientException">The API connection is unavailable or the API rejects the request.</exception>
+    /// <exception cref="ApiClientException">The API is unavailable or rejects the request. A failed Stop does not undo revocation.</exception>
     /// <exception cref="RpcClientRequestTimeoutException">The response deadline expires; request acceptance is unknown.</exception>
     /// <exception cref="OperationCanceledException">The caller cancels connection startup or the wait for a response.</exception>
     Task<ControlResponse> EndGuestAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Connects the configured runtime device.
+    /// Replaces the invitation and revokes any saved guest session before requesting Stop.
+    /// Can run alongside pending device work.
     /// </summary>
-    /// <remarks>
-    /// Waits for device setup without the short request response deadline. Cancelling the wait does not
-    /// cancel server-side setup; use <see cref="StopAsync"/> to interrupt a pending device connection.
-    /// </remarks>
-    /// <returns>The accepted device-connection response.</returns>
+    /// <returns>The accepted invitation-refresh response after any required Stop completes.</returns>
+    /// <exception cref="ApiClientException">The API is unavailable, rejects the request, returns no acknowledgement, or Stop fails. A failed Stop does not undo revocation.</exception>
+    /// <exception cref="RpcClientRequestTimeoutException">The response deadline expires; inspect the new invitation before retrying.</exception>
+    /// <exception cref="OperationCanceledException">Startup or the caller's response wait is cancelled.</exception>
+    Task<ControlResponse> RefreshInvitationAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Connects the configured runtime device. Use <see cref="StopAsync"/> to interrupt setup.
+    /// </summary>
+    /// <returns>The accepted device-connection response after setup, without the ordinary response deadline.</returns>
     /// <exception cref="ApiClientException">The API connection is unavailable or the API rejects the request.</exception>
-    /// <exception cref="OperationCanceledException">The caller cancels connection startup or the wait for a response.</exception>
+    /// <exception cref="OperationCanceledException">The caller cancels connection startup or the response wait; dispatched device setup may continue.</exception>
     Task<ControlResponse> ConnectAsync(CancellationToken cancellationToken = default);
 }

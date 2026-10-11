@@ -19,4 +19,21 @@ public sealed record UserSessionState(
     /// Gets the shared preview-only lengths, or null when unavailable from an older service.
     /// </summary>
     public PreviewDimensions? Preview { get; init; }
+
+    /// <summary>
+    /// Gets whether the admitted guest currently has an attached controller.
+    /// Admission and permission can persist while the browser is offline.
+    /// </summary>
+    public bool GuestConnected { get; init; }
+
+    /// <summary>
+    /// Gets the absolute saved-session expiry, or null when no guest is admitted.
+    /// </summary>
+    public DateTimeOffset? GuestSessionExpiresAt { get; init; }
+
+    /// <summary>
+    /// Gets whether the current invitation has already been redeemed.
+    /// Replace it to admit a different guest; replacement ends the current session.
+    /// </summary>
+    public bool InvitationConsumed { get; init; }
 }

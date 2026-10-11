@@ -97,8 +97,8 @@ To check which version you downloaded, run the same command with `--version`:
 Click **Stop** to stop motion. Click **End guest** to end the guest's session.
 Only share an invitation with the person you want to join.
 
-Guest links work on the computer running OssmSharp by default. A guest on another
-device needs the setup below.
+Each invitation can be used once. **Refresh invitation** creates a new link and
+ends the current guest session.
 
 ## Guest access from another device
 
@@ -136,6 +136,13 @@ and send `X-Forwarded-Proto: https`. For Cloudflare, set
 to your public hostname, such as `guest.example`.
 
 </details>
+
+## Use the guest controls
+
+Choose a pattern and settings, then click **Send**. Turn on **Auto send** if you
+want later changes to be sent as you make them. Use **Stop** to stop motion.
+
+Only one guest can be active at a time.
 
 ## If something goes wrong
 

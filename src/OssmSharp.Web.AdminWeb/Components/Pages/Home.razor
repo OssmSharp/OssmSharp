@@ -47,6 +47,10 @@
               End guest
             </button>
           </div>
+          @if (_state.GuestSessionExpiresAt is { } expires)
+          {
+            <p data-testid="guest-session-expiry">Saved session expires <time datetime="@expires.ToString("O")">@expires.ToLocalTime().ToString("g")</time>.</p>
+          }
           <div class="attachment-field">
             <label for="attachment-length">Attachment length</label>
             <input id="attachment-length" type="number" inputmode="decimal" data-testid="attachment-length"
@@ -83,17 +87,23 @@
                   disabled="@(_busy || _safetyBusy || _connectionLost || _state.Device is { IsConnecting: true } or { IsConnected: true })"
                   @onclick="Connect">Connect device</button>
         </section>
-        <section class="widget device-sensitive" data-testid="guest-invitation-card" role="region"
+        <section class="widget" data-testid="guest-invitation-card" role="region"
                  aria-labelledby="invite-heading">
           <div class="widget-heading">
             <h2 id="invite-heading">Invite a guest</h2>
           </div>
           <div class="invite-row">
             <input id="guest-invitation" type="text" aria-label="Guest invitation"
-                   data-testid="invitation-link" readonly disabled="@DeviceUnavailable" value="@InvitationText" />
-            <button class="button @(_notice.IsCopied ? "success" : "secondary")" type="button" disabled="@DeviceUnavailable"
+                   data-testid="invitation-link" readonly disabled="@(DeviceUnavailable || _state.InvitationConsumed)" value="@InvitationText" />
+            <button class="button @(_notice.IsCopied ? "success" : "secondary")" type="button" disabled="@(DeviceUnavailable || _state.InvitationConsumed)"
                     @onclick="Copy" aria-label="@_notice.CopyLabel">@_notice.CopyLabel</button>
+            <button class="button warning" type="button" disabled="@(_safetyBusy || _connectionLost)"
+                    @onclick="RefreshInvitation" title="End the current guest session and create a new invitation">Refresh invitation</button>
           </div>
+          <p data-testid="invitation-status">
+            @(_state.InvitationConsumed ? "This invitation has been used. Refresh it to invite someone else." : "This invitation can be used once.")
+            Refreshing ends the current guest session.
+          </p>
         </section>
         <PatternPreview Title="Last settings" Pattern="@_state.Device?.TransmittedSettings?.Pattern"
                         Speed="@_state.Device?.TransmittedSettings?.Speed" Stroke="@_state.Device?.TransmittedSettings?.Stroke"

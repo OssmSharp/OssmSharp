@@ -6,6 +6,7 @@ namespace OssmSharp.Web.Api.Control;
 internal sealed class DeviceLeaseManagementService(
     IControlSession session,
     IOptions<ControlServiceOptions> options,
+    TimeProvider timeProvider,
     ILogger<DeviceLeaseManagementService> logger) : BackgroundService
 {
     public override async Task StopAsync(CancellationToken cancellationToken)
@@ -17,7 +18,7 @@ internal sealed class DeviceLeaseManagementService(
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         using var timer = new PeriodicTimer(
-            TimeSpan.FromMilliseconds(options.Value.GuestControlCheckMilliseconds));
+            TimeSpan.FromMilliseconds(options.Value.GuestControlCheckMilliseconds), timeProvider);
         while (await timer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false))
         {
             try

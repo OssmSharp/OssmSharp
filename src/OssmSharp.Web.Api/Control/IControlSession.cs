@@ -1,7 +1,7 @@
 namespace OssmSharp.Web.Api.Control;
 
 /// <summary>
-/// Owns UI invitation and guest-permission state while delegating device behavior to the runtime.
+/// Owns invitation redemption, saved guest admission, and control permission while delegating device behavior to the runtime.
 /// </summary>
 public interface IControlSession
 {
@@ -31,13 +31,44 @@ public interface IControlSession
     string? AuthenticateInvitation(string? token);
 
     /// <summary>
-    /// Joins a guest only if the authenticated invitation and token match the current invitation.
+    /// Consumes the current invitation once, without changing its code, attaching a controller, or granting control.
     /// </summary>
-    /// <param name="connectionId">The guest connection ID.</param>
     /// <param name="invitationId">The invitation ID from the authenticated connection, not the request.</param>
     /// <param name="request">The invitation token and request correlation ID.</param>
-    /// <returns>The join result. Success replaces the invitation but does not enable control.</returns>
-    ControlResponse JoinGuest(string connectionId, string? invitationId, GuestJoinRequest request);
+    /// <returns>The redemption result and, on success, a private credential expiring 24 hours later.</returns>
+    GuestRedemptionResponse RedeemInvitation(string? invitationId, GuestJoinRequest request);
+
+    /// <summary>
+    /// Validates a saved-session credential against the current invitation and fixed expiry.
+    /// </summary>
+    /// <param name="token">The private saved-session credential.</param>
+    /// <returns>The session identity, or <see langword="null"/> when invalid, revoked, expired, or shutting down.</returns>
+    string? AuthenticateGuestSession(string? token);
+
+    /// <summary>
+    /// Returns nonsensitive saved-session metadata for an authenticated identity, without attaching a controller.
+    /// </summary>
+    /// <param name="sessionId">The authenticated session identity.</param>
+    /// <returns>The saved session, or <see langword="null"/> when it is no longer current.</returns>
+    SavedGuestSession? GetSavedGuestSession(string? sessionId);
+
+    /// <summary>
+    /// Attaches one controller to the current saved session. A second controller cannot replace it.
+    /// </summary>
+    /// <param name="connectionId">The new connection ID.</param>
+    /// <param name="sessionId">The saved-session identity from authentication.</param>
+    /// <param name="correlation">The request identifier.</param>
+    /// <returns>The attachment result. Pending Stop cleanup prevents attachment until it settles.</returns>
+    ControlResponse JoinGuest(string connectionId, string? sessionId, string correlation);
+
+    /// <summary>
+    /// Revokes an offline saved session and requests Stop. Attached controllers must use <see cref="LeaveGuestAsync"/>.
+    /// Revocation does not depend on Stop succeeding.
+    /// </summary>
+    /// <param name="sessionId">The authenticated saved-session identity.</param>
+    /// <param name="correlation">The request identifier.</param>
+    /// <returns>The Stop result; invalid identities or occupied controller slots are rejected without affecting the active session.</returns>
+    Task<ControlResponse> LeaveSavedGuestAsync(string? sessionId, string correlation);
 
     /// <summary>
     /// Re-arms when needed, then allows the admitted guest to submit settings until revoked.
@@ -84,8 +115,10 @@ public interface IControlSession
         string correlation);
 
     /// <summary>
-    /// Removes a disconnected guest and requests runtime Stop.
+    /// Detaches a disconnected controller and requests Stop while preserving saved admission and existing permission.
     /// </summary>
+    /// <param name="connectionId">The disconnected controller; stale connection callbacks have no effect.</param>
+    /// <returns>The owned Stop attempt has settled. Attachment still requires a free controller slot and completed required Stop/reset cleanup.</returns>
     Task GuestDisconnectedAsync(string connectionId);
 
     /// <summary>
@@ -94,9 +127,18 @@ public interface IControlSession
     Task<ControlResponse> StopAsync(string correlation);
 
     /// <summary>
-    /// Ends the current guest session and requests runtime Stop.
+    /// Revokes the current saved guest session before requesting runtime Stop, including when the guest is offline.
     /// </summary>
+    /// <param name="correlation">The request identifier.</param>
+    /// <returns>The Stop result. Revocation persists even when cleanup fails.</returns>
     Task<ControlResponse> EndGuestAsync(string correlation);
+
+    /// <summary>
+    /// Replaces the invitation, immediately revoking the saved session, then requests any required Stop.
+    /// </summary>
+    /// <param name="correlation">The request identifier.</param>
+    /// <returns>The refresh result; the new invitation remains current even when required Stop fails.</returns>
+    Task<ControlResponse> RefreshInvitationAsync(string correlation);
 
     /// <summary>
     /// Connects the selected device through the runtime.
@@ -104,7 +146,7 @@ public interface IControlSession
     Task<ControlResponse> ConnectAsync(string correlation, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Retries a required Stop without expiring guest permission.
+    /// Expires saved sessions at their fixed deadline and retries required Stop cleanup.
     /// </summary>
     Task ExpireGuestAsync();
 

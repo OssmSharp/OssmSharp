@@ -2,6 +2,8 @@ using AwesomeAssertions;
 using FastMoq;
 using FastMoq.Extensions;
 using FastMoq.Providers;
+using FastMoq.Providers.MoqProvider;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
 using Moq;
 using OssmSharp.Runtime;
@@ -25,6 +27,8 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>, IAsync
         _clock = new(new DateTimeOffset(2026, 10, 1, 12, 0, 0, TimeSpan.Zero));
         mocks.AddType<TimeProvider>(_clock);
         mocks.SetupOptions(new ControlServiceOptions { DeviceIdentifier = "device-1" });
+        mocks.GetOrCreateMock<ILogger<ControlSession>>().AsMoq()
+            .Setup(logger => logger.IsEnabled(It.IsAny<LogLevel>())).Returns(true);
     };
 
     private Mock<IOssmDevice> Device => _device ?? throw new InvalidOperationException("Test device is not initialized.");
@@ -46,13 +50,215 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>, IAsync
     }
 
     [Fact]
+    public async Task JoiningConsumesInvitationWithoutReplacingItsCode()
+    {
+        var token = TestContext.Current.CancellationToken;
+        var invitation = (await Component.GetUserStateAsync(token)).Invitation;
+
+        Assert.True(JoinGuest("guest-1", new("join", invitation.Token)).Accepted);
+
+        Assert.Equal(invitation, (await Component.GetUserStateAsync(token)).Invitation);
+        Assert.Null(Component.AuthenticateInvitation(invitation.Token));
+        Assert.False((await Component.GetGuestStateAsync("guest-1", token)).ControlAllowed);
+    }
+
+    [Fact]
+    public async Task TransportLossStopsMotionWithoutEndingAdmissionOrPermission()
+    {
+        var token = TestContext.Current.CancellationToken;
+        await JoinAndAllowAsync("guest-1");
+
+        await Component.GuestDisconnectedAsync("guest-1");
+
+        var state = await Component.GetUserStateAsync(token);
+        Assert.True(state.GuestJoined);
+        Assert.True(state.GuestControlAllowed);
+        Assert.False((await Component.GetGuestStateAsync("guest-1", token)).Joined);
+        Mocks.Verify<IOssmDevice>(device => device.EmergencyStopAsync(FastArg.Any<CancellationToken>()), TimesSpec.Once);
+        Mocks.Verify<IOssmDevice>(device => device.SetAsync(FastArg.Any<MotionSettings>(), FastArg.Any<CancellationToken>()), TimesSpec.NeverCalled);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AutomaticStopFailureLeavesDiagnosticsAndRetriesWithoutReplayingSettings(bool expiry)
+    {
+        var token = TestContext.Current.CancellationToken;
+        await JoinAndAllowAsync("guest-1");
+        Device.Setup(device => device.EmergencyStopAsync(It.IsAny<CancellationToken>()))
+            .Throws(new IOException("Stop failed."));
+
+        if (expiry)
+            Clock.Advance(TimeSpan.FromHours(24));
+        else
+            await Component.GuestDisconnectedAsync("guest-1");
+
+        var state = await Component.GetUserStateAsync(token);
+        Assert.Equal(!expiry, state.GuestJoined);
+        Assert.False(state.GuestConnected);
+        Mocks.VerifyLogged(LogLevel.Warning, "Guest-session Stop cleanup did not complete (device-io-failed)", TimesSpec.Once);
+        Mocks.Verify<IOssmDevice>(device => device.EmergencyStopAsync(FastArg.Any<CancellationToken>()), TimesSpec.Once);
+
+        Device.Setup(device => device.EmergencyStopAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        await Component.ExpireGuestAsync();
+
+        Mocks.Verify<IOssmDevice>(device => device.EmergencyStopAsync(FastArg.Any<CancellationToken>()), TimesSpec.Exactly(2));
+        Mocks.Verify<IOssmDevice>(device => device.SetAsync(FastArg.Any<MotionSettings>(), FastArg.Any<CancellationToken>()), TimesSpec.NeverCalled);
+        Mocks.VerifyLogged(LogLevel.Warning, "Guest-session Stop cleanup did not complete", TimesSpec.Once);
+    }
+
+    [Fact]
+    public async Task SavedSessionResumesOnlyAfterStopAndNeverReplaysSettings()
+    {
+        var token = TestContext.Current.CancellationToken;
+        var invitation = (await Component.GetUserStateAsync(token)).Invitation;
+        var redeemed = Component.RedeemInvitation(Component.AuthenticateInvitation(invitation.Token), new("redeem", invitation.Token));
+        var identity = Component.AuthenticateGuestSession(redeemed.SessionToken);
+        Assert.True(Component.JoinGuest("first", identity, "join").Accepted);
+        Assert.True((await Component.AllowGuestAsync("allow", token)).Accepted);
+        var stopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Device.Setup(device => device.EmergencyStopAsync(It.IsAny<CancellationToken>()))
+            .Callback(() => Device.SetupGet(device => device.IsArmed).Returns(false))
+            .Returns(stopped.Task);
+        var disconnect = Component.GuestDisconnectedAsync("first");
+        try
+        {
+            Assert.Equal(ControlResponseCodes.DeviceNotReady, Component.JoinGuest("second", identity, "early").Code);
+            Assert.False((await Component.GetUserStateAsync(token)).GuestConnected);
+            stopped.SetResult();
+            await disconnect;
+            Assert.True(Component.JoinGuest("second", identity, "resume").Accepted);
+            var resumed = await Component.GetGuestStateAsync("second", token);
+            Assert.True(resumed.ControlAllowed);
+            Assert.True(resumed.CanResumeAfterStop);
+            Mocks.Verify<IOssmDevice>(device => device.ResetAsync(FastArg.Any<CancellationToken>()), TimesSpec.NeverCalled);
+            Mocks.Verify<IOssmDevice>(device => device.SetAsync(FastArg.Any<MotionSettings>(), FastArg.Any<CancellationToken>()), TimesSpec.NeverCalled);
+            await Component.GuestDisconnectedAsync("first");
+            Mocks.Verify<IOssmDevice>(device => device.EmergencyStopAsync(FastArg.Any<CancellationToken>()), TimesSpec.Once);
+            Assert.Equal(SettingsResponseStatus.Completed,
+                (await Component.SubmitAsync("second", new("fresh", 0, 50, 30, 50, 50), token)).Status);
+            Mocks.Verify<IOssmDevice>(device => device.ResetAsync(FastArg.Any<CancellationToken>()), TimesSpec.Once);
+        }
+        finally
+        {
+            stopped.TrySetResult();
+            await disconnect;
+        }
+    }
+
+    [Fact]
+    public async Task SecondTabCannotReplaceOrStopTheAttachedController()
+    {
+        var token = TestContext.Current.CancellationToken;
+        var invitation = (await Component.GetUserStateAsync(token)).Invitation;
+        var redeemed = Component.RedeemInvitation(Component.AuthenticateInvitation(invitation.Token), new("redeem", invitation.Token));
+        var identity = Component.AuthenticateGuestSession(redeemed.SessionToken);
+        Assert.True(Component.JoinGuest("first", identity, "join").Accepted);
+        Assert.True((await Component.AllowGuestAsync("allow", token)).Accepted);
+
+        Assert.Equal(ControlResponseCodes.GuestAlreadyJoined, Component.JoinGuest("second", identity, "other").Code);
+        await Component.GuestDisconnectedAsync("second");
+
+        Assert.True((await Component.GetGuestStateAsync("first", token)).ControlAllowed);
+        Assert.True(Component.GetSavedGuestSession(identity)!.Connected);
+        Mocks.Verify<IOssmDevice>(device => device.EmergencyStopAsync(FastArg.Any<CancellationToken>()), TimesSpec.NeverCalled);
+    }
+
+    [Fact]
+    public async Task OfflineLeaveCannotRevokeAnAttachedController()
+    {
+        var token = TestContext.Current.CancellationToken;
+        var invitation = (await Component.GetUserStateAsync(token)).Invitation;
+        var redeemed = Component.RedeemInvitation(Component.AuthenticateInvitation(invitation.Token), new("redeem", invitation.Token));
+        var identity = Component.AuthenticateGuestSession(redeemed.SessionToken);
+        Assert.True(Component.GetSavedGuestSession(identity)!.CanAttach);
+        Assert.True(Component.JoinGuest("first", identity, "join").Accepted);
+        Assert.True((await Component.AllowGuestAsync("allow", token)).Accepted);
+
+        var result = await Component.LeaveSavedGuestAsync(identity, "waiting-tab");
+
+        Assert.False(result.Accepted);
+        Assert.Equal(ControlResponseCodes.GuestAlreadyJoined, result.Code);
+        Assert.Equal(identity, Component.AuthenticateGuestSession(redeemed.SessionToken));
+        Assert.True((await Component.GetGuestStateAsync("first", token)).ControlAllowed);
+        Mocks.Verify<IOssmDevice>(device => device.EmergencyStopAsync(FastArg.Any<CancellationToken>()), TimesSpec.NeverCalled);
+        Assert.True((await Component.LeaveGuestAsync("first", "owner-leave")).Accepted);
+        Assert.Null(Component.AuthenticateGuestSession(redeemed.SessionToken));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FixedSessionExpiryDoesNotExtendAndRevokesAtTheExactBoundary(bool offline)
+    {
+        var token = TestContext.Current.CancellationToken;
+        var invitation = (await Component.GetUserStateAsync(token)).Invitation;
+        var redeemed = Component.RedeemInvitation(Component.AuthenticateInvitation(invitation.Token), new("redeem", invitation.Token));
+        var identity = Component.AuthenticateGuestSession(redeemed.SessionToken);
+        var expiry = Clock.GetUtcNow().AddHours(24);
+        Assert.Equal(expiry, redeemed.ExpiresAt);
+        Assert.True(Component.JoinGuest("first", identity, "join").Accepted);
+        Assert.True((await Component.AllowGuestAsync("allow", token)).Accepted);
+        Clock.Advance(TimeSpan.FromHours(12));
+        await Component.GuestDisconnectedAsync("first");
+        if (!offline)
+            Assert.True(Component.JoinGuest("second", identity, "resume").Accepted);
+        Assert.Equal(expiry, Component.GetSavedGuestSession(identity)!.ExpiresAt);
+        Clock.Advance(TimeSpan.FromHours(12) - TimeSpan.FromTicks(1));
+        Assert.Equal(identity, Component.AuthenticateGuestSession(redeemed.SessionToken));
+
+        Clock.Advance(TimeSpan.FromTicks(1));
+        Assert.Null(Component.AuthenticateGuestSession(redeemed.SessionToken));
+        Assert.Null(Component.GetSavedGuestSession(identity));
+        Assert.False((await Component.GetUserStateAsync(token)).GuestJoined);
+        Assert.Equal(SettingsResponseStatus.Rejected,
+            (await Component.SubmitAsync("second", new("late", 0, 50, 30, 50, 50), token)).Status);
+        Assert.NotEqual(invitation, (await Component.GetUserStateAsync(token)).Invitation);
+        Clock.Advance(TimeSpan.FromSeconds(1));
+        await Component.ExpireGuestAsync();
+        Mocks.Verify<IOssmDevice>(device => device.EmergencyStopAsync(FastArg.Any<CancellationToken>()), TimesSpec.Exactly(2));
+    }
+
+    [Theory]
+    [InlineData("leave")]
+    [InlineData("end")]
+    [InlineData("refresh")]
+    public async Task SessionRevocationPrecedesStopFailureAndInvalidatesAuthenticatedIdentity(string action)
+    {
+        var token = TestContext.Current.CancellationToken;
+        var invitation = (await Component.GetUserStateAsync(token)).Invitation;
+        var redeemed = Component.RedeemInvitation(Component.AuthenticateInvitation(invitation.Token), new("redeem", invitation.Token));
+        var identity = Component.AuthenticateGuestSession(redeemed.SessionToken);
+        Assert.True(Component.JoinGuest("first", identity, "join").Accepted);
+        Assert.True((await Component.AllowGuestAsync("allow", token)).Accepted);
+        if (action == "leave")
+            await Component.GuestDisconnectedAsync("first");
+        Device.Setup(device => device.EmergencyStopAsync(It.IsAny<CancellationToken>())).Throws(new IOException("stop failed"));
+
+        var result = await (action switch
+        {
+            "leave" => Component.LeaveSavedGuestAsync(identity, "leave"),
+            "end" => Component.EndGuestAsync("end"),
+            _ => Component.RefreshInvitationAsync("refresh"),
+        });
+
+        Assert.False(result.Accepted);
+        Assert.Null(Component.AuthenticateGuestSession(redeemed.SessionToken));
+        Assert.Null(Component.GetSavedGuestSession(identity));
+        Assert.False((await Component.GetGuestStateAsync("first", token)).Joined);
+        Assert.False((await Component.LeaveSavedGuestAsync(identity, "stale")).Accepted);
+        Assert.NotEqual(invitation, (await Component.GetUserStateAsync(token)).Invitation);
+        Mocks.Verify<IOssmDevice>(device => device.SetAsync(FastArg.Any<MotionSettings>(), FastArg.Any<CancellationToken>()), TimesSpec.NeverCalled);
+    }
+
+    [Fact]
     public async Task PreviewDimensionsAreSharedOnlyWithTheJoinedGuestAndIssueNoDeviceCommands()
     {
         var token = TestContext.Current.CancellationToken;
         Assert.Equal(new PreviewDimensions(), (await Component.GetUserStateAsync(token)).Preview);
         Assert.Null((await Component.GetGuestStateAsync("not-joined", token)).Preview);
         var invitation = (await Component.GetUserStateAsync(token)).Invitation;
-        Assert.True(Component.JoinGuest("guest-1", Component.AuthenticateInvitation(invitation.Token), new("join", invitation.Token)).Accepted);
+        Assert.True(JoinGuest("guest-1", new("join", invitation.Token)).Accepted);
         var dimensions = new PreviewDimensions(45.5, 27.25);
 
         Assert.Equal(new ControlResponse("preview", ControlResponseCodes.PreviewUpdated, true), Component.SetPreviewDimensions("preview", dimensions));
@@ -305,8 +511,10 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>, IAsync
             var state = await Component.GetUserStateAsync(TestContext.Current.CancellationToken);
             Assert.False(state.Device!.IsResettingPosition);
             Assert.Null(state.Device.TransmittedSettings);
-            if (interruption is "user-stop" or "guest-disconnect" or "device-disconnect")
+            if (interruption is "user-stop" or "device-disconnect")
                 Assert.False(state.GuestControlAllowed);
+            if (interruption == "guest-disconnect")
+                Assert.True(state.GuestControlAllowed);
             Device.Verify(device => device.ResetPositionAsync(It.IsAny<CancellationToken>()), Times.Once);
             Device.Verify(device => device.SetAsync(It.IsAny<MotionSettings>(), It.IsAny<CancellationToken>()), Times.Never);
         }
@@ -792,10 +1000,9 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>, IAsync
     public async Task LeavingGuestAllowsReplacementWithRotatedInvitation()
     {
         await JoinAndAllowAsync("guest-1");
+        var leave = await Component.LeaveGuestAsync("guest-1", "leave-1");
         var replacementInvitation = (await Component.GetUserStateAsync(
             TestContext.Current.CancellationToken)).Invitation;
-
-        var leave = await Component.LeaveGuestAsync("guest-1", "leave-1");
         var replacement = JoinGuest("guest-2", new("join-2", replacementInvitation.Token));
 
         leave.Accepted.Should().BeTrue();
@@ -888,10 +1095,9 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>, IAsync
         await JoinAndAllowAsync("guest-1");
         var pendingStop = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         Device.Setup(device => device.EmergencyStopAsync(It.IsAny<CancellationToken>())).Returns(pendingStop.Task);
+        var leave = Component.LeaveGuestAsync("guest-1", "leave-1");
         var replacementInvitation = (await Component.GetUserStateAsync(
             TestContext.Current.CancellationToken)).Invitation;
-
-        var leave = Component.LeaveGuestAsync("guest-1", "leave-1");
         try
         {
             var replacement = JoinGuest("guest-2", new("join-2", replacementInvitation.Token));
@@ -913,9 +1119,9 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>, IAsync
     public async Task FailedLeaveStopIsDiscardedWithoutCancellingReconnect()
     {
         await JoinAndAllowAsync("guest-1");
-        var invitation = (await Component.GetUserStateAsync(TestContext.Current.CancellationToken)).Invitation;
         Device.Setup(device => device.EmergencyStopAsync(It.IsAny<CancellationToken>())).Throws(new IOException("connection lost"));
         var leave = await Component.LeaveGuestAsync("guest-1", "leave-1");
+        var invitation = (await Component.GetUserStateAsync(TestContext.Current.CancellationToken)).Invitation;
         Assert.Equal(new ControlResponse("leave-1", "device-io-failed", false), leave);
         Device.SetupGet(device => device.IsConnected).Returns(false);
         var pendingConnect = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1015,9 +1221,9 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>, IAsync
     public async Task FailedReconnectDoesNotRestoreDiscardedStopOrLeave(string failureCode)
     {
         await JoinAndAllowAsync("guest-1");
-        var invitation = (await Component.GetUserStateAsync(TestContext.Current.CancellationToken)).Invitation;
         Device.Setup(device => device.EmergencyStopAsync(It.IsAny<CancellationToken>())).Throws(new IOException("connection lost"));
         Assert.False((await Component.LeaveGuestAsync("guest-1", "leave-1")).Accepted);
+        var invitation = (await Component.GetUserStateAsync(TestContext.Current.CancellationToken)).Invitation;
         Device.SetupGet(device => device.IsConnected).Returns(false);
         var pendingConnect = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         Device.Setup(device => device.ConnectAsync(It.IsAny<CancellationToken>())).Returns(pendingConnect.Task);
@@ -1049,13 +1255,13 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>, IAsync
     public async Task LateStopCannotChangeReplacementGuestAfterReconnect(string failureCode)
     {
         await JoinAndAllowAsync("guest-1");
-        var invitation = (await Component.GetUserStateAsync(TestContext.Current.CancellationToken)).Invitation;
         var pendingStop = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         CancellationToken stopToken = default;
         Device.Setup(device => device.EmergencyStopAsync(It.IsAny<CancellationToken>()))
             .Callback((CancellationToken token) => stopToken = token)
             .Returns(pendingStop.Task);
         var leave = Component.LeaveGuestAsync("guest-1", "leave-1");
+        var invitation = (await Component.GetUserStateAsync(TestContext.Current.CancellationToken)).Invitation;
         try
         {
             Assert.False(leave.IsCompleted);
@@ -1172,7 +1378,7 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>, IAsync
             await JoinAndAllowAsync("guest-2");
             pendingSet.SetResult(new(SetStatus.Completed, 2));
 
-            Assert.Equal(new SettingsResponse("set-1", SettingsResponseStatus.Cancelled, 2), await request);
+            Assert.Equal(new SettingsResponse("set-1", SettingsResponseStatus.Cancelled, 0), await request);
             var replacement = await Component.GetGuestStateAsync("guest-2", TestContext.Current.CancellationToken);
             Assert.True(replacement.Joined);
             Assert.True(replacement.ControlAllowed);
@@ -1362,7 +1568,7 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>, IAsync
         Assert.NotNull(identity);
         Assert.NotEqual(invitation.Token, identity);
         Assert.Equal(identity, Component.AuthenticateInvitation(invitation.Token));
-        Assert.True(Component.JoinGuest("guest-1", identity, new("join-1", invitation.Token)).Accepted);
+        Assert.True(JoinGuest("guest-1", new("join-1", invitation.Token)).Accepted);
         Assert.Null(Component.AuthenticateInvitation(invitation.Token));
         var state = await Component.GetGuestStateAsync("guest-1", TestContext.Current.CancellationToken);
         Assert.True(state.Joined);
@@ -1374,11 +1580,11 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>, IAsync
     {
         var invitation = (await Component.GetUserStateAsync(TestContext.Current.CancellationToken)).Invitation;
         var identity = Component.AuthenticateInvitation(invitation.Token);
-        Assert.True(Component.JoinGuest("guest-1", identity, new("join-1", invitation.Token)).Accepted);
+        Assert.True(JoinGuest("guest-1", new("join-1", invitation.Token)).Accepted);
         Assert.True((await Component.LeaveGuestAsync("guest-1", "leave-1")).Accepted);
         var fresh = (await Component.GetUserStateAsync(TestContext.Current.CancellationToken)).Invitation;
 
-        var stale = Component.JoinGuest("guest-2", identity, new("join-2", fresh.Token));
+        var stale = Component.RedeemInvitation(identity, new("join-2", fresh.Token));
 
         Assert.Equal("invalid-invitation", stale.Code);
         Assert.False(stale.Accepted);
@@ -1402,6 +1608,11 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>, IAsync
         return invitation;
     }
 
-    private ControlResponse JoinGuest(string connectionId, GuestJoinRequest request) =>
-        Component.JoinGuest(connectionId, Component.AuthenticateInvitation(request.InvitationToken), request);
+    private ControlResponse JoinGuest(string connectionId, GuestJoinRequest request)
+    {
+        var redeemed = Component.RedeemInvitation(Component.AuthenticateInvitation(request.InvitationToken), request);
+        return redeemed.Accepted
+            ? Component.JoinGuest(connectionId, Component.AuthenticateGuestSession(redeemed.SessionToken), request.Correlation)
+            : new(request.Correlation, redeemed.Code, false);
+    }
 }

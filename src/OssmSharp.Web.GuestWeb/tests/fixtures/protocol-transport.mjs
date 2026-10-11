@@ -6,7 +6,7 @@ import { request } from "node:http";
 const guid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
 /** Reads a bounded HTTP response, or an actual WebSocket upgrade with custom headers. */
-export function exchange(origin, path, { method = "GET", headers = {}, upgrade = false } = {}) {
+export function exchange(origin, path, { method = "GET", headers = {}, body, upgrade = false } = {}) {
   return new Promise((resolve, reject) => {
     const key = randomBytes(16).toString("base64");
     const req = request(new URL(path, origin), {
@@ -39,7 +39,7 @@ export function exchange(origin, path, { method = "GET", headers = {}, upgrade =
         reject(error);
       }
     });
-    req.end();
+    req.end(body);
   });
 }
 

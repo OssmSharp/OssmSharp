@@ -16,6 +16,7 @@ class Element extends EventTarget {
   checked = false;
   disabled = false;
   paused = false;
+  querySelector() { return null; }
   style = {
     setProperty(name, value) { this[name] = String(value); },
     getPropertyValue(name) { return this[name] ?? ""; },
@@ -64,8 +65,10 @@ async function createGuest(invoke = async () => ({ ok: true }), url = "https://g
   });
   const window = new EventTarget();
   const calls = [];
+  const errors = [];
   const context = createContext({
     AbortController,
+    reportError: (error) => errors.push(error.message),
     URLSearchParams,
     document,
     window,
@@ -101,11 +104,87 @@ async function createGuest(invoke = async () => ({ ok: true }), url = "https://g
     document,
     window,
     reloads,
+    errors,
     element: root.querySelector,
     click: (selector) => root.querySelector(selector).dispatchEvent(new Event("click")),
     calls: (method) => calls.filter((call) => call.method === method),
   };
 }
+
+test("terminal recovery state hides Leave and cannot restart automatic recovery", async () => {
+  const browser = await createGuest();
+  const ended = [];
+  const recovery = [];
+  browser.guest.configureSession({ end: (code) => ended.push(code), recover: (code) => recovery.push(code) }, "ready");
+  browser.guest.disconnect();
+  browser.guest.showSessionState("invalid-guest-session");
+  assert.equal(browser.element("[data-guest-leave]").hidden, true);
+  browser.guest.disconnect();
+  browser.guest.showSessionState("reconnecting");
+  assert.deepEqual(ended, ["invalid-guest-session"]);
+  assert.deepEqual(recovery, ["reconnecting"]);
+  assert.equal(browser.guest.getSessionCode(), "invalid-guest-session");
+  assert.equal(browser.calls("GuestStop").length, 0);
+  browser.guest.dispose();
+});
+
+test("waiting-tab Leave cannot call the shared session endpoint", async () => {
+  const browser = await createGuest();
+  const leaves = [];
+  browser.guest.configureSession({
+    recover() {}, end() {},
+    leave() { leaves.push(true); return { ok: true, code: "stopped" }; },
+  }, "session-in-use");
+  browser.guest.disconnect("session-in-use");
+  assert.equal(browser.element("[data-guest-leave]").disabled, true);
+  const result = await browser.guest.leaveSession();
+  assert.equal(result.code, "guest-already-joined");
+  assert.equal(leaves.length, 0);
+  assert.equal(browser.guest.getSessionCode(), "session-in-use");
+  browser.guest.dispose();
+});
+
+test("controller Leave completion preserves failure and only clears the browser cookie", async () => {
+  const browser = await createGuest();
+  const cleared = [];
+  browser.guest.configureSession({
+    end() {}, async clear() { cleared.push(true); return { ok: true, code: "cookie-cleared" }; },
+    leave() { assert.fail("Controller Leave must not replay through saved authority"); },
+  }, "ready");
+  const reply = await browser.guest.completeLeave({ ok: false, code: "device-io-failed" });
+  assert.equal(reply.ok, false);
+  assert.equal(browser.guest.getSessionCode(), "leave-failed");
+  assert.equal(cleared.length, 1);
+  browser.guest.dispose();
+});
+
+test("recovery notice refresh cannot re-enable or duplicate a pending Leave", async () => {
+  const browser = await createGuest();
+  let finish;
+  let leaves = 0;
+  browser.guest.configureSession({
+    recover() {}, end() {},
+    leave() { leaves++; return new Promise(resolve => { finish = resolve; }); },
+  }, "ready");
+  browser.guest.disconnect();
+  const button = browser.element("[data-guest-leave]");
+  const click = () => {
+    const event = new Event("click");
+    Object.defineProperty(event, "target", { value: { closest: () => button } });
+    browser.document.dispatchEvent(event);
+  };
+  try {
+    click();
+    browser.guest.restoreDisconnected();
+    assert.equal(button.disabled, true);
+    click();
+    assert.equal(leaves, 1);
+  } finally {
+    finish({ ok: true, code: "stopped" });
+    await setImmediate();
+    browser.guest.dispose();
+  }
+});
 
 test("all seven pattern selections survive snapshots and reach preview and requests", async () => {
   const browser = await createGuest();
@@ -373,6 +452,8 @@ test("Reset Position completion and remote reset keep preview paused until delib
 
 test("positive device recovery resumes the selected preview without sending settings", async () => {
   const browser = await createGuest();
+  browser.click("[data-send-button]");
+  await setImmediate();
   browser.guest.updateState({ joined: true, ready: false });
   await setImmediate();
   assert.equal(browser.calls("UpdateDisplay").at(-1).payload.previewStopped, true);
@@ -381,7 +462,7 @@ test("positive device recovery resumes the selected preview without sending sett
   browser.guest.updateState({ joined: true, ready: true });
   await setImmediate();
   assert.equal(browser.calls("UpdateDisplay").at(-1).payload.previewStopped, false);
-  assert.equal(browser.calls("SubmitSettings").length, 0);
+  assert.equal(browser.calls("SubmitSettings").length, 1);
   assert.equal(browser.element("[data-send-button]").disabled, false);
   browser.guest.dispose();
 });
@@ -554,8 +635,9 @@ test("focus loss and a hidden tab retain motion and selection until page exit", 
   assert.equal(browser.calls("UpdateDisplay").at(-1).payload.sent.speed, 30);
   browser.window.dispatchEvent(new Event("pagehide"));
   await setImmediate();
-  assert.equal(browser.calls("StopRun").length, 1);
+  assert.equal(browser.calls("StopRun").length, 0, "Page exit closes the circuit; its server-owned detach requests Stop");
   assert.equal(browser.element('[data-input="speed"]').value, "0");
+  assert.equal(browser.element("[data-send-button]").disabled, true);
   browser.guest.dispose();
 });
 
@@ -599,14 +681,14 @@ test("known rejection remains retryable and successful duplicate is suppressed",
   browser.guest.dispose();
 });
 
-test("interop failure persistently disconnects and later state cannot enable sends", async () => {
+test("interop failure locks the old controller without persisting a permanent disconnect latch", async () => {
   const browser = await createGuest(async (method) => {
     if (method === "SubmitSettings") throw new Error("Disconnected");
     return { ok: true };
   });
   browser.click("[data-send-button]");
   await setImmediate();
-  assert.equal(browser.storage.get(disconnectedKey), "true");
+  assert.equal(browser.storage.get(disconnectedKey), undefined);
   assert.equal(browser.document.documentElement.dataset.guestConnectionLost, "true");
   assert.equal(browser.element(".preview-rail").paused, true);
   assert.equal(browser.element('[data-input="speed"]').value, "0");
@@ -829,7 +911,7 @@ test("permission and device transitions disarm without replay or false transport
   }
 });
 
-test("ended state differs from persistent polling and transport failure", async () => {
+test("ended state differs from recoverable polling and transport failure", async () => {
   const ended = await createObservedGuest();
   ended.guest.updateState({ joined: false, ready: false });
   ended.element("[data-send-button]").dispatchEvent(new Event("click"));
@@ -845,14 +927,14 @@ test("ended state differs from persistent polling and transport failure", async 
   lost.guest.updateState({ joined: true, ready: true });
   lost.element("[data-send-button]").dispatchEvent(new Event("click"));
   await setImmediate();
-  assert.equal(lost.storage.get(disconnectedKey), "true");
+  assert.equal(lost.storage.get(disconnectedKey), undefined);
   assert.equal(lost.element('[data-input="speed"]').value, "0");
   assert.equal(lost.controls().every((control) => control.disabled), true);
   assert.equal(lost.calls.filter(({ method }) => method === "SubmitSettings" || method === "Renew").length, 0);
   lost.guest.dispose();
 });
 
-test("disconnect survives replacement markup reload and stale references", async () => {
+test("disconnect locks replacement markup and stale references but does not poison a fresh page", async () => {
   const browser = await createObservedGuest();
   browser.guest.disconnect();
   assert.equal(browser.element(".preview-rail").paused, true);
@@ -866,13 +948,65 @@ test("disconnect survives replacement markup reload and stale references", async
   browser.guest.updateState({ joined: true, ready: true });
   assert.equal(browser.controls().every((control) => control.disabled), true);
   const reload = await createObservedGuest({ storage: browser.storage });
-  assert.equal(reload.element("[data-send-button]").disabled, true);
-  assert.equal(reload.document.documentElement.dataset.guestConnectionLost, "true");
+  assert.equal(reload.element("[data-send-button]").disabled, false);
+  assert.equal(reload.document.documentElement.dataset.guestConnectionLost, undefined);
+  assert.equal(reload.element("[data-auto-send]").checked, false);
+  assert.equal(reload.calls.at(-1).payload.previewStopped, true);
+  assert.equal(reload.calls.at(-1).payload.sent, null);
+  assert.equal(reload.calls.filter(({ method }) => method === "SubmitSettings" || method === "Renew").length, 0);
   assert.equal(reload.guest.takeInvitation(), null);
   browser.guest.dispose();
   reload.guest.dispose();
   // The persistence observer deliberately survives dispose to protect replacement markup.
   assert.equal(browser.observers[0].active, true);
+});
+
+test("a fresh saved-session controller waits for deliberate Send before resuming its preview", async () => {
+  const browser = await createGuest();
+  assert.equal(browser.calls("UpdateDisplay").at(-1).payload.previewStopped, true);
+  assert.equal(browser.calls("SubmitSettings").length, 0);
+  browser.guest.updateState({ joined: true, ready: true, current: { speed: 57, stroke: 37 } });
+  await setImmediate();
+  assert.equal(browser.calls("UpdateDisplay").at(-1).payload.previewStopped, true);
+  assert.equal(browser.calls("SubmitSettings").length, 0);
+  browser.click("[data-send-button]");
+  await setImmediate();
+  assert.equal(browser.calls("UpdateDisplay").at(-1).payload.previewStopped, false);
+  browser.guest.dispose();
+});
+
+test("a fresh controller waiting for permission keeps its preview paused until Send", async () => {
+  const browser = await createObservedGuest({ ready: false });
+  browser.guest.updateState({ joined: true, ready: true, stopped: false });
+  const speed = browser.element('[data-input="speed"]');
+  speed.value = "35";
+  speed.dispatchEvent(new Event("input"));
+  await setImmediate();
+  assert.equal(browser.calls.at(-1).payload.previewStopped, true);
+  assert.equal(browser.calls.at(-1).payload.selected.speed, 35);
+  assert.equal(browser.calls.filter(call => call.method === "SubmitSettings").length, 0);
+  browser.element("[data-send-button]").dispatchEvent(new Event("click"));
+  await setImmediate();
+  assert.equal(browser.calls.at(-1).payload.previewStopped, false);
+  assert.equal(browser.calls.filter(call => call.method === "SubmitSettings").length, 1);
+  browser.guest.dispose();
+});
+
+test("duplicate loss triggers own one recovery and a terminal session never reconnects", async () => {
+  const browser = await createGuest();
+  let recoveries = 0;
+  let endings = 0;
+  browser.guest.configureSession({ recover: () => recoveries++, end: () => endings++ }, "ready");
+  browser.guest.disconnect();
+  browser.guest.disconnect();
+  assert.equal(recoveries, 1);
+  browser.guest.endSession("invalid-guest-session");
+  browser.guest.disconnect();
+  assert.equal(recoveries, 1);
+  assert.equal(endings, 1);
+  assert.equal(browser.calls("SubmitSettings").length, 0);
+  assert.equal(browser.calls("StopRun").length, 0);
+  browser.guest.dispose();
 });
 
 test("same-document invitation links are intercepted before Blazor navigation", async () => {

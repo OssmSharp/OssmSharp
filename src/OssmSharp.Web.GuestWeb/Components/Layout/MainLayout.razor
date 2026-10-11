@@ -2,8 +2,9 @@
 
 <ControlLayout Label="Guest controls" ShowHeader="false">
     <ChildContent>
-        <InlineNotification Variant="danger" Role="alert" data-testid="guest-disconnected">
-            Connection lost. Open the invitation link again.
+        <InlineNotification Variant="warning" Role="alert" data-testid="guest-disconnected">
+            <span data-session-message>Connection lost. Reconnecting automatically. Motion will not restart.</span>
+            <button type="button" class="button secondary" data-guest-leave hidden>Leave session</button>
         </InlineNotification>
         @Body
     </ChildContent>

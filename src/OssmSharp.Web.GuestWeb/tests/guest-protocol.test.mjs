@@ -18,7 +18,7 @@ async function withFixture(context, run, options) {
 
 async function assertReleased(fixture) {
   assert.equal(fixture.listening, false);
-  for (const resource of [fixture.sockets, fixture.connections, fixture.pending, fixture.tokenMap, fixture.sessions])
+  for (const resource of [fixture.sockets, fixture.connections, fixture.pending, fixture.tokenMap, fixture.sessions, fixture.savedSessions])
     assert.equal(resource.size, 0);
   assert.equal(fixture.handshakes.length, 0);
   assert.equal(fixture.calls.length, 0);
@@ -41,6 +41,19 @@ async function allowedUpgrade(fixture, host, headers) {
   fixture.connections.add(wire);
   await wire.dispose();
   fixture.connections.delete(wire);
+}
+
+function assertGuestHandshakes(fixture, start, invitation) {
+  const saved = [...fixture.savedSessions.values()].find((saved) => saved.invitationToken === invitation);
+  assert.ok(saved, "The invitation must create a saved admission");
+  const handshakes = fixture.handshakes.slice(start, start + 6);
+  assert.deepEqual(handshakes.map(({ kind }) => kind), ["negotiate", "upgrade", "negotiate", "upgrade", "negotiate", "upgrade"]);
+  assert.ok(handshakes.slice(0, 2).every(({ authorization }) => authorization === `Bearer ${invitation}`), "Only redemption uses invitation authority");
+  assert.ok(handshakes.slice(2).every(({ authorization }) => authorization === `Session ${saved.credential}`), "Metadata and attachment use saved authority");
+  const request = fixture.calls.find((call) => call.target === "Redeem" && call.session.invitationToken === invitation).arguments[0];
+  assert.equal(request.invitationToken, invitation);
+  const attachment = fixture.calls.find((call) => call.target === "Join" && call.session.invitationToken === invitation);
+  assert.equal(typeof attachment.arguments[0], "string", "Attachment sends only correlation, not the invitation or credential");
 }
 
 test("public guest negotiate and upgrades enforce the full host origin and protocol policy", { timeout: 45_000 }, async (context) => {
@@ -127,26 +140,24 @@ test("fixture traffic keeps invitation and administrator credentials isolated", 
     assert.equal(guest.env.OSSM__ControlClient__ServiceKey, "");
     assert.equal(guest.env.OSSM__ControlClient__EndpointUri, fixture.apiOrigin);
     assert.equal(guest.env.ASPNETCORE_URLS, undefined);
-    assert.equal(fixture.handshakes.length, 2);
-    assert.deepEqual(fixture.handshakes.map(({ kind }) => kind), ["negotiate", "upgrade"]);
-    assert.ok(fixture.handshakes.every(({ authorization }) => authorization === `Bearer ${invitation}`), "Both guest handshakes must use only the invitation");
-    assert.ok(fixture.calls.find((call) => call.target === "Join").arguments[0].invitationToken === invitation);
+    assert.equal(fixture.handshakes.length, 6);
+    assertGuestHandshakes(fixture, 0, invitation);
     await openCircuit(fixture, admin, { headers: { Origin: admin.origin } });
     await waitFor(() => fixture.calls.some((call) => call.target === "GetUserState"), "real administrator API state request");
-    assert.equal(fixture.handshakes.length, 4);
-    assert.ok(fixture.handshakes.slice(2).every(({ authorization }) => authorization === `ServiceKey ${fixture.adminKey}`), "Administrator handshakes must use only the synthetic service key");
+    assert.equal(fixture.handshakes.length, 8);
+    assert.ok(fixture.handshakes.slice(6).every(({ authorization }) => authorization === `ServiceKey ${fixture.adminKey}`), "Administrator handshakes must use only the synthetic service key");
     assert.equal(admin.env.OSSM__ControlClient__EndpointUri, fixture.apiOrigin);
     const maliciousHeaders = { ...publicHeaders, Authorization: `ServiceKey ${fixture.adminKey}`, "X-Forwarded-Host": "untrusted.invalid" };
     await openCircuit(fixture, guest, { invitation: "second-guest-invite", headers: maliciousHeaders });
     await waitFor(() => fixture.calls.filter((call) => call.target === "GetGuestState").length >= 2, "guest with untrusted browser headers");
-    assert.equal(fixture.handshakes.length, 6);
-    assert.ok(fixture.handshakes.slice(4).every(({ authorization }) => authorization === "Bearer second-guest-invite"), "Browser credentials and forwarded authority must not replace the guest invitation or configured API destination");
+    assert.equal(fixture.handshakes.length, 14);
+    assertGuestHandshakes(fixture, 8, "second-guest-invite");
     const previous = fixture.handshakes.length;
     const invalidCircuit = await openCircuit(fixture, guest, {
       invitation: "https://untrusted.invalid/hubs/control/v2",
       headers: maliciousHeaders,
     });
-    await waitFor(() => invalidCircuit.renders.some(({ afterInvitation, invalidInvitation }) => afterInvitation && invalidInvitation), "production invalid-invitation render after JS reply");
+    await waitFor(() => invalidCircuit.renders.some(({ afterBootstrap, invalidInvitation }) => afterBootstrap && invalidInvitation), "production invalid-invitation render after JS reply");
     await invalidCircuit.wire.dispose();
     fixture.connections.delete(invalidCircuit.wire);
     assert.equal(fixture.handshakes.length, previous, "A malformed invitation cannot become an API destination or use a browser's administrator credential");
@@ -180,15 +191,15 @@ test("isolated hosts and sessions clean up without sharing invitation or disconn
   const a = await openCircuit(first, firstHost, { invitation: "first-isolated-invite", headers: { Origin: firstHost.origin } });
   await openCircuit(second, secondHost, { invitation: "second-isolated-invite", headers: { Origin: secondHost.origin } });
   await waitFor(() => first.calls.some((call) => call.target === "GetGuestState") && second.calls.some((call) => call.target === "GetGuestState"), "both isolated guest sessions");
-  assert.ok(first.handshakes.every(({ authorization }) => authorization === "Bearer first-isolated-invite"));
-  assert.ok(second.handshakes.every(({ authorization }) => authorization === "Bearer second-isolated-invite"));
+  assertGuestHandshakes(first, 0, "first-isolated-invite");
+  assertGuestHandshakes(second, 0, "second-isolated-invite");
   await waitFor(() => a.jsCalls.includes("attach"), "real guest object-reference attachment");
   a.invokeGuestStop();
   await waitFor(() => first.pending.size === 1, "controlled pending GuestStop reply");
   await a.wire.dispose();
   await waitFor(() => [...first.sessions.values()].every((session) => session.closed), "guest circuit disposal closes its API socket");
   assert.equal(first.pending.size, 0, "Circuit teardown releases its pending API reply");
-  assert.ok([...second.sessions.values()].every((session) => !session.closed), "Disconnecting one fixture must not disconnect another");
+  assert.ok([...second.savedSessions.values()].some((saved) => saved.owner && !saved.owner.closed), "Disconnecting one fixture must not disconnect another");
   assert.equal((await exchange(secondHost.origin, "/health")).status, 200);
   // A startup failure must retain process ownership and remain cleanable.
   await assert.rejects(first.startHost("guest", { settings: { OSSM__Guest__GuestPort: "-1" } }), /exited before readiness/);

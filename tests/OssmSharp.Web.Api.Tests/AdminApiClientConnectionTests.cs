@@ -96,10 +96,11 @@ public sealed class AdminApiClientConnectionTests : MockerTestBase<AdminApiClien
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
+    [InlineData("Stop")]
+    [InlineData("EndGuest")]
+    [InlineData("RefreshInvitation")]
     [Trait("Category", "Integration")]
-    public async Task StopReachesServiceBeforePendingConnectCompletes(bool endGuest)
+    public async Task SafetyRequestReachesServiceBeforePendingConnectCompletes(string action)
     {
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var builder = WebApplication.CreateBuilder();
@@ -117,11 +118,16 @@ public sealed class AdminApiClientConnectionTests : MockerTestBase<AdminApiClien
         try
         {
             await entered.Task.WaitAsync(TestContext.Current.CancellationToken);
-            var response = await (endGuest
-                ? client.EndGuestAsync(TestContext.Current.CancellationToken)
-                : client.StopAsync(TestContext.Current.CancellationToken));
+            var response = await (action switch
+            {
+                "Stop" => client.StopAsync(TestContext.Current.CancellationToken),
+                "EndGuest" => client.EndGuestAsync(TestContext.Current.CancellationToken),
+                "RefreshInvitation" => client.RefreshInvitationAsync(TestContext.Current.CancellationToken),
+                _ => throw new ArgumentOutOfRangeException(nameof(action)),
+            });
 
             Assert.True(response.Accepted);
+            Assert.Equal(action == "RefreshInvitation" ? "invitation-refreshed" : "stopped", response.Code);
             Assert.False(connect.IsCompleted);
         }
         finally
@@ -188,6 +194,31 @@ public sealed class AdminApiClientConnectionTests : MockerTestBase<AdminApiClien
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
             () => client.GetStateAsync(cancellation.Token));
+    }
+
+    [Theory]
+    [InlineData("EndGuest")]
+    [InlineData("RefreshInvitation")]
+    [Trait("Category", "Integration")]
+    public async Task ConnectionLossCanFollowServerReceiptWithoutAnAcknowledgement(string action)
+    {
+        var received = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var builder = WebApplication.CreateBuilder();
+        builder.Logging.ClearProviders();
+        builder.Services.AddSignalR();
+        builder.Services.AddSingleton(received);
+        await using var app = builder.Build();
+        app.Urls.Add("http://127.0.0.1:0");
+        app.MapHub<DroppingControlHub>("/hubs/control/v2");
+        var token = TestContext.Current.CancellationToken;
+        await app.StartAsync(token);
+        _options.EndpointUri = app.Urls.Single();
+
+        var error = await Assert.ThrowsAsync<ApiClientException>(() => action == "EndGuest"
+            ? Component.EndGuestAsync(token) : Component.RefreshInvitationAsync(token));
+
+        Assert.True(received.Task.IsCompletedSuccessfully);
+        Assert.Equal("connection-unavailable", error.Code);
     }
 
     [Fact]

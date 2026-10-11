@@ -20,4 +20,6 @@ public sealed class BlockingControlHub(TaskCompletionSource entered, TaskComplet
     public Task<ControlResponse> ResetPosition(string correlation) => Connect(correlation);
 
     public ControlResponse EndGuest(string correlation) => new(correlation, "stopped", true);
+
+    public ControlResponse RefreshInvitation(string correlation) => new(correlation, "invitation-refreshed", true);
 }

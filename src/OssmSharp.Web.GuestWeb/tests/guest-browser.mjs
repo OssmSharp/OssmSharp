@@ -48,10 +48,12 @@ test("public guest manual and auto send wire controls to RPC and leave scrubs ca
   session.state.device = { ...session.state.device, speed: null, stroke: 0 };
   await currentSpeed(page, "unavailable");
   await button(page, "Leave session").click();
-  await page.getByTestId("guest-ended").waitFor({ state: "visible" });
+  await page.getByRole("alert").filter({ hasText: "You left the session." }).waitFor();
   assert.equal(session.calls.filter((name) => name === "Leave").length, 1);
+  assert.equal(session.calls.filter((name) => name === "LeaveSavedSession").length, 0);
+  assert.equal((await view.context.cookies()).some((cookie) => cookie.name === "ossm-guest-session"), false);
   assert.equal(new URL(page.url()).hash, "");
-  assertCapabilityAbsent(view, [invitation], fixture.fixture.adminKey);
+  assertCapabilityAbsent(view, [invitation, session.saved.credential], fixture.fixture.adminKey);
   assert.deepEqual(view.errors, []);
 });
 
@@ -80,8 +82,9 @@ test("admin invitation keyboard connect and safety actions reach their RPCs", op
   await complete(session, "EndGuest");
   assert.deepEqual(commands(session), ["Connect", "Stop", "EndGuest"]);
   await complete(session, "Connect", { accepted: false, code: "connection-failed" });
-  await page.getByRole("alert").filter({ hasText: "The action was rejected (connection-failed)." }).waitFor();
-  assert.equal(await button(page, "Connect device").isEnabled(), true);
+  await until(() => button(page, "Connect device").isEnabled(), true, "late Connect settles");
+  await page.getByRole("status").filter({ hasText: "Guest session ended." }).waitFor();
+  assert.equal(await page.getByRole("alert").filter({ hasText: "The action was rejected (connection-failed)." }).count(), 0);
   assert.equal(await page.getByRole("status").filter({ hasText: "Device connected." }).count(), 0);
   assert.deepEqual(errors, []);
 });
@@ -136,7 +139,7 @@ test("guest reset and acknowledged Stop permit only deliberate recovery", option
   await sent(page, "Speed", 35);
   assert.equal(session.requests.length, 2);
   session.state.controlAllowed = false;
-  await page.getByRole("status").filter({ hasText: "Waiting for the other person to start." }).waitFor();
+  await page.getByRole("status").filter({ hasText: "Connected. Waiting for the other person to allow control." }).waitFor();
   assert.equal(await page.getByLabel("Speed", { exact: true }).inputValue(), "0");
   assert.equal(await button(page, "Send").isDisabled(), true);
   session.state = guestState({ device: deviceState({ isArmed: false }) });
@@ -164,40 +167,54 @@ test("rejected invitation renders invalid without a transport-loss view", option
   assert.equal(new URL(page.url()).hash, "");
 });
 
-test("initial API failure renders recovery without fabricating a joined guest", options, async (t) => {
+test("initial API rejection renders a terminal error without a reload loop or fabricated guest controls", options, async (t) => {
   const fixture = await createBrowserFixture(t, browser);
-  fixture.provision("initial-api-failure").failReads = true;
+  const session = fixture.provision("initial-api-failure");
+  session.failReads = true;
   const host = await fixture.guestHost();
   const context = await fixture.context();
   const { page, errors } = await observePage(context);
   await page.goto(`${host.origin}/join#invite=initial-api-failure`);
   await page.getByTestId("guest-disconnected").waitFor({ state: "visible" });
-  assert.equal(await page.getByRole("alert").filter({ hasText: "Connection lost." }).count(), 1);
+  assert.equal(await page.getByRole("alert").filter({ hasText: "The guest page could not start." }).count(), 1);
   assert.equal(await page.getByRole("region", { name: "Requested settings", exact: true }).count(), 0);
   assert.equal(await page.getByTestId("guest-invalid").count(), 0);
   assert.equal(new URL(page.url()).hash, "");
+  assert.equal(session.saved.owner, null);
+  assert.equal(fixture.fixture.calls.filter(({ target }) => target === "Join").length, 1);
   assert.deepEqual(errors, []);
 });
 
-test("public circuit loss disposes its API connection and latches guest controls", options, async (t) => {
+test("public circuit loss disposes its API connection and pauses controls until Stop permits fresh recovery", options, async (t) => {
   const fixture = await createBrowserFixture(t, browser);
   const { page, session, host } = await fixture.openGuest("public-circuit-loss", { publicHost: true });
-  assert.equal(session.api.closed, false);
+  const owner = session.saved.owner;
+  session.holdDisconnectStop = true;
+  assert.equal(owner.closed, false);
   host.proxy.disconnect();
-  await waitFor(() => session.api.closed, "GuestCircuitHandler API disposal", 10_000);
+  await waitFor(() => owner.closed, "GuestCircuitHandler API disposal", 10_000);
   await page.getByTestId("guest-disconnected").waitFor({ state: "visible" });
   assert.equal(await button(page, "Send").isDisabled(), true);
-  assert.equal(await page.evaluate(() => sessionStorage.getItem("ossm-guest-connection-lost")), "true");
+  assert.equal(await page.evaluate(() => sessionStorage.getItem("ossm-guest-connection-lost")), null);
+  assert.equal(session.state.controlAllowed, true);
+  assert.equal(session.disconnectStops, 1);
+  session.holdDisconnectStop = false;
+  session.saved.stopPending = false;
+  await until(() => button(page, "Send").isEnabled(), true, "fresh circuit attachment");
+  assert.ok(session.saved.owner !== owner);
+  assert.equal(await page.getByLabel("Speed", { exact: true }).inputValue(), "0");
+  assert.equal(await page.getByLabel("Auto send", { exact: true }).isChecked(), false);
+  assert.equal(session.requests.length, 0);
 });
 
-test("fresh and same-document invitations redeem without capability navigation frames", options, async (t) => {
+test("fresh and same-document invitation links resume saved authority without capability navigation frames", options, async (t) => {
   const fixture = await createBrowserFixture(t, browser);
   const tokens = ["navigation-first", "navigation-fresh", "navigation-link"];
   const view = await fixture.openGuest(tokens[0]);
   fixture.provision(tokens[1]);
   const linked = fixture.provision(tokens[2]);
   await view.page.goto(`${view.host.origin}/join#invite=${tokens[1]}`);
-  await waitFor(() => fixture.fixture.calls.some(({ target, arguments: args }) => target === "Join" && args[0].invitationToken === tokens[1]), "fresh document invitation redemption");
+  await waitFor(() => view.session.calls.filter((target) => target === "Join").length === 2, "fresh document saved-session attachment");
   await until(() => new URL(view.page.url()).hash, "", "fresh invitation scrubbing");
   await until(() => button(view.page, "Send").isEnabled(), true, "fresh document invitation");
   assert.equal(new URL(view.page.url()).hash, "");
@@ -209,12 +226,14 @@ test("fresh and same-document invitations redeem without capability navigation f
     element.append(link);
   }, tokens[2]);
   await view.page.getByRole("link", { name: "Reopen test invitation", exact: true }).click();
-  await waitFor(() => linked.calls.includes("Join"), "same-document invitation redemption");
+  await waitFor(() => view.session.calls.filter((target) => target === "Join").length === 3, "same-document saved-session attachment");
   await until(() => button(view.page, "Send").isEnabled(), true, "same-document readiness");
   assert.equal(new URL(view.page.url()).hash, "");
-  const joins = fixture.fixture.calls.filter(({ target }) => target === "Join").map(({ arguments: args }) => args[0].invitationToken);
-  assert.deepEqual(joins, tokens);
-  assertCapabilityAbsent(view, tokens, fixture.fixture.adminKey);
+  const joins = fixture.fixture.calls.filter(({ target }) => target === "Join").map(({ session }) => session.invitationToken);
+  assert.deepEqual(joins, [tokens[0], tokens[0], tokens[0]]);
+  assert.equal(linked.calls.length, 0);
+  assert.equal(view.session.calls.filter((target) => target === "Redeem").length, 1);
+  assertCapabilityAbsent(view, [...tokens, view.session.saved.credential], fixture.fixture.adminKey);
   assert.deepEqual(view.errors, []);
 });
 
@@ -227,9 +246,13 @@ test("polling an ended guest retains ended rather than disconnected semantics", 
   await until(() => button(page, "Send").isEnabled(), true, "initial device recovery");
   assert.equal(session.requests.length, 0);
   session.state = guestState({ joined: false, controlAllowed: false, device: null });
-  await page.getByTestId("guest-ended").waitFor({ state: "visible" });
+  session.saved.valid = false;
+  const notice = page.getByTestId("guest-disconnected");
+  await until(() => notice.innerText(), (text) => text.includes("Session ended."), "ended guest notice");
+  await notice.waitFor({ state: "visible" });
+  assert.doesNotMatch(await notice.innerText(), /Connection lost|Reconnecting/);
+  assert.equal(await notice.getByRole("button", { name: "Leave session", exact: true }).isHidden(), true);
   assert.equal(await button(page, "Send").count(), 0);
-  assert.equal(await page.getByTestId("guest-disconnected").isVisible(), false);
   assert.equal(await page.evaluate(() => sessionStorage.getItem("ossm-guest-connection-lost")), null);
   assert.equal(session.calls.includes("Renew"), false);
   assert.deepEqual(errors, []);
@@ -266,6 +289,7 @@ test("admin metadata timer and API loss retain last requested state", options, a
 
 test("component import failure leaves one bootstrap fallback notice", options, async (t) => {
   const fixture = await createBrowserFixture(t, browser);
+  fixture.provision("component-failure");
   const host = await fixture.guestHost();
   const context = await fixture.context();
   let bootstrapLoaded = false;
@@ -289,30 +313,35 @@ test("component import failure leaves one bootstrap fallback notice", options, a
   });
   const { page } = await observePage(context);
   await page.goto(`${host.origin}/join#invite=component-failure`);
-  await page.getByRole("alert").filter({ hasText: "Connection lost." }).waitFor();
+  await page.getByRole("alert").filter({ hasText: "The guest page could not start." }).waitFor();
   assert.equal(bootstrapLoaded, true);
   assert.equal(componentImportAborted, true);
-  assert.equal(await page.getByRole("alert").filter({ hasText: "Connection lost." }).count(), 1);
+  assert.equal(await page.getByRole("alert").filter({ hasText: "The guest page could not start." }).count(), 1);
   assert.equal(await page.getByRole("region", { name: "Requested settings", exact: true }).count(), 0);
   assert.equal(await page.getByRole("region", { name: "Pattern preview", exact: true }).count(), 0);
-  assert.equal(await page.getByTestId("guest-invalid").count(), 0);
+  assert.equal(await page.getByTestId("guest-invalid").isVisible(), true);
   assert.equal(await page.getByTestId("guest-disconnected").isVisible(), false);
-  assert.equal(fixture.fixture.calls.length, 0);
+  assert.equal(fixture.fixture.calls.filter(({ target }) => target === "Join").length, 0);
+  assert.equal(fixture.fixture.calls.filter(({ target }) => target === "Redeem").length, 1);
 });
 
-test("guest API loss disables all commands persistently through reload", options, async (t) => {
+test("guest API loss keeps stale controls locked through markup replacement and reload until safe recovery", options, async (t) => {
   const fixture = await createBrowserFixture(t, browser);
   const { page, session, host, errors } = await fixture.openGuest("persistent-api-loss");
   await setRange(page, "Speed", 50);
   const originalSend = await button(page, "Send").elementHandle();
+  session.holdDisconnectStop = true;
   await session.api.wire.dispose();
   const notice = page.getByTestId("guest-disconnected");
   await notice.waitFor({ state: "visible" });
-  for (const name of ["Send", "Stop", "Reset Position", "Leave session"]) assert.equal(await button(page, name).isDisabled(), true);
+  for (const name of ["Send", "Stop", "Reset Position"]) assert.equal(await button(page, name).isDisabled(), true);
+  assert.equal(await page.getByRole("complementary", { name: "Pattern", exact: true })
+    .getByRole("button", { name: "Leave session", exact: true }).isDisabled(), true);
+  assert.equal(await notice.getByRole("button", { name: "Leave session", exact: true }).isEnabled(), true);
   assert.equal(await page.getByLabel("Auto send", { exact: true }).isDisabled(), true);
   assert.equal(await page.getByLabel("Speed", { exact: true }).inputValue(), "0");
-  assert.match(await notice.innerText(), /Connection lost.*invitation link again/s);
-  assert.equal(await page.evaluate(() => sessionStorage.getItem("ossm-guest-connection-lost")), "true");
+  assert.match(await notice.innerText(), /Connection lost|Waiting for Stop/);
+  assert.equal(await page.evaluate(() => sessionStorage.getItem("ossm-guest-connection-lost")), null);
   // A real fresh layout fragment replaces only the recovery notice, not the circuit.
   const freshPage = await page.context().newPage();
   await freshPage.goto(`${host.origin}/join`);
@@ -337,7 +366,14 @@ test("guest API loss disables all commands persistently through reload", options
   await notice.waitFor({ state: "visible" });
   assert.equal(await button(page, "Send").count(), 0);
   assert.equal(await page.getByTestId("guest-invalid").isVisible(), false);
-  assert.equal(await page.evaluate(() => sessionStorage.getItem("ossm-guest-connection-lost")), "true");
+  assert.equal(await page.evaluate(() => sessionStorage.getItem("ossm-guest-connection-lost")), null);
+  session.holdDisconnectStop = false;
+  session.saved.stopPending = false;
+  await until(() => button(page, "Send").isEnabled(), true, "safe saved-session recovery");
+  assert.equal(await page.getByLabel("Speed", { exact: true }).inputValue(), "0");
+  assert.equal(await page.getByLabel("Auto send", { exact: true }).isChecked(), false);
+  assert.match(await page.getByLabel("Speed", { exact: true }).getAttribute("aria-valuetext"), /Sent value: none\./);
+  assert.equal(session.requests.length, count);
   assert.deepEqual(errors, []);
 });
 
@@ -346,7 +382,7 @@ function pickSettings(request) {
 }
 
 function commands(session) {
-  return session.calls.filter((name) => !["Join", "GetGuestState", "GetUserState", "SetPreviewDimensions"].includes(name));
+  return session.calls.filter((name) => !["Redeem", "GetSavedSession", "Join", "GetGuestState", "GetUserState", "SetPreviewDimensions"].includes(name));
 }
 
 async function currentSpeed(page, value) {

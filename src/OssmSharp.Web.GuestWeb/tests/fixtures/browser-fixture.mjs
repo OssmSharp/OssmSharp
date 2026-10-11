@@ -28,7 +28,7 @@ export function guestState(overrides = {}) {
 }
 
 export function userState(device = null) {
-  return { invitation: { token: "isolated-admin-invite" }, guestJoined: true, guestControlAllowed: false, controlExpiresAt: null, device };
+  return { invitation: { token: "isolated-admin-invite" }, guestJoined: true, guestConnected: true, invitationConsumed: false, guestControlAllowed: false, controlExpiresAt: null, device };
 }
 
 export async function launchBrowser() {
@@ -41,7 +41,10 @@ export async function launchBrowser() {
 }
 
 function apiSession(state) {
-  return { state, calls: [], requests: [], pending: new Map(), reads: 0, holdReads: false, failReads: false, holdStop: false };
+  return {
+    state, calls: [], requests: [], pending: new Map(), reads: 0, holdReads: false, failReads: false, holdStop: false,
+    disconnectStops: 0, holdDisconnectStop: false,
+  };
 }
 
 /** Browser-only collaborator options reuse the independent real HTTP host fixture. */
@@ -51,20 +54,42 @@ export async function createBrowserFixture(t, browser) {
   const fixture = await createWebHostFixture({
     api: {
       authorize: (authorization) => authorization !== "Bearer rejected-invite",
+      admitted(saved) {
+        const session = guests.get(saved.invitationToken);
+        session.saved = saved;
+        session.state = { ...session.state, sessionExpiresAt: saved.expiresAt };
+      },
+      detached(saved) {
+        const session = guests.get(saved.invitationToken);
+        session.disconnectStops++;
+        saved.stopPending = session.holdDisconnectStop;
+        session.state = {
+          ...session.state, canResumeAfterStop: session.state.controlAllowed === true,
+          device: session.state.device && { ...session.state.device, isArmed: false, speed: 0 },
+        };
+      },
+      revoked(saved) {
+        const session = guests.get(saved.invitationToken);
+        session.state = { ...session.state, joined: false, controlAllowed: false };
+      },
+      invitationChanged(invitation) {
+        admin.state = {
+          ...admin.state, invitation: { token: invitation }, invitationConsumed: false,
+          guestJoined: false, guestConnected: false, guestControlAllowed: false, guestSessionExpiresAt: null,
+        };
+      },
       invoke(call, { reply, reject }) {
         const session = call.session.authorization === `ServiceKey ${fixture.adminKey}`
-          ? admin : guests.get(call.session.authorization.slice("Bearer ".length));
+          ? admin : guests.get(call.session.invitationToken);
         if (!session) throw new Error("Browser API call has no explicitly provisioned session");
-        session.api = call.session;
         session.calls.push(call.target);
+        if (["Redeem", "GetSavedSession", "Join", "LeaveSavedSession", "Leave"].includes(call.target)) return false;
+        session.api = call.session;
         if (call.target === "GetGuestState" || call.target === "GetUserState") {
           session.reads++;
           if (session.failReads) reject();
           else if (session.holdReads) session.pending.set(call.target, reply);
           else reply(session.state);
-        } else if (call.target === "Join") {
-          assert.equal(call.arguments[0].invitationToken, call.session.authorization.slice("Bearer ".length));
-          reply(accepted);
         } else if (call.target === "SetPreviewDimensions") {
           assert.equal(session, admin, "Only the user can update preview dimensions");
           admin.state = { ...admin.state, preview: call.arguments[1] };
@@ -78,16 +103,13 @@ export async function createBrowserFixture(t, browser) {
             device: { ...session.state.device, ...submitted, isArmed: true },
           };
           reply({ correlationId: submitted.correlationId, status: 0 });
-        } else if (call.target === "Leave") {
-          session.state = { ...session.state, joined: false, controlAllowed: false };
-          reply(accepted);
         } else if (call.target === "GuestStop" && !session.holdStop) {
           session.state = {
             ...session.state, canResumeAfterStop: true,
             device: { ...session.state.device, isArmed: false, speed: 0 },
           };
           reply(accepted);
-        } else if (["GuestStop", "GuestResetPosition", "Connect", "AllowGuest", "Stop", "EndGuest", "ResetPosition"].includes(call.target)) {
+        } else if (["GuestStop", "GuestResetPosition", "Connect", "AllowGuest", "Stop", "EndGuest", "RefreshInvitation", "ResetPosition"].includes(call.target)) {
           assert.equal(session.pending.has(call.target), false, "A pending command cannot be duplicated");
           session.pending.set(call.target, reply);
         } else {
@@ -266,7 +288,9 @@ export function assertCapabilityAbsent(view, tokens, serviceKey) {
     assert.equal(frame.includes("#invite="), false);
     assert.equal(frame.includes(serviceKey), false);
   }
-  // The invitation legitimately crosses JS interop for redemption, never navigation.
+  // Invitations cross the HTTP redemption boundary, never circuit interop or navigation.
+  for (const frame of view.sentFrames)
+    for (const token of tokens) assert.equal(frame.includes(token), false);
   for (const message of view.navigationFrames) {
     const frame = JSON.stringify(message);
     for (const token of tokens) assert.equal(frame.includes(token), false);

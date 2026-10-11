@@ -24,6 +24,7 @@ public partial class Home
     private bool _previewStopped;
     private double _attachmentLengthCm = DefaultAttachmentLengthCm;
     private bool _sharingPreview;
+    private long _actionNoticeVersion;
 
     private DeviceSettingsSnapshot? _stoppedSettings;
     private string _noticeVariant = "success";
@@ -44,6 +45,8 @@ public partial class Home
     private string GuestStatus => _state switch
     {
         { GuestJoined: false } => "No guest",
+        { GuestConnected: false, GuestControlAllowed: true } => "Guest allowed (offline)",
+        { GuestConnected: false } => "Guest offline",
         { GuestControlAllowed: true } => "Guest allowed",
         _ => "Guest joined",
     };
@@ -156,11 +159,12 @@ public partial class Home
         }
     }
 
-    private Task AllowGuest() => RunAsync(Control.AllowGuestAsync, null);
-    private Task Stop() => RunAsync(Control.StopAsync, "Stopped.", safety: true, stopPreview: true, pendingMessage: "Stopping ...");
-    private Task ResetPosition() => RunAsync(Control.ResetPositionAsync, "Position reset. Stopped.", stopPreview: true, pendingMessage: "Resetting position ...");
-    private Task EndGuest() => RunAsync(Control.EndGuestAsync, "Guest session ended.", safety: true);
-    private Task Connect() => RunAsync(Control.ConnectAsync, null, confirmConnection: true);
+    private Task AllowGuest() => RunAsync(nameof(IAdminApiClient.AllowGuestAsync), Control.AllowGuestAsync, null);
+    private Task Stop() => RunAsync(nameof(IAdminApiClient.StopAsync), Control.StopAsync, "Stopped.", safety: true, stopPreview: true, pendingMessage: "Stopping ...");
+    private Task ResetPosition() => RunAsync(nameof(IAdminApiClient.ResetPositionAsync), Control.ResetPositionAsync, "Position reset. Stopped.", stopPreview: true, pendingMessage: "Resetting position ...");
+    private Task EndGuest() => RunAsync(nameof(IAdminApiClient.EndGuestAsync), Control.EndGuestAsync, "Guest session ended.", safety: true, stopPreview: true, pendingMessage: "Ending guest session ...");
+    private Task RefreshInvitation() => RunAsync(nameof(IAdminApiClient.RefreshInvitationAsync), Control.RefreshInvitationAsync, "Invitation refreshed. The previous guest session ended.", safety: true, stopPreview: true, pendingMessage: "Refreshing invitation ...");
+    private Task Connect() => RunAsync(nameof(IAdminApiClient.ConnectAsync), Control.ConnectAsync, null, confirmConnection: true);
 
     private async Task SetAttachmentLength(ChangeEventArgs args)
     {
@@ -228,15 +232,18 @@ public partial class Home
 
     private async Task Copy()
     {
-        if (_module is null || _state is null)
+        if (_module is null || _state is null || _state.InvitationConsumed)
             return;
         _notice.CopyCompleted(await _module.InvokeAsync<bool>("copy", InvitationText));
     }
 
-    private async Task RunAsync(Func<CancellationToken, Task<ControlResponse>> command, string? message, bool safety = false, bool confirmConnection = false, bool stopPreview = false, string? pendingMessage = null)
+    private async Task RunAsync(string action, Func<CancellationToken, Task<ControlResponse>> command, string? message, bool safety = false, bool confirmConnection = false, bool stopPreview = false, string? pendingMessage = null)
     {
         if (_safetyBusy || (!safety && _busy))
             return;
+        var noticeVersion = ++_actionNoticeVersion;
+        var accepted = false;
+        var previousInvitation = safety ? _state?.Invitation.Token : null;
         if (safety)
             _safetyBusy = true;
         else
@@ -255,8 +262,14 @@ public partial class Home
         try
         {
             await command(_lifetime.Token);
+            accepted = true;
             if (!safety || !_busy)
                 _state = await Control.GetStateAsync(_lifetime.Token);
+            if (noticeVersion != _actionNoticeVersion)
+            {
+                Logger.SupersededActionCompleted(action, "accepted");
+                return;
+            }
             if (stopPreview)
                 _stoppedSettings = _state?.Device?.TransmittedSettings;
             if (confirmConnection && _state?.Device?.IsConnected != true)
@@ -267,13 +280,9 @@ public partial class Home
                 _notice.Show(message);
             }
         }
-        catch (RpcClientRequestTimeoutException)
+        catch (Exception error) when (error is ApiClientException or RpcClientRequestTimeoutException)
         {
-            _notice.Show("The action outcome is unknown. Check the latest state before trying again.", true);
-        }
-        catch (ApiClientException error)
-        {
-            _notice.Show($"The action was rejected ({error.Code}).", true);
+            await ShowActionFailureAsync(action, message, previousInvitation, accepted, noticeVersion, error);
         }
         finally
         {
@@ -285,6 +294,47 @@ public partial class Home
                 _connecting = false;
             }
             await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private Task ShowActionFailureAsync(string action, string? message, string? previousInvitation, bool accepted, long noticeVersion, Exception error)
+    {
+        if (noticeVersion != _actionNoticeVersion)
+        {
+            var result = accepted ? "accepted-state-unavailable" : error is ApiClientException { Code: not ("invalid-response" or "connection-unavailable") } ? "rejected" : "unknown";
+            Logger.SupersededActionCompleted(action, result);
+            return Task.CompletedTask;
+        }
+        if (accepted)
+        {
+            Logger.SessionStateRefreshFailed(action);
+            var failureMessage = message is null
+                ? "The action completed, but the latest state is unavailable. Reload the page."
+                : $"{message} The latest state is unavailable. Reload the page.";
+            _notice.Show(failureMessage, true);
+            return Task.CompletedTask;
+        }
+        if (error is ApiClientException { Code: not ("invalid-response" or "connection-unavailable") } rejection)
+            return ShowActionRejectedAsync(action, rejection.Code, previousInvitation);
+        _notice.Show("The action outcome is unknown. Check the latest state before trying again.", true);
+        return Task.CompletedTask;
+    }
+
+    private async Task ShowActionRejectedAsync(string action, string code, string? previousInvitation)
+    {
+        _notice.Show($"The action was rejected ({code}).", true);
+        if (previousInvitation is null)
+            return;
+        try
+        {
+            _state = await Control.GetStateAsync(_lifetime.Token);
+            if (_state.Invitation.Token != previousInvitation)
+                _notice.Show($"Guest session ended. Stop was not confirmed ({code}). Use Stop again.", true);
+        }
+        catch (Exception exception) when (exception is ApiClientException or RpcClientRequestTimeoutException)
+        {
+            Logger.SessionStateRefreshFailed(action);
+            _notice.Show($"The action was rejected ({code}). The latest session state is unavailable.", true);
         }
     }
 

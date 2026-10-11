@@ -17,6 +17,16 @@ public interface IRpcClient : IAsyncDisposable
     Task StartAsync(CancellationToken cancellationToken, string? invitationToken = null);
 
     /// <summary>
+    /// Starts this connection with a saved guest credential instead of invitation or administrator authority.
+    /// </summary>
+    /// <param name="sessionToken">The invitation-bound saved-session credential.</param>
+    /// <param name="cancellationToken">Cancels connection startup.</param>
+    /// <returns>Completion of startup. Each client can start only once.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="sessionToken"/> is null.</exception>
+    /// <exception cref="ArgumentException"><paramref name="sessionToken"/> is empty or whitespace.</exception>
+    Task StartSessionAsync(string sessionToken, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Invokes an RPC method on the started connection.
     /// </summary>
     /// <typeparam name="T">The response type.</typeparam>

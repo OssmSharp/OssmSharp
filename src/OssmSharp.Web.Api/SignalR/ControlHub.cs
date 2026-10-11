@@ -11,6 +11,32 @@ namespace OssmSharp.Web.Api.SignalR;
 public sealed class ControlHub(IControlSession session) : Hub
 {
     /// <summary>
+    /// Consumes an invitation once and returns a private saved-session credential without attaching a controller.
+    /// </summary>
+    /// <param name="request">The invitation token and request identifier.</param>
+    /// <returns>The redemption result and, on acceptance, a private credential with its fixed 24-hour expiry.</returns>
+    [Authorize(Policy = ControlServicePolicies.Invitation)]
+    public GuestRedemptionResponse Redeem(GuestJoinRequest request) =>
+        session.RedeemInvitation(Context.User?.FindFirstValue(ClaimTypes.NameIdentifier), request);
+
+    /// <summary>
+    /// Reads saved-session availability without attaching a controller; expired sessions are revoked and request Stop.
+    /// </summary>
+    /// <returns>The current session's availability and original expiry, or <see langword="null"/> if revoked or expired.</returns>
+    [Authorize(Policy = ControlServicePolicies.GuestWeb)]
+    public SavedGuestSession? GetSavedSession() =>
+        session.GetSavedGuestSession(Context.User?.FindFirstValue(ClaimTypes.NameIdentifier));
+
+    /// <summary>
+    /// Revokes the authenticated saved session only while no controller is attached, and requests Stop.
+    /// </summary>
+    /// <param name="correlation">The request identifier.</param>
+    /// <returns>The Stop result. Revocation persists even if device cleanup fails.</returns>
+    [Authorize(Policy = ControlServicePolicies.GuestWeb)]
+    public Task<ControlResponse> LeaveSavedSession(string correlation) =>
+        session.LeaveSavedGuestAsync(Context.User?.FindFirstValue(ClaimTypes.NameIdentifier), correlation);
+
+    /// <summary>
     /// Returns invitation, guest permission, and runtime state visible to the user.
     /// </summary>
     [Authorize(Policy = ControlServicePolicies.AdminWeb)]
@@ -34,11 +60,13 @@ public sealed class ControlHub(IControlSession session) : Hub
         session.GetGuestStateAsync(Context.ConnectionId, Context.ConnectionAborted);
 
     /// <summary>
-    /// Admits the calling guest using an invitation.
+    /// Attaches the calling controller to its authenticated saved guest session without restarting motion.
     /// </summary>
+    /// <param name="correlation">The request identifier.</param>
+    /// <returns>The attachment result; an occupied controller slot or pending cleanup prevents attachment.</returns>
     [Authorize(Policy = ControlServicePolicies.GuestWeb)]
-    public ControlResponse Join(GuestJoinRequest request) =>
-        session.JoinGuest(Context.ConnectionId, Context.User?.FindFirstValue(ClaimTypes.NameIdentifier), request);
+    public ControlResponse Join(string correlation) =>
+        session.JoinGuest(Context.ConnectionId, Context.User?.FindFirstValue(ClaimTypes.NameIdentifier), correlation);
 
     /// <summary>
     /// Submits complete settings for the calling guest.
@@ -102,6 +130,15 @@ public sealed class ControlHub(IControlSession session) : Hub
     [Authorize(Policy = ControlServicePolicies.AdminWeb)]
     public Task<ControlResponse> EndGuest(string correlation) =>
         session.EndGuestAsync(correlation);
+
+    /// <summary>
+    /// Replaces the invitation and revokes the saved guest session before awaiting Stop.
+    /// </summary>
+    /// <param name="correlation">The request identifier.</param>
+    /// <returns>The refresh result. The new invitation remains current even if required Stop cleanup fails.</returns>
+    [Authorize(Policy = ControlServicePolicies.AdminWeb)]
+    public Task<ControlResponse> RefreshInvitation(string correlation) =>
+        session.RefreshInvitationAsync(correlation);
 
     /// <summary>
     /// Connects the selected device through the runtime.

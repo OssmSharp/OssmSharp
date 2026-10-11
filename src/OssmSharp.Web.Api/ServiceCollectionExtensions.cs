@@ -32,7 +32,9 @@ public static class ServiceCollectionExtensions
             .AddScheme<ServiceKeyAuthenticationOptions, ServiceKeyAuthenticationHandler>(
                 ServiceKeyAuthenticationDefaults.Scheme, static _ => { })
             .AddScheme<AuthenticationSchemeOptions, InvitationAuthenticationHandler>(
-                InvitationAuthenticationHandler.SchemeName, static _ => { });
+                InvitationAuthenticationHandler.SchemeName, static _ => { })
+            .AddScheme<AuthenticationSchemeOptions, GuestSessionAuthenticationHandler>(
+                GuestSessionAuthenticationHandler.SchemeName, static _ => { });
 
         services.AddAuthorization(options =>
         {
@@ -41,13 +43,17 @@ public static class ServiceCollectionExtensions
                 .RequireAuthenticatedUser()
                 .RequireRole(ControlServiceRoles.AdminWeb));
             options.AddPolicy(ControlServicePolicies.GuestWeb, policy => policy
-                .AddAuthenticationSchemes(InvitationAuthenticationHandler.SchemeName)
+                .AddAuthenticationSchemes(GuestSessionAuthenticationHandler.SchemeName)
                 .RequireAuthenticatedUser()
                 .RequireRole(ControlServiceRoles.GuestWeb));
-            options.AddPolicy(ControlServicePolicies.Service, policy => policy
-                .AddAuthenticationSchemes(ServiceKeyAuthenticationDefaults.Scheme, InvitationAuthenticationHandler.SchemeName)
+            options.AddPolicy(ControlServicePolicies.Invitation, policy => policy
+                .AddAuthenticationSchemes(InvitationAuthenticationHandler.SchemeName)
                 .RequireAuthenticatedUser()
-                .RequireRole(ControlServiceRoles.AdminWeb, ControlServiceRoles.GuestWeb));
+                .RequireRole(ControlServiceRoles.Invitation));
+            options.AddPolicy(ControlServicePolicies.Service, policy => policy
+                .AddAuthenticationSchemes(ServiceKeyAuthenticationDefaults.Scheme, InvitationAuthenticationHandler.SchemeName, GuestSessionAuthenticationHandler.SchemeName)
+                .RequireAuthenticatedUser()
+                .RequireRole(ControlServiceRoles.AdminWeb, ControlServiceRoles.GuestWeb, ControlServiceRoles.Invitation));
         });
 
         services.AddOssmSharpOemRuntime();

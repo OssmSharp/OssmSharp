@@ -1,3 +1,5 @@
+using System.Security.Claims;
+using Microsoft.AspNetCore.Components.Authorization;
 using FastMoq;
 using FastMoq.Extensions;
 using FastMoq.Providers;
@@ -10,6 +12,7 @@ using OssmSharp.Web.Client.Clients;
 using OssmSharp.Web.Client.Models;
 using OssmSharp.Web.Contracts;
 using OssmSharp.Web.GuestWeb.Components.Pages;
+using OssmSharp.Web.GuestWeb.Services;
 using Xunit;
 
 namespace OssmSharp.Web.Api.Tests;
@@ -27,6 +30,10 @@ public sealed class JoinComponentTests : MockerTestBase<Join>, IAsyncDisposable
         _module = new();
         _time = new();
         mocks.AddType<TimeProvider>(_time);
+        mocks.GetOrCreateMock<AuthenticationStateProvider>().AsMoq()
+            .Setup(provider => provider.GetAuthenticationStateAsync())
+            .ReturnsAsync(new AuthenticationState(new ClaimsPrincipal(new ClaimsIdentity(
+                [new Claim(GuestSessionEndpoints.CredentialClaim, "saved-credential")], GuestSessionEndpoints.Scheme))));
         mocks.GetOrCreateMock<IJSRuntime>().AsMoq()
             .Setup(js => js.InvokeAsync<IJSObjectReference>("import", It.IsAny<CancellationToken>(), It.IsAny<object?[]>()))
             .Returns(new ValueTask<IJSObjectReference>(_module));
@@ -39,6 +46,7 @@ public sealed class JoinComponentTests : MockerTestBase<Join>, IAsyncDisposable
         ComponentTestAccess.Inject(component, "Time", _time);
         ComponentTestAccess.Inject(component, "JavaScript", Mocks.GetRequiredObject<IJSRuntime>());
         ComponentTestAccess.Inject(component, "Logger", NullLogger<Join>.Instance);
+        ComponentTestAccess.Inject(component, "Authentication", Mocks.GetRequiredObject<AuthenticationStateProvider>());
         _renderer = new(component);
     };
 
@@ -146,24 +154,24 @@ public sealed class JoinComponentTests : MockerTestBase<Join>, IAsyncDisposable
     }
 
     [Theory]
-    [InlineData("invalid-invitation", false, false)]
+    [InlineData("invalid-guest-session", false, false)]
     [InlineData("connection-unavailable", true, false)]
     [InlineData("outcome-unknown", true, false)]
     [InlineData("connection-unavailable", true, true)]
     [InlineData("outcome-unknown", true, true)]
-    public async Task InitializationDistinguishesInvalidAndPersistentLoss(string code, bool lost, bool afterJoin)
+    public async Task InitializationDistinguishesInvalidSessionAndRecoverableLoss(string code, bool lost, bool afterJoin)
     {
         Exception failure = code == "outcome-unknown"
             ? new RpcClientRequestTimeoutException(new TimeoutException())
             : new ApiClientException(code);
         if (afterJoin)
         {
-            _client.Setup(client => client.JoinAsync("synthetic-invitation", It.IsAny<CancellationToken>()))
+            _client.Setup(client => client.ResumeAsync("saved-credential", It.IsAny<CancellationToken>()))
                 .ReturnsAsync(new ControlResponse("join", "joined", true));
             _client.Setup(client => client.GetStateAsync(It.IsAny<CancellationToken>())).ThrowsAsync(failure);
         }
         else
-            _client.Setup(client => client.JoinAsync("synthetic-invitation", It.IsAny<CancellationToken>())).ThrowsAsync(failure);
+            _client.Setup(client => client.ResumeAsync("saved-credential", It.IsAny<CancellationToken>())).ThrowsAsync(failure);
         await _renderer.RunAsync(() => ComponentTestAccess.InvokeTask(Component, "OnAfterRenderAsync", true));
         Assert.True(Read<bool>("_initialized"));
         Assert.False(Read<bool>("_joined"));
@@ -171,8 +179,97 @@ public sealed class JoinComponentTests : MockerTestBase<Join>, IAsyncDisposable
         Assert.False(Read<bool>("_joining"));
         Assert.Equal(lost, Read<bool>("_connectionLost"));
         Assert.Equal(lost ? 1 : 0, _module.Calls.Count(call => call.Method == "disconnect"));
-        Mocks.Verify<IGuestApiClient>(client => client.JoinAsync("synthetic-invitation", FastArg.Any<CancellationToken>()), TimesSpec.Once);
+        Mocks.Verify<IGuestApiClient>(client => client.ResumeAsync("saved-credential", FastArg.Any<CancellationToken>()), TimesSpec.Once);
         Mocks.Verify<IGuestApiClient>(client => client.GetStateAsync(FastArg.Any<CancellationToken>()), TimesSpec.Exactly(afterJoin ? 1 : 0));
+        AssertNoMotion();
+    }
+
+    [Fact]
+    public async Task InitializationRejectionCannotCreateAnAutomaticReloadLoop()
+    {
+        _client.Setup(client => client.ResumeAsync("saved-credential", It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new ApiClientException("request-failed"));
+
+        await _renderer.RunAsync(() => ComponentTestAccess.InvokeTask(Component, "OnAfterRenderAsync", true));
+
+        Assert.True(Read<bool>("_initialized"));
+        Assert.False(Read<bool>("_joined"));
+        Assert.False(Read<bool>("_connectionLost"));
+        Assert.Equal("initialization-failed", Read<string>("_sessionCode"));
+        Assert.Single(_module.Calls, call => call.Method == "endSession");
+        Assert.DoesNotContain(_module.Calls, call => call.Method == "disconnect");
+        AssertNoMotion();
+    }
+
+    [Fact]
+    public async Task BrowserImportFailureRendersATerminalErrorWithoutAttachingControl()
+    {
+        Mocks.GetOrCreateMock<IJSRuntime>().AsMoq()
+            .Setup(js => js.InvokeAsync<IJSObjectReference>("import", It.IsAny<CancellationToken>(), It.IsAny<object?[]>()))
+            .Throws(new JSException("Import failed"));
+
+        await _renderer.RunAsync(() => ComponentTestAccess.InvokeTask(Component, "OnAfterRenderAsync", true));
+
+        Assert.True(Read<bool>("_initialized"));
+        Assert.False(Read<bool>("_joined"));
+        Assert.False(Read<bool>("_connectionLost"));
+        Assert.Equal("initialization-failed", Read<string>("_sessionCode"));
+        Assert.Contains("could not start", Read<string>("EndedMessage"));
+        Mocks.Verify<IGuestApiClient>(client => client.ResumeAsync(FastArg.Any<string>(), FastArg.Any<CancellationToken>()), TimesSpec.NeverCalled);
+        AssertNoMotion();
+    }
+
+    [Fact]
+    public async Task InitializationUsesSavedServerPrincipalWithoutExposingCredentialToBrowser()
+    {
+        _client.Setup(client => client.ResumeAsync("saved-credential", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ControlResponse("join", "joined", true));
+        _client.Setup(client => client.GetStateAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new GuestSessionState(true, true, null, Device()));
+
+        await _renderer.RunAsync(() => ComponentTestAccess.InvokeTask(Component, "OnAfterRenderAsync", true));
+
+        Assert.True(Read<bool>("_joined"));
+        var display = Read<GuestDisplayState>("_display");
+        Assert.Equal(0, display.Selected.Speed);
+        Assert.Null(display.Sent);
+        Assert.True(display.PreviewStopped);
+        Assert.DoesNotContain(_module.Calls, call => call.Method == "takeInvitation");
+        Assert.DoesNotContain(_module.Calls.SelectMany(call => call.Arguments), value => Equals(value, "saved-credential"));
+        Mocks.Verify<IGuestApiClient>(client => client.RedeemAsync(FastArg.Any<string>(), FastArg.Any<CancellationToken>()), TimesSpec.NeverCalled);
+        AssertNoMotion();
+    }
+
+    [Fact]
+    public async Task MissingSavedPrincipalCannotStartAnApiConnection()
+    {
+        Mocks.GetOrCreateMock<AuthenticationStateProvider>().AsMoq()
+            .Setup(provider => provider.GetAuthenticationStateAsync())
+            .ReturnsAsync(new AuthenticationState(new ClaimsPrincipal(new ClaimsIdentity())));
+        _module.SessionCode = "no-session";
+
+        await _renderer.RunAsync(() => ComponentTestAccess.InvokeTask(Component, "OnAfterRenderAsync", true));
+
+        Assert.True(Read<bool>("_initialized"));
+        Assert.False(Read<bool>("_joined"));
+        Mocks.Verify<IGuestApiClient>(client => client.ResumeAsync(FastArg.Any<string>(), FastArg.Any<CancellationToken>()), TimesSpec.NeverCalled);
+        AssertNoMotion();
+    }
+
+    [Fact]
+    public async Task SecondTabWaitsWithoutStoppingTheConnectedTab()
+    {
+        _client.Setup(client => client.ResumeAsync("saved-credential", It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new ApiClientException(ControlResponseCodes.GuestAlreadyJoined));
+
+        await _renderer.RunAsync(() => ComponentTestAccess.InvokeTask(Component, "OnAfterRenderAsync", true));
+
+        Assert.True(Read<bool>("_connectionLost"));
+        Assert.False(Read<bool>("_joined"));
+        var disconnected = Assert.Single(_module.Calls, call => call.Method == "disconnect");
+        Assert.Equal("session-in-use", Assert.Single(disconnected.Arguments));
+        Mocks.Verify<IGuestApiClient>(client => client.StopAsync(FastArg.Any<CancellationToken>()), TimesSpec.NeverCalled);
+        Mocks.Verify<IGuestApiClient>(client => client.GetStateAsync(FastArg.Any<CancellationToken>()), TimesSpec.NeverCalled);
         AssertNoMotion();
     }
 
@@ -181,7 +278,7 @@ public sealed class JoinComponentTests : MockerTestBase<Join>, IAsyncDisposable
     [InlineData("unexpected-rejection")]
     [InlineData("connection-unavailable")]
     [InlineData("outcome-unknown")]
-    public async Task PollingDistinguishesEndedAndPersistentLoss(string code)
+    public async Task PollingDistinguishesEndedAndRecoverableLoss(string code)
     {
         var last = new GuestSessionState(true, true, null, Device());
         SetState(last);
@@ -207,21 +304,32 @@ public sealed class JoinComponentTests : MockerTestBase<Join>, IAsyncDisposable
         await poll.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         Assert.False(Read<bool>("_joined"));
         Assert.True(Read<bool>("_everJoined"));
-        Assert.Equal(code != "ended", Read<bool>("_connectionLost"));
+        var recoverable = code is "connection-unavailable" or "outcome-unknown";
+        Assert.Equal(recoverable, Read<bool>("_connectionLost"));
         Assert.False(Read<bool>("Ready"));
         if (code == "ended")
         {
             Assert.False(Read<GuestSessionState>("_status").Joined);
             Assert.DoesNotContain(_module.Calls, call => call.Method == "disconnect");
+            Assert.Single(_module.Calls, call => call.Method == "endSession");
             Assert.Contains(_module.Calls, call => call.Method == "updateState");
         }
-        else
+        else if (recoverable)
         {
             Assert.Same(last, Read<GuestSessionState>("_status"));
             Assert.Single(_module.Calls, call => call.Method == "disconnect");
             var display = Read<GuestDisplayState>("_display");
             Assert.Equal(new BrowserSettings(6, 0, 10, 20, 75), display.Selected);
             Assert.Null(display.Sent);
+        }
+        else
+        {
+            Assert.Same(last, Read<GuestSessionState>("_status"));
+            Assert.Equal("session-read-failed", Read<string>("_sessionCode"));
+            Assert.Single(_module.Calls, call => call.Method == "endSession");
+            Assert.DoesNotContain(_module.Calls, call => call.Method == "disconnect");
+            Assert.Equal(0, Read<GuestDisplayState>("_display").Selected.Speed);
+            Assert.Null(Read<GuestDisplayState>("_display").Sent);
         }
         AssertNoMotion();
     }
@@ -335,15 +443,39 @@ public sealed class JoinComponentTests : MockerTestBase<Join>, IAsyncDisposable
             Assert.False(ComponentTestAccess.Get<bool>(pushed, "ready"));
             Assert.False(Read<bool>("Ready"));
             Assert.False(leaving.IsCompleted);
+            Assert.DoesNotContain(_module.Calls, call => call.Method == "completeLeave");
             Assert.Equal(new BrowserReply(false, "not-ready"), await Component.SubmitSettings(new(0, 50, 10, 20, 75)));
             AssertNoMotion();
         }
         finally
         {
-            completed.TrySetResult(new("leave", "guest-left", true));
+            completed.TrySetResult(new("leave", "stopped", true));
             await leaving;
         }
         Assert.False(Read<bool>("_joined"));
+        Assert.Single(_module.Calls, call => call.Method == "completeLeave");
+        Mocks.Verify<IGuestApiClient>(client => client.LeaveAsync(FastArg.Any<CancellationToken>()), TimesSpec.Once);
+        Mocks.Verify<IGuestApiClient>(client => client.LeaveSavedSessionAsync(FastArg.Any<string>(), FastArg.Any<CancellationToken>()), TimesSpec.NeverCalled);
+    }
+
+    [Theory]
+    [InlineData("device-io-failed")]
+    [InlineData("connection-unavailable")]
+    [InlineData("invalid-response")]
+    public async Task ConnectedLeaveFailureClearsBrowserWithoutClaimingSuccess(string code)
+    {
+        SetState(new(true, true, null, Device()));
+        ComponentTestAccess.Set(Component, "_module", _module);
+        _client.Setup(client => client.LeaveAsync(It.IsAny<CancellationToken>())).ThrowsAsync(new ApiClientException(code));
+
+        await _renderer.RunAsync(() => ComponentTestAccess.InvokeTask(Component, "LeaveAsync"));
+
+        var cleared = Assert.Single(_module.Calls, call => call.Method == "completeLeave");
+        Assert.Equal(new BrowserReply(false, code), Assert.Single(cleared.Arguments));
+        Assert.Equal("leave-failed", Read<string>("_sessionCode"));
+        Assert.False(Read<bool>("_joined"));
+        Mocks.Verify<IGuestApiClient>(client => client.LeaveAsync(FastArg.Any<CancellationToken>()), TimesSpec.Once);
+        AssertNoMotion();
     }
 
     [Fact]

@@ -13,6 +13,7 @@ using Microsoft.Extensions.Time.Testing;
 using Moq;
 using OssmSharp.Runtime;
 using OssmSharp.Runtime.Oem;
+using OssmSharp.Web.Api.Authentication;
 using OssmSharp.Web.Api.Control;
 using OssmSharp.Web.Api.Models;
 using OssmSharp.Web.Api.SignalR;
@@ -66,6 +67,28 @@ public sealed class GuestApiClientConnectionTests : MockerTestBase<GuestApiClien
         }
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData(" ")]
+    [Trait("Category", "Integration")]
+    public async Task InvalidSavedCredentialDoesNotConsumeConnectionStartup(string? credential)
+    {
+        var token = TestContext.Current.CancellationToken;
+        var error = await Assert.ThrowsAnyAsync<ArgumentException>(
+            () => _rpcScope.Connection.StartSessionAsync(credential!, token));
+        Assert.Equal("sessionToken", error.ParamName);
+
+        await using var app = await StartApiAsync();
+        var invitation = (await _session.GetUserStateAsync(token)).Invitation;
+        await JoinAsync(invitation.Token, token);
+        var state = await Component.GetStateAsync(token);
+
+        Assert.True(state.Joined);
+        Assert.False(state.ControlAllowed);
+        Mocks.Verify<IOssmDevice>(device => device.EmergencyStopAsync(FastArg.Any<CancellationToken>()), TimesSpec.NeverCalled);
+    }
+
     [Fact]
     [Trait("Category", "Integration")]
     public async Task SettingsCanCompleteBeyondTheOrdinaryRequestDeadline()
@@ -73,7 +96,7 @@ public sealed class GuestApiClientConnectionTests : MockerTestBase<GuestApiClien
         await using var app = await StartApiAsync();
         var token = TestContext.Current.CancellationToken;
         var invitation = (await _session.GetUserStateAsync(token)).Invitation;
-        await Component.JoinAsync(invitation.Token, token);
+        await JoinAsync(invitation.Token, token);
         await _session.AllowGuestAsync("allow", token);
         var (entered, completed) = HoldDeviceSettings();
         var pending = Component.SubmitAsync(new("first", 0, 57, 37, 100, 50), token);
@@ -102,8 +125,9 @@ public sealed class GuestApiClientConnectionTests : MockerTestBase<GuestApiClien
         await using var app = await StartApiAsync(disconnected: disconnected);
         var token = TestContext.Current.CancellationToken;
         var invitation = (await _session.GetUserStateAsync(token)).Invitation;
-        await Component.JoinAsync(invitation.Token, token);
+        await JoinAsync(invitation.Token, token);
         await _session.AllowGuestAsync("allow", token);
+        Assert.False(disconnected.Task.IsCompleted);
         var (entered, completed) = HoldDeviceSettings();
         var settings = Component.SubmitAsync(new("pending", 0, 57, 37, 100, 50), token);
         await entered.WaitAsync(token);
@@ -120,7 +144,10 @@ public sealed class GuestApiClientConnectionTests : MockerTestBase<GuestApiClien
             await disposal.WaitAsync(TimeSpan.FromSeconds(5), token);
             Assert.False(completed.Task.IsCompleted);
             await disconnected.Task.WaitAsync(token);
-            Assert.False((await _session.GetUserStateAsync(token)).GuestJoined);
+            var saved = await _session.GetUserStateAsync(token);
+            Assert.True(saved.GuestJoined);
+            Assert.False(saved.GuestConnected);
+            Assert.True(saved.GuestControlAllowed);
             Mocks.Verify<IOssmDevice>(device => device.EmergencyStopAsync(FastArg.Any<CancellationToken>()), TimesSpec.Once);
         }
         finally
@@ -139,7 +166,7 @@ public sealed class GuestApiClientConnectionTests : MockerTestBase<GuestApiClien
         await using var app = await StartApiAsync();
         var token = TestContext.Current.CancellationToken;
         var invitation = (await _session.GetUserStateAsync(token)).Invitation;
-        await Component.JoinAsync(invitation.Token, token);
+        await JoinAsync(invitation.Token, token);
         await _session.AllowGuestAsync("allow", token);
         var (entered, completed) = HoldDeviceSettings();
         using var caller = CancellationTokenSource.CreateLinkedTokenSource(token);
@@ -160,32 +187,34 @@ public sealed class GuestApiClientConnectionTests : MockerTestBase<GuestApiClien
 
     [Fact]
     [Trait("Category", "Integration")]
-    public async Task InvitationAuthenticatesBothHandshakesAndExistingConnectionSurvivesRotation()
+    public async Task RedemptionAndAttachmentUseSeparateAuthorityAndConsumeTheInvitation()
     {
         var identities = new ConcurrentQueue<ClaimsPrincipal>();
         await using var app = await StartApiAsync(identities);
         var invitation = (await _session.GetUserStateAsync(TestContext.Current.CancellationToken)).Invitation;
         var identity = _session.AuthenticateInvitation(invitation.Token);
 
-        Assert.True((await Component.JoinAsync(invitation.Token, TestContext.Current.CancellationToken)).Accepted);
+        var redeemed = await RedeemAsync(invitation.Token, TestContext.Current.CancellationToken);
+        Assert.True((await Component.ResumeAsync(redeemed.SessionToken!, TestContext.Current.CancellationToken)).Accepted);
         var state = await Component.GetStateAsync(TestContext.Current.CancellationToken);
         Assert.True(state.Joined);
         Assert.False(state.ControlAllowed);
         var unapproved = await Component.SubmitAsync(new("before-allow", 0, 10, 20, 30, 40), TestContext.Current.CancellationToken);
         Assert.Equal(SettingsResponseStatus.Rejected, unapproved.Status);
         Mocks.Verify<IOssmDevice>(device => device.SetAsync(FastArg.Any<MotionSettings>(), FastArg.Any<CancellationToken>()), TimesSpec.NeverCalled);
-        Assert.Equal(2, identities.Count);
+        Assert.Equal(4, identities.Count);
         foreach (var principal in identities)
         {
-            Assert.Equal("Bearer", principal.Identity!.AuthenticationType);
+            Assert.Contains(principal.Identity!.AuthenticationType, new[] { "Bearer", "GuestSession" });
             Assert.Equal(identity, principal.FindFirstValue(ClaimTypes.NameIdentifier));
-            Assert.True(principal.IsInRole("Guest"));
+            Assert.True(principal.IsInRole(principal.Identity.AuthenticationType == "Bearer" ? "Invitation" : "Guest"));
             Assert.DoesNotContain(principal.Claims, claim => claim.Value == invitation.Token);
+            Assert.DoesNotContain(principal.Claims, claim => claim.Value == redeemed.SessionToken);
         }
         await using var replayScope = new RpcClientTestScope(_options, guest: true);
         await using var replay = new GuestApiClient(replayScope.Connection);
         var rejection = await Assert.ThrowsAsync<ApiClientException>(
-            () => replay.JoinAsync(invitation.Token, TestContext.Current.CancellationToken));
+            () => replay.RedeemAsync(invitation.Token, TestContext.Current.CancellationToken));
         Assert.Equal("invalid-invitation", rejection.Code);
         Assert.True((await Component.GetStateAsync(TestContext.Current.CancellationToken)).Joined);
         Assert.True((await _session.AllowGuestAsync("allow", TestContext.Current.CancellationToken)).Accepted);
@@ -206,14 +235,15 @@ public sealed class GuestApiClientConnectionTests : MockerTestBase<GuestApiClien
         var invitation = (await _session.GetUserStateAsync(TestContext.Current.CancellationToken)).Invitation;
         await using var stale = new SignalRHubConnectionFactory(Options.Create(_options)).CreateForGuest(invitation.Token);
         await stale.StartAsync(TestContext.Current.CancellationToken);
-        Assert.True((await Component.JoinAsync(invitation.Token, TestContext.Current.CancellationToken)).Accepted);
+        Assert.True((await JoinAsync(invitation.Token, TestContext.Current.CancellationToken)).Accepted);
         await Assert.ThrowsAsync<HubException>(() => stale.InvokeAsync<UserSessionState>("GetUserState", TestContext.Current.CancellationToken));
         await Assert.ThrowsAsync<HubException>(() => stale.InvokeAsync<ControlResponse>("Stop", "stop", TestContext.Current.CancellationToken));
         await Assert.ThrowsAsync<HubException>(() => stale.InvokeAsync<ControlResponse>("ResetPosition", "position", TestContext.Current.CancellationToken));
         await Assert.ThrowsAsync<HubException>(() => stale.InvokeAsync<ControlResponse>("SetPreviewDimensions", "preview", new PreviewDimensions(50, 25), TestContext.Current.CancellationToken));
-        Assert.Equal("guest-not-joined", (await stale.InvokeAsync<ControlResponse>("GuestResetPosition", "position", TestContext.Current.CancellationToken)).Code);
+        await Assert.ThrowsAsync<HubException>(() => stale.InvokeAsync<ControlResponse>("GuestResetPosition", "position", TestContext.Current.CancellationToken));
         Mocks.Verify<IOssmDevice>(device => device.ResetPositionAsync(FastArg.Any<CancellationToken>()), TimesSpec.NeverCalled);
-        Assert.Null((await stale.InvokeAsync<GuestSessionState>("GetGuestState", TestContext.Current.CancellationToken)).Device);
+        await Assert.ThrowsAsync<HubException>(() => stale.InvokeAsync<GuestSessionState>("GetGuestState", TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<HubException>(() => stale.InvokeAsync<SavedGuestSession>("GetSavedSession", TestContext.Current.CancellationToken));
 
         await using var adminScope = new RpcClientTestScope(new() { EndpointUri = _options.EndpointUri, ServiceKey = AdminKey });
         await using var admin = new AdminApiClient(adminScope.Connection);
@@ -226,7 +256,7 @@ public sealed class GuestApiClientConnectionTests : MockerTestBase<GuestApiClien
         Assert.Equal(ControlResponseCodes.InvalidPreviewDimensions, invalid.Code);
         Assert.True((await admin.EndGuestAsync(TestContext.Current.CancellationToken)).Accepted);
         var fresh = (await admin.GetStateAsync(TestContext.Current.CancellationToken)).Invitation;
-        var rejected = await stale.InvokeAsync<ControlResponse>("Join", new GuestJoinRequest("join", fresh.Token), TestContext.Current.CancellationToken);
+        var rejected = await stale.InvokeAsync<GuestRedemptionResponse>("Redeem", new GuestJoinRequest("join", fresh.Token), TestContext.Current.CancellationToken);
         Assert.False(rejected.Accepted);
         Assert.Equal("invalid-invitation", rejected.Code);
         Assert.False((await Component.GetStateAsync(TestContext.Current.CancellationToken)).Joined);
@@ -265,7 +295,7 @@ public sealed class GuestApiClientConnectionTests : MockerTestBase<GuestApiClien
         if (!adminRequest)
         {
             var invitation = (await _session.GetUserStateAsync(TestContext.Current.CancellationToken)).Invitation;
-            await Component.JoinAsync(invitation.Token, TestContext.Current.CancellationToken);
+            await JoinAsync(invitation.Token, TestContext.Current.CancellationToken);
             var denied = await Assert.ThrowsAsync<ApiClientException>(() => Component.ResetPositionAsync(TestContext.Current.CancellationToken));
             Assert.Equal("control-not-allowed", denied.Code);
             _device.Verify(device => device.ResetPositionAsync(It.IsAny<CancellationToken>()), Times.Never);
@@ -306,9 +336,10 @@ public sealed class GuestApiClientConnectionTests : MockerTestBase<GuestApiClien
     {
         await using var app = await StartApiAsync();
         var invitation = (await _session.GetUserStateAsync(TestContext.Current.CancellationToken)).Invitation;
-        await using var connection = new SignalRHubConnectionFactory(Options.Create(_options)).CreateForGuest(invitation.Token);
+        var redeemed = await RedeemAsync(invitation.Token, TestContext.Current.CancellationToken);
+        await using var connection = new SignalRHubConnectionFactory(Options.Create(_options)).CreateForGuestSession(redeemed.SessionToken!);
         await connection.StartAsync(TestContext.Current.CancellationToken);
-        Assert.True((await connection.InvokeAsync<ControlResponse>("Join", new GuestJoinRequest("join", invitation.Token), TestContext.Current.CancellationToken)).Accepted);
+        Assert.True((await connection.InvokeAsync<ControlResponse>("Join", "join", TestContext.Current.CancellationToken)).Accepted);
         Assert.True((await _session.AllowGuestAsync("allow", TestContext.Current.CancellationToken)).Accepted);
         foreach (var correlation in new[] { string.Empty, new string('x', 65), "bad\ncorrelation" })
         {
@@ -332,7 +363,7 @@ public sealed class GuestApiClientConnectionTests : MockerTestBase<GuestApiClien
     public async Task MalformedInvitationIsRejectedBeforeConnecting(string invitation)
     {
         var error = await Assert.ThrowsAsync<ApiClientException>(
-            () => Component.JoinAsync(invitation, TestContext.Current.CancellationToken));
+            () => Component.RedeemAsync(invitation, TestContext.Current.CancellationToken));
         Assert.Equal("invalid-invitation", error.Code);
     }
 
@@ -340,26 +371,28 @@ public sealed class GuestApiClientConnectionTests : MockerTestBase<GuestApiClien
     public async Task OversizedInvitationIsRejectedBeforeConnecting()
     {
         var error = await Assert.ThrowsAsync<ApiClientException>(
-            () => Component.JoinAsync(new string('A', 129), TestContext.Current.CancellationToken));
+            () => Component.RedeemAsync(new string('A', 129), TestContext.Current.CancellationToken));
         Assert.Equal("invalid-invitation", error.Code);
     }
 
     [Fact]
     [Trait("Category", "Integration")]
-    public async Task DisconnectRevokesGuestAndStopsDevice()
+    public async Task DisconnectDetachesGuestAndStopsDeviceWithoutRevokingSavedPermission()
     {
         var disconnected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         await using var app = await StartApiAsync(disconnected: disconnected);
         var invitation = (await _session.GetUserStateAsync(TestContext.Current.CancellationToken)).Invitation;
-        await Component.JoinAsync(invitation.Token, TestContext.Current.CancellationToken);
+        await JoinAsync(invitation.Token, TestContext.Current.CancellationToken);
         Assert.True((await _session.AllowGuestAsync("allow", TestContext.Current.CancellationToken)).Accepted);
+        Assert.False(disconnected.Task.IsCompleted);
 
         await Component.DisposeAsync();
         await disconnected.Task.WaitAsync(TestContext.Current.CancellationToken);
 
         var state = await _session.GetUserStateAsync(TestContext.Current.CancellationToken);
-        Assert.False(state.GuestJoined);
-        Assert.False(state.GuestControlAllowed);
+        Assert.True(state.GuestJoined);
+        Assert.True(state.GuestControlAllowed);
+        Assert.False(state.GuestConnected);
         Mocks.Verify<IOssmDevice>(device => device.EmergencyStopAsync(FastArg.Any<CancellationToken>()), TimesSpec.Once);
     }
 
@@ -394,7 +427,7 @@ public sealed class GuestApiClientConnectionTests : MockerTestBase<GuestApiClien
         await app.StartAsync(TestContext.Current.CancellationToken);
         _options.EndpointUri = app.Urls.Single();
         var error = await Assert.ThrowsAsync<ApiClientException>(
-            () => Component.JoinAsync(new string('A', 43), TestContext.Current.CancellationToken));
+            () => Component.RedeemAsync(new string('A', 43), TestContext.Current.CancellationToken));
         Assert.Equal(code, error.Code);
     }
 
@@ -403,13 +436,27 @@ public sealed class GuestApiClientConnectionTests : MockerTestBase<GuestApiClien
         ConcurrentQueue<ClaimsPrincipal>? identities,
         TaskCompletionSource? disconnected) => app.Use(async (context, next) =>
     {
-        var controlConnection = context.Request.Path == "/hubs/control/v2" && context.WebSockets.IsWebSocketRequest;
+        var guestSessionConnection = context.Request.Path == "/hubs/control/v2" && context.WebSockets.IsWebSocketRequest
+            && context.User.IsInRole(ControlServiceRoles.GuestWeb);
         if (context.User.Identity?.IsAuthenticated == true)
             identities?.Enqueue(context.User);
         await next(context);
-        if (controlConnection)
+        if (guestSessionConnection)
             disconnected?.TrySetResult();
     });
+
+    private async Task<GuestRedemptionResponse> RedeemAsync(string invitation, CancellationToken token)
+    {
+        await using var scope = new RpcClientTestScope(_options, guest: true, timeProvider: _clock);
+        await using var client = new GuestApiClient(scope.Connection);
+        return await client.RedeemAsync(invitation, token);
+    }
+
+    private async Task<ControlResponse> JoinAsync(string invitation, CancellationToken token)
+    {
+        var redeemed = await RedeemAsync(invitation, token);
+        return await Component.ResumeAsync(redeemed.SessionToken!, token);
+    }
 
     private (Task Entered, TaskCompletionSource<SetResult> Completed) HoldDeviceSettings()
     {

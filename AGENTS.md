@@ -9,6 +9,7 @@ Use these terms instead:
 - stroke-relative speed percentage -> speed (as an integer percentage)
 - stroke relative -> <remove it.>
 - whole-number firmware velocity -> raw velocity
+- Stop cleanup -> stop
 
 The device library is to do basic checks on inputs only (e.g. 0%-100%). It must not verify patterns' inputs.
 

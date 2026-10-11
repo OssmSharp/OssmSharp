@@ -37,7 +37,7 @@ public sealed class InvitationAuthenticationHandler(
             return Task.FromResult(AuthenticateResult.Fail("Invalid invitation."));
 
         var identity = new ClaimsIdentity(
-            [new Claim(ClaimTypes.NameIdentifier, invitationId), new Claim(ClaimTypes.Role, ControlServiceRoles.GuestWeb)],
+            [new Claim(ClaimTypes.NameIdentifier, invitationId), new Claim(ClaimTypes.Role, ControlServiceRoles.Invitation)],
             Scheme.Name,
             ClaimTypes.Name,
             ClaimTypes.Role);

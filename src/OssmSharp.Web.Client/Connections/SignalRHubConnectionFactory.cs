@@ -42,6 +42,13 @@ public sealed class SignalRHubConnectionFactory : IHubConnectionFactory
         return Create($"Bearer {invitationToken}");
     }
 
+    /// <inheritdoc />
+    public HubConnection CreateForGuestSession(string sessionToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionToken);
+        return Create($"Session {sessionToken}");
+    }
+
     private HubConnection Create(string authorization)
     {
         var origin = new Uri(_options.EndpointUri, UriKind.Absolute);

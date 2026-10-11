@@ -43,46 +43,14 @@ internal sealed class SignalRRpcClient(IHubConnectionFactory factory, IOptions<R
     /// <summary>
     /// Starts the authenticated connection once.
     /// </summary>
-    public async Task StartAsync(CancellationToken cancellationToken, string? invitationToken = null)
+    public Task StartAsync(CancellationToken cancellationToken, string? invitationToken = null) =>
+        StartCoreAsync(invitationToken, session: false, cancellationToken);
+
+    /// <inheritdoc />
+    public Task StartSessionAsync(string sessionToken, CancellationToken cancellationToken)
     {
-        if (!TryEnterOperation())
-            throw new InvalidOperationException("The control connection has already closed.");
-
-        try
-        {
-            using var startup = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
-            if (Interlocked.CompareExchange(ref _state, -1, 0) != 0)
-                throw new InvalidOperationException("The control connection has already started or closed.");
-
-            var connection = invitationToken is null ? factory.Create() : factory.CreateForGuest(invitationToken);
-            _connectionTask = Task.FromResult(connection);
-            connection.Closed += OnClosedAsync;
-            try
-            {
-                await connection.StartAsync(startup.Token);
-                if (Interlocked.CompareExchange(ref _state, 1, -1) != -1)
-                    throw new OperationCanceledException("The control connection closed while it was starting.", cancellationToken);
-            }
-            catch (Exception error)
-            {
-                Interlocked.Exchange(ref _state, 2);
-                connection.Closed -= OnClosedAsync;
-                _connectionTask = null;
-                await connection.DisposeAsync();
-                if (invitationToken is not null
-                    && error.GetBaseException() is HttpRequestException { StatusCode: System.Net.HttpStatusCode.Unauthorized })
-                    throw new ApiClientException("invalid-invitation", error);
-                if (error is HttpRequestException or System.Net.WebSockets.WebSocketException or IOException
-                    || error is AggregateException aggregate
-                    && aggregate.InnerExceptions.All(exception => exception is TransportFailedException))
-                    throw new ApiClientException("connection-unavailable", error);
-                throw;
-            }
-        }
-        finally
-        {
-            ExitOperation();
-        }
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionToken);
+        return StartCoreAsync(sessionToken, session: true, cancellationToken);
     }
 
     /// <summary>
@@ -104,7 +72,7 @@ internal sealed class SignalRRpcClient(IHubConnectionFactory factory, IOptions<R
         try
         {
             using var operation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
-            var gate = method is "Stop" or "GuestStop" or "Leave" or "EndGuest" ? _stopGate : _requestGate;
+            var gate = method is "Stop" or "GuestStop" or "Leave" or "LeaveSavedSession" or "EndGuest" or "RefreshInvitation" ? _stopGate : _requestGate;
             await gate.WaitAsync(operation.Token);
             try
             {
@@ -147,6 +115,49 @@ internal sealed class SignalRRpcClient(IHubConnectionFactory factory, IOptions<R
         catch (OperationCanceledException error) when (!cancellationToken.IsCancellationRequested && _lifetime.IsCancellationRequested)
         {
             throw new ApiClientException("connection-unavailable", error);
+        }
+        finally
+        {
+            ExitOperation();
+        }
+    }
+
+    private async Task StartCoreAsync(string? token, bool session, CancellationToken cancellationToken)
+    {
+        if (!TryEnterOperation())
+            throw new InvalidOperationException("The control connection has already closed.");
+
+        try
+        {
+            using var startup = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
+            if (Interlocked.CompareExchange(ref _state, -1, 0) != 0)
+                throw new InvalidOperationException("The control connection has already started or closed.");
+
+            var connection = token is null ? factory.Create()
+                : session ? factory.CreateForGuestSession(token) : factory.CreateForGuest(token);
+            _connectionTask = Task.FromResult(connection);
+            connection.Closed += OnClosedAsync;
+            try
+            {
+                await connection.StartAsync(startup.Token);
+                if (Interlocked.CompareExchange(ref _state, 1, -1) != -1)
+                    throw new OperationCanceledException("The control connection closed while it was starting.", cancellationToken);
+            }
+            catch (Exception error)
+            {
+                Interlocked.Exchange(ref _state, 2);
+                connection.Closed -= OnClosedAsync;
+                _connectionTask = null;
+                await connection.DisposeAsync();
+                if (token is not null
+                    && error.GetBaseException() is HttpRequestException { StatusCode: System.Net.HttpStatusCode.Unauthorized })
+                    throw new ApiClientException(session ? "invalid-guest-session" : "invalid-invitation", error);
+                if (error is HttpRequestException or System.Net.WebSockets.WebSocketException or IOException
+                    || error is AggregateException aggregate
+                    && aggregate.InnerExceptions.All(exception => exception is TransportFailedException))
+                    throw new ApiClientException("connection-unavailable", error);
+                throw;
+            }
         }
         finally
         {

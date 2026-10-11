@@ -2,7 +2,7 @@ using FastMoq;
 using FastMoq.Extensions;
 using FastMoq.Providers;
 using FastMoq.Providers.MoqProvider;
-using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using Microsoft.JSInterop;
@@ -32,6 +32,8 @@ public sealed class HomeComponentTests : MockerTestBase<Home>, IAsyncDisposable
         _state = State(null);
         mocks.AddType<TimeProvider>(_time);
         mocks.SetupOptions(new AdminOptions { GuestHostname = "https://guest.example" });
+        mocks.GetOrCreateMock<ILogger<Home>>().AsMoq()
+            .Setup(logger => logger.IsEnabled(It.IsAny<LogLevel>())).Returns(true);
         _client.Setup(client => client.GetStateAsync(It.IsAny<CancellationToken>())).Returns(() => Task.FromResult(_state));
         _client.Setup(client => client.DisposeAsync()).Returns(ValueTask.CompletedTask);
     };
@@ -41,7 +43,7 @@ public sealed class HomeComponentTests : MockerTestBase<Home>, IAsyncDisposable
         ComponentTestAccess.Inject(component, "Control", Mocks.GetRequiredObject<IAdminApiClient>());
         ComponentTestAccess.Inject(component, "Time", _time);
         ComponentTestAccess.Inject(component, "Options", Mocks.GetRequiredObject<IOptions<AdminOptions>>());
-        ComponentTestAccess.Inject(component, "Logger", NullLogger<Home>.Instance);
+        ComponentTestAccess.Inject(component, "Logger", Mocks.GetRequiredObject<ILogger<Home>>());
         ComponentTestAccess.Set(component, "_state", _state);
         ComponentTestAccess.Invoke(component, "OnInitialized");
         _renderer = new(component);
@@ -68,6 +70,10 @@ public sealed class HomeComponentTests : MockerTestBase<Home>, IAsyncDisposable
     [InlineData("Connect", "EndGuest", true)]
     [InlineData("AllowGuest", "Stop", true)]
     [InlineData("AllowGuest", "EndGuest", true)]
+    [InlineData("Connect", "RefreshInvitation", false)]
+    [InlineData("AllowGuest", "RefreshInvitation", false)]
+    [InlineData("Connect", "RefreshInvitation", true)]
+    [InlineData("AllowGuest", "RefreshInvitation", true)]
     public async Task SafetyCommandsBypassNormalBusyAndBoundTheirOwnDuplicates(string normal, string safety, bool normalFirst)
     {
         var pending = new TaskCompletionSource<ControlResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -103,8 +109,18 @@ public sealed class HomeComponentTests : MockerTestBase<Home>, IAsyncDisposable
             await normalTask;
             Assert.False(Read<bool>("_busy"));
             Assert.True(Read<bool>("_safetyBusy"));
+            var pendingVariant = Read<string>("_noticeVariant");
+            var pendingMessage = Notice.Message;
             urgent.SetResult(new("safety", "accepted", true));
             await safetyTask;
+            Assert.Equal("warning", pendingVariant);
+            var expectedPendingMessage = safety switch
+            {
+                "Stop" => "Stopping ...",
+                "EndGuest" => "Ending guest session ...",
+                _ => "Refreshing invitation ...",
+            };
+            Assert.Equal(expectedPendingMessage, pendingMessage);
         }
         else
         {
@@ -115,9 +131,17 @@ public sealed class HomeComponentTests : MockerTestBase<Home>, IAsyncDisposable
             Mocks.Verify<IAdminApiClient>(client => client.GetStateAsync(FastArg.Any<CancellationToken>()), TimesSpec.NeverCalled);
             pending.SetResult(new("normal", "accepted", true));
             await normalTask;
-            if (normal == "Connect")
-                Assert.Contains("Device connection is not confirmed.", Notice.Message);
         }
+        var expectedMessage = safety switch
+        {
+            "Stop" => "Stopped.",
+            "EndGuest" => "Guest session ended.",
+            _ => "Invitation refreshed. The previous guest session ended.",
+        };
+        Assert.Equal(expectedMessage, Notice.Message);
+        Assert.False(Notice.IsError);
+        Assert.Equal("success", Read<string>("_noticeVariant"));
+        Mocks.VerifyLogged(LogLevel.Debug, "Earlier user action", TimesSpec.Once);
         Assert.False(Read<bool>("_busy"));
         Assert.False(Read<bool>("_safetyBusy"));
         Assert.False(Read<bool>("_connecting"));
@@ -127,13 +151,15 @@ public sealed class HomeComponentTests : MockerTestBase<Home>, IAsyncDisposable
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task RejectedAndUnknownSafetyCommandsReleaseOnlyTheirOwnBusyGate(bool timeout)
+    [InlineData("EndGuest", false)]
+    [InlineData("EndGuest", true)]
+    [InlineData("RefreshInvitation", false)]
+    [InlineData("RefreshInvitation", true)]
+    public async Task RejectedAndUnknownSafetyCommandsReleaseOnlyTheirOwnBusyGate(string safety, bool timeout)
     {
         var normal = new TaskCompletionSource<ControlResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
         SetupCommand("Connect", normal.Task);
-        SetupCommand("EndGuest", Task.FromException<ControlResponse>(timeout
+        SetupCommand(safety, Task.FromException<ControlResponse>(timeout
             ? new RpcClientRequestTimeoutException(new TimeoutException())
             : new ApiClientException("cancelled")));
         Task pending = Task.CompletedTask;
@@ -142,7 +168,7 @@ public sealed class HomeComponentTests : MockerTestBase<Home>, IAsyncDisposable
             pending = Call("Connect");
             return Task.CompletedTask;
         });
-        await _renderer.RunAsync(() => Call("EndGuest"));
+        await _renderer.RunAsync(() => Call(safety));
         Assert.True(Read<bool>("_busy"));
         Assert.False(Read<bool>("_safetyBusy"));
         Assert.True(Notice.IsError);
@@ -150,7 +176,178 @@ public sealed class HomeComponentTests : MockerTestBase<Home>, IAsyncDisposable
         normal.SetResult(new("connect", "accepted", true));
         await pending;
         Assert.False(Read<bool>("_busy"));
-        Assert.Contains("Device connection is not confirmed.", Notice.Message);
+        Assert.True(Notice.IsError);
+        Assert.Equal(timeout ? "The action outcome is unknown. Check the latest state before trying again." : "The action was rejected (cancelled).", Notice.Message);
+        Mocks.VerifyLogged(LogLevel.Debug, "Earlier user action", TimesSpec.Once);
+    }
+
+    [Theory]
+    [InlineData("Connect", "Stop", false)]
+    [InlineData("Connect", "Stop", true)]
+    [InlineData("Connect", "EndGuest", false)]
+    [InlineData("Connect", "EndGuest", true)]
+    [InlineData("Connect", "RefreshInvitation", false)]
+    [InlineData("Connect", "RefreshInvitation", true)]
+    [InlineData("AllowGuest", "Stop", false)]
+    [InlineData("AllowGuest", "Stop", true)]
+    [InlineData("AllowGuest", "EndGuest", false)]
+    [InlineData("AllowGuest", "EndGuest", true)]
+    [InlineData("AllowGuest", "RefreshInvitation", false)]
+    [InlineData("AllowGuest", "RefreshInvitation", true)]
+    public async Task EarlierActionFailureCannotReplaceANewerSafetyNotice(string normal, string safety, bool timeout)
+    {
+        var pending = new TaskCompletionSource<ControlResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
+        SetupCommand(normal, pending.Task);
+        SetupCommand(safety, Task.FromResult(new ControlResponse("safety", "accepted", true)));
+        Task normalTask = Task.CompletedTask;
+        await _renderer.RunAsync(() =>
+        {
+            normalTask = Call(normal);
+            return Task.CompletedTask;
+        });
+        await _renderer.RunAsync(() => Call(safety));
+        var message = Notice.Message;
+        Assert.False(Notice.IsError);
+        Assert.Equal("success", Read<string>("_noticeVariant"));
+
+        pending.SetException(timeout
+            ? new RpcClientRequestTimeoutException(new TimeoutException())
+            : new ApiClientException("cancelled"));
+        await normalTask;
+
+        Assert.Equal(message, Notice.Message);
+        Assert.False(Notice.IsError);
+        Assert.Equal("success", Read<string>("_noticeVariant"));
+        Assert.False(Read<bool>("_busy"));
+        Mocks.VerifyLogged(LogLevel.Debug, "Earlier user action", TimesSpec.Once);
+    }
+
+    [Fact]
+    public async Task SavedOfflineGuestRetainsPermissionAndCanBeEnded()
+    {
+        _state = State(Device()) with
+        {
+            GuestConnected = false,
+            GuestControlAllowed = true,
+            GuestSessionExpiresAt = _time.GetUtcNow().AddHours(24),
+            InvitationConsumed = true,
+        };
+        ComponentTestAccess.Set(Component, "_state", _state);
+        Assert.Equal("Guest allowed (offline)", Read<string>("GuestStatus"));
+        Assert.Equal("success", Read<string>("GuestVariant"));
+        var buttons = ComponentTestAccess.Buttons(Component);
+        Assert.False(buttons["End guest"]);
+        Assert.False(buttons["Refresh invitation"]);
+        Assert.True(buttons[Notice.CopyLabel]);
+        _client.Setup(client => client.EndGuestAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ControlResponse("end", "stopped", true));
+        await _renderer.RunAsync(() => Call("EndGuest"));
+        Mocks.Verify<IAdminApiClient>(client => client.EndGuestAsync(FastArg.Any<CancellationToken>()), TimesSpec.Once);
+    }
+
+    [Fact]
+    public async Task RefreshInvitationIsAvailableWithoutDeviceConnectionAndUpdatesConsumedState()
+    {
+        _state = State(null) with { InvitationConsumed = true, GuestConnected = false };
+        ComponentTestAccess.Set(Component, "_state", _state);
+        Assert.False(ComponentTestAccess.Buttons(Component)["Refresh invitation"]);
+        var pending = new TaskCompletionSource<ControlResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
+        SetupCommand("RefreshInvitation", pending.Task);
+        Task refreshing = Task.CompletedTask;
+        await _renderer.RunAsync(() =>
+        {
+            refreshing = Call("RefreshInvitation");
+            return Task.CompletedTask;
+        });
+        try
+        {
+            Assert.True(Read<bool>("_safetyBusy"));
+            Assert.True(Read<bool>("_previewStopped"));
+            Assert.True(ComponentTestAccess.Buttons(Component)["Refresh invitation"]);
+            Assert.Equal("Refreshing invitation ...", Notice.Message);
+            _state = new(new("replacement-invitation"), false, false, null, null);
+            pending.SetResult(new("refresh", "invitation-refreshed", true));
+            await refreshing;
+        }
+        finally
+        {
+            pending.TrySetResult(new("refresh", "invitation-refreshed", true));
+            await refreshing;
+        }
+        Assert.False(Read<bool>("_safetyBusy"));
+        Assert.Equal("replacement-invitation", Read<UserSessionState>("_state").Invitation.Token);
+        Assert.False(Read<UserSessionState>("_state").InvitationConsumed);
+        Assert.Equal("Invitation refreshed. The previous guest session ended.", Notice.Message);
+        Assert.False(Notice.IsError);
+        Assert.Equal("success", Read<string>("_noticeVariant"));
+        Assert.Equal(1, CommandCalls("RefreshInvitation"));
+    }
+
+    [Fact]
+    public async Task FailedStopAfterRefreshShowsRevocationAndDoesNotClaimTheDeviceStopped()
+    {
+        var previous = State(Device()) with { InvitationConsumed = true };
+        ComponentTestAccess.Set(Component, "_state", previous);
+        _state = new(new("replacement-invitation"), false, false, null, Device());
+        SetupCommand("RefreshInvitation", Task.FromException<ControlResponse>(new ApiClientException("device-io-failed")));
+
+        await _renderer.RunAsync(() => Call("RefreshInvitation"));
+
+        Assert.False(Read<UserSessionState>("_state").GuestJoined);
+        Assert.Equal("replacement-invitation", Read<UserSessionState>("_state").Invitation.Token);
+        Assert.Equal("Guest session ended. Stop was not confirmed (device-io-failed). Use Stop again.", Notice.Message);
+        Assert.True(Notice.IsError);
+        Assert.False(Read<bool>("_safetyBusy"));
+    }
+
+    [Theory]
+    [InlineData("EndGuest", false)]
+    [InlineData("EndGuest", true)]
+    [InlineData("RefreshInvitation", false)]
+    [InlineData("RefreshInvitation", true)]
+    public async Task AcceptedSessionActionRemainsAcceptedWhenItsStateReadFails(string action, bool timeout)
+    {
+        SetupCommand(action, Task.FromResult(new ControlResponse("session", "accepted", true)));
+        _client.Setup(client => client.GetStateAsync(It.IsAny<CancellationToken>()))
+            .ThrowsAsync(timeout
+                ? new RpcClientRequestTimeoutException(new TimeoutException())
+                : new ApiClientException("invalid-response"));
+
+        await _renderer.RunAsync(() => Call(action));
+
+        var result = action == "EndGuest" ? "Guest session ended." : "Invitation refreshed. The previous guest session ended.";
+        Assert.Equal($"{result} The latest state is unavailable. Reload the page.", Notice.Message);
+        Assert.True(Notice.IsError);
+        Assert.False(Read<bool>("_safetyBusy"));
+        Mocks.Verify<IAdminApiClient>(client => client.GetStateAsync(FastArg.Any<CancellationToken>()), TimesSpec.Once);
+        Mocks.VerifyLogged(LogLevel.Warning, "could not refresh", TimesSpec.Once);
+    }
+
+    [Fact]
+    public async Task MissingInvitationRefreshAcknowledgementIsUnknownRatherThanRejected()
+    {
+        SetupCommand("RefreshInvitation", Task.FromException<ControlResponse>(new ApiClientException("invalid-response")));
+
+        await _renderer.RunAsync(() => Call("RefreshInvitation"));
+
+        Assert.Equal("The action outcome is unknown. Check the latest state before trying again.", Notice.Message);
+        Assert.True(Notice.IsError);
+        Assert.False(Read<bool>("_safetyBusy"));
+    }
+
+    [Theory]
+    [InlineData("EndGuest")]
+    [InlineData("RefreshInvitation")]
+    public async Task TransportLossWithoutAcknowledgementLeavesActionResultUnknown(string action)
+    {
+        SetupCommand(action, Task.FromException<ControlResponse>(new ApiClientException("connection-unavailable")));
+
+        await _renderer.RunAsync(() => Call(action));
+
+        Assert.Equal("The action outcome is unknown. Check the latest state before trying again.", Notice.Message);
+        Assert.True(Notice.IsError);
+        Assert.False(Read<bool>("_safetyBusy"));
+        Mocks.Verify<IAdminApiClient>(client => client.GetStateAsync(FastArg.Any<CancellationToken>()), TimesSpec.NeverCalled);
     }
 
     [Fact]
@@ -454,7 +651,7 @@ public sealed class HomeComponentTests : MockerTestBase<Home>, IAsyncDisposable
 
     private static DeviceStateSnapshot Device() => new(0, 50, 10, 20, 50, true, false, true);
 
-    private static UserSessionState State(DeviceStateSnapshot? device) => new(new("synthetic-invitation"), true, false, null, device);
+    private static UserSessionState State(DeviceStateSnapshot? device) => new(new("synthetic-invitation"), true, false, null, device) { GuestConnected = true };
 
     private T Read<T>(string name) => ComponentTestAccess.Get<T>(Component, name);
 
@@ -482,6 +679,7 @@ public sealed class HomeComponentTests : MockerTestBase<Home>, IAsyncDisposable
             case "Stop": _client.Setup(client => client.StopAsync(It.IsAny<CancellationToken>())).Returns(task); break;
             case "EndGuest": _client.Setup(client => client.EndGuestAsync(It.IsAny<CancellationToken>())).Returns(task); break;
             case "ResetPosition": _client.Setup(client => client.ResetPositionAsync(It.IsAny<CancellationToken>())).Returns(task); break;
+            case "RefreshInvitation": _client.Setup(client => client.RefreshInvitationAsync(It.IsAny<CancellationToken>())).Returns(task); break;
             default: throw new ArgumentException("Unknown command.", nameof(name));
         }
     }

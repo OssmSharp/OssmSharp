@@ -6,6 +6,21 @@ namespace OssmSharp.Web.Contracts;
 public static class ControlResponseCodes
 {
     /// <summary>
+    /// The invitation was consumed and a fixed-lifetime saved guest session was created.
+    /// </summary>
+    public const string InvitationRedeemed = "invitation-redeemed";
+
+    /// <summary>
+    /// The saved guest session is invalid, ended, expired, or belongs to an earlier invitation.
+    /// </summary>
+    public const string InvalidGuestSession = "invalid-guest-session";
+
+    /// <summary>
+    /// The invitation was replaced, invalidating the previous saved guest session.
+    /// </summary>
+    public const string InvitationRefreshed = "invitation-refreshed";
+
+    /// <summary>
     /// The shared preview dimensions were updated without changing motion settings.
     /// </summary>
     public const string PreviewUpdated = "preview-updated";

@@ -16,6 +16,11 @@ public static class ControlServicePolicies
     public const string GuestWeb = "ControlGuestWeb";
 
     /// <summary>
+    /// Gets the policy permitted only to redeem an invitation.
+    /// </summary>
+    public const string Invitation = "ControlInvitation";
+
+    /// <summary>
     /// Gets the policy required to establish a trusted service connection.
     /// </summary>
     public const string Service = "ControlService";

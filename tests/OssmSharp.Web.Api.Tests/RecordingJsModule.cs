@@ -6,7 +6,7 @@ internal sealed class RecordingJsModule : IJSObjectReference
 {
     internal List<(string Method, object?[] Arguments)> Calls { get; } = [];
 
-    internal string? Invitation { get; set; } = "synthetic-invitation";
+    internal string SessionCode { get; set; } = "ready";
     internal Func<CancellationToken, Task>? BeforeInvoke { get; set; }
 
     public ValueTask<TValue> InvokeAsync<TValue>(string identifier, object?[]? args)
@@ -17,7 +17,12 @@ internal sealed class RecordingJsModule : IJSObjectReference
         Calls.Add((identifier, args ?? []));
         if (BeforeInvoke is not null)
             await BeforeInvoke(cancellationToken);
-        return identifier == "takeInvitation" ? (TValue)(object)Invitation! : default!;
+        return identifier switch
+        {
+            "getSessionCode" => (TValue)(object)SessionCode,
+            "completeLeave" => (TValue)args![0]!,
+            _ => default!,
+        };
     }
 
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;

@@ -19,7 +19,8 @@ public sealed class AdminApiClient(IRpcClient connection)
     public async Task<UserSessionState> GetStateAsync(CancellationToken cancellationToken = default)
     {
         await EnsureStartedAsync(cancellationToken);
-        return await _connection.InvokeAsync<UserSessionState>("GetUserState", [], cancellationToken);
+        return await _connection.InvokeAsync<UserSessionState>("GetUserState", [], cancellationToken)
+            ?? throw new ApiClientException("invalid-response");
     }
 
     /// <inheritdoc />
@@ -43,6 +44,10 @@ public sealed class AdminApiClient(IRpcClient connection)
         InvokeRequestAsync("EndGuest", cancellationToken);
 
     /// <inheritdoc />
+    public Task<ControlResponse> RefreshInvitationAsync(CancellationToken cancellationToken = default) =>
+        InvokeRequestAsync("RefreshInvitation", cancellationToken);
+
+    /// <inheritdoc />
     public Task<ControlResponse> ConnectAsync(CancellationToken cancellationToken = default) =>
         InvokeRequestAsync("Connect", cancellationToken);
 
@@ -57,7 +62,8 @@ public sealed class AdminApiClient(IRpcClient connection)
     private async Task<ControlResponse> InvokeRequestAsync(string method, object?[] arguments, CancellationToken cancellationToken)
     {
         await EnsureStartedAsync(cancellationToken);
-        var response = await _connection.InvokeAsync<ControlResponse>(method, arguments, cancellationToken);
+        var response = await _connection.InvokeAsync<ControlResponse>(method, arguments, cancellationToken)
+            ?? throw new ApiClientException("invalid-response");
         if (!response.Accepted)
             throw new ApiClientException(response.Code);
         return response;

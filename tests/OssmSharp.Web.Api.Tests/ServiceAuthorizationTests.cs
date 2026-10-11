@@ -33,6 +33,7 @@ public sealed class ServiceAuthorizationTests
         var authorization = provider.GetRequiredService<IAuthorizationService>();
         var admin = Principal(ControlServiceRoles.AdminWeb);
         var guest = Principal(ControlServiceRoles.GuestWeb);
+        var invitation = Principal(ControlServiceRoles.Invitation);
 
         Assert.True((await authorization.AuthorizeAsync(admin, null, ControlServicePolicies.AdminWeb)).Succeeded);
         Assert.False((await authorization.AuthorizeAsync(guest, null, ControlServicePolicies.AdminWeb)).Succeeded);
@@ -40,6 +41,9 @@ public sealed class ServiceAuthorizationTests
         Assert.False((await authorization.AuthorizeAsync(admin, null, ControlServicePolicies.GuestWeb)).Succeeded);
         Assert.True((await authorization.AuthorizeAsync(admin, null, ControlServicePolicies.Service)).Succeeded);
         Assert.True((await authorization.AuthorizeAsync(guest, null, ControlServicePolicies.Service)).Succeeded);
+        Assert.True((await authorization.AuthorizeAsync(invitation, null, ControlServicePolicies.Invitation)).Succeeded);
+        Assert.False((await authorization.AuthorizeAsync(invitation, null, ControlServicePolicies.GuestWeb)).Succeeded);
+        Assert.False((await authorization.AuthorizeAsync(guest, null, ControlServicePolicies.Invitation)).Succeeded);
     }
 
     [Theory]
@@ -115,9 +119,8 @@ public sealed class ServiceAuthorizationTests
         var response = new ControlResponse("test", "accepted", true);
         using var mocks = new Mocker();
         var connection = mocks.GetOrCreateMock<IRpcClient>();
-        connection.AsMoq()
-            .Setup(rpc => rpc.StartAsync(cancellationToken, guest ? invitation : null))
-            .Returns(Task.CompletedTask);
+        connection.AsMoq().Setup(rpc => rpc.StartAsync(cancellationToken, null)).Returns(Task.CompletedTask);
+        connection.AsMoq().Setup(rpc => rpc.StartSessionAsync(invitation, cancellationToken)).Returns(Task.CompletedTask);
         connection.AsMoq()
             .Setup(rpc => rpc.InvokeAsync<ControlResponse>(It.IsAny<string>(), It.IsAny<object?[]>(), cancellationToken))
             .ReturnsAsync(response);
@@ -134,7 +137,7 @@ public sealed class ServiceAuthorizationTests
         if (guest)
         {
             var client = scope.ServiceProvider.GetRequiredService<IGuestApiClient>();
-            await client.JoinAsync(invitation, cancellationToken);
+            await client.ResumeAsync(invitation, cancellationToken);
             actual = await client.StopAsync(cancellationToken);
         }
         else
@@ -144,7 +147,10 @@ public sealed class ServiceAuthorizationTests
         }
 
         Assert.Same(response, actual);
-        mocks.Verify<IRpcClient>(rpc => rpc.StartAsync(cancellationToken, guest ? invitation : null), TimesSpec.Once);
+        if (guest)
+            mocks.Verify<IRpcClient>(rpc => rpc.StartSessionAsync(invitation, cancellationToken), TimesSpec.Once);
+        else
+            mocks.Verify<IRpcClient>(rpc => rpc.StartAsync(cancellationToken, null), TimesSpec.Once);
         var method = guest ? "GuestStop" : "Stop";
         mocks.Verify<IRpcClient>(
             rpc => rpc.InvokeAsync<ControlResponse>(

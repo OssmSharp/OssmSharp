@@ -25,7 +25,7 @@ for (const role of ["user", "guest"]) {
       h.reconnect("failed");
       connection.failed();
       h.reconnect("hide");
-      // Shared connectionDown runs once; the guest's own persistent-disconnect endpoint also pauses.
+      // Shared connectionDown runs once; the guest's local recovery notice also pauses.
       assert.equal(h.rail.pauses, role === "guest" ? 2 : 1);
       assert.equal(calls, role === "guest" ? 1 : 0);
       assert.equal(h.document.documentElement.dataset.connectionLost, "true");
@@ -34,7 +34,7 @@ for (const role of ["user", "guest"]) {
       assert.equal(h.classes.has("components-reconnect-rejected"), true);
       if (guest) {
         assert.equal(guest.controls.every((control) => control.disabled), true);
-        assert.equal(guest.storage.get("ossm-guest-connection-lost"), "true");
+        assert.equal(guest.storage.get("ossm-guest-connection-lost"), undefined);
         assert.equal(guest.elements.get('[data-input="speed"]').value, "0");
         assert.deepEqual(["stroke", "depth", "sensation"].map((name) => guest.elements.get(`[data-input="${name}"]`).value), ["10", "20", "75"]);
         assert.equal(guest.elements.get('[data-pattern="6"]').getAttribute("aria-pressed"), "true");

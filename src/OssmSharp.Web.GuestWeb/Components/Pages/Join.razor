@@ -7,14 +7,14 @@
 
 @if (_connectionLost && _status is not { Joined: true })
 {
-  <InlineNotification Variant="danger" Role="alert">
-    Connection lost. Open the invitation link again.
+  <InlineNotification Variant="warning" Role="status">
+    @(_sessionCode == "session-in-use" ? EndedMessage : "Connection lost. Reconnecting automatically. Motion will not restart.")
   </InlineNotification>
 }
 else if (!_connectionLost && _initialized && !_joined && !_joining)
 {
-  <InlineNotification Variant="@(_everJoined ? "info" : "danger")" Role="@(_everJoined ? "status" : "alert")" data-testid="@(_everJoined ? "guest-ended" : "guest-invalid")">
-    @(_everJoined ? "Session ended. Ask for a new invite to rejoin." : "This invitation is invalid or has been replaced.")
+  <InlineNotification Variant="@(_sessionCode switch { "guest-left" => "success", "session-ended" => "info", _ => "danger" })" Role="@(_sessionCode is "guest-left" or "session-ended" ? "status" : "alert")" data-testid="@(_everJoined ? "guest-ended" : "guest-invalid")">
+    @EndedMessage
   </InlineNotification>
 }
 else if (!_joined && !_connectionLost)

@@ -31,7 +31,10 @@ public static class GuestApplication
             app.UseWebSockets();
             app.UseGuestAccessPolicy(app.Services.GetRequiredService<IOptions<GuestOptions>>().Value);
             app.UseStaticFiles();
+            app.UseAuthentication();
+            app.UseAuthorization();
             app.UseAntiforgery();
+            app.MapGuestSession();
             app.MapStaticAssets(staticAssetsManifestPath);
             app.MapDefaultEndpoints();
             app.MapRazorComponents<App>().AddInteractiveServerRenderMode(options =>

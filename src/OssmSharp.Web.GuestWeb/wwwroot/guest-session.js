@@ -1,8 +1,11 @@
-const disconnectedKey = "ossm-guest-connection-lost";
 let invitation = captureInvitation();
 let controller = null;
 let guestRoot = null;
-let disconnected = sessionStorage.getItem(disconnectedKey) === "true";
+let disconnected = false;
+let terminal = false;
+let sessionCode = "no-session";
+let sessionCallbacks = null;
+let leavePending = false;
 const disconnectObserver = globalThis.MutationObserver ? new MutationObserver(() => disconnected && showDisconnect()) : null;
 
 document.addEventListener(
@@ -33,7 +36,6 @@ function captureInvitation() {
   const values = new URLSearchParams(fragment.slice(1));
   const secret = values.get("invite");
   const valid = [...values.keys()].length === 1 && secret?.length <= 128 && secret.trim();
-  if (valid) sessionStorage.removeItem(disconnectedKey);
   return valid ? secret : null;
 }
 
@@ -42,6 +44,31 @@ export function takeInvitation() {
   const value = invitation;
   invitation = null;
   return value;
+}
+/** Connects browser cookie/recovery ownership before Blazor starts; callbacks receive no credential. */
+export function configureSession(callbacks, code) {
+  sessionCallbacks = callbacks;
+  sessionCode = code;
+}
+
+document.addEventListener("click", async (event) => {
+  const button = event.target?.closest?.("[data-guest-leave]");
+  if (!button || button.disabled || leavePending) return;
+  leavePending = true;
+  button.disabled = true;
+  try {
+    await leaveSession();
+  } catch {
+    endSession("leave-failed");
+    reportError(new Error("Guest session Leave failed unexpectedly."));
+  } finally {
+    leavePending = false;
+    if (disconnected) showDisconnect();
+  }
+});
+/** Returns nonsensitive bootstrap status; the invitation is never sent through component interop. */
+export function getSessionCode() {
+  return sessionCode;
 }
 /** Attaches local controls to the current guest component, replacing old listeners. */
 export function attach(root, reference) {
@@ -62,21 +89,71 @@ export function disarm() {
   controller?.disarm();
   controller?.render();
 }
-/** Releases local listeners and pending display work; connection-loss persistence remains. */
+/** Releases local listeners and pending display work without revoking the saved browser session. */
 export function dispose() {
   invitation = null;
   controller?.destroy();
   controller = null;
   guestRoot = null;
 }
-/** Locks controls after transport loss until the user opens a new invitation. */
-export function disconnect() {
+/** Locks controls, discards motion work, and starts saved-session recovery without replaying requests. */
+export function disconnect(code = "reconnecting") {
+  if (terminal) return;
+  sessionCode = code;
+  if (disconnected) {
+    showDisconnect();
+    return;
+  }
   disconnected = true;
-  sessionStorage.setItem(disconnectedKey, "true");
+  controller?.disarm();
   showDisconnect();
   dispose();
+  sessionCallbacks?.recover(code);
 }
-/** Restores the persistent connection-loss notice after markup replacement. */
+/** Ends recovery after revocation or expiry, without issuing a motion request. */
+export function endSession(code = "session-ended") {
+  terminal = true;
+  sessionCode = code;
+  disconnected = true;
+  controller?.disarm();
+  showDisconnect();
+  dispose();
+  sessionCallbacks?.end(code);
+}
+/** Requests session-level Leave through the same-origin cookie boundary and ends automatic recovery. */
+export async function leaveSession() {
+  if (sessionCode === "session-in-use" || sessionCode === "connection-detaching")
+    return { ok: false, code: "guest-already-joined" };
+  controller?.disarm();
+  controller?.render();
+  const reply = await sessionCallbacks?.leave();
+  if (!reply) throw new Error("Browser session ownership was not initialized.");
+  if (reply.code === "guest-already-joined") {
+    disconnect("session-in-use");
+    return reply;
+  }
+  endSession(reply.ok ? "guest-left" : "leave-failed");
+  return reply;
+}
+/** Clears the browser cookie after controller-bound Leave without replaying that request. */
+export async function completeLeave(reply) {
+  const cleared = await sessionCallbacks?.clear();
+  if (!cleared) throw new Error("Browser session ownership was not initialized.");
+  const result = cleared.ok ? reply : cleared;
+  endSession(result.ok ? "guest-left" : "leave-failed");
+  return result;
+}
+/** Updates the recovery notice without changing authority or issuing a command. */
+export function showSessionState(code) {
+  if (terminal) return;
+  if (disconnected && !["connection-unavailable", "reconnecting", "session-in-use", "connection-detaching", "stop-pending"].includes(code)) {
+    endSession(code);
+    return;
+  }
+  sessionCode = code;
+  if (disconnected) showDisconnect();
+}
+/** Restores the local recovery notice after markup replacement. */
 export function restoreDisconnected() {
   if (disconnected) showDisconnect();
 }
@@ -88,7 +165,37 @@ function showDisconnect() {
   document.querySelector(".preview-rail")?.pauseAnimations();
   for (const control of document.querySelectorAll?.(".guest-session button, .guest-session input, .guest-session select") ?? []) control.disabled = true;
   document.querySelector("main > [data-testid='guest-disconnected']")?.removeAttribute("hidden");
+  const notice = document.querySelector("main > [data-testid='guest-disconnected']");
+  const message = notice?.querySelector("[data-session-message]");
+  if (message) message.textContent = sessionMessage();
+  notice?.classList?.remove("danger", "warning", "info", "success");
+  notice?.classList?.add(sessionCode === "guest-left" ? "success"
+    : sessionCode === "session-ended" || sessionCode === "session-in-use" ? "info"
+      : terminal ? "danger" : "warning");
+  const leave = document.querySelector("[data-guest-leave]");
+  if (leave) {
+    leave.hidden = terminal;
+    leave.disabled = leavePending || sessionCode === "session-in-use" || sessionCode === "connection-detaching";
+  }
   disconnectObserver?.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["disabled", "hidden"] });
+}
+
+function sessionMessage() {
+  switch (sessionCode) {
+    case "session-in-use": return "This session is open in another tab. Waiting for that tab to close.";
+    case "connection-detaching": return "Waiting for the previous connection to close before reconnecting.";
+    case "stop-pending": return "Waiting for Stop to finish before reconnecting.";
+    case "session-expired": return "This session expired after 24 hours. Ask for a new invitation.";
+    case "invalid-guest-session": return "This session ended or its invitation was replaced. Ask for a new invitation.";
+    case "session-ended": return "Session ended. Ask for a new invitation to rejoin.";
+    case "guest-left": return "You left the session. Ask for a new invitation to rejoin.";
+    case "leave-failed": return "Leaving could not be confirmed. Ask the other person to stop the device and end the session.";
+    case "invalid-response": return "The guest page received an unusable response. Ask the other person to check OssmSharp.";
+    case "recovery-failed": return "Session recovery failed. Refresh the page to try again.";
+    case "initialization-failed": return "The guest page could not start. Refresh the page to try again.";
+    case "session-read-failed": return "The guest session could not be checked. Ask the other person to check OssmSharp, then refresh this page.";
+    default: return "Connection lost. Reconnecting automatically. Motion will not restart.";
+  }
 }
 
 class Controls {
@@ -114,7 +221,8 @@ class Controls {
     this.stopQueued = false;
     this.resetQueued = false;
     this.resettingPosition = false;
-    this.previewStopped = false;
+    this.previewStopped = true;
+    this.hasSent = false;
     this.recoveryRequired = false;
     this.commandGeneration = 0;
     this.pendingSelection = null;
@@ -142,7 +250,10 @@ class Controls {
         this.render();
         if (this.autoSendToggle.checked) this.commitSelection();
       });
-    this.on(window, "pagehide", () => this.requestStop());
+    this.on(window, "pagehide", () => {
+      this.disarm();
+      this.destroy();
+    });
     this.constrainStroke();
     this.render();
   }
@@ -195,6 +306,7 @@ class Controls {
           this.errorVariant = "warning";
         } else if (reply?.ok) {
           this.sentSelection = settings;
+          this.hasSent = true;
           this.previewStopped = false;
           this.error = null;
         } else if (reply?.code === "Superseded") {
@@ -299,6 +411,7 @@ class Controls {
   updateState(state) {
     if (this.destroyed) return;
     const wasReady = this.ready;
+    const wasJoined = this.joined;
     this.joined = state?.joined === true;
     this.ready = state?.ready === true;
     this.current = state?.current ?? null;
@@ -309,7 +422,7 @@ class Controls {
     }
     if (!this.joined || !this.ready) {
       this.disarm();
-    } else if (!wasReady && state?.stopped !== true && !this.resettingPosition) {
+    } else if (this.hasSent && wasJoined && !wasReady && state?.stopped !== true && !this.resettingPosition) {
       this.previewStopped = false;
     }
     this.render();
