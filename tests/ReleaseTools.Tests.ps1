@@ -224,4 +224,10 @@ Describe 'Release downloads and publication' {
     }
 }
 
+Describe 'Release smoke helper' {
+    It 'compiles with Add-Type without project implicit usings' {
+        { Add-Type -Path (Join-Path $PSScriptRoot 'ReleaseSmoke.cs') } | Should -Not -Throw
+    }
+}
+
 AfterAll { Remove-Variable OssmReleaseTestState -Scope Global }

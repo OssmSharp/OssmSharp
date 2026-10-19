@@ -44,7 +44,9 @@
     <ItemGroup>
       <_PackagedApplicationAssets Include="@(_ApplicationAssets->'$(IntermediateOutputPath)web/%(RelativePath)')" />
       <FileWrites Include="@(_PackagedApplicationAssets)" />
-      <Content Include="@(_PackagedApplicationAssets)" Link="%(_PackagedApplicationAssets.RelativePath)" />
+      <!-- SelectApplicationPublishFiles adds these explicitly, including the endpoint manifests. -->
+      <Content Include="@(_PackagedApplicationAssets)" Link="%(_PackagedApplicationAssets.RelativePath)"
+          CopyToPublishDirectory="Never" />
       <BundleResource Include="@(_PackagedApplicationAssets)" LogicalName="%(_PackagedApplicationAssets.RelativePath)"
           Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'macos'" />
     </ItemGroup>
@@ -53,7 +55,7 @@
     <ItemGroup>
       <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
           Condition="('%(ResolvedFileToPublish.Filename)%(ResolvedFileToPublish.Extension)' == 'appsettings.json' And '%(ResolvedFileToPublish.FullPath)' != '$(_HostSettingsPath)') Or $([System.String]::Copy('%(ResolvedFileToPublish.RelativePath)').EndsWith('.staticwebassets.endpoints.json'))" />
-      <ResolvedFileToPublish Include="@(_PackagedApplicationAssets)" />
+      <ResolvedFileToPublish Include="@(_PackagedApplicationAssets)" CopyToPublishDirectory="PreserveNewest" />
     </ItemGroup>
   </Target>
 </Project>
