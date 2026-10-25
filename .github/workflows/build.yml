@@ -8,6 +8,11 @@ on:
         required: false
         default: ""
         type: string
+      windows_only:
+        description: Run only the Windows target during validation.
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -18,12 +23,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - runner: windows-2025
-            runtime: win-x64
-          - runner: xcode-27
-            runtime: osx-arm64
-    runs-on: ${{ matrix.runner }}
+        runtime: ${{ fromJSON(inputs.windows_only && '["win-x64"]' || '["win-x64","osx-arm64"]') }}
+    runs-on: ${{ matrix.runtime == 'win-x64' && 'windows-2025' || 'xcode-27' }}
     defaults:
       run:
         shell: pwsh
