@@ -105,10 +105,14 @@ Each device instance owns its connection exclusively. The caller must dispose it
 asynchronously. Connecting arms requests without sending earlier settings.
 New settings replace older commands not yet sent.
 
-`EmergencyStopAsync()` drops pending settings and sends zero speed. A successful
-Stop preserves arming; failure disarms requests. `ResetAsync()` rearms a connected
-device without restoring settings. It is not `ResetPositionAsync()`, which moves
-the rail back and stops.
+`EmergencyStopAsync()` drops pending settings and sends zero speed. Arming is
+the library's permission to send new motion settings; disarming blocks them.
+Once disarmed, the caller should require the user to confirm the device is ready
+before calling `ResetAsync()` to rearm it. This extra step reduces the chance of
+unwanted motion after an error, but does not replace the firmware's safety checks.
+A failed Stop disarms requests; a successful Stop leaves arming unchanged, so it
+does not require this confirmation. `ResetAsync()` sends no motion settings and
+is separate from `ResetPositionAsync()`, which moves the rail back and stops.
 
 `DisconnectAsync()` stops and closes the connection but allows reuse.
 After a connection failure, call `ConnectAsync()` to reconnect. Disposal is final.
