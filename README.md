@@ -58,7 +58,7 @@ Terminal, and press <kbd>Return</kbd>. Then run:
 ./OssmSharp.Web.app/Contents/MacOS/OssmSharp.Web
 ```
 
-These downloads are not notarized by Apple. WhenmacOS blocks the app, open
+These downloads are not notarized by Apple. When macOS blocks the app, open
 **System Settings > Privacy & Security** and use **Open Anyway** for OssmSharp,
 then try again. 
 
