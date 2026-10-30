@@ -1,10 +1,9 @@
-# Stock firmware 1.0.34 evidence snapshot
+# OEM firmware 1.0.34 evidence
 
 Date inspected: 23 September 2026
 
-This local snapshot records decision-bearing behavior from the stock OSSM
-firmware. It does not copy firmware source, replace the pinned upstream files,
-or establish physical qualification.
+Historical source notes, not the current RAD protocol contract or hardware
+readiness evidence. Use the [runtime guide](../../plan.md) for current behavior.
 
 ## Pinned source
 
@@ -23,7 +22,7 @@ or establish physical qualification.
 
 ### State payload
 
-`getCurrentState()` serializes these fields:
+`getCurrentState()` serializes:
 
 - unsigned `millis()` timestamp;
 - state name;
@@ -32,46 +31,35 @@ or establish physical qualification.
 - position in millimetres with two decimal places;
 - session UUID, initially empty.
 
-The application must replace firmware uptime with the UTC receipt time. Position
-is a stepper counter, not an independent measurement of physical travel.
+Use UTC receipt time rather than uptime for application timestamps. Position is
+a stepper counter, not a physical travel measurement.
 
 ### BLE state notifications
 
-The notification fingerprint contains state, speed, stroke, sensation, depth,
-pattern and session ID. It excludes timestamp, position and buffer. Therefore:
+The notification fingerprint includes state, speed, stroke, sensation, depth,
+pattern, and session ID. Only changes to these fields update the cached state
+and trigger notifications. Timestamp, position, and buffer changes alone do not.
+There is no effective periodic heartbeat despite the elapsed-time check.
 
-- depth, stroke, sensation, pattern, effective-speed and mode changes can produce
-  notifications;
-- timestamp or position changes alone do not produce notifications;
-- buffer changes alone do not produce notifications;
-- the loop updates its cached state value and notifies only when the fingerprint
-  changes;
-- there is no effective periodic state heartbeat, even though the loop checks
-  elapsed time.
+### Command queue
 
-### Commands and applied state
+The BLE loop dequeues a command, invokes `ble_click`, and caches `ok:<command>`
+in the state characteristic without a notification.
 
-The BLE loop dequeues a command, invokes `ble_click`, and stores `ok:<command>`
-in the state characteristic. That acknowledgement is cached and is not notified.
-It proves FIFO request only; it does not prove that the resulting motion
-settings were observed or applied.
-
-The state payload has no public command ID or sample sequence. Tests must not
-invent either field to attribute stock feedback to a write.
+State has no public command ID or sample sequence. Do not invent either in tests.
 
 ### Speed and local controls
 
-The firmware stores BLE-requested speed separately. When knob limiting is
-enabled, effective speed is `speedKnob * requestedBleSpeed / 100`, and telemetry
-casts that value to an integer. The knob percentage itself is not in the state
-payload.
+With knob limiting enabled, effective speed is
+`speedKnob * requestedBleSpeed / 100`. State casts it to an integer and omits the
+knob percentage.
 
-The local encoder directly updates the active stroke, sensation, depth or buffer
-setting. Depth changes are therefore represented in serialized state and in the
-notification fingerprint. Buffer is serialized but omitted from the fingerprint.
+The local encoder changes stroke, sensation, depth, or buffer. Depth changes
+trigger notifications; buffer changes do not.
 
 ## Limits of this evidence
 
-This inspection does not prove notification latency, loaded stopping distance,
-BLE behavior on a particular host, competing-client behavior, or physical
-travel. Those remain physical qualification work under DC-01 through DC-09.
+Notification latency, loaded stopping distance, host BLE behavior,
+competing-client behavior, and physical travel need hardware checks. This
+historical firmware has local controls; the library assumes exclusive control
+and a device with no physical controls.

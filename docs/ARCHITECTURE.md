@@ -1,9 +1,7 @@
 # Repository architecture
 
-The repository is split into two main groups - the **Runtime** and **Web**. Runtime facilitates
-bluetooth communibation with the OSSM device and the web projects -as the name suggests - are for
-the web-based controls. There is also a CLI to send commands directly to the device but this is
-primarily useful for testing.
+**Runtime** connects to the device over Bluetooth. **Web** provides browser
+controls through a SignalR API. The CLI uses the same runtime.
 
 ```mermaid
 %% Keep attribute selectors unquoted: Mermaid rewrites apostrophes in directives.
@@ -55,9 +53,8 @@ flowchart TB
 
 ## Runtime.Oem internals
 
-The class diagram shows the connection and settings-request path. Member lists and parameter lists
-are abbreviated; `ct` means `CancellationToken`. `+` means public, `-` private, and `~` internal.
-Underlined operations are static.
+The diagram abbreviates members and parameters. `ct` means `CancellationToken`;
+`+`, `-`, and `~` mean public, private, and internal. Underlined methods are static.
 
 ```mermaid
 %% Class diagrams need theme CSS for per-source connector and label colors.
@@ -143,22 +140,24 @@ classDiagram
 
 ```
 
-[OssmDevice](../src/OssmSharp.Runtime.Oem/OssmDevice.cs) owns the connection, control lease,
-response correlation, and motion-stream subscriptions. Its `io` gate serializes operations other
-than Stop; `writes` serializes issued Bluetooth transfers without holding the gate while waiting for
-a terminal response.
+[OssmDevice](../src/OssmSharp.Runtime.Oem/OssmDevice.cs) owns the connection,
+lease, response matching, and motion stream. Its `io` gate serializes operations
+except Stop. The `writes` gate serializes Bluetooth transfers, but releases
+before waiting for a terminal response.
 
-[MotionSettings](../src/OssmSharp.Runtime.Oem/MotionSettings.cs) performs basic range checks and
-converts requested speed to raw velocity by the following equation:
+[MotionSettings](../src/OssmSharp.Runtime.Oem/MotionSettings.cs) checks basic
+ranges, not pattern-specific rules, and converts speed to raw velocity:
 
 `rawVelocity = floor(speedPercent * strokePercent / 100)`
 
-For example, 53% speed at 10% stroke produces 5% raw velocity. This reduces the acceleration over
-short distances.
+At 10% stroke, 53% speed sends 5% raw velocity. Zero speed, zero stroke, or a
+result below 1% sends zero. Depth and sensation do not affect the conversion.
 
-[DeviceState](../src/OssmSharp.Runtime.Oem/DeviceState.cs) parses snapshots and calculates current
-speed from velocity and stroke in the same snapshot. The firmware controls motion and decides
-whether it is safe.
+[DeviceState](../src/OssmSharp.Runtime.Oem/DeviceState.cs) calculates current
+speed as `100 * velocity / stroke` from one snapshot. It preserves decimals and
+values above 100%; zero stroke gives unknown speed. Consumers use `Speed` without
+converting it. These percentages are not physical speed or strokes per minute.
+The firmware controls motion and safety.
 
 Supporting types not in the diagram:
 

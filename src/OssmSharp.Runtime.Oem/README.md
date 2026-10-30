@@ -1,37 +1,38 @@
 # OssmSharp device library
 
-The `OssmSharp.Runtime.Oem` NuGet package provides Bluetooth discovery and control
-for OSSM devices. It includes both the device library and its shared runtime
-contracts. No separate `OssmSharp.Runtime` package is required.
+Discover and control OSSM devices over Bluetooth from .NET 10. The package
+includes the shared runtime contracts; no separate runtime package is needed.
+
+## Install
+
+```sh
+dotnet add package OssmSharp.Runtime.Oem
+```
 
 ## Requirements
 
-Use .NET 10 and one of these native targets:
+Choose a native target:
 
 - `net10.0-windows10.0.19041.0`: Windows 10 version 2004 or later, or Windows 11.
 - `net10.0-macos27.0`: macOS 26 or later, with the .NET macOS workload and Xcode 27
   when building.
 
-Use the portable `net10.0` target for tests and shared code. Bluetooth requires
-one of the native targets above.
-
-```xml
-<PackageReference Include="OssmSharp.Runtime.Oem" Version="0.1.0" />
-```
+The portable `net10.0` target is for tests and shared code, not native Bluetooth.
 
 ## Use
 
-Register services with `services.AddOssmSharpOemRuntime()`. Use `IDeviceDiscovery`
-to discover devices and `IOssmDevice` to connect, set motion settings, and stop.
-Dispose the device when finished. It has exclusive control while connected.
+Register `services.AddOssmSharpOemRuntime()`, scan with `IDeviceDiscovery`, and
+create a device with the registered `Func<string, IOssmDevice>`. Use the device
+to connect, send `MotionSettings`, read state, and stop. Dispose it asynchronously.
+It has exclusive control while connected; the firmware controls motion and safety.
 
-The registration configures Bluetooth services automatically. macOS applications
-must still declare Bluetooth usage descriptions in `Info.plist`.
+Settings use integer percentages from 0 to 100. Current `DeviceState.Speed`
+preserves decimals and can exceed 100%; it is unknown at zero stroke.
+
+See the [quick start](https://github.com/OssmSharp/OssmSharp#quick-start) for a
+complete example and macOS Bluetooth setup.
 
 ## License and source
 
-OssmSharp is licensed under AGPL-3.0-only. The package includes the full license
-text. Its repository metadata identifies the exact source commit.
-
-Source and application examples: <https://github.com/argium/OssmSharp>.
-Third-party dependencies retain their own licenses.
+AGPL-3.0-only. The package includes the license and exact source commit metadata.
+[Source](https://github.com/OssmSharp/OssmSharp). Dependencies retain their licenses.

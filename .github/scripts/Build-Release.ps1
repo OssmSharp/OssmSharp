@@ -70,7 +70,7 @@ try {
             $bundlePath = [IO.Path]::GetFullPath($bundlePath, (Split-Path $project))
             Invoke-CheckedCommand ditto @($bundlePath, (Join-Path $stage "$application.app")) | Out-Null
         }
-        Copy-Item -LiteralPath (Join-Path $root 'LICENSE'), (Join-Path $root 'README.md') -Destination $stage
+        Copy-Item -LiteralPath (Join-Path $root 'LICENSE'), (Join-Path $root 'README.web.md') -Destination $stage
         $source = @(
             "OssmSharp $($metadata.InformationalVersion)"
             'License: AGPL-3.0-only. See LICENSE.'
