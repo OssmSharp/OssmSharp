@@ -35,12 +35,6 @@ the **OssmSharp.Web** file for your computer:
 - **macOS:** choose the file ending in `osx-arm64.tar.gz`. Use an Apple silicon
   Mac running macOS 26 or later.
 
-Extract the whole download into a folder you can write to. Keep its files
-together. You do not need to install .NET or development tools.
-
-The separate **OssmSharp.Cli** download is for people who prefer terminal controls.
-Most people should use **OssmSharp.Web**.
-
 ## Start OssmSharp
 
 Turn on Bluetooth and power on your device. Allow Bluetooth access if your
@@ -55,9 +49,6 @@ Terminal**. Run:
 .\OssmSharp.Web.exe
 ```
 
-Windows may warn that the download is unfamiliar. Only allow it if you downloaded
-it from the OssmSharp release page and trust it.
-
 ### macOS
 
 Open Terminal, type `cd ` (including the space), drag the extracted folder into
@@ -67,38 +58,24 @@ Terminal, and press <kbd>Return</kbd>. Then run:
 ./OssmSharp.Web.app/Contents/MacOS/OssmSharp.Web
 ```
 
-These downloads are not notarized by Apple. If macOS blocks the app, open
+These downloads are not notarized by Apple. WhenmacOS blocks the app, open
 **System Settings > Privacy & Security** and use **Open Anyway** for OssmSharp,
-then try again. Only do this for a download you trust. Do not move the executable
-out of its `.app` folder.
+then try again. 
 
 ### Open the controls
 
-Open [http://127.0.0.1:5002](http://127.0.0.1:5002) in your browser after the app
-starts. Keep the terminal open while using the app. Press
-<kbd>Ctrl</kbd>+<kbd>C</kbd> in that terminal when you want to close OssmSharp.
-
-To check which version you downloaded, run the same command with `--version`:
-
-```powershell
-.\OssmSharp.Web.exe --version
-```
-
-```sh
-./OssmSharp.Web.app/Contents/MacOS/OssmSharp.Web --version
-```
+Open [http://127.0.0.1:5002](http://127.0.0.1:5002) in your browser. Keep the terminal open while using the app. Press
+<kbd>Ctrl</kbd>+<kbd>C</kbd> in that terminal to exit. 
 
 ## Connect and invite a guest
 
 1. Click **Connect device** and wait for the device to connect.
-2. Copy the link under **Invite a guest** and give it to your guest.
-3. After the guest opens the link and joins, click **Allow control**.
+2. Copy the link under **Invite a guest** and send it to the other person. 
+3. After they open the link and join, click **Allow control**.
 
-Click **Stop** to stop motion. Click **End guest** to end the guest's session.
-Only share an invitation with the person you want to join.
+Click **Stop** to stop movement. Click **End guest** to end the session and invalidate the invite link.
 
-Each invitation can be used once. **Refresh invitation** creates a new link and
-ends the current guest session.
+Each invitation can be used once. **Refresh invitation** creates a new link and ends the current session.
 
 ## Guest access from another device
 
@@ -122,10 +99,6 @@ $env:OSSM__Guest__Hostname = 'https://guest.example'
 ```sh
 OSSM__Guest__Hostname=https://guest.example ./OssmSharp.Web.app/Contents/MacOS/OssmSharp.Web
 ```
-
-Copy a new invitation from the control page and share it with your guest.
-Use an address such as `https://guest.example`, without a page path or extra
-text after the hostname.
 
 <details>
 <summary>Tunnel settings if the guest page will not open</summary>
