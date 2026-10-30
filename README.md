@@ -105,14 +105,30 @@ Each device instance owns its connection exclusively. The caller must dispose it
 asynchronously. Connecting arms requests without sending earlier settings.
 New settings replace older commands not yet sent.
 
-`EmergencyStopAsync()` drops pending settings and sends zero speed. Arming is
-the library's permission to send new motion settings; disarming blocks them.
-Once disarmed, the caller should require the user to confirm the device is ready
-before calling `ResetAsync()` to rearm it. This extra step reduces the chance of
-unwanted motion after an error, but does not replace the firmware's safety checks.
-A failed Stop disarms requests; a successful Stop leaves arming unchanged, so it
-does not require this confirmation. `ResetAsync()` sends no motion settings and
-is separate from `ResetPositionAsync()`, which moves the rail back and stops.
+### Stop or emergency stop
+
+| Action | API | Behavior |
+| --- | --- | --- |
+| Normal stop | `SetAsync()` with `MotionSettings.Speed` set to `0` | Uses the normal settings path; requires a connected, armed, ready device. |
+| Emergency stop | `EmergencyStopAsync()` | Drops pending settings and sends zero speed ahead of queued work. Works while disarmed. Success preserves arming; failure disarms. |
+
+Emergency stop waits for a Bluetooth transfer already started, but not an earlier
+response or live read. Neither stop prevents later settings from requesting motion.
+
+### Armed or disarmed
+
+Arming is a library permission, not a physical device state.
+
+| State or action | Meaning | What your application must do |
+| --- | --- | --- |
+| Armed (`IsArmed == true`) | Settings requests are allowed, subject to connection and readiness checks. It does not mean the device is moving. | Call `SetAsync()` to send settings. |
+| Disarmed (`IsArmed == false`) | Settings requests are blocked. Emergency stop remains available. | Require explicit user confirmation that the device is ready before rearming; do not automatically retry motion settings. |
+| Rearm | `ResetAsync()` enables requests on a connected device without sending or restoring settings. | After confirmation, await `ResetAsync()`, then send new settings explicitly. Reconnect first after a connection failure. |
+
+This confirmation step reduces unwanted restarts after an error; it is not a
+hardware safety guarantee. A successful emergency stop does **not** disarm or
+require rearming. `ResetPositionAsync()` is different: it moves the rail back
+and stops, rather than granting permission to send settings.
 
 `DisconnectAsync()` stops and closes the connection but allows reuse.
 After a connection failure, call `ConnectAsync()` to reconnect. Disposal is final.
