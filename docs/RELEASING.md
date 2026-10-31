@@ -48,13 +48,12 @@ One-time configuration:
 
 1. Create the GitHub environment `release`, restricted to version tags.
 2. Set repository variable `NUGET_USER` to the NuGet account username.
-3. On nuget.org, create a policy for `OssmSharp.Runtime.Oem` with the repository
-   owner/name, workflow filename `release.yml`, and environment `release`.
+3. On nuget.org, create a policy for `OssmSharp.Runtime.Oem` with owner
+   `OssmSharp`, repository `OssmSharp`, workflow filename `release.yml`, and
+   environment `release`.
 
 Follow [NuGet's trusted publishing guide](https://learn.microsoft.com/en-us/nuget/nuget-org/trusted-publishing)
 for policy setup. The publication job already grants `id-token: write`.
-The scripts currently target `argium/OssmSharp`; align that target and the policy
-with the repository used for releases.
 
 ## Optional local checks
 
