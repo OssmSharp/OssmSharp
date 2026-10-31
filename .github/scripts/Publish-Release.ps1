@@ -27,7 +27,7 @@ $root = Split-Path (Split-Path $PSScriptRoot)
 $metadata = Get-ReleaseMetadata $root -Tag $Tag
 $directoryPath = (Resolve-Path -LiteralPath $Directory).Path
 $assets = @(Test-ReleaseArtifacts $directoryPath $metadata)
-$repository = 'argium/OssmSharp'
+$repository = 'OssmSharp/OssmSharp'
 
 function Get-PackageContentHashes {
     param([string] $Path)

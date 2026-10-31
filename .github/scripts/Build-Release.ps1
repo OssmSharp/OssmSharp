@@ -74,7 +74,7 @@ try {
         $source = @(
             "OssmSharp $($metadata.InformationalVersion)"
             'License: AGPL-3.0-only. See LICENSE.'
-            "Base source commit: https://github.com/argium/OssmSharp/tree/$($metadata.Commit)"
+            "Base source commit: https://github.com/OssmSharp/OssmSharp/tree/$($metadata.Commit)"
             'Third-party dependencies retain their own licenses.'
         )
         if ($metadata.IsDirty) {

@@ -17,7 +17,7 @@
     <ApplicationDisplayVersion>$(VersionPrefix)</ApplicationDisplayVersion>
     <ApplicationVersion>$(VersionPrefix)</ApplicationVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
-    <RepositoryUrl>https://github.com/argium/OssmSharp</RepositoryUrl>
+    <RepositoryUrl>https://github.com/OssmSharp/OssmSharp</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <IsPackable>false</IsPackable>
   </PropertyGroup>
