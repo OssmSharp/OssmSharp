@@ -59,7 +59,7 @@ foreach ($currentStage in $stages) {
             if ($release) { break }
             $notes = @"
 Download the web app or CLI for Windows x64 or Apple silicon macOS. Extract the
-entire archive and follow the [setup instructions](https://github.com/$repository/blob/$Tag/README.md).
+entire archive and follow the [setup instructions](https://github.com/$repository/blob/$Tag/README.web.md).
 No .NET installation is required. Downloads are not Developer ID signed or notarized.
 
 [Source](https://github.com/$repository/tree/$($metadata.Commit)) · AGPL-3.0-only ·

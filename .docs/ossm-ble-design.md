@@ -1,118 +1,85 @@
-# OSSM BLE integration design
+# RAD BLE integration notes
 
-Status: draft for discussion, 29 September 2026; no implementation approval.
+Draft dated 29 September 2026. This records the original proposal, not current
+behavior or approval. Use the [runtime guide](plan.md) and source for current
+behavior.
 
-## Purpose and evidence
+## Evidence
 
-Give .NET callers predictable connection, settings, Stop, and observation behavior
-over the RAD BLE v1 interface discovered in OSSM-BLE-Web. The existing
-[codemap](plan.md) targets RAD, while the current Bluetooth implementation still
-uses direct command writes and state reads. This note separates source-confirmed
-protocol behavior from proposed library policy; it does not replace the codemap.
+Baseline: OSSM-BLE-Web commit `b79a8aab9b87956c9c6ec9234ef00a7fd65cc7f7`
+and its pinned RAD references. Source inspection does not establish hardware
+compatibility or readiness.
 
-Baseline: OSSM-BLE-Web commit `b79a8aab9b87956c9c6ec9234ef00a7fd65cc7f7`,
-with its pinned RAD implementation references. This is source inspection, not
-device testing or proof of compatibility with every firmware release.
+## Wire contract
 
-## Caller scenarios
-
-- **Connect or reconnect:** reuse an undisposed client, establish subscriptions and
-  fresh state, then arm request without sending or replaying motion settings.
-- **Submit settings:** supply a complete pattern, speed, stroke, depth, and
-  sensation request; distinguish completion, supersession, cancellation, and
-  partial failure without claiming physical motion.
-- **Observe or stop:** cached reads return last known state; live reads require a
-  new observation. Stop discards pending settings and preserves current arming on
-  success; operational failures disarm.
-- **Disconnect or dispose:** disconnect preserves client reuse; disposal is
-  terminal. Both await issued I/O and cleanup. Failed setup remains disarmed.
-
-These are library requirements, not guarantees supplied by the BLE protocol.
-
-## Confirmed wire contract
-
-The OSSM service UUID is `522b443a-4f53-534d-0001-420badbabe69`.
-Characteristic identifiers replace its fourth UUID group:
+The service UUID is `522b443a-4f53-534d-0001-420badbabe69`.
+Characteristics replace its fourth group:
 
 | Group | Purpose |
 | --- | --- |
-| `0002` | Protocol Info: JSON identifying `rad-ble`, version `1`, and limits |
-| `1000` / `1100` | JSON Request writes / Response indications |
-| `2000` | Compact State: mode, sequence, uptime, active operation, lease metadata |
-| `2010` | Essential State: summary including position and session counters |
-| `2300` | Optional Sensor Stream: binary header followed by a payload |
+| `0002` | Protocol Info: `rad-ble`, version `1`, and limits |
+| `1000` / `1100` | JSON request writes / response indications |
+| `2000` | Compact State: mode, sequence, uptime, active operation, lease |
+| `2010` | Essential State: position and session counters |
+| `2300` | Optional binary sensor stream |
 
-Requests contain `v`, a nonzero `id`, `op`, and optional `path`, `args`,
-`lease`, and `ifState`. Responses correlate by `id`; `accepted` is intermediate,
-while `completed` and `failed` are terminal. Bluetooth write completion alone is
-insufficient. The RAD baseline limits messages to 509 bytes.
+Requests contain `v`, nonzero `id`, `op`, and optional `path`, `args`, `lease`,
+and `ifState`. Responses match by `id`. `accepted` is intermediate;
+`completed` and `failed` are terminal. Messages are limited to 509 bytes.
 
-Individual controls use `setting.write`, paths `motion.pattern`, `motion.speed`,
-`motion.stroke`, `motion.depth`, and `motion.sensation`, and `args.value`.
-`setting.read` returns individual values. The client's combined-settings helper
-issues separate requests; it is not an atomic device transaction. Additional
-operations include `target.set` for modes and `target.emergencyStop`.
+Controls use `setting.write` with `motion.pattern`, `motion.speed`,
+`motion.stroke`, `motion.depth`, or `motion.sensation` and `args.value`.
+`setting.read` reads one control. Combined settings require separate requests,
+not an atomic transaction. Mode changes use `target.set`.
 
-`control.acquire` returns a numeric `lease` token and `ttlMs`; renewal extends
-its lifetime and release relinquishes it. The firmware binds the token to its
-Bluetooth connection and expiry. It is temporary exclusive control, not user
-authentication. Writes and stream control require a valid lease.
+`control.acquire` returns a numeric lease and `ttlMs`. Renewal extends it;
+release ends it. The lease belongs to the Bluetooth connection and expires.
+It grants temporary exclusive control, not authentication.
 
-Compact State does not contain the five motion controls. Motion observations
-include those controls plus homing, position, buffer, targets, and counters.
-`stream.start` on `motion.speed` selects the motion surface, not speed alone.
-Only one stream is active; its frames have a 20-byte little-endian header carrying
-version, stream ID, flags, format, payload length, sequence, uptime, and dropped
-count. The web client's snapshot helper temporarily starts and stops that stream
-and rejects calls while a separately started stream is active.
+Compact State lacks motion controls. `stream.start` on `motion.speed` selects
+the full motion surface. Only one stream can run. Frames have a 20-byte
+little-endian header with version, stream ID, flags, format, length, sequence,
+uptime, and dropped count. The web snapshot helper briefly starts this stream
+and cannot run alongside another stream.
 
-## Proposed integration
+## Proposed library rules
 
-Use .NET 10 and Shiny Bluetooth on Windows and macOS, not a browser host or a
-TypeScript port. Keep lease tokens, renewal, request IDs, and subscriptions hidden
-from consumers. Await subscription readiness before issuing requests; resolve
-write tasks only from matching terminal responses, preserving failure codes.
+Use .NET 10 and Shiny on Windows and macOS. Hide leases, renewal, request IDs,
+and subscriptions from callers. Wait for subscriptions before sending requests
+and match terminal responses, preserving failure codes.
 
-Maintain one motion stream per connection. Serve live reads from its next valid
-observation instead of starting competing snapshot streams. Validate frame sizes,
-version, stream identity, and required controls; never substitute defaults or
-cached success for invalid live data.
+Keep one motion stream per connection. Live reads wait for its next valid
+observation. Check frame size, version, stream identity, and required controls;
+do not replace invalid data with defaults or cached success.
 
-Composition is proposed, not adopted: a concrete device coordinator could use an
-`IDeviceAdapter` implemented for Bluetooth. Shared code owns arming,
-supersession, and last known state; the adapter owns protocol translation and
-split-write execution. Split writes must check cancellation before issuance,
-register expected changes, and await issued I/O.
+A coordinator plus Bluetooth adapter was proposed as an alternative to
+inheritance. Either design must serialize writes, track pending changes,
+check cancellation before sending, and await transfers already started.
+Avoid generic byte transports, client-side pattern rules, and legacy fallback.
 
-Retaining the current inheritance hooks is the smaller migration alternative;
-both structures must enforce the same behavior. Reject a generic byte-transport
-interface that merely moves protocol differences into casts or conditionals.
-Do not copy client-side pattern policies or introduce legacy protocol fallback.
+Reconnect explicitly with fresh state. Reject stale callbacks. Lease loss
+ends the connection and disarms requests; never silently reacquire and replay.
 
-## Decisions and verification
+## Decisions needing hardware checks
 
-- **Stop mapping:** the codemap specifies speed zero; the discovered client uses
-  `target.set` with `target.emergencyStop`. Confirm firmware effects and agree the
-  public Stop contract before changing it; neither response proves physical stop.
-- **Readiness and feedback:** `setting.write` only stores values; patterns run only in the
-  stroke engine, so each request first sends `target.set` `target.strokeEngine` and
-  requires `stateAfter` to be `strokeEngine.idle` or `strokeEngine.pattern`. Entering the
-  engine resets stroke, depth, sensation, and speed; that reset becomes the expected
-  baseline. Reported speed is the knob-scaled effective speed, so it is excluded from
-  external-change detection. Each Set sets `speedKnobAsLimit` to `false` before
-  selecting the stroke engine so requested speed is not limited by the speed knob.
-- **Recovery:** explicitly reconnect with fresh protocol state and reject stale
-  callbacks. Lease loss fails the connection and disarms; never silently reacquire
-  and replay settings. Cancellation does not prove that an issued write stopped.
-- **Security:** the RAD baseline advertises open security; a lease is not identity
-  verification. Exclude tokens and raw payloads from logs.
-- **Planned checks:** test response correlation, partial writes, malformed frames,
-  stream exclusivity, lease expiry, Stop races, and reconnect/disposal separately
-  from host BLE integration. Hardware timing and physical readiness remain unverified.
+- **Stop:** compare speed zero with `target.set` on `target.emergencyStop`
+  before changing the public contract.
+- **Readiness:** `setting.write` stores controls. Pattern requests first select
+  `target.strokeEngine` and require `strokeEngine.idle` or
+  `strokeEngine.pattern`. Entry resets stroke, depth, sensation, and speed.
+  The proposal sets `speedKnobAsLimit` to `false` before entry.
+- **Feedback:** knob-scaled effective speed cannot identify external changes.
+- **Security:** the baseline uses open security. Keep tokens and raw payloads
+  out of logs.
+
+Check response matching, partial writes, malformed frames, stream exclusivity,
+lease expiry, Stop races, reconnect, and disposal separately from native BLE.
+Hardware timing and physical readiness remain unverified.
 
 ## Sources
 
-- [OSSM operations and paths](https://github.com/ReadieFur/OSSM-BLE-Web/blob/b79a8aab9b87956c9c6ec9234ef00a7fd65cc7f7/src/OssmBleClient.ts)
-- [RAD requests, responses, and streams](https://github.com/ReadieFur/OSSM-BLE-Web/blob/b79a8aab9b87956c9c6ec9234ef00a7fd65cc7f7/src/RadBleApi.ts)
-- [OSSM observation types](https://github.com/ReadieFur/OSSM-BLE-Web/blob/b79a8aab9b87956c9c6ec9234ef00a7fd65cc7f7/src/OssmProtocolSchema.ts)
-- [RAD limits](https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/protocol/rad-ble-v1.json) and [lease enforcement](https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp)
+- [OSSM operations](https://github.com/ReadieFur/OSSM-BLE-Web/blob/b79a8aab9b87956c9c6ec9234ef00a7fd65cc7f7/src/OssmBleClient.ts)
+- [RAD requests and streams](https://github.com/ReadieFur/OSSM-BLE-Web/blob/b79a8aab9b87956c9c6ec9234ef00a7fd65cc7f7/src/RadBleApi.ts)
+- [Observation types](https://github.com/ReadieFur/OSSM-BLE-Web/blob/b79a8aab9b87956c9c6ec9234ef00a7fd65cc7f7/src/OssmProtocolSchema.ts)
+- [RAD limits](https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/protocol/rad-ble-v1.json)
+- [Lease enforcement](https://github.com/researchanddesire/rad-ble/blob/e0aca3336eb67af2b6090c94e7b4f1896b09b47a/src/RadBle.cpp)

@@ -1,16 +1,16 @@
 ---
 name: fastmoq
 description:
-  Write or migrate FastMoq tests for xUnit v3 with Microsoft.Testing.Platform v2. Use for
-  Fact/Theory tests, per-test setup, async cleanup, tracked mocks, dependency overrides, framework
-  helpers, and provider selection.
+  Write or migrate FastMoq tests with xUnit v3 and Microsoft.Testing.Platform v2.
+  Covers setup, async cleanup, tracked mocks, dependency overrides, helpers,
+  and provider selection.
 ---
 
 # FastMoq with xUnit v3
 
-Use .NET 10, the pinned FastMoq v4 and `xunit.v3.mtp-v2` packages, and xUnit `Assert` methods. Keep
-`Microsoft.Testing.Platform` selected in `global.json`; do not add VSTest adapters or replace the
-runner. Follow [AGENTS.md](../../../AGENTS.md).
+Use .NET 10, pinned FastMoq v4 and `xunit.v3.mtp-v2` packages, and xUnit `Assert`.
+Keep MTP selected in `global.json`; do not replace it or add VSTest adapters.
+Follow [AGENTS.md](../../../AGENTS.md).
 
 From the repository root:
 
@@ -18,25 +18,25 @@ From the repository root:
 dotnet test --project tests/OssmSharp.Web.Api.Tests/OssmSharp.Web.Api.Tests.csproj
 ```
 
-For filters, reports, and project configuration, use [fastmoq-mtp2](../fastmoq-mtp2/SKILL.md).
+For filters, test results, and configuration, use [fastmoq-mtp2](../fastmoq-mtp2/SKILL.md).
 
 ## Defaults
 
-- Prefer `FastMoq.Core`; ask before adding packages. Web helpers need `FastMoq.Web`, EF helpers need
-  `FastMoq.Database`. Keep EF package majors aligned.
-- Use `Mocker` for local DI construction; `MockerTestBase<T>` for a repeated component harness.
-- Use public `[Fact]` methods, or `[Theory]` with `[InlineData]` / `[MemberData]`. Async tests
-  return `Task` or `ValueTask`, never `async void`.
-- xUnit creates a test-class instance per test. In a FastMoq base, arrange in `SetupMocksAction`
-  before `Component` is created; the derived constructor body is too late for dependency
-  replacement. Select constructor signatures with `ComponentConstructorParameterTypes`.
-- Prefer shared helpers, then tracked provider extensions, then explicit `AsMoq()` /
-  `AsNSubstitute()` escape hatches. Do not add verification-only wrappers.
+- Prefer `FastMoq.Core`; ask before adding packages. Web and EF helpers need
+  `FastMoq.Web` and `FastMoq.Database`. Align EF package majors.
+- Check `MockerTestBase<T>` first and use it when supported. Otherwise use `Mocker`.
+- Use public `[Fact]` or `[Theory]` methods with `[InlineData]` / `[MemberData]`.
+  Async tests return `Task` or `ValueTask`, never `async void`.
+- Each test gets a new class instance. Arrange in `SetupMocksAction` before
+  `Component` exists; the derived constructor is too late. Choose constructors
+  with `ComponentConstructorParameterTypes`.
+- Prefer shared helpers, then tracked extensions, then `AsMoq()` /
+  `AsNSubstitute()`. Do not add verification-only wrappers.
 
 ## Construct, arrange, verify
 
-Domain types are illustrative. FastMoq creates `Component` and its tracked dependencies; the test
-runner discovers the attributed method:
+These domain types are examples. FastMoq creates `Component` and tracks its
+dependencies:
 
 ```csharp
 using FastMoq;
@@ -65,9 +65,9 @@ public sealed class ImporterTests : MockerTestBase<Importer>
 }
 ```
 
-Remaining setup fragments use the `mocks` parameter in `SetupMocksAction`. For direct construction
-in a plain `[Fact]`, use a fresh `new Mocker()`, arrange, then call `CreateInstance<T>()`. Do not
-put test execution in top-level statements.
+Later setup examples use `mocks` from `SetupMocksAction`. When the base is
+unsuitable, create a fresh `Mocker`, arrange, then call `CreateInstance<T>()`
+inside a `[Fact]`. Do not run tests in top-level statements.
 
 | Intent                   | Pattern                                                                                                                                 |
 | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
@@ -78,35 +78,32 @@ put test execution in top-level statements.
 | Separate keyed roles     | `GetOrCreateMock<T>(new MockRequestOptions { ServiceKey = "primary" })`; create a distinct secondary role                               |
 | Detached mock            | `CreateStandaloneFastMock<T>()`; wire `.Instance` manually and verify that handle through `MockingProviderRegistry.Default.Verify(...)` |
 
-Keep one resolution model per service. Do not retrieve a tracked mock and then re-register its
-`.Instance` with `AddType`. Exact-result helpers wrap interface registrations; arrange them before
-injection, not after the subject captures a dependency. Configure tracked Moq mocks with setups for
-sequencing or richer behavior.
+Use one resolution model per service. Do not re-register a tracked mock's
+`.Instance` with `AddType`. Arrange exact-result helpers before injection.
+Use tracked Moq setups for sequences or richer behavior.
 
-Use `TimesSpec.Once`, `NeverCalled`, `Exactly(n)`, `AtLeast(n)`, or `AtMost(n)`. Omitting a
-verification count means at least once. Prefer `FastArg.Any<T>()` / `FastArg.Is<T>(predicate)` over
-Moq matchers in provider-first verification; check provider capabilities rather than assuming
-identical matcher behavior.
+Use `TimesSpec.Once`, `NeverCalled`, `Exactly(n)`, `AtLeast(n)`, or `AtMost(n)`.
+No count means at least once. Prefer `FastArg.Any<T>()` / `FastArg.Is<T>()` in
+provider-first verification. Check each provider's matcher support.
 
 ## xUnit v3 lifetime and output
 
-- Await async calls and `Assert.ThrowsAsync<T>(...)`. Pass `TestContext.Current.CancellationToken`
-  to cancellable operations; do not cache the test context or block with `.Result` / `.Wait()`.
-- Async setup uses `Xunit.IAsyncLifetime.InitializeAsync()` returning `ValueTask`. It runs after
-  construction: use a plain test class with direct `Mocker` when asynchronous setup must precede
-  subject creation.
-- Async cleanup uses `ValueTask DisposeAsync()` via `IAsyncDisposable` or `IAsyncLifetime`. v3
-  prefers it over `IDisposable.Dispose()`. When adding it to `MockerTestBase<T>`, call
+- Await async calls and `Assert.ThrowsAsync<T>()`. Pass
+  `TestContext.Current.CancellationToken`; do not cache context or block with
+  `.Result` / `.Wait()`.
+- `Xunit.IAsyncLifetime.InitializeAsync()` returns `ValueTask` and runs after
+  construction. Use a plain class with `Mocker` if async setup must precede creation.
+- Use `ValueTask DisposeAsync()` via `IAsyncDisposable` or `IAsyncLifetime`.
+  xUnit v3 prefers it to synchronous disposal. In `MockerTestBase<T>`, call
   `base.Dispose()` in `finally` after owned async cleanup.
-- Keep mutable mocks per test. Use `IClassFixture<T>` / collection fixtures only for intentionally
-  shared infrastructure; assembly fixtures do not serialize tests.
-- Inject `Xunit.ITestOutputHelper` for per-test diagnostics, not
-  `Xunit.Abstractions.ITestOutputHelper`. Output is diagnostic; assert behavior separately.
+- Keep mutable mocks per test. Use class or collection fixtures only for shared
+  infrastructure. Assembly fixtures do not serialize tests.
+- Inject `Xunit.ITestOutputHelper`, not `Xunit.Abstractions.ITestOutputHelper`.
+  Assert behavior separately from diagnostic output.
 
 ## Files, HTTP, options, logs
 
-Use the shared in-memory file system; do not create a second `MockFileSystem` merely to fill an
-`IFileSystem` constructor slot.
+Reuse the in-memory file system; do not create another for an `IFileSystem` slot.
 
 ```csharp
 var files = mocks.GetFileSystem();
@@ -119,23 +116,21 @@ mocks.WhenHttpRequest(HttpMethod.Get, "/missing", () =>
     new HttpResponseMessage(System.Net.HttpStatusCode.NotFound));
 ```
 
-Inside the `[Fact]`, after exercising `Component`:
+After exercising `Component`:
 
 ```csharp
 Mocks.VerifyLogged(
     Microsoft.Extensions.Logging.LogLevel.Warning, "retrying", TimesSpec.Exactly(2));
 ```
 
-The built-in `IHttpClientFactory` shares the mocker's handler but does not apply named-client
-configuration. Use typed DI helpers such as `AddTypedServiceProvider(...)` /
-`CreateTypedServiceScope(...)` when actual service types and lifetimes matter; never return one
-object for every service.
+`IHttpClientFactory` shares the mocker's handler but skips named-client configuration.
+Use `AddTypedServiceProvider(...)` / `CreateTypedServiceScope(...)` when service
+types and lifetimes matter. Never return one object for every service.
 
 ## DbContext (optional database package)
 
-`GetMockDbContext<T>()` provides a Moq-backed convenience path for mocked sets. Seed through
-`GetRequiredObject<T>()`; retrieve its tracked handle only after helper creation. For a real EF
-in-memory context:
+`GetMockDbContext<T>()` creates Moq-backed sets. Seed via `GetRequiredObject<T>()`;
+retrieve the tracked handle after helper creation. For a real EF in-memory context:
 
 ```csharp
 var db = mocks.GetDbContextHandle<AppDbContext>(new DbContextHandleOptions<AppDbContext>
@@ -145,13 +140,13 @@ var db = mocks.GetDbContextHandle<AppDbContext>(new DbContextHandleOptions<AppDb
 db.Context.Database.EnsureCreated();
 ```
 
-Seed before the act step; isolate stores per test and dispose owned contexts afterward. In-memory
-tests do not prove relational SQL or transaction behavior.
+Seed before acting, isolate stores per test, and dispose owned contexts.
+In-memory tests do not prove SQL or transaction behavior.
 
 ## Controllers and request context (optional web package)
 
-Import `FastMoq.Web.Extensions`. Use this standalone arrangement in a plain `[Fact]`, rather than
-creating an extra controller in a base-class setup hook:
+Import `FastMoq.Web.Extensions`. When direct construction is needed, arrange in
+a plain `[Fact]`, not an extra controller in a base setup hook:
 
 ```csharp
 var mocks = new Mocker();
@@ -172,13 +167,12 @@ var principal = Mocks.SetupClaimsPrincipal(claims,
 Component.ControllerContext = Mocks.CreateControllerContext(principal);
 ```
 
-Assign the context to the actual subject, not a throwaway controller created during setup. Direct
-action calls do not exercise authorization middleware.
+Assign context to the subject. Direct action calls bypass authorization middleware.
 
 ## Known-type customization
 
-Use `AddType` for ordinary dependency replacement. Use `AddKnownType` only for framework resolution
-or post-processing; registrations stay local to the mocker:
+Use `AddType` to replace dependencies. Reserve `AddKnownType` for framework
+resolution or post-processing. Registrations stay local:
 
 ```csharp
 mocks.AddKnownType<Microsoft.AspNetCore.Http.HttpContext>(
@@ -188,31 +182,30 @@ mocks.AddKnownType<Microsoft.AspNetCore.Http.HttpContext>(
 
 ## Providers and migration
 
-Provider resolution uses an async-scoped `Push` override, an explicit default, a single discoverable
-non-reflection provider, or `reflection`. Reflection verification is best-effort and compares only
-direct constant arguments with `Equals`; do not use it to prove captured-variable or rich matcher
-predicates.
+Provider order is an async-scoped `Push`, explicit default, sole discoverable
+non-reflection provider, then `reflection`. Reflection only compares direct
+constant arguments with `Equals`; do not rely on it for captured values or predicates.
 
-Moq-fluent `.Setup(...)` needs `FastMoq.Provider.Moq` and `using FastMoq.Providers.MoqProvider;`.
-Select it once in the xUnit test assembly, before any FastMoq test-class construction:
+Moq `.Setup(...)` needs `FastMoq.Provider.Moq` and
+`using FastMoq.Providers.MoqProvider;`. Select it once before test-class construction:
 
 ```csharp
 using FastMoq.Providers;
 [assembly: FastMoqDefaultProvider("moq")]
 ```
 
-For register-and-select bootstrap, use
-`FastMoqRegisterProvider("alias", typeof(Provider), SetAsDefault = true)`. For a temporary override,
-use a plain `[Fact]` and create its mocker inside the scope; pushing a provider cannot reconfigure
-an already-created `Component`:
+Register and select with
+`FastMoqRegisterProvider("alias", typeof(Provider), SetAsDefault = true)`.
+For temporary overrides, create the mocker inside the scope. `Push` cannot
+reconfigure an existing `Component`:
 
 ```csharp
 using var scope = MockingProviderRegistry.Push("reflection");
 var mocks = new Mocker();
 ```
 
-Do not change global defaults inside parallel tests. Preserve intentional provider-specific behavior
-during migration; do not mechanically erase it.
+Do not change global defaults in parallel tests. Preserve intentional
+provider-specific behavior during migration.
 
 | Legacy                             | Preferred v4                                                                 |
 | ---------------------------------- | ---------------------------------------------------------------------------- |
