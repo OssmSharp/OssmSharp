@@ -394,7 +394,9 @@ public sealed class HomeComponentTests : MockerTestBase<Home>, IAsyncDisposable
         Assert.False(ComponentTestAccess.Buttons(Component)["Connect device"]);
         _state = State(Device() with
         {
-            IsArmed = false, Name = "Test device", Identifier = "isolated-device",
+            IsArmed = false,
+            Name = "Test device",
+            Identifier = "isolated-device",
             ConnectedAt = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero),
             TransmittedSettings = new(4, 27, 38, 49, 61),
         });
@@ -417,7 +419,8 @@ public sealed class HomeComponentTests : MockerTestBase<Home>, IAsyncDisposable
     {
         var last = State(Device() with
         {
-            Name = "Test device", Identifier = "isolated-device",
+            Name = "Test device",
+            Identifier = "isolated-device",
             ConnectedAt = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero),
             TransmittedSettings = new(4, 27, 38, 49, 61),
         });

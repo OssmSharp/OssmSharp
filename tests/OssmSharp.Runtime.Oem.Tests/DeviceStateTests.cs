@@ -24,7 +24,11 @@ public sealed class DeviceStateTests(ITestOutputHelper output) : MockerTestBase<
             {
                 var bytes = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new
                 {
-                    pattern = (int)pattern, speed = velocity, stroke, depth, sensation,
+                    pattern = (int)pattern,
+                    speed = velocity,
+                    stroke,
+                    depth,
+                    sensation,
                 });
                 Assert.True(DeviceState.TryFromBytes(bytes, out var state, out var errors));
                 Assert.Empty(errors);

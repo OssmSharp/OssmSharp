@@ -21,7 +21,7 @@ public sealed record MotionSettings
     /// <param name="depth">The depth argument from zero through 100 percent.</param>
     /// <param name="sensation">The sensation argument from zero through 100 percent.</param>
     /// <exception cref="ArgumentOutOfRangeException">The pattern is undefined, or a percentage is outside its basic range.</exception>
-    public MotionSettings(StrokePattern pattern, int speed, int stroke, int depth, int sensation)
+public MotionSettings(StrokePattern pattern, int speed, int stroke, int depth, int sensation)
     {
         if (!IsValidPattern(pattern))
         {
@@ -42,7 +42,7 @@ public sealed record MotionSettings
     /// <summary>
     /// Gets the firmware stroke pattern.
     /// </summary>
-    public StrokePattern Pattern { get; }
+public StrokePattern Pattern { get; }
 
     /// <summary>
     /// Gets the requested speed as an integer percentage from zero through 100.
@@ -51,30 +51,30 @@ public sealed record MotionSettings
     /// Firmware velocity is rounded down to floor(Speed * Stroke / 100). For example, 53% speed
     /// at 10% stroke sends 5% firmware velocity, giving 50% current speed at that stroke.
     /// </remarks>
-    public int Speed { get; }
+public int Speed { get; }
 
     /// <summary>
     /// Gets the stroke argument as a percentage.
     /// </summary>
-    public int Stroke { get; }
+public int Stroke { get; }
 
     /// <summary>
     /// Gets the depth argument as a percentage.
     /// </summary>
-    public int Depth { get; }
+public int Depth { get; }
 
     /// <summary>
     /// Gets the sensation argument as a percentage.
     /// </summary>
-    public int Sensation { get; }
+public int Sensation { get; }
 
-    internal int DesiredDeviceVelocityPercent => Speed * Stroke / 100;
+internal int DesiredDeviceVelocityPercent => Speed * Stroke / 100;
 
-    internal static bool IsValidPattern(StrokePattern value) => Enum.IsDefined(value);
+internal static bool IsValidPattern(StrokePattern value) => Enum.IsDefined(value);
 
-    internal static bool IsValidPercentage(int value) => value is >= 0 and <= 100;
+internal static bool IsValidPercentage(int value) => value is >= 0 and <= 100;
 
-    internal FirmwareCommand[] ToCommands() =>
+internal FirmwareCommand[] ToCommands() =>
         [
             new(FirmwareSetting.Pattern, (int)Pattern),
             new(FirmwareSetting.Stroke, Stroke),
@@ -83,7 +83,7 @@ public sealed record MotionSettings
             new(FirmwareSetting.Speed, DesiredDeviceVelocityPercent),
         ];
 
-    private static void ValidatePercentage(int value, string parameterName)
+private static void ValidatePercentage(int value, string parameterName)
     {
         if (!IsValidPercentage(value))
         {
