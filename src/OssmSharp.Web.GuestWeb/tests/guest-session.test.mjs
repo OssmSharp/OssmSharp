@@ -233,7 +233,7 @@ test("speed is sent unchanged and retains the selected speed", async () => {
     assert.equal(display.selected.speed, speed);
     assert.equal(display.sent.speed, speed);
     assert.equal(browser.element('[data-sent="speed"]').textContent, speed);
-    assert.equal(browser.element('[data-sent-marker="speed"]').attributes.get("y1"), String(100 - speed));
+    assert.equal(browser.element('[data-sent-marker="speed"]').attributes.get("x1"), String(speed));
     browser.click("[data-send-button]");
     await setImmediate();
     assert.equal(browser.calls("SubmitSettings").length, count + 1);
@@ -263,7 +263,7 @@ test("Send is unavailable when unchanged or Auto send is on", async () => {
   browser.guest.dispose();
 });
 
-test("slider fills and equal markers share the selected range including zero", async () => {
+test("horizontal slider fills and markers share the selected range including zero", async () => {
   const browser = await createGuest();
   for (const value of [0, 25, 57, 100]) {
     for (const [name, selection] of Object.entries({ depth: 100, stroke: value, speed: value, sensation: value })) {
@@ -275,12 +275,32 @@ test("slider fills and equal markers share the selected range including zero", a
     await setImmediate();
     for (const name of ["speed", "stroke", "sensation"]) {
       assert.equal(browser.element(`[data-input="${name}"]`).style.getPropertyValue("--range-progress"), `${value}%`);
-      assert.equal(browser.element(`[data-sent-marker="${name}"]`).attributes.get("y1"),
-        browser.element(`[data-current-marker="${name}"]`).attributes.get("y1"));
+      assert.equal(browser.element(`[data-sent-marker="${name}"]`).attributes.get("x1"), String(value));
+      assert.equal(browser.element(`[data-sent-marker="${name}"]`).attributes.get("x2"), String(value));
+      assert.equal(browser.element(`[data-current-marker="${name}"]`).attributes.get("x1"), String(value));
+      assert.equal(browser.element(`[data-current-marker="${name}"]`).attributes.get("x2"), String(value));
     }
   }
   browser.guest.disarm();
   assert.equal(browser.element('[data-input="speed"]').style.getPropertyValue("--range-progress"), "0%");
+  browser.guest.dispose();
+});
+
+test("horizontal current markers preserve exact values and flag observations outside the selected range", async () => {
+  const browser = await createGuest();
+  for (const [value, position, outside] of [[0, "0", ""], [54.054054054054056, "54.054054054054056", ""], [100, "100", ""], [125.5, "100", "above"]]) {
+    browser.guest.updateState({ joined: true, ready: true, current: { speed: value, stroke: 10, depth: 20, sensation: 50 } });
+    const marker = browser.element('[data-current-marker="speed"]');
+    assert.equal(browser.element('[data-current="speed"]').textContent, value);
+    assert.equal(marker.attributes.get("x1"), position);
+    assert.equal(marker.attributes.get("x2"), position);
+    assert.equal(marker.attributes.get("data-outside-range"), outside);
+    assert.equal(marker.attributes.has("hidden"), false);
+  }
+  browser.guest.updateState({ joined: true, ready: true, current: { speed: null, stroke: 0, depth: 20, sensation: 50 } });
+  assert.equal(browser.element('[data-current="speed"]').textContent, "--");
+  assert.equal(browser.element('[data-current-marker="speed"]').attributes.has("hidden"), true);
+  assert.equal(browser.calls("SubmitSettings").length, 0);
   browser.guest.dispose();
 });
 

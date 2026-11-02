@@ -6,111 +6,132 @@
 <PageTitle>User controls</PageTitle>
 <ControlLayout Label="User controls" ConnectionLost="@_connectionLost">
   <ChildContent>
+    <h1 class="visually-hidden">User controls</h1>
     @if (_state is null)
     {
-      @if (_loaded)
-      {
-        <InlineNotification Variant="danger" Role="alert">
-          @(_notice.Message ?? "Unable to connect to the user service. Reload the page.")
-        </InlineNotification>
-      }
+      <InlineNotification Variant="@(_loaded ? "danger" : "info")" Role="@(_loaded ? "alert" : "status")">
+        @(_loaded ? _notice.Message ?? "Unable to connect to the user service. Reload the page." : "Loading device connection...")
+      </InlineNotification>
     }
     else
     {
-      <h1 class="visually-hidden">User controls</h1>
+      var deviceConnected = _state.Device is { IsConnected: true, IsConnecting: false };
+      var guestConnected = _state is { GuestJoined: true, GuestConnected: true };
       @if (_notice.Message is { } message)
       {
         <InlineNotification Variant="@(_notice.IsError ? "danger" : _noticeVariant)"
                             Role="@(_notice.IsError ? "alert" : "status")">@message</InlineNotification>
       }
-      <div class="user-grid connection-sensitive"
-           data-device-disconnected="@(_state.Device is { IsConnected: true, IsConnecting: false } ? null : "true")">
-        <section class="widget user-status device-sensitive" data-testid="user-controls" role="region"
-                 aria-labelledby="controls-heading">
-          <div class="widget-heading user-status-heading">
-            <h2 id="controls-heading">Controls</h2>
-            <span class="status-mark @GuestVariant" data-testid="guest-status">
-              <i class="dot"></i>@GuestStatus
+      <section class="device-stage connection-sensitive" data-testid="device-connection"
+               data-device-connected="@(deviceConnected ? "true" : null)" aria-labelledby="connection-heading">
+        <div class="section-heading">
+          <h2 id="connection-heading">Device connection</h2>
+          <div class="connection-statuses">
+            <span class="status-mark @ConnectionVariant @(ConnectionStatus == "Disconnected" ? "visually-hidden" : null)"
+                  data-testid="device-connection-status" role="status">
+              <i class="dot" aria-hidden="true"></i>@ConnectionStatus
             </span>
+            @if (deviceConnected)
+            {
+              <span class="status-mark @GuestVariant" data-testid="guest-status" role="status">
+                <i class="dot" aria-hidden="true"></i>@GuestStatus
+              </span>
+            }
           </div>
-          <div class="button-row">
-            <button type="button" class="button success"
-                    disabled="@(_busy || _safetyBusy || DeviceUnavailable || _state.Device is { IsResettingPosition: true } || !_state.GuestJoined)"
-                    @onclick="AllowGuest">
-              Allow control
-            </button>
-            <button type="button" class="button danger" disabled="@_safetyBusy" @onclick="Stop">Stop</button>
-            <button type="button" class="button warning" data-reset-position-button
-                    disabled="@(_busy || _safetyBusy || DeviceUnavailable || _state.Device is { IsResettingPosition: true })"
-                    @onclick="ResetPosition">Reset Position</button>
-            <button type="button" class="button danger" disabled="@(_safetyBusy || !_state.GuestJoined)" @onclick="EndGuest">
-              End guest
-            </button>
-          </div>
-          @if (_state.GuestSessionExpiresAt is { } expires)
-          {
-            <p data-testid="guest-session-expiry">Saved session expires <time datetime="@expires.ToString("O")">@expires.ToLocalTime().ToString("g")</time>.</p>
-          }
-          <div class="attachment-field">
-            <label for="attachment-length">Attachment length</label>
-            <input id="attachment-length" type="number" inputmode="decimal" data-testid="attachment-length"
-                   min="0" max="@RailLengthText" step="@LengthStep" aria-describedby="attachment-length-unit"
-                   disabled="@_connectionLost" value="@AttachmentLengthText" @onchange="SetAttachmentLength" />
-            <span id="attachment-length-unit" class="field-unit">@LengthUnitLabel (rail @RailLengthText @LengthUnitLabel)</span>
-          </div>
-        </section>
-        <section class="widget" data-testid="device-connection" role="region" aria-labelledby="connection-heading">
-          <div class="widget-heading user-status-heading">
-            <h2 id="connection-heading">Device connection</h2>
-            <span class="status-mark @ConnectionVariant" data-testid="device-connection-status" role="status">
-              <i class="dot"></i>@ConnectionStatus
-            </span>
-          </div>
+        </div>
+        @if (!deviceConnected)
+        {
+          <button type="button" class="button primary"
+                  disabled="@(_busy || _safetyBusy || _connectionLost || _state.Device is { IsConnecting: true } or { IsConnected: true })"
+                  @onclick="Connect">Connect device</button>
+        }
+        else
+        {
           <dl class="connection-details">
             <div>
               <dt>Name</dt>
               <dd data-testid="device-name">@(_state.Device?.Name ?? "Unknown")</dd>
             </div>
             <div>
-              <dt>ID</dt>
+              <dt>Device ID</dt>
               <dd data-testid="device-identifier">@(_state.Device?.Identifier ?? "Unknown")</dd>
             </div>
             <div>
               <dt>Connected duration</dt>
-              <dd data-testid="device-duration"
-                  data-connected-at="@(_state.Device is { IsConnected: true, IsConnecting: false } ? _state.Device.ConnectedAt?.ToString("O") : null)">
-                Unknown
-              </dd>
+              <dd data-testid="device-duration" data-connected-at="@_state.Device?.ConnectedAt?.ToString("O")">Unknown</dd>
             </div>
           </dl>
-          <button type="button" class="button secondary"
-                  disabled="@(_busy || _safetyBusy || _connectionLost || _state.Device is { IsConnecting: true } or { IsConnected: true })"
-                  @onclick="Connect">Connect device</button>
-        </section>
-        <section class="widget" data-testid="guest-invitation-card" role="region"
-                 aria-labelledby="invite-heading">
-          <div class="widget-heading">
-            <h2 id="invite-heading">Invite a guest</h2>
-          </div>
-          <div class="invite-row">
-            <input id="guest-invitation" type="text" aria-label="Guest invitation"
-                   data-testid="invitation-link" readonly disabled="@(DeviceUnavailable || _state.InvitationConsumed)" value="@InvitationText" />
-            <button class="button @(_notice.IsCopied ? "success" : "secondary")" type="button" disabled="@(DeviceUnavailable || _state.InvitationConsumed)"
-                    @onclick="Copy" aria-label="@_notice.CopyLabel">@_notice.CopyLabel</button>
-            <button class="button warning" type="button" disabled="@(_safetyBusy || _connectionLost)"
-                    @onclick="RefreshInvitation" title="End the current guest session and create a new invitation">Refresh invitation</button>
-          </div>
-          <p data-testid="invitation-status">
-            @(_state.InvitationConsumed ? "This invitation has been used. Refresh it to invite someone else." : "This invitation can be used once.")
-            Refreshing ends the current guest session.
-          </p>
-        </section>
-        <PatternPreview Title="Last settings" Pattern="@_state.Device?.TransmittedSettings?.Pattern"
-                        Speed="@_state.Device?.TransmittedSettings?.Speed" Stroke="@_state.Device?.TransmittedSettings?.Stroke"
-                        Depth="@_state.Device?.TransmittedSettings?.Depth" Sensation="@_state.Device?.TransmittedSettings?.Sensation"
-                        AttachmentLength="@_attachmentLengthCm" RailLength="@Options.Value.RailLengthCm"
-                        Animate="@(!_previewStopped && !_connectionLost && _state.Device is { IsConnected: true, IsConnecting: false, IsResettingPosition: false })" />
-      </div>
+        }
+      </section>
+      @if (deviceConnected)
+      {
+        <div class="session-dashboard connection-sensitive">
+          @if (guestConnected)
+          {
+            <div class="session-workspace" data-testid="active-guest-workspace">
+              <section class="session-controls" data-testid="user-controls" aria-labelledby="controls-heading">
+                <div class="section-heading">
+                  <h2 id="controls-heading">Controls</h2>
+                </div>
+                <div class="button-row">
+                  <button type="button" class="button primary"
+                          disabled="@(_busy || _safetyBusy || DeviceUnavailable || _state.Device is { IsResettingPosition: true } || !_state.GuestJoined)"
+                          @onclick="AllowGuest">Allow control</button>
+                  <button type="button" class="button danger" disabled="@_safetyBusy" @onclick="Stop">Stop</button>
+                  <button type="button" class="button warning" data-reset-position-button
+                          disabled="@(_busy || _safetyBusy || DeviceUnavailable || _state.Device is { IsResettingPosition: true })"
+                          @onclick="ResetPosition">Reset Position</button>
+                  <button type="button" class="button secondary" disabled="@(_safetyBusy || !_state.GuestJoined)" @onclick="EndGuest">End guest</button>
+                </div>
+                @if (_state.GuestSessionExpiresAt is { } expires)
+                {
+                  <p class="session-expiry" data-testid="guest-session-expiry">Saved session expires <time datetime="@expires.ToString("O")">@expires.ToLocalTime().ToString("g")</time>.</p>
+                }
+              </section>
+              <div class="preview-station">
+                <PatternPreview Title="Last settings" Pattern="@_state.Device?.TransmittedSettings?.Pattern"
+                                Speed="@_state.Device?.TransmittedSettings?.Speed" Stroke="@_state.Device?.TransmittedSettings?.Stroke"
+                                Depth="@_state.Device?.TransmittedSettings?.Depth" Sensation="@_state.Device?.TransmittedSettings?.Sensation"
+                                AttachmentLength="@_attachmentLengthCm" RailLength="@Options.Value.RailLengthCm"
+                                Animate="@(!_previewStopped && !_connectionLost && _state.Device is { IsConnected: true, IsConnecting: false, IsResettingPosition: false })" />
+                <div class="attachment-field">
+                  <label for="attachment-length">Attachment length</label>
+                  <input id="attachment-length" type="number" inputmode="decimal" data-testid="attachment-length"
+                         min="0" max="@RailLengthText" step="@LengthStep" aria-describedby="attachment-length-unit"
+                         disabled="@_connectionLost" value="@AttachmentLengthText" @onchange="SetAttachmentLength" />
+                  <span id="attachment-length-unit" class="field-unit">@LengthUnitLabel (rail @RailLengthText @LengthUnitLabel)</span>
+                </div>
+              </div>
+            </div>
+          }
+          else if (_notice.IsError && _previewStopped)
+          {
+            <button type="button" class="button danger recovery-stop" data-testid="recovery-stop"
+                    disabled="@_safetyBusy" @onclick="Stop">Stop</button>
+          }
+          <section class="invitation-desk" data-testid="guest-invitation-card" aria-labelledby="invite-heading">
+            <details class="invitation-details" data-testid="invitation-details" open="@(!guestConnected)">
+              <summary><h2 id="invite-heading">Invite a guest</h2></summary>
+              <div class="invitation-content">
+                <div class="invite-row">
+                  <input id="guest-invitation" type="text" aria-label="Guest invitation"
+                         data-testid="invitation-link" readonly disabled="@(DeviceUnavailable || _state.InvitationConsumed)" value="@InvitationText" />
+                  <button class="button @(_notice.IsCopied ? "success" : "primary")" type="button" disabled="@(DeviceUnavailable || _state.InvitationConsumed)"
+                          @onclick="Copy" aria-label="@_notice.CopyLabel">@_notice.CopyLabel</button>
+                </div>
+                <div class="invitation-footer">
+                  <p data-testid="invitation-status">
+                    @(_state.InvitationConsumed ? "This invitation has been used. Refresh it to invite someone else." : "This invitation can be used once.")
+                    Refreshing ends the current guest session.
+                  </p>
+                  <button class="button @(_state.InvitationConsumed ? "primary" : "secondary")" type="button" disabled="@(_safetyBusy || _connectionLost)"
+                          @onclick="RefreshInvitation" title="End the current guest session and create a new invitation">Refresh invitation</button>
+                </div>
+              </div>
+            </details>
+          </section>
+        </div>
+      }
     }
   </ChildContent>
 </ControlLayout>

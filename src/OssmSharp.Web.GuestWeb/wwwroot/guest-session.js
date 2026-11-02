@@ -431,10 +431,10 @@ class Controls {
     const marker = this.root.querySelector(`[data-${kind}-marker="${name}"]`);
     marker.toggleAttribute("hidden", !Number.isFinite(value));
     if (!Number.isFinite(value)) return;
-    const y = 100 - this.rangePercent(name, value);
+    const x = this.rangePercent(name, value);
     marker.setAttribute("data-outside-range", value > Number(this.inputs[name].max) ? "above" : value < Number(this.inputs[name].min) ? "below" : "");
-    marker.setAttribute("y1", y);
-    marker.setAttribute("y2", y);
+    marker.setAttribute("x1", x);
+    marker.setAttribute("x2", x);
   }
   rangePercent(name, value) {
     const input = this.inputs[name];

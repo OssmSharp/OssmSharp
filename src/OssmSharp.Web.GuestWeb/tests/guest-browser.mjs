@@ -57,35 +57,43 @@ test("public guest manual and auto send wire controls to RPC and leave scrubs ca
   assert.deepEqual(view.errors, []);
 });
 
-test("admin invitation keyboard connect and safety actions reach their RPCs", options, async (t) => {
+test("admin dashboard progresses from device connection to invitation to active guest controls", options, async (t) => {
   const fixture = await createBrowserFixture(t, browser);
   const { page, session, errors } = await fixture.openAdmin();
-  assert.equal(await page.getByLabel("Guest invitation", { exact: true }).inputValue(), "https://guest.test/join#invite=isolated-admin-invite");
-  await page.getByRole("region", { name: "Controls", exact: true }).waitFor();
   await page.getByRole("region", { name: "Device connection", exact: true }).waitFor();
-  await page.getByRole("heading", { name: "Last settings", exact: true }).waitFor();
-  assert.equal(await button(page, "Reset").count(), 0);
-  assert.doesNotMatch(await page.getByRole("main", { name: "User controls", exact: true }).innerText(),
-    /Permission expires|Not active|Last known device status|Allow guest/);
-  assert.equal(await preview(page).getAttribute("aria-label"), "Unknown preview at Unknown speed, Unknown stroke, Unknown depth, and Unknown sensation");
+  assert.equal(await page.getByTestId("guest-invitation-card").count(), 0);
+  assert.equal(await page.getByTestId("user-controls").count(), 0);
+  assert.equal(await preview(page).count(), 0);
   await button(page, "Connect device").focus();
   await page.keyboard.press("Enter");
   await waitFor(() => session.pending.has("Connect"), "keyboard Connect");
   await until(() => button(page, "Connect device").isDisabled(), true, "Connect busy");
+  assert.equal(await button(page, "Stop").count(), 0);
+  session.state = { ...session.state, device: deviceState(), guestJoined: false, guestConnected: false };
+  await complete(session, "Connect");
+  await page.getByTestId("guest-invitation-card").waitFor();
+  assert.equal(await page.getByTestId("invitation-details").getAttribute("open"), "");
+  assert.equal(await page.getByLabel("Guest invitation", { exact: true }).inputValue(), "https://guest.test/join#invite=isolated-admin-invite");
+  assert.equal(await page.getByTestId("user-controls").count(), 0);
+  assert.equal(await preview(page).count(), 0);
+  assert.equal(await button(page, "Connect device").count(), 0);
+  session.state = { ...session.state, guestJoined: true, guestConnected: true };
+  await page.getByTestId("user-controls").waitFor();
+  await page.getByRole("heading", { name: "Last settings", exact: true }).waitFor();
+  assert.equal(await page.getByTestId("invitation-details").getAttribute("open"), null);
+  assert.equal(await page.getByLabel("Guest invitation", { exact: true }).isHidden(), true);
+  assert.equal(await button(page, "Allow control").isEnabled(), true);
   assert.equal(await button(page, "Stop").isEnabled(), true);
-  assert.equal(await button(page, "End guest").isEnabled(), true);
   await button(page, "Stop").click();
   await complete(session, "Stop");
-  await until(() => button(page, "End guest").isEnabled(), true, "safety completion");
-  assert.equal(await button(page, "Connect device").isDisabled(), true);
-  await button(page, "End guest").click();
-  await complete(session, "EndGuest");
-  assert.deepEqual(commands(session), ["Connect", "Stop", "EndGuest"]);
-  await complete(session, "Connect", { accepted: false, code: "connection-failed" });
-  await until(() => button(page, "Connect device").isEnabled(), true, "late Connect settles");
-  await page.getByRole("status").filter({ hasText: "Guest session ended." }).waitFor();
-  assert.equal(await page.getByRole("alert").filter({ hasText: "The action was rejected (connection-failed)." }).count(), 0);
-  assert.equal(await page.getByRole("status").filter({ hasText: "Device connected." }).count(), 0);
+  session.state = { ...session.state, guestConnected: false };
+  await page.getByTestId("user-controls").waitFor({ state: "detached" });
+  assert.equal(await preview(page).count(), 0);
+  assert.equal(await page.getByTestId("invitation-details").getAttribute("open"), "");
+  session.state = { ...session.state, device: deviceState({ isConnected: false }) };
+  await page.getByTestId("guest-invitation-card").waitFor({ state: "detached" });
+  assert.equal(await button(page, "Connect device").isEnabled(), true);
+  assert.deepEqual(commands(session), ["Connect", "Stop"]);
   assert.deepEqual(errors, []);
 });
 

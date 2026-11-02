@@ -193,6 +193,7 @@ test("invitation refresh revokes an active guest before failed Stop completes", 
     ...userState(deviceState()), invitationConsumed: true,
     guestSessionExpiresAt: guest.session.saved.expiresAt,
   });
+  await admin.page.getByTestId("invitation-details").locator("summary").click();
   assert.equal(await button(admin.page, "Copy").isDisabled(), true);
   await button(admin.page, "Refresh invitation").click();
   await waitFor(() => admin.session.pending.has("RefreshInvitation"), "admin invitation refresh");

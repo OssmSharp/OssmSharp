@@ -4,6 +4,7 @@
 @using OssmSharp.Web.Client.Models
 
 <PageTitle>Guest controls</PageTitle>
+<h1 class="visually-hidden">Guest controls</h1>
 
 @if (_connectionLost && _status is not { Joined: true })
 {
@@ -23,7 +24,7 @@ else if (!_joined && !_connectionLost)
 }
 else
 {
-  <div @ref="_root" class="guest-session content-stack" data-connection-lost="@(_connectionLost ? "true" : null)"
+  <div @ref="_root" class="guest-session" data-connection-lost="@(_connectionLost ? "true" : null)"
        data-device-disconnected="@(_status?.Device is { IsConnected: true, IsConnecting: false } ? null : "true")"
        data-control-waiting="@(_status is { Joined: true, ControlAllowed: false } ? "true" : null)">
     <InlineNotification Variant="@_display.ErrorVariant" Role="alert" data-browser-alert hidden="@(_display.Error is null)">
@@ -31,85 +32,75 @@ else
     </InlineNotification>
     @if (_status is not { ControlAllowed: true })
     {
-      <InlineNotification Variant="@SessionMessageVariant" CssClass="guest-session-message" Role="status">
-        @SessionMessage
-      </InlineNotification>
+      <InlineNotification Variant="@SessionMessageVariant" CssClass="guest-session-message" Role="status">@SessionMessage</InlineNotification>
     }
-    <div class="guest-workspace">
-        <aside class="pattern-sidebar guest-controlled connection-sensitive device-sensitive" aria-labelledby="patterns-heading">
-          <h2 id="patterns-heading">Pattern</h2>
-          <div class="pattern-list" role="group" aria-label="Pattern">
-            @foreach (var (pattern, label) in new[] { (0, "Simple stroke"), (1, "Teasing / pounding"), (2, "Robo stroke"),
-              (3, "Half / half"), (4, "Deeper"), (5, "Stop / go"), (6, "Insist") })
-            {
-              <button type="button" class="pattern-button" data-pattern="@pattern" disabled="@(!Ready)"
-                      aria-pressed="@(_display.Selected.Pattern == pattern ? "true" : "false")">@label</button>
-            }
+    <section class="console-toolbar" aria-label="Session actions">
+      <div class="send-options">
+        @if (Ready)
+        {
+          <p data-send-status class="send-status @(_display.Status == "Settings sent." ? "success" : _display.Status == "Resetting position ..." ? "warning" : "info")" role="status">@_display.Status</p>
+        }
+        <label class="switch-label" for="guest-auto-send">
+          <input id="guest-auto-send" type="checkbox" role="switch" data-auto-send disabled="@(!Ready)" />
+          <span class="switch" aria-hidden="true"></span>Auto send
+        </label>
+      </div>
+      <div class="send-actions">
+        <button type="button" class="button success send-button" data-send-button disabled="@(!Ready || !_display.CanSend)" aria-label="Send"
+                title="Send the selected settings">Send<span class="action-arrow" aria-hidden="true"></span></button>
+        <button type="button" class="button danger" data-stop-button disabled="@_connectionLost" aria-label="Stop"
+                title="Stop motion and pause control">Stop<span class="stop-symbol" aria-hidden="true"></span></button>
+        <button type="button" class="button warning" data-reset-position-button
+                disabled="@(!Ready || _status?.Device?.IsResettingPosition == true)" title="Retract fully, then stop">Reset Position</button>
+        <button type="button" class="button secondary" @onclick="LeaveAsync" disabled="@(_leaving || _connectionLost)"
+                aria-label="Leave session" title="Stop control and leave this session">Leave session</button>
+      </div>
+    </section>
+    <section class="pattern-bank guest-controlled connection-sensitive device-sensitive" aria-labelledby="patterns-heading">
+      <div class="section-heading">
+        <h2 id="patterns-heading">Pattern</h2>
+      </div>
+      <div class="pattern-list" role="group" aria-label="Pattern">
+        @foreach (var (pattern, label) in new[] { (0, "Simple stroke"), (1, "Teasing / pounding"), (2, "Robo stroke"),
+          (3, "Half / half"), (4, "Deeper"), (5, "Stop / go"), (6, "Insist") })
+        {
+          <button type="button" class="pattern-button" data-pattern="@pattern" disabled="@(!Ready)"
+                  aria-pressed="@(_display.Selected.Pattern == pattern ? "true" : "false")">
+            <span class="pattern-index" aria-hidden="true">@($"{pattern + 1:00}")</span>
+            <span>@label</span>
+            <span class="pattern-selection" aria-hidden="true"></span>
+          </button>
+        }
+      </div>
+    </section>
+    <div class="console-workspace">
+      <section class="settings-console" aria-label="Requested settings">
+        <div class="section-heading">
+          <h2>Settings</h2>
+          <div class="settings-legend">
+            <span><i class="key selected" aria-hidden="true"></i>Selected</span>
+            <span><i class="key sent" aria-hidden="true"></i>Sent</span>
+            <span><i class="key current" aria-hidden="true"></i>Current</span>
           </div>
-          <div class="page-actions">
-            <button type="button" class="button secondary" @onclick="LeaveAsync" disabled="@(_leaving || _connectionLost)"
-                    aria-label="Leave session" title="Stop control and leave this session">Leave session</button>
-          </div>
-        </aside>
-        <div class="guest-panel">
-        <div class="guest-controlled connection-sensitive">
-            <PatternPreview Pattern="@_display.Selected.Pattern" Speed="@_display.Selected.Speed" Stroke="@_display.Selected.Stroke" Depth="@_display.Selected.Depth"
-                            Sensation="@_display.Selected.Sensation"
-                            RailLength="@(_status?.Preview?.RailLengthCm ?? 40)" AttachmentLength="@(_status?.Preview?.AttachmentLengthCm ?? 24)"
-                            Animate="@(!_display.PreviewStopped && !_connectionLost && _status?.Device is { IsConnected: true, IsConnecting: false, IsResettingPosition: false })" />
-          </div>
-        <section class="widget settings-widget" role="region" aria-label="Requested settings">
-          <div class="widget-heading">
-            <h2>Settings</h2>
-            <div class="settings-legend">
-              <span><i class="key selected" aria-hidden="true"></i>Selected</span>
-              <span><i class="key sent" aria-hidden="true"></i>Sent</span>
-              <span><i class="key current" aria-hidden="true"></i>Current</span>
-            </div>
-          </div>
-          <div class="guest-controlled connection-sensitive device-sensitive">
-            <div class="slider-grid">
-              <VerticalSlider Name="speed" Label="Speed" Maximum="100" InitialValue="0"
-                              SelectedValue="@_display.Selected.Speed" SentValue="@_display.Sent?.Speed" CurrentValue="@DeviceSpeed" />
-              <VerticalSlider Name="stroke" Label="Stroke" Minimum="0" Maximum="100" InitialValue="10"
-                              SelectedValue="@_display.Selected.Stroke" SentValue="@_display.Sent?.Stroke"
-                              CurrentValue="@_status?.Device?.Stroke" />
-              <VerticalSlider Name="depth" Label="Depth" Minimum="0" Maximum="100" InitialValue="20"
-                              SelectedValue="@_display.Selected.Depth" SentValue="@_display.Sent?.Depth"
-                              CurrentValue="@_status?.Device?.Depth" />
-              <VerticalSlider Name="sensation" Label="Sensation" Maximum="100" InitialValue="50"
-                              SelectedValue="@_display.Selected.Sensation" SentValue="@_display.Sent?.Sensation"
-                              CurrentValue="@_status?.Device?.Sensation" />
-            </div>
-          </div>
-          <div class="card-footer">
-            <div class="send-bar">
-              <div class="send-options">
-                @if (Ready)
-                {
-                  <p data-send-status class="send-status @(_display.Status == "Settings sent." ? "success" : _display.Status == "Resetting position ..." ? "warning" : "info")" role="status">@_display.Status</p>
-                }
-                <div class="auto-send">
-                  <label class="switch-label" for="guest-auto-send">
-                    <input id="guest-auto-send" type="checkbox" role="switch" data-auto-send disabled="@(!Ready)" />
-                    <span class="switch" aria-hidden="true"></span>
-                    Auto send
-                  </label>
-                </div>
-              </div>
-              <button type="button" class="button warning" data-reset-position-button
-                      disabled="@(!Ready || _status?.Device?.IsResettingPosition == true)"
-                      title="Retract fully, then stop">Reset Position</button>
-              <div class="send-actions">
-                <button type="button" class="button success" data-send-button disabled="@(!Ready || !_display.CanSend)" aria-label="Send"
-                        title="Send the selected settings">Send</button>
-                <button type="button" class="button danger" data-stop-button disabled="@_connectionLost" aria-label="Stop"
-                        title="Stop motion and pause control">Stop</button>
-              </div>
-            </div>
-          </div>
-        </section>
         </div>
+        <div class="slider-grid guest-controlled connection-sensitive device-sensitive">
+          <SettingSlider Name="speed" Label="Speed" Maximum="100" InitialValue="0"
+                         SelectedValue="@_display.Selected.Speed" SentValue="@_display.Sent?.Speed" CurrentValue="@DeviceSpeed" />
+          <SettingSlider Name="stroke" Label="Stroke" Minimum="0" Maximum="100" InitialValue="10"
+                         SelectedValue="@_display.Selected.Stroke" SentValue="@_display.Sent?.Stroke" CurrentValue="@_status?.Device?.Stroke" />
+          <SettingSlider Name="depth" Label="Depth" Minimum="0" Maximum="100" InitialValue="20"
+                         SelectedValue="@_display.Selected.Depth" SentValue="@_display.Sent?.Depth" CurrentValue="@_status?.Device?.Depth" />
+          <SettingSlider Name="sensation" Label="Sensation" Maximum="100" InitialValue="50"
+                         SelectedValue="@_display.Selected.Sensation" SentValue="@_display.Sent?.Sensation" CurrentValue="@_status?.Device?.Sensation" />
+        </div>
+        <p class="console-footnote">All settings are percentages. Current speed is unknown at zero device stroke.</p>
+      </section>
+      <div class="preview-console guest-controlled connection-sensitive">
+        <PatternPreview Pattern="@_display.Selected.Pattern" Speed="@_display.Selected.Speed" Stroke="@_display.Selected.Stroke" Depth="@_display.Selected.Depth"
+                        Sensation="@_display.Selected.Sensation"
+                        RailLength="@(_status?.Preview?.RailLengthCm ?? 40)" AttachmentLength="@(_status?.Preview?.AttachmentLengthCm ?? 24)"
+                        Animate="@(!_display.PreviewStopped && !_connectionLost && _status?.Device is { IsConnected: true, IsConnecting: false, IsResettingPosition: false })" />
       </div>
     </div>
-  }
+  </div>
+}

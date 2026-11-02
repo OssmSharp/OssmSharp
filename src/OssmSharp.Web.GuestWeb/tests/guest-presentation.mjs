@@ -10,7 +10,7 @@ before(async () => { browser = await launchBrowser(); }, { timeout: 20_000 });
 after(async () => { await browser?.close(); }, { timeout: 20_000 });
 const options = { timeout: 60_000 };
 
-test("guest controls fit desktop viewports with a rounded pattern sidebar and complete actions", options, async (t) => {
+test("guest console has a full width pattern bank and complete actions across viewports", options, async (t) => {
   const fixture = await createBrowserFixture(t, browser);
   const { page, session, errors } = await fixture.openGuest("compact-controls");
   await button(page, "Insist").click();
@@ -20,30 +20,34 @@ test("guest controls fit desktop viewports with a rounded pattern sidebar and co
     (value) => value.includes("54.054054054054056"), "precise current value");
   for (const viewport of [{ width: 920, height: 600 }, { width: 1280, height: 720 }, { width: 1440, height: 900 }]) {
     await page.setViewportSize(viewport);
-    await desktopFit(page);
+    await noOverflow(page);
+    assert.equal(await page.locator(".pattern-list").evaluate((element) => getComputedStyle(element).borderRadius), "0px");
     const patterns = page.getByRole("group", { name: "Pattern", exact: true }).getByRole("button");
     assert.equal(await patterns.count(), 7);
     const boxes = await patterns.evaluateAll((buttons) => buttons.map((element) => {
       const { x, y, width, height } = element.getBoundingClientRect();
       return { x, y, width, height };
     }));
-    assert.ok(boxes.every((box) => box.height >= 44 && box.x === boxes[0].x));
-    assert.ok(boxes.every((box, index) => index === 0 || box.y >= boxes[index - 1].y + boxes[index - 1].height));
+    assert.ok(boxes.every((box) => box.height >= 44));
+    assert.ok(new Set(boxes.map((box) => box.x)).size >= 4);
     for (const name of ["Send", "Stop", "Reset Position", "Leave session"]) {
+      assert.equal(await button(page, name).isVisible(), true);
       const box = await button(page, name).boundingBox();
-      assert.ok(box.y >= 0 && box.y + box.height <= viewport.height, `${name} remains in the viewport`);
+      assert.ok(box.width >= 44 && box.height >= 44, `${name} has a complete control target`);
     }
+    for (const name of ["Speed", "Stroke", "Depth", "Sensation"])
+      assert.equal(await page.getByLabel(name, { exact: true }).getAttribute("aria-orientation"), "horizontal");
   }
   await page.setViewportSize({ width: 920, height: 600 });
   await button(page, "Reset Position").click();
   await complete(session, "GuestResetPosition", { accepted: false, code: "device-io-failed" });
   await page.getByRole("alert").filter({ hasText: "Reset Position failed" }).waitFor();
-  await desktopFit(page);
+  await noOverflow(page);
   await button(page, "Stop").click();
   await page.getByRole("alert").filter({ hasText: "Reset Position failed" }).waitFor({ state: "hidden" });
   session.state.controlAllowed = false;
   await page.getByRole("status").filter({ hasText: "Connected. Waiting for the other person to allow control." }).waitFor();
-  await desktopFit(page);
+  await noOverflow(page);
   await page.setViewportSize({ width: 390, height: 844 });
   await noOverflow(page);
   await page.evaluate(() => {
@@ -75,22 +79,22 @@ test("slider fills and equal Sent Current markers use native thumb travel includ
         const current = well.querySelector(".current-marker");
         const style = getComputedStyle(input);
         const rectangle = input.getBoundingClientRect();
-        const usableHeight = rectangle.height - parseFloat(style.borderTopWidth) - parseFloat(style.borderBottomWidth)
+        const usableWidth = rectangle.width - parseFloat(style.borderLeftWidth) - parseFloat(style.borderRightWidth)
           - parseFloat(getComputedStyle(well).getPropertyValue("--slider-thumb-size"));
         const point = markers.createSVGPoint();
-        point.y = sent.y1.baseVal.value;
+        point.x = sent.x1.baseVal.value;
         return {
           progress: style.getPropertyValue("--range-progress").trim(),
-          sent: sent.y1.baseVal.value, current: current.y1.baseVal.value,
-          markerHeight: markers.getBoundingClientRect().height, usableHeight,
-          markerY: point.matrixTransform(markers.getScreenCTM()).y,
-          expectedY: rectangle.y + rectangle.height / 2 + usableHeight * (.5 - Number(input.value) / Number(input.max)),
+          sent: sent.x1.baseVal.value, current: current.x1.baseVal.value,
+          markerWidth: markers.getBoundingClientRect().width, usableWidth,
+          markerX: point.matrixTransform(markers.getScreenCTM()).x,
+          expectedX: rectangle.x + rectangle.width / 2 + usableWidth * (Number(input.value) / Number(input.max) - .5),
         };
       });
       assert.equal(geometry.progress, `${value}%`);
       assert.equal(geometry.sent, geometry.current);
-      assert.ok(Math.abs(geometry.markerHeight - geometry.usableHeight) <= .5, JSON.stringify(geometry));
-      assert.ok(Math.abs(geometry.markerY - geometry.expectedY) <= .5, JSON.stringify(geometry));
+      assert.ok(Math.abs(geometry.markerWidth - geometry.usableWidth) <= .5, JSON.stringify(geometry));
+      assert.ok(Math.abs(geometry.markerX - geometry.expectedX) <= .5, JSON.stringify(geometry));
     }
   }
   await setRange(page, "Depth", 60);
@@ -360,14 +364,6 @@ async function noOverflow(page) {
   // Allow real layout/style work to settle before observing viewport overflow.
   await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-}
-
-async function desktopFit(page) {
-  await noOverflow(page);
-  const size = await page.evaluate(() => ({
-    width: innerWidth, height: innerHeight, scrollHeight: document.documentElement.scrollHeight,
-  }));
-  assert.ok(size.scrollHeight <= size.height, `Vertical overflow: ${JSON.stringify(size)}`);
 }
 
 async function matchesToken(locator, property, token) {

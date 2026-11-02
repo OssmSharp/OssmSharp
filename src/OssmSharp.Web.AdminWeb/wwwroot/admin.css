@@ -1,34 +1,40 @@
-.user-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    align-items: stretch;
-    gap: 42px 32px;
+:root {
+    --connection-panel-width: 640px;
+    --attachment-field-width: 7rem;
 }
-
-.user-grid > .widget { padding-top: 26px; border-top: 1px solid var(--line); }
-.user-status-heading { flex-wrap: wrap; }
-.user-status-heading .status-mark { margin-left: auto; }
-.invite-row { display: flex; align-items: center; gap: 14px; }
-.invite-row input { flex: 1 1 12rem; }
-.attachment-field { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 24px; font-size: .85rem; }
-.attachment-field label { font-weight: 550; }
-.attachment-field input { flex: 0 1 7rem; font-variant-numeric: tabular-nums; }
-.field-unit { color: var(--muted); }
-.connection-details { display: grid; gap: 14px; margin: 0 0 24px; }
-.connection-details > div {
-    padding: 12px 14px;
-    border-left: 2px solid var(--neutral);
-    border-radius: var(--radius);
-    background: var(--neutral-bg);
-}
-.connection-details dt { color: var(--muted); font-size: .78rem; }
-.connection-details dd { margin: 3px 0 0; overflow-wrap: anywhere; font-weight: 550; }
+.device-stage { min-width: 0; padding: var(--space-4); border: var(--border-width) solid var(--border); background: var(--surface); }
+.device-stage:not([data-device-connected]) { width: min(var(--connection-panel-width), 100%); }
+.device-stage .section-heading { margin-bottom: var(--space-3); }
+.connection-statuses { display: flex; flex-wrap: wrap; gap: var(--space-4); }
+.connection-details { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-4); margin: 0; }
+.connection-details dt { color: var(--muted); font: var(--text-xs)/1.5 var(--font-data); }
+.connection-details dd { margin: var(--space-1) 0 0; overflow-wrap: anywhere; font: var(--text-sm)/1.5 var(--font-data); }
 [data-testid="device-duration"] { font-variant-numeric: tabular-nums; }
+.session-dashboard { display: grid; gap: var(--space-4); }
+.session-workspace { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-4); align-items: start; }
+.session-controls, .preview-station { min-width: 0; padding: var(--space-4); border: var(--border-width) solid var(--border); background: var(--field); }
+.session-controls .button-row { gap: var(--space-3); }
+.preview-station .pattern-preview { padding: 0; border: 0; }
+.attachment-field { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-3); margin-top: var(--space-4); border-top: var(--border-width) solid var(--line); padding-top: var(--space-3); font-size: var(--text-sm); }
+.attachment-field label { font-weight: var(--weight-label); }
+.attachment-field input { flex: 0 1 var(--attachment-field-width); font-variant-numeric: tabular-nums; }
+.field-unit { color: var(--muted); }
+.invitation-desk { min-width: 0; border: var(--border-width) solid var(--border); background: var(--field); }
+.invitation-details summary { min-height: var(--control-size); padding: var(--space-3) var(--space-4); cursor: pointer; }
+.invitation-details summary h2 { display: inline; font-size: var(--text-base); }
+.invitation-details[open] summary { border-bottom: var(--border-width) solid var(--line); }
+.invitation-content { padding: var(--space-4); }
+.invite-row { display: flex; align-items: stretch; gap: var(--space-3); }
+.invite-row input { flex: 1; }
+.invitation-footer { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-4); margin-top: var(--space-3); }
+.invitation-footer p { flex: 1 1 16rem; min-width: 0; color: var(--muted); font-size: var(--text-xs); }
+.session-expiry { color: var(--muted); font: var(--text-xs)/1.5 var(--font-data); overflow-wrap: anywhere; margin-top: var(--space-4); }
+.recovery-stop { justify-self: start; }
 
-@media (max-width: 900px) {
-    .user-grid { grid-template-columns: 1fr; gap: 28px; }
+@media (max-width: 760px) {
+    .session-workspace { grid-template-columns: minmax(0, 1fr); }
+    .connection-details { grid-template-columns: minmax(0, 1fr); gap: var(--space-2); }
 }
-
-@media (max-width: 560px) {
-    .invite-row { align-items: stretch; flex-direction: column; }
+@media (max-width: 480px) {
+    .invite-row { flex-direction: column; }
 }
