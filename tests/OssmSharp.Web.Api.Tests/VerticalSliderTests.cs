@@ -26,13 +26,15 @@ public sealed class VerticalSliderTests : MockerTestBase<VerticalSlider>
 
     [Theory]
     [InlineData(0d, "0")]
-    [InlineData(12.49, "12")]
-    [InlineData(12.5, "13")]
-    [InlineData(12.51, "13")]
-    [InlineData(54.54545454545455, "55")]
-    [InlineData(123.5, "124")]
+    [InlineData(12.49, "12.49")]
+    [InlineData(12.5, "12.5")]
+    [InlineData(12.51, "12.51")]
+    [InlineData(49.38, "49.38")]
+    [InlineData(54.54545454545455, "54.54545454545455")]
+    [InlineData(100.4, "100.4")]
+    [InlineData(123.5, "123.5")]
     [InlineData(null, "--")]
-    public void CurrentSpeedTextRoundsWithoutChangingMeasuredOrRequestedValues(double? measured, string expected)
+    public void CurrentSpeedTextPreservesPrecisionWithoutChangingMeasuredOrRequestedValues(double? measured, string expected)
     {
         ComponentTestAccess.Set(Component, nameof(VerticalSlider.Name), "speed");
         ComponentTestAccess.Set(Component, nameof(VerticalSlider.CurrentValue), measured);

@@ -43,10 +43,21 @@
             <button type="button" class="button warning" data-reset-position-button
                     disabled="@(_busy || _safetyBusy || DeviceUnavailable || _state.Device is { IsResettingPosition: true })"
                     @onclick="ResetPosition">Reset Position</button>
-            <button type="button" class="button danger" disabled="@(_safetyBusy || _confirmingGuest || !_state.GuestJoined)" @onclick="EndGuest">
+            <button type="button" class="button danger" disabled="@(_safetyBusy || ConfirmingGuest || !_state.GuestJoined)" @onclick="EndGuest">
               End guest
             </button>
           </div>
+          @if (ConfirmingGuest)
+          {
+            <InlineNotification Variant="warning" Role="alert">
+              <p data-testid="guest-action-confirmation">@GuestDisconnectConfirmation</p>
+              <div class="button-row">
+                <button type="button" class="button danger" disabled="@(_safetyBusy || _connectionLost)"
+                        @onclick="ConfirmGuest">Confirm guest action</button>
+                <button type="button" class="button secondary" @onclick="CancelGuest">Cancel</button>
+              </div>
+            </InlineNotification>
+          }
         </section>
         <section class="widget" data-testid="device-connection" role="region" aria-labelledby="connection-heading">
           <div class="widget-heading user-status-heading">
@@ -86,7 +97,7 @@
                    data-testid="invitation-link" readonly disabled="@(DeviceUnavailable || _state.InvitationConsumed)" value="@InvitationText" />
             <button class="button @(_notice.IsCopied ? "success" : "secondary")" type="button" disabled="@(DeviceUnavailable || _state.InvitationConsumed)"
                     @onclick="Copy" aria-label="@_notice.CopyLabel">@_notice.CopyLabel</button>
-            <button class="button refresh-invitation" type="button" disabled="@(_safetyBusy || _confirmingGuest || _connectionLost)"
+            <button class="button refresh-invitation" type="button" disabled="@(_safetyBusy || ConfirmingGuest || _connectionLost)"
                     @onclick="RefreshInvitation" title="End the current guest session and create a new invitation">Refresh invitation</button>
           </div>
           <p data-testid="invitation-status">

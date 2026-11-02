@@ -27,7 +27,7 @@
   [Parameter] public int? SentValue { get; set; }
   [Parameter] public double? CurrentValue { get; set; }
   private string CurrentText => CurrentValue is { } current
-      ? (Name == "speed" ? Math.Round(current, MidpointRounding.AwayFromZero) : current).ToString(System.Globalization.CultureInfo.InvariantCulture)
+      ? current.ToString(System.Globalization.CultureInfo.InvariantCulture)
       : "--";
   private string State => SentValue is null || SelectedValue != SentValue ? "unsent" : "sent";
 }

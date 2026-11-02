@@ -14,12 +14,6 @@ public sealed record DeviceState
     /// </summary>
     /// <param name="settings">The requested controls; firmware velocity is rounded down to floor(Speed * Stroke / 100).</param>
     /// <exception cref="ArgumentNullException"><paramref name="settings"/> is null.</exception>
-
-<<<<<<< TODO: Unmerged change from project 'OssmSharp.Runtime.Oem(net10.0-macos27.0)', Before:
-    public DeviceState(MotionSettings settings)
-=======
-public DeviceState(MotionSettings settings)
->>>>>>> After
     public DeviceState(MotionSettings settings)
             : this((settings ?? throw new ArgumentNullException(nameof(settings))).Pattern, settings.DesiredDeviceVelocityPercent, settings.Stroke, settings.Depth, settings.Sensation)
     {
@@ -39,12 +33,6 @@ public DeviceState(MotionSettings settings)
     /// the conversion. These percentages do not measure physical speed or strokes per minute.
     /// </remarks>
     /// <exception cref="ArgumentOutOfRangeException">A control is undefined, outside its range, or firmware velocity is not finite.</exception>
-
-<<<<<<< TODO: Unmerged change from project 'OssmSharp.Runtime.Oem(net10.0-macos27.0)', Before:
-    public DeviceState(StrokePattern pattern, double currentDeviceVelocityPercent, int stroke, int depth, int sensation)
-=======
-public DeviceState(StrokePattern pattern, double currentDeviceVelocityPercent, int stroke, int depth, int sensation)
->>>>>>> After
     public DeviceState(StrokePattern pattern, double currentDeviceVelocityPercent, int stroke, int depth, int sensation)
     {
         var settings = new MotionSettings(pattern, 0, stroke, depth, sensation);
@@ -63,12 +51,6 @@ public DeviceState(StrokePattern pattern, double currentDeviceVelocityPercent, i
     /// <summary>
     /// Gets the observed firmware pattern.
     /// </summary>
-
-<<<<<<< TODO: Unmerged change from project 'OssmSharp.Runtime.Oem(net10.0-macos27.0)', Before:
-    public StrokePattern Pattern { get; }
-=======
-public StrokePattern Pattern { get; }
->>>>>>> After
     public StrokePattern Pattern { get; }
 
     /// <summary>
@@ -78,53 +60,23 @@ public StrokePattern Pattern { get; }
     /// Calculated as 100 * firmware velocity / stroke from the same snapshot. Fractional values and values
     /// above 100% are preserved without rounding or capping. This is not physical speed or strokes per minute.
     /// </remarks>
-
-<<<<<<< TODO: Unmerged change from project 'OssmSharp.Runtime.Oem(net10.0-macos27.0)', Before:
-    public double? Speed => Stroke == 0 ? null : 100 * CurrentDeviceVelocityPercent / Stroke;
-=======
-public double? Speed => Stroke == 0 ? null : 100 * CurrentDeviceVelocityPercent / Stroke;
->>>>>>> After
     public double? Speed => Stroke == 0 ? null : 100 * CurrentDeviceVelocityPercent / Stroke;
 
     /// <summary>
     /// Gets the observed whole-number stroke percentage.
     /// </summary>
-
-<<<<<<< TODO: Unmerged change from project 'OssmSharp.Runtime.Oem(net10.0-macos27.0)', Before:
-    public int Stroke { get; }
-=======
-public int Stroke { get; }
->>>>>>> After
     public int Stroke { get; }
 
     /// <summary>
     /// Gets the observed whole-number depth percentage.
     /// </summary>
-
-<<<<<<< TODO: Unmerged change from project 'OssmSharp.Runtime.Oem(net10.0-macos27.0)', Before:
-    public int Depth { get; }
-=======
-public int Depth { get; }
->>>>>>> After
     public int Depth { get; }
 
     /// <summary>
     /// Gets the observed whole-number sensation percentage.
     /// </summary>
-
-<<<<<<< TODO: Unmerged change from project 'OssmSharp.Runtime.Oem(net10.0-macos27.0)', Before:
-    public int Sensation { get; }
-=======
-public int Sensation { get; }
->>>>>>> After
     public int Sensation { get; }
 
-
-<<<<<<< TODO: Unmerged change from project 'OssmSharp.Runtime.Oem(net10.0-macos27.0)', Before:
-    internal double CurrentDeviceVelocityPercent { get; }
-=======
-internal double CurrentDeviceVelocityPercent { get; }
->>>>>>> After
     internal double CurrentDeviceVelocityPercent { get; }
 
     /// <summary>
@@ -133,12 +85,6 @@ internal double CurrentDeviceVelocityPercent { get; }
     /// <param name="data">A serialized JSON object containing pattern, raw firmware speed, stroke, depth, and sensation values; speed may be fractional.</param>
     /// <returns>The device state represented by <paramref name="data"/>.</returns>
     /// <exception cref="InvalidDataException">The payload is null, empty, larger than 512 bytes, or does not contain valid control values.</exception>
-
-<<<<<<< TODO: Unmerged change from project 'OssmSharp.Runtime.Oem(net10.0-macos27.0)', Before:
-    public static DeviceState FromBytes(byte[]? data) => FromBytes(data.AsMemory());
-=======
-public static DeviceState FromBytes(byte[]? data) => FromBytes(data.AsMemory());
->>>>>>> After
     public static DeviceState FromBytes(byte[]? data) => FromBytes(data.AsMemory());
 
     /// <summary>
@@ -154,21 +100,9 @@ public static DeviceState FromBytes(byte[]? data) => FromBytes(data.AsMemory());
     /// The speed field is raw velocity, not speed. Its decimals are preserved when
     /// calculating <see cref="Speed"/> from the stroke in the same payload; zero stroke gives null.
     /// </remarks>
-
-<<<<<<< TODO: Unmerged change from project 'OssmSharp.Runtime.Oem(net10.0-macos27.0)', Before:
-    public static bool TryFromBytes(byte[]? data, [NotNullWhen(true)] out DeviceState? state, out IReadOnlyList<ValidationResult> errors)
-=======
-public static bool TryFromBytes(byte[]? data, [NotNullWhen(true)] out DeviceState? state, out IReadOnlyList<ValidationResult> errors)
->>>>>>> After
     public static bool TryFromBytes(byte[]? data, [NotNullWhen(true)] out DeviceState? state, out IReadOnlyList<ValidationResult> errors)
             => TryFromBytes(data.AsMemory(), out state, out errors);
 
-
-<<<<<<< TODO: Unmerged change from project 'OssmSharp.Runtime.Oem(net10.0-macos27.0)', Before:
-    internal static DeviceState FromBytes(ReadOnlyMemory<byte> data)
-=======
-internal static DeviceState FromBytes(ReadOnlyMemory<byte> data)
->>>>>>> After
     internal static DeviceState FromBytes(ReadOnlyMemory<byte> data)
     {
         if (TryFromBytes(data, out var state, out var errors))
@@ -179,12 +113,6 @@ internal static DeviceState FromBytes(ReadOnlyMemory<byte> data)
         throw new InvalidDataException(string.Join(" ", errors.Select(error => error.ErrorMessage)));
     }
 
-
-<<<<<<< TODO: Unmerged change from project 'OssmSharp.Runtime.Oem(net10.0-macos27.0)', Before:
-    private static bool TryFromBytes(ReadOnlyMemory<byte> data, [NotNullWhen(true)] out DeviceState? state, out IReadOnlyList<ValidationResult> errors)
-=======
-private static bool TryFromBytes(ReadOnlyMemory<byte> data, [NotNullWhen(true)] out DeviceState? state, out IReadOnlyList<ValidationResult> errors)
->>>>>>> After
     private static bool TryFromBytes(ReadOnlyMemory<byte> data, [NotNullWhen(true)] out DeviceState? state, out IReadOnlyList<ValidationResult> errors)
     {
         state = null;

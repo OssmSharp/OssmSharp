@@ -449,7 +449,7 @@ class Controls {
     const selected = this.selected();
     for (const name of this.names) {
       const current = this.current?.[name];
-      const currentText = Number.isFinite(current) ? name === "speed" ? Math.round(current) : current : null;
+      const currentText = Number.isFinite(current) ? current : null;
       const sent = this.sentSelection?.[name];
       this.marker(name, "current", current);
       this.marker(name, "sent", sent);

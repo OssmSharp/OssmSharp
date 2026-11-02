@@ -36,9 +36,6 @@ public sealed class HomeComponentTests : MockerTestBase<Home>, IAsyncDisposable
             .Setup(logger => logger.IsEnabled(It.IsAny<LogLevel>())).Returns(true);
         _client.Setup(client => client.GetStateAsync(It.IsAny<CancellationToken>())).Returns(() => Task.FromResult(_state));
         _client.Setup(client => client.DisposeAsync()).Returns(ValueTask.CompletedTask);
-        mocks.GetOrCreateMock<IJSRuntime>().AsMoq()
-            .Setup(js => js.InvokeAsync<bool>("confirm", It.IsAny<CancellationToken>(), It.IsAny<object?[]>()))
-            .Returns(new ValueTask<bool>(true));
     };
 
     protected override Action<Home> CreatedComponentAction => component =>
@@ -449,60 +446,65 @@ public sealed class HomeComponentTests : MockerTestBase<Home>, IAsyncDisposable
     {
         _state = State(Device() with { TransmittedSettings = new(4, 57, 10, 20, 75) }) with { GuestConnected = true };
         ComponentTestAccess.Set(Component, "_state", _state);
-        Mocks.GetOrCreateMock<IJSRuntime>().AsMoq()
-            .Setup(js => js.InvokeAsync<bool>("confirm", It.IsAny<CancellationToken>(), It.IsAny<object?[]>()))
-            .Returns(new ValueTask<bool>(false));
         var message = Notice.Message;
         foreach (var command in new[] { "RefreshInvitation", "EndGuest" })
         {
-            await _renderer.RunAsync(() => Call(command));
+            await _renderer.RunAsync(() => Call(command, confirmGuest: false));
+            Assert.True(Read<bool>("ConfirmingGuest"));
+            Assert.Contains(
+                "The current guest will be disconnected and will need a new invite. Are you sure?",
+                ComponentTestAccess.ElementText(Component, "guest-action-confirmation"));
+            await _renderer.RunAsync(() =>
+            {
+                ComponentTestAccess.Invoke(Component, "CancelGuest");
+                return Task.CompletedTask;
+            });
             Assert.Equal(0, CommandCalls(command));
             Assert.Same(_state, Read<UserSessionState>("_state"));
             Assert.False(Read<bool>("_previewStopped"));
-            Assert.False(Read<bool>("_confirmingGuest"));
+            Assert.False(Read<bool>("ConfirmingGuest"));
             Assert.Equal(message, Notice.Message);
+            Assert.DoesNotContain("Confirm guest action", ComponentTestAccess.Buttons(Component).Keys);
         }
-        var confirmations = Mocks.GetOrCreateMock<IJSRuntime>().AsMoq().Invocations;
-        Assert.Equal(2, confirmations.Count);
-        Assert.All(confirmations, invocation =>
-        {
-            Assert.Equal("confirm", invocation.Arguments[0]);
-            Assert.Equal(Read<CancellationTokenSource>("_lifetime").Token, invocation.Arguments[1]);
-            Assert.Equal(
-                "The current guest will be disconnected and will need a new invite. Are you sure?",
-                Assert.Single(Assert.IsType<object?[]>(invocation.Arguments[2])));
-        });
+        Assert.Empty(Mocks.GetOrCreateMock<IJSRuntime>().AsMoq().Invocations);
     }
 
-    [Fact]
-    public async Task PendingGuestConfirmationBlocksOverlappingGuestActionsButNotStop()
+    [Theory]
+    [InlineData("EndGuest")]
+    [InlineData("RefreshInvitation")]
+    public async Task PendingGuestConfirmationBlocksOverlappingGuestActionsButNotStop(string command)
     {
-        var confirmation = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        Mocks.GetOrCreateMock<IJSRuntime>().AsMoq()
-            .Setup(js => js.InvokeAsync<bool>("confirm", It.IsAny<CancellationToken>(), It.IsAny<object?[]>()))
-            .Returns(new ValueTask<bool>(confirmation.Task));
-        SetupCommand("Stop", Task.FromResult(new ControlResponse("stop", "stopped", true)));
-        Task first = Task.CompletedTask;
-        await _renderer.RunAsync(() =>
-        {
-            first = Call("EndGuest");
-            return Task.CompletedTask;
-        });
-        Assert.True(Read<bool>("_confirmingGuest"));
+        var stop = new TaskCompletionSource<ControlResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
+        SetupCommand("Stop", stop.Task);
+        await _renderer.RunAsync(() => Call(command, confirmGuest: false));
+        Assert.True(Read<bool>("ConfirmingGuest"));
         Assert.False(ComponentTestAccess.Buttons(Component)["Stop"]);
         Assert.True(ComponentTestAccess.Buttons(Component)["End guest"]);
         Assert.True(ComponentTestAccess.Buttons(Component)["Refresh invitation"]);
-        await _renderer.RunAsync(() => Call("EndGuest"));
-        await _renderer.RunAsync(() => Call("RefreshInvitation"));
-        Assert.Single(Mocks.GetOrCreateMock<IJSRuntime>().AsMoq().Invocations);
-        await _renderer.RunAsync(() => Call("Stop"));
+        Assert.False(ComponentTestAccess.Buttons(Component)["Confirm guest action"]);
+        Assert.False(ComponentTestAccess.Buttons(Component)["Cancel"]);
+        await _renderer.RunAsync(() => Call("EndGuest", confirmGuest: false));
+        await _renderer.RunAsync(() => Call("RefreshInvitation", confirmGuest: false));
+        Assert.Empty(Mocks.GetOrCreateMock<IJSRuntime>().AsMoq().Invocations);
+        Task stopping = Task.CompletedTask;
+        await _renderer.RunAsync(() =>
+        {
+            stopping = Call("Stop");
+            return Task.CompletedTask;
+        });
         Assert.Equal(1, CommandCalls("Stop"));
-        Assert.Equal("Stopped.", Notice.Message);
-        confirmation.SetResult(false);
-        await first;
+        Assert.True(ComponentTestAccess.Buttons(Component)["Confirm guest action"]);
+        await _renderer.RunAsync(() => Call("ConfirmGuest"));
         Assert.Equal(0, CommandCalls("EndGuest"));
         Assert.Equal(0, CommandCalls("RefreshInvitation"));
-        Assert.False(Read<bool>("_confirmingGuest"));
+        stop.SetResult(new("stop", "stopped", true));
+        await stopping;
+        await _renderer.RunAsync(() =>
+        {
+            ComponentTestAccess.Invoke(Component, "CancelGuest");
+            return Task.CompletedTask;
+        });
+        Assert.False(Read<bool>("ConfirmingGuest"));
         Assert.Equal("Stopped.", Notice.Message);
     }
 
@@ -515,12 +517,18 @@ public sealed class HomeComponentTests : MockerTestBase<Home>, IAsyncDisposable
     {
         ComponentTestAccess.Set(Component, "_state", State(null) with { GuestConnected = connected });
         SetupCommand(command, Task.FromResult(new ControlResponse("guest", "accepted", true)));
-        await _renderer.RunAsync(() => Call(command));
+        await _renderer.RunAsync(() => Call(command, confirmGuest: false));
+        Assert.Equal(confirmations == 1, Read<bool>("ConfirmingGuest"));
+        Assert.Equal(confirmations == 1 ? 0 : 1, CommandCalls(command));
+        if (confirmations == 1)
+            await _renderer.RunAsync(() => Call("ConfirmGuest"));
         Assert.Equal(1, CommandCalls(command));
-        Assert.Equal(confirmations, Mocks.GetOrCreateMock<IJSRuntime>().AsMoq().Invocations.Count);
+        await _renderer.RunAsync(() => Call("ConfirmGuest"));
+        Assert.Equal(1, CommandCalls(command));
+        Assert.Empty(Mocks.GetOrCreateMock<IJSRuntime>().AsMoq().Invocations);
         Assert.False(Notice.IsError);
         Assert.Equal(command == "EndGuest" ? "Guest session ended." : "Invitation refreshed. The previous guest session ended.", Notice.Message);
-        Assert.False(Read<bool>("_confirmingGuest"));
+        Assert.False(Read<bool>("ConfirmingGuest"));
     }
 
     [Fact]
@@ -638,7 +646,12 @@ public sealed class HomeComponentTests : MockerTestBase<Home>, IAsyncDisposable
 
     private T Read<T>(string name) => ComponentTestAccess.Get<T>(Component, name);
 
-    private Task Call(string name) => ComponentTestAccess.InvokeTask(Component, name);
+    private async Task Call(string name, bool confirmGuest = true)
+    {
+        await ComponentTestAccess.InvokeTask(Component, name);
+        if (confirmGuest && name is "EndGuest" or "RefreshInvitation" && Read<bool>("ConfirmingGuest"))
+            await ComponentTestAccess.InvokeTask(Component, "ConfirmGuest");
+    }
 
     private int CommandCalls(string name) => _client.Invocations.Count(call => call.Method.Name == name + "Async");
 

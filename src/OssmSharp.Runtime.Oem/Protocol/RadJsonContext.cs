@@ -17,12 +17,6 @@ internal sealed partial class RadJsonContext : JsonSerializerContext
     /// <summary>
     /// Rejects incompatible protocol information before subscribing or acquiring device control.
     /// </summary>
-
-<<<<<<< TODO: Unmerged change from project 'OssmSharp.Runtime.Oem(net10.0-macos27.0)', Before:
-    internal static void ValidateProtocolInfo(byte[]? data)
-=======
-internal static void ValidateProtocolInfo(byte[]? data)
->>>>>>> After
     internal static void ValidateProtocolInfo(byte[]? data)
     {
         try
@@ -42,12 +36,6 @@ internal static void ValidateProtocolInfo(byte[]? data)
     /// <summary>
     /// Decodes a required response object and translates absent or malformed results into the operation's protocol error.
     /// </summary>
-
-<<<<<<< TODO: Unmerged change from project 'OssmSharp.Runtime.Oem(net10.0-macos27.0)', Before:
-    internal static T ReadResult<T>(JsonElement result, JsonTypeInfo<T> type, string error)
-=======
-internal static T ReadResult<T>(JsonElement result, JsonTypeInfo<T> type, string error)
->>>>>>> After
     internal static T ReadResult<T>(JsonElement result, JsonTypeInfo<T> type, string error)
         where T : class
     {
@@ -68,12 +56,6 @@ internal static T ReadResult<T>(JsonElement result, JsonTypeInfo<T> type, string
     /// <summary>
     /// Validates response size, version, and stage before correlation with an outstanding request.
     /// </summary>
-
-<<<<<<< TODO: Unmerged change from project 'OssmSharp.Runtime.Oem(net10.0-macos27.0)', Before:
-    internal static RadResponse ParseResponse(byte[]? data, int maximumMessageBytes)
-=======
-internal static RadResponse ParseResponse(byte[]? data, int maximumMessageBytes)
->>>>>>> After
     internal static RadResponse ParseResponse(byte[]? data, int maximumMessageBytes)
     {
         if (data is null || data.Length > maximumMessageBytes)

@@ -254,14 +254,14 @@ test("speed is sent unchanged and retains the selected speed", async () => {
   }
   for (const [speed, stroke] of [[50, 10], [12.5, 20], [33.333333333333336, 30], [null, 10], [null, 0], [50, null], [0, 10], [400, 10]]) {
     browser.guest.updateState({ joined: true, ready: true, current: { speed, stroke } });
-    assert.equal(browser.element('[data-current="speed"]').textContent, speed === null ? "--" : Math.round(speed));
+    assert.equal(browser.element('[data-current="speed"]').textContent, speed === null ? "--" : speed);
     const marker = browser.element('[data-current-marker="speed"]');
     assert.equal(marker.attributes.has("hidden"), speed === null);
     assert.equal(browser.element('[data-input="speed"]').attributes.get("aria-valuetext"),
-      `Selected value: 100. Sent value: 100. Current value: ${speed === null ? "unavailable" : Math.round(speed)}.`);
+      `Selected value: 100. Sent value: 100. Current value: ${speed === null ? "unavailable" : speed}.`);
     browser.element('[data-input="stroke"]').value = "1";
     browser.element('[data-input="stroke"]').dispatchEvent(new Event("input"));
-    assert.equal(browser.element('[data-current="speed"]').textContent, speed === null ? "--" : Math.round(speed));
+    assert.equal(browser.element('[data-current="speed"]').textContent, speed === null ? "--" : speed);
   }
   for (const [value, expected] of [[-1, 0], [0, 0], [100, 100], [101, 100]]) {
     for (const name of ["speed", "sensation", "depth", "stroke"]) {
@@ -282,15 +282,15 @@ test("speed is sent unchanged and retains the selected speed", async () => {
   browser.guest.dispose();
 });
 
-test("current speed text rounds measured speed without changing markers or requests", async () => {
+test("current speed text preserves measured precision without changing markers or requests", async () => {
   const browser = await createGuest();
   const input = browser.element('[data-input="speed"]');
   input.value = "64";
   input.dispatchEvent(new Event("input"));
   browser.click("[data-send-button]");
   await setImmediate();
-  for (const [value, text] of [[0, "0"], [12.49, "12"], [12.5, "13"], [12.51, "13"],
-    [54.54545454545455, "55"], [123.5, "124"], [null, "--"]]) {
+  for (const [value, text] of [[0, "0"], [12.49, "12.49"], [12.5, "12.5"], [12.51, "12.51"],
+    [49.38, "49.38"], [54.54545454545455, "54.54545454545455"], [100.4, "100.4"], [123.5, "123.5"], [null, "--"]]) {
     browser.guest.updateState({ joined: true, ready: true, current: { speed: value, stroke: value === null ? 0 : 10 } });
     assert.equal(browser.element('[data-sent="speed"]').textContent, 64);
     assert.equal(String(browser.element('[data-current="speed"]').textContent), text);

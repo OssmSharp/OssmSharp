@@ -18,7 +18,7 @@ public partial class Home
     private bool _connecting;
     private bool _connectionLost;
     private bool _previewStopped;
-    private bool _confirmingGuest;
+    private Func<Task>? _pendingGuestAction;
     private long _actionNoticeVersion;
 
     private DeviceSettingsSnapshot? _stoppedSettings;
@@ -35,6 +35,7 @@ public partial class Home
     [Inject]
     private ILogger<Home> Logger { get; set; } = null!;
 
+    private bool ConfirmingGuest => _pendingGuestAction is not null;
     private string InvitationText =>
         $"{Options.Value.GuestHostname.TrimEnd('/')}/join#invite={Uri.EscapeDataString(_state!.Invitation.Token)}";
     private string GuestStatus => _state switch
@@ -153,30 +154,25 @@ public partial class Home
     private Task RefreshInvitation() => RunGuestActionAsync(nameof(IAdminApiClient.RefreshInvitationAsync), Control.RefreshInvitationAsync, "Invitation refreshed. The previous guest session ended.", "Refreshing invitation ...", confirm: _state?.GuestConnected == true);
     private Task Connect() => RunAsync(nameof(IAdminApiClient.ConnectAsync), Control.ConnectAsync, null, confirmConnection: true);
 
-    private async Task RunGuestActionAsync(string action, Func<CancellationToken, Task<ControlResponse>> command, string message, string pendingMessage, bool confirm)
+    private Task RunGuestActionAsync(string action, Func<CancellationToken, Task<ControlResponse>> command, string message, string pendingMessage, bool confirm)
     {
-        if (_confirmingGuest || _safetyBusy || _connectionLost)
-            return;
-        _confirmingGuest = true;
-        try
-        {
-            if (confirm && !await Js.InvokeAsync<bool>("confirm", _lifetime.Token, GuestDisconnectConfirmation))
-                return;
-            _lifetime.Token.ThrowIfCancellationRequested();
-            await RunAsync(action, command, message, safety: true, stopPreview: true, pendingMessage: pendingMessage);
-        }
-        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
-        catch (JSException exception)
-        {
-            Logger.GuestActionConfirmationFailed(action, exception);
-            _notice.Show("Unable to confirm the action. No guest session change was requested. Reload the page to try again.", true);
-        }
-        finally
-        {
-            _confirmingGuest = false;
-            await InvokeAsync(StateHasChanged);
-        }
+        if (ConfirmingGuest || _safetyBusy || _connectionLost)
+            return Task.CompletedTask;
+        if (!confirm)
+            return RunAsync(action, command, message, safety: true, stopPreview: true, pendingMessage: pendingMessage);
+        _pendingGuestAction = () => RunAsync(action, command, message, safety: true, stopPreview: true, pendingMessage: pendingMessage);
+        return Task.CompletedTask;
     }
+
+    private Task ConfirmGuest()
+    {
+        if (_pendingGuestAction is not { } command || _safetyBusy || _connectionLost)
+            return Task.CompletedTask;
+        _pendingGuestAction = null;
+        return command();
+    }
+
+    private void CancelGuest() => _pendingGuestAction = null;
 
     private async Task Copy()
     {
