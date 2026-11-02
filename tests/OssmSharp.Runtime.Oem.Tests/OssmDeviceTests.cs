@@ -194,6 +194,7 @@ public sealed class OssmDeviceTests : OssmDeviceTestBase
 
     [Theory]
     [InlineData(StrokePattern.RoboStroke, 20, 30, 40, 50, 6)]
+    [InlineData(StrokePattern.StopNGo, 20, 30, 40, 50, 6)]
     [InlineData(StrokePattern.SimpleStroke, 5, 5, 5, 5, 0)]
     [InlineData(StrokePattern.SimpleStroke, 53, 10, 0, 100, 5)]
     [InlineData(StrokePattern.SimpleStroke, 100, 0, 100, 0, 0)]
@@ -302,7 +303,9 @@ public sealed class OssmDeviceTests : OssmDeviceTestBase
 
         try
         {
+            first.IsCompleted.Should().BeFalse();
             stop.IsCompleted.Should().BeFalse();
+            (await queued).Should().Be(new SetResult(SetStatus.Cancelled, 0));
             context.RequestsFor("setting.write", "motion.").Should().ContainSingle().Which.Should().BeSameAs(firstRequest);
             transfer.OnNext(BleTestContext.WriteResult([]));
             transfer.OnCompleted();
@@ -388,6 +391,7 @@ public sealed class OssmDeviceTests : OssmDeviceTestBase
     [Theory]
     [InlineData("missing")]
     [InlineData("short")]
+    [InlineData("one-byte")]
     [InlineData("version")]
     [InlineData("binary")]
     [InlineData("length")]
@@ -404,6 +408,9 @@ public sealed class OssmDeviceTests : OssmDeviceTestBase
                 break;
             case "short":
                 context.PublishFrame(new byte[20]);
+                break;
+            case "one-byte":
+                context.PublishFrame([1]);
                 break;
             case "version":
                 context.Publish(BleTestContext.InitialMotion, version: 2);
@@ -765,7 +772,7 @@ public sealed class OssmDeviceTests : OssmDeviceTestBase
         context.State = state;
 
         await device.Invoking(value => value.SetAsync(new(0, 5, 5, 5, 5), token))
-            .Should().ThrowAsync<InvalidOperationException>().WithMessage("*homing and preflight*");
+            .Should().ThrowAsync<InvalidOperationException>().WithMessage("*not ready to run patterns*homing and preflight*");
 
         context.RequestsFor("target.set").Should().BeEmpty();
         context.RequestsFor("setting.write", "motion.").Should().BeEmpty();
@@ -1174,6 +1181,10 @@ public sealed class OssmDeviceLifecycleTests : OssmDeviceTestBase
         var disconnect = () => device.DisconnectAsync(token);
         await disconnect.Should().ThrowAsync<IOException>().WithMessage("*stop_rejected*");
 
+        var stop = context.RequestsFor("setting.write", "motion.").Should().ContainSingle().Which;
+        stop["path"]!.GetValue<string>().Should().Be("motion.speed");
+        stop["args"]!["value"]!.GetValue<int>().Should().Be(0);
+        device.IsArmed.Should().BeFalse();
         context.Requests.Select(BleTestContext.Operation).Should().EndWith(["setting.write", "stream.stop", "control.release"]);
         context.RequestsFor("control.release").Should().ContainSingle().Which["lease"]!.GetValue<uint>().Should().Be(42);
         context.DisconnectCalls.Should().Be(1);
@@ -1185,6 +1196,7 @@ public sealed class OssmDeviceLifecycleTests : OssmDeviceTestBase
         await context.StreamUntilAsync(device.ConnectAsync(token), token);
 
         device.IsArmed.Should().BeTrue();
+        context.RequestsFor("setting.write", "motion.").Should().ContainSingle();
         context.RequestsFor("control.acquire").Should().HaveCount(2);
         context.RequestsFor("stream.start")[1]["lease"]!.GetValue<uint>().Should().Be(43);
     }

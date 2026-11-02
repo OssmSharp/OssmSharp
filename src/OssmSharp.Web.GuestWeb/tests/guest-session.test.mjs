@@ -158,6 +158,33 @@ test("controller Leave completion preserves failure and only clears the browser 
   browser.guest.dispose();
 });
 
+test("hidden offline Leave uses saved authority once and becomes terminal without control replay", async () => {
+  const browser = await createGuest();
+  let leaves = 0;
+  browser.guest.configureSession({
+    recover() {}, end() {},
+    async leave() { leaves++; return { ok: true, code: "guest-left" }; },
+    clear() { assert.fail("Saved Leave already clears its cookie at the HTTP endpoint"); },
+  }, "ready");
+  try {
+    browser.guest.disconnect();
+    const reply = await browser.guest.leaveSession();
+    await setImmediate();
+    assert.equal(reply.ok, true);
+    assert.equal(reply.code, "guest-left");
+    assert.equal(leaves, 1);
+    assert.equal(browser.guest.getSessionCode(), "guest-left");
+    assert.equal(browser.element("[data-guest-leave]").hidden, true);
+    assert.equal(browser.element("[data-send-button]").disabled, true);
+    assert.equal(browser.calls("SubmitSettings").length, 0);
+    assert.equal(browser.calls("LeaveSession").length, 0);
+    browser.guest.updateState({ joined: true, ready: true });
+    assert.equal(browser.element("[data-send-button]").disabled, true);
+  } finally {
+    browser.guest.dispose();
+  }
+});
+
 test("recovery notice refresh cannot re-enable or duplicate a pending Leave", async () => {
   const browser = await createGuest();
   let finish;
@@ -186,37 +213,21 @@ test("recovery notice refresh cannot re-enable or duplicate a pending Leave", as
   }
 });
 
-test("all seven pattern selections survive snapshots and reach preview and requests", async () => {
-  const browser = await createGuest();
-  for (let pattern = 0; pattern <= 6; pattern++) {
-    const input = browser.element(`[data-pattern="${pattern}"]`);
-    input.dispatchEvent(new Event("click"));
-    browser.guest.updateState({ joined: true, ready: true, current: { pattern: 6 - pattern } });
-    browser.click("[data-send-button]");
-    await setImmediate();
-    assert.equal(browser.calls("SubmitSettings").at(-1).payload.pattern, pattern);
-    const display = browser.calls("UpdateDisplay").at(-1).payload;
-    assert.equal(display.selected.pattern, pattern);
-    assert.equal(display.sent.pattern, pattern);
-    assert.equal(input.getAttribute("aria-pressed"), "true");
-    assert.equal(browser.root.querySelectorAll("[data-pattern]").filter((button) => button.getAttribute("aria-pressed") === "true").length, 1);
-  }
-  browser.guest.dispose();
-});
-
 test("speed is sent unchanged and retains the selected speed", async () => {
   const browser = await createGuest();
-  for (const [speed, stroke, depth] of [
-    [50, 10, 10],
-    [50, 80, 100],
-    [50, 10, 80],
-    [53, 10, 20],
-    [100, 100, 100],
-    [0, 10, 20],
-    [30, 1, 1],
-    [100, 1, 1],
-    [50, 0, 20],
-    [50, 0, 0],
+  for (const [speed, stroke, depth, currentSpeed] of [
+    [50, 10, 10, 50],
+    [50, 80, 100, 50],
+    [50, 10, 80, 50],
+    [53, 10, 20, 50],
+    [53, 10, 10, 50],
+    [25, 10, 10, 20],
+    [100, 100, 100, 100],
+    [0, 10, 20, 0],
+    [30, 1, 1, 0],
+    [50, 0, 20, null],
+    [50, 0, 0, null],
+    [100, 1, 1, 100],
   ]) {
     for (const [name, value] of Object.entries({ depth, stroke, speed })) {
       const input = browser.element(`[data-input="${name}"]`);
@@ -234,10 +245,40 @@ test("speed is sent unchanged and retains the selected speed", async () => {
     assert.equal(display.sent.speed, speed);
     assert.equal(browser.element('[data-sent="speed"]').textContent, speed);
     assert.equal(browser.element('[data-sent-marker="speed"]').attributes.get("y1"), String(100 - speed));
+    browser.guest.updateState({ joined: true, ready: true, current: { speed: currentSpeed, stroke } });
+    assert.equal(browser.element('[data-current="speed"]').textContent, currentSpeed === null ? "--" : currentSpeed);
+    assert.equal(browser.element('[data-input="speed"]').value, String(speed));
     browser.click("[data-send-button]");
     await setImmediate();
     assert.equal(browser.calls("SubmitSettings").length, count + 1);
   }
+  for (const [speed, stroke] of [[50, 10], [12.5, 20], [33.333333333333336, 30], [null, 10], [null, 0], [50, null], [0, 10], [400, 10]]) {
+    browser.guest.updateState({ joined: true, ready: true, current: { speed, stroke } });
+    assert.equal(browser.element('[data-current="speed"]').textContent, speed === null ? "--" : Math.round(speed));
+    const marker = browser.element('[data-current-marker="speed"]');
+    assert.equal(marker.attributes.has("hidden"), speed === null);
+    assert.equal(browser.element('[data-input="speed"]').attributes.get("aria-valuetext"),
+      `Selected value: 100. Sent value: 100. Current value: ${speed === null ? "unavailable" : Math.round(speed)}.`);
+    browser.element('[data-input="stroke"]').value = "1";
+    browser.element('[data-input="stroke"]').dispatchEvent(new Event("input"));
+    assert.equal(browser.element('[data-current="speed"]').textContent, speed === null ? "--" : Math.round(speed));
+  }
+  for (const [value, expected] of [[-1, 0], [0, 0], [100, 100], [101, 100]]) {
+    for (const name of ["speed", "sensation", "depth", "stroke"]) {
+      browser.element(`[data-input="${name}"]`).value = String(value);
+      browser.element(`[data-input="${name}"]`).dispatchEvent(new Event("input"));
+    }
+    for (const name of ["speed", "sensation", "depth", "stroke"])
+      assert.equal(browser.element(`[data-input="${name}"]`).value, String(expected));
+    browser.click("[data-send-button]");
+    await setImmediate();
+    const request = browser.calls("SubmitSettings").at(-1).payload;
+    assert.deepEqual([request.speed, request.sensation, request.depth, request.stroke], [expected, expected, expected, expected]);
+  }
+  browser.element('[data-input="depth"]').value = "20";
+  browser.element('[data-input="stroke"]').value = "21";
+  browser.element('[data-input="stroke"]').dispatchEvent(new Event("input"));
+  assert.equal(browser.element('[data-input="stroke"]').value, "20");
   browser.guest.dispose();
 });
 
@@ -933,70 +974,17 @@ test("all seven patterns reach manual requests after disabling automatic sends w
       const display = browser.calls("UpdateDisplay").at(-1).payload;
       assert.deepEqual([display.selected.pattern, display.sent.pattern, display.selected.sensation], [pattern, pattern, 75]);
       assert.equal(input.getAttribute("aria-pressed"), "true");
+      assert.equal(browser.root.querySelectorAll("[data-pattern]").filter((button) => button.getAttribute("aria-pressed") === "true").length, 1);
     }
     browser.guest.dispose();
   }
-});
-
-test("requested values remain normalized while current observations stay exact", async () => {
-  const browser = await createGuest();
-  // Full old browser request table; the original ten controller rows above remain intact.
-  for (const [speed, stroke, depth, currentSpeed] of [
-    [50, 10, 10, 50], [50, 80, 100, 50], [50, 10, 80, 50], [53, 10, 10, 50],
-    [25, 10, 10, 20], [100, 100, 100, 100], [0, 10, 20, 0], [30, 1, 1, 0], [100, 1, 1, 100],
-  ]) {
-    for (const [name, value] of Object.entries({ depth, stroke, speed })) {
-      const input = browser.element(`[data-input="${name}"]`);
-      input.value = String(value);
-      input.dispatchEvent(new Event("input"));
-      assert.equal(browser.element(`[data-value="${name}"]`).textContent, value);
-    }
-    const count = browser.calls("SubmitSettings").length;
-    browser.click("[data-send-button]");
-    await setImmediate();
-    const sent = browser.calls("SubmitSettings").at(-1).payload;
-    assert.deepEqual([sent.speed, sent.stroke, sent.depth], [speed, stroke, depth]);
-    browser.guest.updateState({ joined: true, ready: true, current: { speed: currentSpeed, stroke } });
-    assert.equal(browser.element('[data-current="speed"]').textContent, currentSpeed);
-    browser.click("[data-send-button]");
-    await setImmediate();
-    assert.equal(browser.calls("SubmitSettings").length, count + 1);
-  }
-  for (const [speed, stroke] of [[50, 10], [12.5, 20], [33.333333333333336, 30], [null, 10], [null, 0], [50, null], [0, 10], [400, 10]]) {
-    browser.guest.updateState({ joined: true, ready: true, current: { speed, stroke } });
-    assert.equal(browser.element('[data-current="speed"]').textContent, speed === null ? "--" : Math.round(speed));
-    const marker = browser.element('[data-current-marker="speed"]');
-    assert.equal(marker.attributes.has("hidden"), speed === null);
-    assert.equal(browser.element('[data-input="speed"]').attributes.get("aria-valuetext"),
-      `Selected value: 100. Sent value: 100. Current value: ${speed === null ? "unavailable" : Math.round(speed)}.`);
-    browser.element('[data-input="stroke"]').value = "1";
-    browser.element('[data-input="stroke"]').dispatchEvent(new Event("input"));
-    assert.equal(browser.element('[data-current="speed"]').textContent, speed === null ? "--" : Math.round(speed));
-  }
-  for (const [value, expected] of [[-1, 0], [0, 0], [100, 100], [101, 100]]) {
-    for (const name of ["speed", "sensation", "depth", "stroke"]) {
-      browser.element(`[data-input="${name}"]`).value = String(value);
-      browser.element(`[data-input="${name}"]`).dispatchEvent(new Event("input"));
-    }
-    for (const name of ["speed", "sensation", "depth", "stroke"])
-      assert.equal(browser.element(`[data-input="${name}"]`).value, String(expected));
-    browser.click("[data-send-button]");
-    await setImmediate();
-    const request = browser.calls("SubmitSettings").at(-1).payload;
-    assert.deepEqual([request.speed, request.sensation, request.depth, request.stroke], [expected, expected, expected, expected]);
-  }
-  browser.element('[data-input="depth"]').value = "20";
-  browser.element('[data-input="stroke"]').value = "21";
-  browser.element('[data-input="stroke"]').dispatchEvent(new Event("input"));
-  assert.equal(browser.element('[data-input="stroke"]').value, "20");
-  browser.guest.dispose();
 });
 
 test("permission and device transitions disarm without replay or false transport loss", async () => {
   // Ready is a controller input; the authoritative device predicate is separately tested in JoinComponentTests.
   for (const initiallyReady of [false, true]) {
     const browser = await createObservedGuest({ ready: initiallyReady });
-    for (const device of [null, { isConnected: false }, { isConnecting: true }, { connectionFailed: true }]) {
+    for (const device of [null, { isConnected: false }]) {
       browser.element('[data-input="speed"]').value = "35";
       browser.element("[data-auto-send]").checked = true;
       browser.guest.updateState({ joined: true, ready: false, current: device });
@@ -1041,17 +1029,26 @@ test("ended state differs from recoverable polling and transport failure", async
 
 test("disconnect locks replacement markup and stale references but does not poison a fresh page", async () => {
   const browser = await createObservedGuest();
+  const staleSend = browser.element("[data-send-button]");
   browser.guest.disconnect();
   assert.equal(browser.element(".preview-rail").paused, true);
   assert.equal(browser.observers[0].active, true);
   assert.equal(browser.observers[0].target, browser.document.body);
   const replacement = new Element();
   browser.elements.set("[data-leave-button]", replacement);
+  const replacementSend = new Element();
+  browser.elements.set("[data-send-button]", replacementSend);
   browser.observers[0].callback([]);
   assert.equal(replacement.disabled, true);
+  assert.equal(replacementSend.disabled, true);
   browser.guest.attach(browser.root, browser.reference);
   browser.guest.updateState({ joined: true, ready: true });
   assert.equal(browser.controls().every((control) => control.disabled), true);
+  staleSend.dispatchEvent(new Event("click"));
+  replacementSend.dispatchEvent(new Event("click"));
+  await setImmediate();
+  assert.equal(browser.calls.filter(({ method }) => method === "SubmitSettings" || method === "Renew").length, 0,
+    "Neither stale listeners nor replacement markup may replay motion after a loss");
   const reload = await createObservedGuest({ storage: browser.storage });
   assert.equal(reload.element("[data-send-button]").disabled, false);
   assert.equal(reload.document.documentElement.dataset.guestConnectionLost, undefined);

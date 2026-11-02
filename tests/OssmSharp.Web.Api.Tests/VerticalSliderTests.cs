@@ -6,6 +6,24 @@ namespace OssmSharp.Web.Api.Tests;
 
 public sealed class VerticalSliderTests : MockerTestBase<VerticalSlider>
 {
+    [Fact]
+    public void Requested53AtStroke10DisplaysCurrent50Independently()
+    {
+        ComponentTestAccess.Set(Component, nameof(VerticalSlider.Name), "speed");
+        ComponentTestAccess.Set(Component, nameof(VerticalSlider.SelectedValue), 53);
+        ComponentTestAccess.Set(Component, nameof(VerticalSlider.SentValue), 53);
+        ComponentTestAccess.Set(Component, nameof(VerticalSlider.CurrentValue), 50.0);
+        Assert.Equal("50", ComponentTestAccess.Get<string>(Component, "CurrentText"));
+        Assert.Equal(53, Component.SelectedValue);
+        Assert.Equal(53, Component.SentValue);
+        Assert.Equal(50.0, Component.CurrentValue);
+
+        ComponentTestAccess.Set(Component, nameof(VerticalSlider.CurrentValue), null);
+        Assert.Equal("--", ComponentTestAccess.Get<string>(Component, "CurrentText"));
+        Assert.Equal(53, Component.SelectedValue);
+        Assert.Equal(53, Component.SentValue);
+    }
+
     [Theory]
     [InlineData(0d, "0")]
     [InlineData(12.49, "12")]

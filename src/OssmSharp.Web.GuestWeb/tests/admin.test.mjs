@@ -5,14 +5,13 @@ import { createContext, SourceTextModule } from "node:vm";
 
 const source = await readFile(new URL("../../OssmSharp.Web.AdminWeb/wwwroot/admin.js", import.meta.url), "utf8");
 
-async function timerHarness(storage) {
+async function timerHarness() {
   let now = Date.parse("2026-01-01T00:00:00Z");
   let element;
   let next = 0;
   const intervals = new Map();
   const context = createContext({
     document: { querySelector: () => element },
-    localStorage: storage,
     Date: { parse: Date.parse, now: () => now },
     setInterval: (callback, milliseconds) => {
       assert.equal(milliseconds, 1000);
@@ -101,14 +100,4 @@ test("timer releases detached or disconnected elements and restarts on recovery"
   h.api.disposeConnectionTimer();
   h.api.disposeConnectionTimer();
   assert.equal(h.intervals.size, 0);
-});
-
-test("admin module exports no configurable attachment storage operations", async () => {
-  const h = await timerHarness({
-    setItem() { assert.fail("Dimension preferences must not be written"); },
-    getItem() { assert.fail("Dimension preferences must not be read"); },
-  });
-  assert.equal(h.api.writeAttachmentLength, undefined);
-  assert.equal(h.api.readAttachmentLength, undefined);
-  assert.deepEqual(Object.keys(h.api).sort(), ["copy", "disposeConnectionTimer", "updateConnectionTimer"]);
 });

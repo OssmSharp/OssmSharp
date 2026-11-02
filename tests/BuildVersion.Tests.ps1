@@ -49,34 +49,23 @@ Describe 'Shared binary version stamps' {
         Pop-Location
     }
 
-    It 'stamps a clean build with one short commit and numeric file version' {
-        $version = Get-FixtureVersion
-
-        $version.ProductVersion | Should -BeExactly $expected
-        $version.FileVersion | Should -BeExactly '0.1.0.0'
-        (Invoke-FixtureCommand git @('status', '--porcelain')).Count | Should -Be 0
-    }
-
     It 'adds -private for <Kind> changes' -ForEach @(
         @{ Kind = 'unstaged' }
         @{ Kind = 'staged' }
-        @{ Kind = 'untracked' }
     ) {
-        if ($Kind -eq 'untracked') {
-            'new file' | Set-Content (Join-Path $fixture 'new.txt')
-        }
-        else {
-            'changed' | Set-Content (Join-Path $fixture 'tracked.txt')
-            if ($Kind -eq 'staged') {
-                Invoke-FixtureCommand git @('add', 'tracked.txt') | Out-Null
-            }
+        'changed' | Set-Content (Join-Path $fixture 'tracked.txt')
+        if ($Kind -eq 'staged') {
+            Invoke-FixtureCommand git @('add', 'tracked.txt') | Out-Null
         }
 
         (Get-FixtureVersion).ProductVersion | Should -BeExactly "$expected-private"
     }
 
     It 'updates clean-to-dirty-to-clean stamps without cleaning output' {
-        (Get-FixtureVersion).ProductVersion | Should -BeExactly $expected
+        $version = Get-FixtureVersion
+        $version.ProductVersion | Should -BeExactly $expected
+        $version.FileVersion | Should -BeExactly '0.1.0.0'
+        (Invoke-FixtureCommand git @('status', '--porcelain')).Count | Should -Be 0
         $untracked = Join-Path $fixture 'new.txt'
         'new file' | Set-Content $untracked
         (Get-FixtureVersion).ProductVersion | Should -BeExactly "$expected-private"

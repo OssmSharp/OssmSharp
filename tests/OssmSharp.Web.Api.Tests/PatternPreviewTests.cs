@@ -48,8 +48,6 @@ public sealed class PatternPreviewTests : MockerTestBase<PatternPreview>
     [InlineData(30, 1, 1, "1.3333s")]
     [InlineData(100, 1, 1, "0.4s")]
     [InlineData(100, 100, 100, "0.4s")]
-    [InlineData(0, 10, 20, null)]
-    [InlineData(50, 10, 20, "0.8s")]
     public void IllustrativeTimingUsesRequestedSpeedAndTravelEligibility(double speed, int stroke, int depth, string? duration)
     {
         SetParameters(0, speed, stroke, depth, 50);

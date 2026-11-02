@@ -34,6 +34,30 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>, IAsync
     private Mock<IOssmDevice> Device => _device ?? throw new InvalidOperationException("Test device is not initialized.");
     private FakeTimeProvider Clock => _clock ?? throw new InvalidOperationException("Test clock is not initialized.");
 
+    [Fact]
+    public async Task Requested53AtStroke10CompletedRequestRemainsDistinctFromCurrent50()
+    {
+        await JoinAndAllowAsync("guest-1");
+        var token = TestContext.Current.CancellationToken;
+        Device.Setup(device => device.GetStateAsync(It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new DeviceState(StrokePattern.SimpleStroke, 0, 50, 17, 29));
+        var result = await Component.SubmitAsync("guest-1", new("request", 0, 53, 10, 17, 29), token);
+        Assert.Equal(new SettingsResponse("request", SettingsResponseStatus.Completed, 5), result);
+        Device.Verify(device => device.SetAsync(
+            It.Is<MotionSettings>(settings => settings.Pattern == StrokePattern.SimpleStroke && settings.Speed == 53 && settings.Stroke == 10 && settings.Depth == 17 && settings.Sensation == 29),
+            It.IsAny<CancellationToken>()), Times.Once);
+        var beforeObservation = await Component.GetUserStateAsync(token);
+        Assert.Equal(new DeviceSettingsSnapshot(0, 53, 10, 17, 29), beforeObservation.Device!.TransmittedSettings);
+        Assert.Equal(0.0, beforeObservation.Device.Speed);
+        Assert.Equal(50, beforeObservation.Device.Stroke);
+        Device.Setup(device => device.GetStateAsync(It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new DeviceState(StrokePattern.SimpleStroke, 5, 10, 17, 29));
+        var observed = await Component.GetUserStateAsync(token);
+        Assert.Equal(50.0, observed.Device!.Speed);
+        Assert.Equal(10, observed.Device.Stroke);
+        Assert.Equal(beforeObservation.Device.TransmittedSettings, observed.Device.TransmittedSettings);
+    }
+
     public async ValueTask DisposeAsync()
     {
         try

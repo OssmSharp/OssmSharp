@@ -55,6 +55,20 @@ public sealed class HomeComponentTests : MockerTestBase<Home>, IAsyncDisposable
 
     private UserNoticeState Notice => Read<UserNoticeState>("_notice");
 
+    [Fact]
+    public void Requested53AtStroke10PreviewUsesCompletedRequestNotCurrent50()
+    {
+        _state = State(Device() with { Speed = 50, Stroke = 10, TransmittedSettings = new(0, 53, 10, 17, 29) });
+        ComponentTestAccess.Set(Component, "_state", _state);
+        var preview = Assert.Single(ComponentTestAccess.Parameters(Component, "PatternPreview"));
+        Assert.Equal(53.0, (double?)preview["Speed"]);
+        Assert.Equal(10, (int?)preview["Stroke"]);
+        Assert.Equal(17, (int?)preview["Depth"]);
+        Assert.Equal(29, (int?)preview["Sensation"]);
+        Assert.Equal(50.0, Read<UserSessionState>("_state").Device!.Speed);
+        Assert.Equal(53, Read<UserSessionState>("_state").Device!.TransmittedSettings!.Speed);
+    }
+
     public async ValueTask DisposeAsync()
     {
         try
@@ -327,24 +341,13 @@ public sealed class HomeComponentTests : MockerTestBase<Home>, IAsyncDisposable
         Mocks.VerifyLogged(LogLevel.Warning, "could not refresh", TimesSpec.Once);
     }
 
-    [Fact]
-    public async Task MissingInvitationRefreshAcknowledgementIsUnknownRatherThanRejected()
-    {
-        SetupCommand("RefreshInvitation", Task.FromException<ControlResponse>(new ApiClientException("invalid-response")));
-
-        await _renderer.RunAsync(() => Call("RefreshInvitation"));
-
-        Assert.Equal("The action outcome is unknown. Check the latest state before trying again.", Notice.Message);
-        Assert.True(Notice.IsError);
-        Assert.False(Read<bool>("_safetyBusy"));
-    }
-
     [Theory]
-    [InlineData("EndGuest")]
-    [InlineData("RefreshInvitation")]
-    public async Task TransportLossWithoutAcknowledgementLeavesActionResultUnknown(string action)
+    [InlineData("EndGuest", "connection-unavailable")]
+    [InlineData("RefreshInvitation", "connection-unavailable")]
+    [InlineData("RefreshInvitation", "invalid-response")]
+    public async Task TransportLossWithoutAcknowledgementLeavesActionResultUnknown(string action, string code)
     {
-        SetupCommand(action, Task.FromException<ControlResponse>(new ApiClientException("connection-unavailable")));
+        SetupCommand(action, Task.FromException<ControlResponse>(new ApiClientException(code)));
 
         await _renderer.RunAsync(() => Call(action));
 
