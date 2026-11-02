@@ -47,3 +47,4 @@ Thumbs.db
 .icarus
 /logs/
 src/OssmSharp.Web.*/logs/
+.local
