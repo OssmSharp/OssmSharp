@@ -217,6 +217,7 @@ class Controls {
     this.joined = false;
     this.destroyed = false;
     this.sentSelection = null;
+    this.sentNoticeVersion = 0;
     this.current = null;
     this.stopQueued = false;
     this.resetQueued = false;
@@ -240,9 +241,11 @@ class Controls {
     for (const button of this.patternButtons)
       this.on(button, "click", () => {
         if (button.disabled) return;
+        if (this.pattern === Number(button.dataset.pattern)) return;
         this.pattern = Number(button.dataset.pattern);
+        this.autoSendToggle.checked = false;
+        this.pendingSelection = null;
         this.render();
-        if (this.autoSendToggle.checked) this.commitSelection();
       });
     for (const input of Object.values(this.inputs))
       this.on(input, "input", () => {
@@ -306,6 +309,7 @@ class Controls {
           this.errorVariant = "warning";
         } else if (reply?.ok) {
           this.sentSelection = settings;
+          this.sentNoticeVersion++;
           this.hasSent = true;
           this.previewStopped = false;
           this.error = null;
@@ -445,16 +449,17 @@ class Controls {
     const selected = this.selected();
     for (const name of this.names) {
       const current = this.current?.[name];
+      const currentText = Number.isFinite(current) ? name === "speed" ? Math.round(current) : current : null;
       const sent = this.sentSelection?.[name];
       this.marker(name, "current", current);
       this.marker(name, "sent", sent);
       this.inputs[name].style.setProperty("--range-progress", `${this.rangePercent(name, selected[name])}%`);
       this.root.querySelector(`[data-value="${name}"]`).textContent = selected[name];
       this.root.querySelector(`[data-sent="${name}"]`).textContent = sent ?? "--";
-      this.root.querySelector(`[data-current="${name}"]`).textContent = current ?? "--";
+      this.root.querySelector(`[data-current="${name}"]`).textContent = currentText ?? "--";
       this.inputs[name].setAttribute(
         "aria-valuetext",
-        `Selected value: ${selected[name]}. Sent value: ${sent ?? "none"}. Current value: ${current ?? "unavailable"}.`,
+        `Selected value: ${selected[name]}. Sent value: ${sent ?? "none"}. Current value: ${currentText ?? "unavailable"}.`,
       );
     }
     const canSend = this.canSend() && !this.autoSendToggle.checked && this.changed(selected);
@@ -477,6 +482,7 @@ class Controls {
       errorVariant: this.errorVariant,
       canSend,
       previewStopped: this.previewStopped,
+      sentNoticeVersion: this.sentNoticeVersion,
     };
     const serialized = JSON.stringify(display);
     if (serialized !== this.lastDisplayPayload) {

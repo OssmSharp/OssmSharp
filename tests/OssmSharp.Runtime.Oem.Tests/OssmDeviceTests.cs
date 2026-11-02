@@ -770,7 +770,7 @@ public sealed class OssmDeviceTests : OssmDeviceTestBase
         context.RequestsFor("target.set").Should().BeEmpty();
         context.RequestsFor("setting.write", "motion.").Should().BeEmpty();
         device.IsArmed.Should().BeTrue();
-        Assert.Contains(logger.Entries, entry => entry.Level == LogLevel.Debug
+        Assert.Contains(logger.Entries, entry => entry.Level == LogLevel.Warning
             && entry.Message.Contains(state, StringComparison.Ordinal)
             && entry.Message.Contains("no motion settings were written", StringComparison.Ordinal));
     }

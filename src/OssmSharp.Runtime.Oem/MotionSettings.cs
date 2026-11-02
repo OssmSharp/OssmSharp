@@ -70,18 +70,18 @@ public sealed record MotionSettings
 
     internal int DesiredDeviceVelocityPercent => Speed * Stroke / 100;
 
-    internal FirmwareCommand[] ToCommands() =>
-        [
-        new(FirmwareSetting.Pattern, (int)Pattern),
-        new(FirmwareSetting.Stroke, Stroke),
-        new(FirmwareSetting.Depth, Depth),
-        new(FirmwareSetting.Sensation, Sensation),
-        new(FirmwareSetting.Speed, DesiredDeviceVelocityPercent),
-    ];
-
     internal static bool IsValidPattern(StrokePattern value) => Enum.IsDefined(value);
 
     internal static bool IsValidPercentage(int value) => value is >= 0 and <= 100;
+
+    internal FirmwareCommand[] ToCommands() =>
+        [
+            new(FirmwareSetting.Pattern, (int)Pattern),
+            new(FirmwareSetting.Stroke, Stroke),
+            new(FirmwareSetting.Depth, Depth),
+            new(FirmwareSetting.Sensation, Sensation),
+            new(FirmwareSetting.Speed, DesiredDeviceVelocityPercent),
+        ];
 
     private static void ValidatePercentage(int value, string parameterName)
     {

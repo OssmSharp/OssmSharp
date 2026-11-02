@@ -10,10 +10,7 @@
 .user-status-heading .status-mark { margin-left: auto; }
 .invite-row { display: flex; align-items: center; gap: 14px; }
 .invite-row input { flex: 1 1 12rem; }
-.attachment-field { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 24px; font-size: .85rem; }
-.attachment-field label { font-weight: 550; }
-.attachment-field input { flex: 0 1 7rem; font-variant-numeric: tabular-nums; }
-.field-unit { color: var(--muted); }
+.button.refresh-invitation:not(:disabled) { --button-bg: var(--muted); --button-ink: var(--background); border-color: var(--button-bg); }
 .connection-details { display: grid; gap: 14px; margin: 0 0 24px; }
 .connection-details > div {
     padding: 12px 14px;

@@ -103,18 +103,12 @@ test("timer releases detached or disconnected elements and restarts on recovery"
   assert.equal(h.intervals.size, 0);
 });
 
-test("saving attachment length preserves centimetres and surfaces unavailable storage", async () => {
-  const stored = new Map();
-  const failure = new Error("Storage unavailable.");
-  const storage = {
-    setItem(key, value) { stored.set(key, value); },
-    getItem(key) { return stored.get(key) ?? null; },
-  };
-  const h = await timerHarness(storage);
-  h.api.writeAttachmentLength(27.25);
-  assert.equal(stored.get("ossm-admin-attachment-length-cm"), "27.25");
-  assert.equal(h.api.readAttachmentLength(24), 27.25);
-  storage.setItem = () => { throw failure; };
-  assert.throws(() => h.api.writeAttachmentLength(28), (error) => error === failure);
-  assert.equal(stored.get("ossm-admin-attachment-length-cm"), "27.25");
+test("admin module exports no configurable attachment storage operations", async () => {
+  const h = await timerHarness({
+    setItem() { assert.fail("Dimension preferences must not be written"); },
+    getItem() { assert.fail("Dimension preferences must not be read"); },
+  });
+  assert.equal(h.api.writeAttachmentLength, undefined);
+  assert.equal(h.api.readAttachmentLength, undefined);
+  assert.deepEqual(Object.keys(h.api).sort(), ["copy", "disposeConnectionTimer", "updateConnectionTimer"]);
 });

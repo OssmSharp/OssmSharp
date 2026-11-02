@@ -17,7 +17,7 @@ test("guest controls fit desktop viewports with a rounded pattern sidebar and co
   await setRange(page, "Speed", 57);
   session.state.device = { ...session.state.device, speed: 54.054054054054056, stroke: 37 };
   await until(() => page.getByLabel("Speed", { exact: true }).getAttribute("aria-valuetext"),
-    (value) => value.includes("54.054054054054056"), "precise current value");
+    (value) => value.includes("Current value: 54."), "rounded current value");
   for (const viewport of [{ width: 920, height: 600 }, { width: 1280, height: 720 }, { width: 1440, height: 900 }]) {
     await page.setViewportSize(viewport);
     await desktopFit(page);
@@ -29,7 +29,7 @@ test("guest controls fit desktop viewports with a rounded pattern sidebar and co
     }));
     assert.ok(boxes.every((box) => box.height >= 44 && box.x === boxes[0].x));
     assert.ok(boxes.every((box, index) => index === 0 || box.y >= boxes[index - 1].y + boxes[index - 1].height));
-    for (const name of ["Send", "Stop", "Reset Position", "Leave session"]) {
+    for (const name of ["Send", "Stop", "Reset Position"]) {
       const box = await button(page, name).boundingBox();
       assert.ok(box.y >= 0 && box.y + box.height <= viewport.height, `${name} remains in the viewport`);
     }
@@ -102,34 +102,18 @@ test("slider fills and equal Sent Current markers use native thumb travel includ
   assert.deepEqual(errors, []);
 });
 
-test("preview lengths are shared and the person entry and inserted attachment remain visible", options, async (t) => {
+test("both previews omit the person legend caption and configurable dimensions", options, async (t) => {
   const fixture = await createBrowserFixture(t, browser);
   const admin = await fixture.openAdmin(userState(deviceState({ transmittedSettings: settings })));
   const guest = await fixture.openGuest("shared-preview");
-  await admin.page.getByLabel("Attachment length", { exact: true }).fill("27.5");
-  await admin.page.getByLabel("Attachment length", { exact: true }).press("Tab");
-  for (const view of [admin, guest])
-    await until(() => view.page.getByTestId("preview-dimensions").innerText(),
-      (text) => text.includes("attachment 27.5 cm"), "shared attachment dimension");
-  assert.equal(guest.session.requests.length, 0);
-  assert.equal(admin.session.calls.filter((method) => ["Submit", "Stop", "ResetPosition", "Connect"].includes(method)).length, 0);
-  await setRange(guest.page, "Depth", 100);
-  await setRange(guest.page, "Stroke", 100);
-  const rail = preview(guest.page);
-  const geometry = await rail.evaluate((svg) => ({
-    rail: 200,
-    attachment: svg.querySelector(".preview-attachment").width.baseVal.value,
-    viewWidth: svg.viewBox.baseVal.width,
-    tip: svg.querySelector(".preview-attachment").x.baseVal.value + svg.querySelector(".preview-attachment").width.baseVal.value,
-    person: Boolean(svg.querySelector(".preview-person circle")),
-    entry: Boolean(svg.querySelector(".preview-entry")),
-    inserted: Boolean(svg.querySelector(".preview-inserted")),
-  }));
-  assert.equal(geometry.attachment / geometry.rail, 27.5 / 40);
-  assert.ok(geometry.viewWidth > geometry.tip);
-  assert.deepEqual([geometry.person, geometry.entry, geometry.inserted], [true, true, true]);
-  await until(() => guest.page.getByTestId("preview-dimensions").innerText(),
-    (text) => text.includes("Insertion 0 to 27.5 cm"), "scaled full insertion");
+  for (const view of [admin, guest]) {
+    assert.equal(await view.page.getByLabel("Attachment length", { exact: true }).count(), 0);
+    assert.equal(await view.page.locator(".preview-person, .preview-attachment, .preview-legend, .preview-caption, [data-testid='preview-pattern']").count(), 0);
+    assert.equal(await preview(view.page).isVisible(), true);
+  }
+  assert.equal(await guest.page.getByRole("heading", { name: "Pattern preview", exact: true }).count(), 0);
+  assert.equal(await button(guest.page, "Leave session").count(), 0);
+  assert.equal(await admin.page.getByTestId("guest-session-expiry").count(), 0);
   assert.equal(guest.session.requests.length, 0);
   assert.deepEqual(admin.errors, []);
   assert.deepEqual(guest.errors, []);

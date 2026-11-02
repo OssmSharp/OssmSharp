@@ -74,7 +74,7 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
         createDevice = selected =>
         {
             selectedIdentifiers.Add(selected);
-            return Device.Object;
+            return Mocks.GetOrCreateMock<IOssmDevice>().Instance;
         };
         var run = Component.RunAsync(null, TestContext.Current.CancellationToken);
         context.Advertise("Device-A", "First OSSM");
@@ -102,7 +102,7 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
         {
             factoryCalls++;
             selected.Should().Be("unavailable");
-            return Device.Object;
+            return Mocks.GetOrCreateMock<IOssmDevice>().Instance;
         };
 
         (await Component.RunAsync("unavailable", TestContext.Current.CancellationToken)).Should().Be(1);
@@ -138,7 +138,7 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
         createDevice = selected =>
         {
             selectedIdentifiers.Add(selected);
-            return Device.Object;
+            return Mocks.GetOrCreateMock<IOssmDevice>().Instance;
         };
 
         var run = Component.RunAsync(identifier, TestContext.Current.CancellationToken);
@@ -183,7 +183,7 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
             Device.Setup(device => device.DisposeAsync()).Returns(() => ValueTask.FromException(new IOException("disconnect failed")));
         }
 
-        createDevice = _ => Device.Object;
+        createDevice = _ => Mocks.GetOrCreateMock<IOssmDevice>().Instance;
 
         (await Component.RunAsync("Device-A", TestContext.Current.CancellationToken)).Should().Be(1);
 
@@ -205,7 +205,7 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
     public async Task PromptDisposalFailureReturnsOne()
     {
         Device.Setup(device => device.DisposeAsync()).Returns(() => ValueTask.FromException(new IOException("disconnect failed")));
-        createDevice = _ => Device.Object;
+        createDevice = _ => Mocks.GetOrCreateMock<IOssmDevice>().Instance;
         input.SendLine("quit");
 
         (await Component.RunAsync("Device-A", TestContext.Current.CancellationToken)).Should().Be(1);
@@ -221,7 +221,7 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
     {
         var failure = new IOException("Stop failed during quit.");
         Device.Setup(device => device.EmergencyStopAsync(It.IsAny<CancellationToken>())).ThrowsAsync(failure);
-        createDevice = _ => Device.Object;
+        createDevice = _ => Mocks.GetOrCreateMock<IOssmDevice>().Instance;
         input.SendLine("quit");
 
         (await Component.RunAsync("Device-A", TestContext.Current.CancellationToken)).Should().Be(1);
@@ -237,7 +237,7 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
     {
         var failure = new IOException("Stop failed during disposal.");
         Device.Setup(device => device.DisposeAsync()).Returns(() => ValueTask.FromException(failure));
-        createDevice = _ => Device.Object;
+        createDevice = _ => Mocks.GetOrCreateMock<IOssmDevice>().Instance;
         input.SendLine("quit");
 
         (await Component.RunAsync("Device-A", TestContext.Current.CancellationToken)).Should().Be(1);
@@ -260,7 +260,7 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
             entered.TrySetResult();
             return new ValueTask(release.Task);
         });
-        createDevice = _ => Device.Object;
+        createDevice = _ => Mocks.GetOrCreateMock<IOssmDevice>().Instance;
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         var run = Component.RunAsync("Device-A", cancellation.Token);
         try

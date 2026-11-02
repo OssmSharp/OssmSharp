@@ -1,5 +1,3 @@
-using System.Globalization;
-
 namespace OssmSharp.Web.AdminWeb.Components.Pages;
 
 /// <summary>
@@ -7,9 +5,7 @@ namespace OssmSharp.Web.AdminWeb.Components.Pages;
 /// </summary>
 public partial class Home
 {
-    private const double CentimetresPerInch = 2.54;
-    /// <summary>The attachment length used until the user chooses one, in centimetres.</summary>
-    private const double DefaultAttachmentLengthCm = 24;
+    private const string GuestDisconnectConfirmation = "The current guest will be disconnected and will need a new invite. Are you sure?";
 
     private readonly CancellationTokenSource _lifetime = new();
     private UserNoticeState _notice = null!;
@@ -22,8 +18,7 @@ public partial class Home
     private bool _connecting;
     private bool _connectionLost;
     private bool _previewStopped;
-    private double _attachmentLengthCm = DefaultAttachmentLengthCm;
-    private bool _sharingPreview;
+    private bool _confirmingGuest;
     private long _actionNoticeVersion;
 
     private DeviceSettingsSnapshot? _stoppedSettings;
@@ -72,11 +67,6 @@ public partial class Home
         _ => "neutral",
     };
     private bool DeviceUnavailable => _connectionLost || _state?.Device is not { IsConnected: true, IsConnecting: false };
-    private LengthUnit Unit => Options.Value.LengthUnit;
-    private string LengthUnitLabel => Unit is LengthUnit.Inches ? "\"" : "cm";
-    private string LengthStep => Unit is LengthUnit.Inches ? "0.25" : "0.5";
-    private string RailLengthText => LengthText(Options.Value.RailLengthCm);
-    private string AttachmentLengthText => LengthText(_attachmentLengthCm);
 
     /// <summary>
     /// Cancels and awaits polling before releasing the control connection.
@@ -103,7 +93,6 @@ public partial class Home
     protected override void OnInitialized()
     {
         _notice = new(Time);
-        _attachmentLengthCm = ClampAttachmentLength(DefaultAttachmentLengthCm);
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -113,8 +102,6 @@ public partial class Home
             if (firstRender)
             {
                 _module = await Js.InvokeAsync<IJSObjectReference>("import", _lifetime.Token, "./admin.js");
-                _attachmentLengthCm = ClampAttachmentLength(await _module.InvokeAsync<double>("readAttachmentLength", _lifetime.Token, _attachmentLengthCm));
-                await SharePreviewDimensionsAsync();
                 _lifetime.Token.ThrowIfCancellationRequested();
                 StateHasChanged();
                 _pollingTask = PollAsync();
@@ -162,73 +149,34 @@ public partial class Home
     private Task AllowGuest() => RunAsync(nameof(IAdminApiClient.AllowGuestAsync), Control.AllowGuestAsync, null);
     private Task Stop() => RunAsync(nameof(IAdminApiClient.StopAsync), Control.StopAsync, "Stopped.", safety: true, stopPreview: true, pendingMessage: "Stopping ...");
     private Task ResetPosition() => RunAsync(nameof(IAdminApiClient.ResetPositionAsync), Control.ResetPositionAsync, "Position reset. Stopped.", stopPreview: true, pendingMessage: "Resetting position ...");
-    private Task EndGuest() => RunAsync(nameof(IAdminApiClient.EndGuestAsync), Control.EndGuestAsync, "Guest session ended.", safety: true, stopPreview: true, pendingMessage: "Ending guest session ...");
-    private Task RefreshInvitation() => RunAsync(nameof(IAdminApiClient.RefreshInvitationAsync), Control.RefreshInvitationAsync, "Invitation refreshed. The previous guest session ended.", safety: true, stopPreview: true, pendingMessage: "Refreshing invitation ...");
+    private Task EndGuest() => RunGuestActionAsync(nameof(IAdminApiClient.EndGuestAsync), Control.EndGuestAsync, "Guest session ended.", "Ending guest session ...", confirm: true);
+    private Task RefreshInvitation() => RunGuestActionAsync(nameof(IAdminApiClient.RefreshInvitationAsync), Control.RefreshInvitationAsync, "Invitation refreshed. The previous guest session ended.", "Refreshing invitation ...", confirm: _state?.GuestConnected == true);
     private Task Connect() => RunAsync(nameof(IAdminApiClient.ConnectAsync), Control.ConnectAsync, null, confirmConnection: true);
 
-    private async Task SetAttachmentLength(ChangeEventArgs args)
+    private async Task RunGuestActionAsync(string action, Func<CancellationToken, Task<ControlResponse>> command, string message, string pendingMessage, bool confirm)
     {
-        if (!double.TryParse(args.Value?.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var entered)
-            || !double.IsFinite(entered))
-        {
-            _notice.Show("Enter a valid attachment length.", true);
-            Logger.InvalidPreviewLength();
+        if (_confirmingGuest || _safetyBusy || _connectionLost)
             return;
-        }
-        var centimetres = Unit is LengthUnit.Inches ? entered * CentimetresPerInch : entered;
-        if (centimetres < 0 || centimetres > Options.Value.RailLengthCm)
-        {
-            _notice.Show($"Enter an attachment length from 0 to {RailLengthText} {LengthUnitLabel}.", true);
-            Logger.InvalidPreviewLength();
-            return;
-        }
-        _attachmentLengthCm = centimetres;
-        await SharePreviewDimensionsAsync();
-    }
-
-    private async Task SharePreviewDimensionsAsync()
-    {
-        if (_sharingPreview)
-            return;
-        _sharingPreview = true;
+        _confirmingGuest = true;
         try
         {
-            do
-            {
-                var dimensions = new PreviewDimensions(Options.Value.RailLengthCm, _attachmentLengthCm);
-                await Control.SetPreviewDimensionsAsync(dimensions, _lifetime.Token);
-                if (dimensions.AttachmentLengthCm == _attachmentLengthCm)
-                {
-                    if (_module is not null)
-                        await _module.InvokeVoidAsync("writeAttachmentLength", _lifetime.Token, dimensions.AttachmentLengthCm);
-                    if (dimensions.AttachmentLengthCm != _attachmentLengthCm)
-                        continue;
-                    _noticeVariant = "success";
-                    _notice.Show("Preview dimensions updated.");
-                    return;
-                }
-            }
-            while (!_lifetime.IsCancellationRequested);
+            if (confirm && !await Js.InvokeAsync<bool>("confirm", _lifetime.Token, GuestDisconnectConfirmation))
+                return;
+            _lifetime.Token.ThrowIfCancellationRequested();
+            await RunAsync(action, command, message, safety: true, stopPreview: true, pendingMessage: pendingMessage);
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
-        catch (Exception exception) when (exception is ApiClientException or RpcClientRequestTimeoutException)
-        {
-            Logger.PreviewUpdateFailed(exception);
-            _notice.Show("Unable to share preview dimensions. Enter the length again to retry.", true);
-        }
         catch (JSException exception)
         {
-            Logger.PreviewPreferenceSaveFailed(exception);
-            _notice.Show("Preview dimensions shared, but this browser could not save the length. Enter it again to retry.", true);
+            Logger.GuestActionConfirmationFailed(action, exception);
+            _notice.Show("Unable to confirm the action. No guest session change was requested. Reload the page to try again.", true);
         }
-        finally { _sharingPreview = false; }
+        finally
+        {
+            _confirmingGuest = false;
+            await InvokeAsync(StateHasChanged);
+        }
     }
-
-    private double ClampAttachmentLength(double centimetres) =>
-        double.IsFinite(centimetres) ? Math.Clamp(centimetres, 0, Options.Value.RailLengthCm) : 0;
-
-    private string LengthText(double centimetres) =>
-        (Unit is LengthUnit.Inches ? centimetres / CentimetresPerInch : centimetres).ToString("0.##", CultureInfo.InvariantCulture);
 
     private async Task Copy()
     {

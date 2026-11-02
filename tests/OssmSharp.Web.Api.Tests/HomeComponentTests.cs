@@ -36,6 +36,9 @@ public sealed class HomeComponentTests : MockerTestBase<Home>, IAsyncDisposable
             .Setup(logger => logger.IsEnabled(It.IsAny<LogLevel>())).Returns(true);
         _client.Setup(client => client.GetStateAsync(It.IsAny<CancellationToken>())).Returns(() => Task.FromResult(_state));
         _client.Setup(client => client.DisposeAsync()).Returns(ValueTask.CompletedTask);
+        mocks.GetOrCreateMock<IJSRuntime>().AsMoq()
+            .Setup(js => js.InvokeAsync<bool>("confirm", It.IsAny<CancellationToken>(), It.IsAny<object?[]>()))
+            .Returns(new ValueTask<bool>(true));
     };
 
     protected override Action<Home> CreatedComponentAction => component =>
@@ -44,6 +47,7 @@ public sealed class HomeComponentTests : MockerTestBase<Home>, IAsyncDisposable
         ComponentTestAccess.Inject(component, "Time", _time);
         ComponentTestAccess.Inject(component, "Options", Mocks.GetRequiredObject<IOptions<AdminOptions>>());
         ComponentTestAccess.Inject(component, "Logger", Mocks.GetRequiredObject<ILogger<Home>>());
+        ComponentTestAccess.Inject(component, "Js", Mocks.GetRequiredObject<IJSRuntime>());
         ComponentTestAccess.Set(component, "_state", _state);
         ComponentTestAccess.Invoke(component, "OnInitialized");
         _renderer = new(component);
@@ -55,7 +59,7 @@ public sealed class HomeComponentTests : MockerTestBase<Home>, IAsyncDisposable
     {
         try
         {
-            await _renderer.DisposeAsync();
+            await ((IAsyncDisposable)_renderer).DisposeAsync();
             await Task.WhenAll(_polls);
         }
         finally { base.Dispose(); }
@@ -435,113 +439,86 @@ public sealed class HomeComponentTests : MockerTestBase<Home>, IAsyncDisposable
     }
 
     [Fact]
-    public async Task PreviewEditsShareLatestDimensionsWithoutMotionAndSurfaceFailures()
+    public async Task CancelledGuestConfirmationIssuesNoRpcAndPreservesPreviewAndNotice()
     {
-        var pending = new TaskCompletionSource<ControlResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var dimensions = new List<PreviewDimensions>();
-        await using var module = new RecordingJsModule();
-        ComponentTestAccess.Set(Component, "_module", module);
-        _client.Setup(client => client.SetPreviewDimensionsAsync(It.IsAny<PreviewDimensions>(), It.IsAny<CancellationToken>()))
-            .Returns((PreviewDimensions value, CancellationToken _) =>
-            {
-                dimensions.Add(value);
-                return dimensions.Count == 1 ? pending.Task : Task.FromResult(new ControlResponse("preview", "preview-updated", true));
-            });
-        Task first = Task.CompletedTask;
-        await _renderer.RunAsync(() =>
+        _state = State(Device() with { TransmittedSettings = new(4, 57, 10, 20, 75) }) with { GuestConnected = true };
+        ComponentTestAccess.Set(Component, "_state", _state);
+        Mocks.GetOrCreateMock<IJSRuntime>().AsMoq()
+            .Setup(js => js.InvokeAsync<bool>("confirm", It.IsAny<CancellationToken>(), It.IsAny<object?[]>()))
+            .Returns(new ValueTask<bool>(false));
+        var message = Notice.Message;
+        foreach (var command in new[] { "RefreshInvitation", "EndGuest" })
         {
-            first = ComponentTestAccess.InvokeTask(Component, "SetAttachmentLength", new Microsoft.AspNetCore.Components.ChangeEventArgs { Value = "25.5" });
-            return Task.CompletedTask;
+            await _renderer.RunAsync(() => Call(command));
+            Assert.Equal(0, CommandCalls(command));
+            Assert.Same(_state, Read<UserSessionState>("_state"));
+            Assert.False(Read<bool>("_previewStopped"));
+            Assert.False(Read<bool>("_confirmingGuest"));
+            Assert.Equal(message, Notice.Message);
+        }
+        var confirmations = Mocks.GetOrCreateMock<IJSRuntime>().AsMoq().Invocations;
+        Assert.Equal(2, confirmations.Count);
+        Assert.All(confirmations, invocation =>
+        {
+            Assert.Equal("confirm", invocation.Arguments[0]);
+            Assert.Equal(Read<CancellationTokenSource>("_lifetime").Token, invocation.Arguments[1]);
+            Assert.Equal(
+                "The current guest will be disconnected and will need a new invite. Are you sure?",
+                Assert.Single(Assert.IsType<object?[]>(invocation.Arguments[2])));
         });
-        await _renderer.RunAsync(() => ComponentTestAccess.InvokeTask(Component, "SetAttachmentLength", new Microsoft.AspNetCore.Components.ChangeEventArgs { Value = "27.25" }));
-        Assert.Single(dimensions);
-        pending.SetResult(new("preview", "preview-updated", true));
-        await first;
-        Assert.Equal([new(40, 25.5), new(40, 27.25)], dimensions);
-        Assert.Equal(27.25, Read<double>("_attachmentLengthCm"));
-        Assert.Equal("Preview dimensions updated.", Notice.Message);
-        Assert.Equal("success", Read<string>("_noticeVariant"));
-        var saved = Assert.Single(module.Calls);
-        Assert.Equal("writeAttachmentLength", saved.Method);
-        Assert.Equal(27.25, Assert.IsType<double>(Assert.Single(saved.Arguments)));
-        Mocks.Verify<IAdminApiClient>(client => client.StopAsync(FastArg.Any<CancellationToken>()), TimesSpec.NeverCalled);
-        Mocks.Verify<IAdminApiClient>(client => client.ResetPositionAsync(FastArg.Any<CancellationToken>()), TimesSpec.NeverCalled);
-        Mocks.Verify<IAdminApiClient>(client => client.AllowGuestAsync(FastArg.Any<CancellationToken>()), TimesSpec.NeverCalled);
-        _client.Setup(client => client.SetPreviewDimensionsAsync(It.IsAny<PreviewDimensions>(), It.IsAny<CancellationToken>()))
-            .ThrowsAsync(new ApiClientException("connection-unavailable"));
-        await _renderer.RunAsync(() => ComponentTestAccess.InvokeTask(Component, "SetAttachmentLength", new Microsoft.AspNetCore.Components.ChangeEventArgs { Value = "28" }));
-        Assert.True(Notice.IsError);
-        Assert.Equal("Unable to share preview dimensions. Enter the length again to retry.", Notice.Message);
-        Assert.False(Read<bool>("_sharingPreview"));
-        var calls = _client.Invocations.Count;
-        await _renderer.RunAsync(() => ComponentTestAccess.InvokeTask(Component, "SetAttachmentLength", new Microsoft.AspNetCore.Components.ChangeEventArgs { Value = "invalid" }));
-        await _renderer.RunAsync(() => ComponentTestAccess.InvokeTask(Component, "SetAttachmentLength", new Microsoft.AspNetCore.Components.ChangeEventArgs { Value = "41" }));
-        Assert.Equal(calls, _client.Invocations.Count);
-        Assert.Equal(28, Read<double>("_attachmentLengthCm"));
-        Assert.True(Notice.IsError);
     }
 
     [Fact]
-    public async Task PreviewEditsDuringPreferenceSavingStillShareAndSaveTheLatestDimensions()
+    public async Task PendingGuestConfirmationBlocksOverlappingGuestActionsButNotStop()
     {
-        var saving = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var saved = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        await using var module = new RecordingJsModule();
-        module.BeforeInvoke = token =>
-        {
-            if (module.Calls.Count != 1)
-                return Task.CompletedTask;
-            saving.TrySetResult();
-            return saved.Task.WaitAsync(token);
-        };
-        ComponentTestAccess.Set(Component, "_module", module);
-        var dimensions = new List<PreviewDimensions>();
-        _client.Setup(client => client.SetPreviewDimensionsAsync(It.IsAny<PreviewDimensions>(), It.IsAny<CancellationToken>()))
-            .Returns((PreviewDimensions value, CancellationToken _) =>
-            {
-                dimensions.Add(value);
-                return Task.FromResult(new ControlResponse("preview", "preview-updated", true));
-            });
+        var confirmation = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        Mocks.GetOrCreateMock<IJSRuntime>().AsMoq()
+            .Setup(js => js.InvokeAsync<bool>("confirm", It.IsAny<CancellationToken>(), It.IsAny<object?[]>()))
+            .Returns(new ValueTask<bool>(confirmation.Task));
+        SetupCommand("Stop", Task.FromResult(new ControlResponse("stop", "stopped", true)));
         Task first = Task.CompletedTask;
         await _renderer.RunAsync(() =>
         {
-            first = ComponentTestAccess.InvokeTask(Component, "SetAttachmentLength", new Microsoft.AspNetCore.Components.ChangeEventArgs { Value = "25.5" });
+            first = Call("EndGuest");
             return Task.CompletedTask;
         });
-        await saving.Task.WaitAsync(TestContext.Current.CancellationToken);
-        await _renderer.RunAsync(() => ComponentTestAccess.InvokeTask(Component, "SetAttachmentLength", new Microsoft.AspNetCore.Components.ChangeEventArgs { Value = "27.25" }));
-        Assert.Single(dimensions);
-        saved.SetResult();
+        Assert.True(Read<bool>("_confirmingGuest"));
+        Assert.False(ComponentTestAccess.Buttons(Component)["Stop"]);
+        Assert.True(ComponentTestAccess.Buttons(Component)["End guest"]);
+        Assert.True(ComponentTestAccess.Buttons(Component)["Refresh invitation"]);
+        await _renderer.RunAsync(() => Call("EndGuest"));
+        await _renderer.RunAsync(() => Call("RefreshInvitation"));
+        Assert.Single(Mocks.GetOrCreateMock<IJSRuntime>().AsMoq().Invocations);
+        await _renderer.RunAsync(() => Call("Stop"));
+        Assert.Equal(1, CommandCalls("Stop"));
+        Assert.Equal("Stopped.", Notice.Message);
+        confirmation.SetResult(false);
         await first;
-        Assert.Equal([new(40, 25.5), new(40, 27.25)], dimensions);
-        Assert.Equal([25.5, 27.25], module.Calls.Select(call => Assert.IsType<double>(Assert.Single(call.Arguments))));
-        Assert.False(Read<bool>("_sharingPreview"));
-        Assert.Equal("Preview dimensions updated.", Notice.Message);
+        Assert.Equal(0, CommandCalls("EndGuest"));
+        Assert.Equal(0, CommandCalls("RefreshInvitation"));
+        Assert.False(Read<bool>("_confirmingGuest"));
+        Assert.Equal("Stopped.", Notice.Message);
     }
 
-    [Fact]
-    public async Task PreviewPreferenceFailureShowsThatSharingSucceededAndAllowsRetry()
+    [Theory]
+    [InlineData("RefreshInvitation", false, 0)]
+    [InlineData("RefreshInvitation", true, 1)]
+    [InlineData("EndGuest", false, 1)]
+    [InlineData("EndGuest", true, 1)]
+    public async Task AcceptedGuestActionsConfirmExactlyWhenRequired(string command, bool connected, int confirmations)
     {
-        await using var module = new RecordingJsModule();
-        module.BeforeInvoke = _ => module.Calls[^1].Method == "writeAttachmentLength"
-            ? Task.FromException(new JSException("Preference storage unavailable."))
-            : Task.CompletedTask;
-        ComponentTestAccess.Set(Component, "_module", module);
-        _client.Setup(client => client.SetPreviewDimensionsAsync(It.IsAny<PreviewDimensions>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new ControlResponse("preview", "preview-updated", true));
-        await _renderer.RunAsync(() => ComponentTestAccess.InvokeTask(Component, "SetAttachmentLength", new Microsoft.AspNetCore.Components.ChangeEventArgs { Value = "27.25" }));
-        Assert.True(Notice.IsError);
-        Assert.Equal("Preview dimensions shared, but this browser could not save the length. Enter it again to retry.", Notice.Message);
-        Assert.False(Read<bool>("_sharingPreview"));
-        Mocks.Verify<IAdminApiClient>(client => client.SetPreviewDimensionsAsync(new(40, 27.25), FastArg.Any<CancellationToken>()), TimesSpec.Once);
-        module.BeforeInvoke = null;
-        await _renderer.RunAsync(() => ComponentTestAccess.InvokeTask(Component, "SetAttachmentLength", new Microsoft.AspNetCore.Components.ChangeEventArgs { Value = "27.25" }));
+        ComponentTestAccess.Set(Component, "_state", State(null) with { GuestConnected = connected });
+        SetupCommand(command, Task.FromResult(new ControlResponse("guest", "accepted", true)));
+        await _renderer.RunAsync(() => Call(command));
+        Assert.Equal(1, CommandCalls(command));
+        Assert.Equal(confirmations, Mocks.GetOrCreateMock<IJSRuntime>().AsMoq().Invocations.Count);
         Assert.False(Notice.IsError);
-        Assert.Equal("Preview dimensions updated.", Notice.Message);
+        Assert.Equal(command == "EndGuest" ? "Guest session ended." : "Invitation refreshed. The previous guest session ended.", Notice.Message);
+        Assert.False(Read<bool>("_confirmingGuest"));
     }
 
     [Fact]
-    public async Task CancelledFirstRenderDoesNotStartPollingOrSharePreview()
+    public async Task CancelledFirstRenderDoesNotStartPolling()
     {
         await using var module = new RecordingJsModule
         {
@@ -558,7 +535,7 @@ public sealed class HomeComponentTests : MockerTestBase<Home>, IAsyncDisposable
         await Read<CancellationTokenSource>("_lifetime").CancelAsync();
         await _renderer.RunAsync(() => ComponentTestAccess.InvokeTask(Component, "OnAfterRenderAsync", true));
         Assert.Null(Read<Task?>("_pollingTask"));
-        Mocks.Verify<IAdminApiClient>(client => client.SetPreviewDimensionsAsync(FastArg.Any<PreviewDimensions>(), FastArg.Any<CancellationToken>()), TimesSpec.NeverCalled);
+        Mocks.Verify<IAdminApiClient>(client => client.GetStateAsync(FastArg.Any<CancellationToken>()), TimesSpec.NeverCalled);
     }
 
     [Fact]

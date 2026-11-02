@@ -143,8 +143,7 @@ test("a second tab cannot interrupt the first and attaches only after the first 
   await until(() => second.page.getByTestId("guest-disconnected").innerText(),
     (text) => text.includes("open in another tab"), "second-tab rejection");
   const leave = second.page.getByTestId("guest-disconnected").getByRole("button", { name: "Leave session", exact: true });
-  assert.equal(await leave.isDisabled(), true);
-  await leave.dispatchEvent("click");
+  assert.equal(await leave.count(), 0);
   const rejected = await second.page.evaluate(async () => {
     const state = await (await fetch("/guest-session")).json();
     const response = await fetch("/guest-session/leave", { method: "POST", headers: { "X-CSRF-TOKEN": state.requestToken } });
@@ -170,7 +169,7 @@ test("a second tab cannot interrupt the first and attaches only after the first 
   assert.equal(session.calls.filter((target) => target === "Redeem").length, 1);
 });
 
-test("offline Leave invalidates the saved session and clears its cookie", options, async (t) => {
+test("compatibility offline Leave invalidates the saved session and clears its cookie", options, async (t) => {
   const fixture = await createBrowserFixture(t, browser);
   const view = await fixture.openGuest("offline-leave-session");
   const { page, context, session } = view;
@@ -178,7 +177,11 @@ test("offline Leave invalidates the saved session and clears its cookie", option
   session.saved.owner.wire.socket.destroy();
   const notice = page.getByTestId("guest-disconnected");
   await notice.waitFor({ state: "visible" });
-  await notice.getByRole("button", { name: "Leave session", exact: true }).click();
+  assert.equal(await notice.getByRole("button", { name: "Leave session", exact: true }).count(), 0);
+  await page.evaluate(async () => {
+    const controller = document.getElementById("guest-start").dataset.controller;
+    await (await import(new URL(controller, document.baseURI).href)).leaveSession();
+  });
   await until(() => notice.innerText(), (text) => text.includes("You left the session"), "offline Leave completion");
   assert.equal(session.saved.valid, false);
   assert.equal((await context.cookies()).some((cookie) => cookie.name === "ossm-guest-session"), false);
@@ -194,13 +197,17 @@ test("invitation refresh revokes an active guest before failed Stop completes", 
     guestSessionExpiresAt: guest.session.saved.expiresAt,
   });
   assert.equal(await button(admin.page, "Copy").isDisabled(), true);
+  admin.page.once("dialog", async dialog => {
+    assert.equal(dialog.message(), "The current guest will be disconnected and will need a new invite. Are you sure?");
+    await dialog.accept();
+  });
   await button(admin.page, "Refresh invitation").click();
   await waitFor(() => admin.session.pending.has("RefreshInvitation"), "admin invitation refresh");
   assert.equal(guest.session.saved.valid, false, "Revocation must not wait for Stop");
   const ended = guest.page.getByTestId("guest-disconnected");
   await until(() => ended.innerText(), (text) => text.includes("Session ended."), "terminal guest notice");
   await ended.waitFor({ state: "visible" });
-  assert.equal(await ended.getByRole("button", { name: "Leave session", exact: true }).isHidden(), true);
+  assert.equal(await ended.getByRole("button", { name: "Leave session", exact: true }).count(), 0);
   await complete(admin.session, "RefreshInvitation", { accepted: false, code: "device-io-failed" });
   await admin.page.getByRole("alert").filter({ hasText: "Guest session ended. Stop was not confirmed" }).waitFor();
   assert.equal(guest.session.requests.length, 0);

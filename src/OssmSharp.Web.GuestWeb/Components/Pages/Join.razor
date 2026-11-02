@@ -46,16 +46,12 @@ else
                       aria-pressed="@(_display.Selected.Pattern == pattern ? "true" : "false")">@label</button>
             }
           </div>
-          <div class="page-actions">
-            <button type="button" class="button secondary" @onclick="LeaveAsync" disabled="@(_leaving || _connectionLost)"
-                    aria-label="Leave session" title="Stop control and leave this session">Leave session</button>
-          </div>
         </aside>
         <div class="guest-panel">
         <div class="guest-controlled connection-sensitive">
-            <PatternPreview Pattern="@_display.Selected.Pattern" Speed="@_display.Selected.Speed" Stroke="@_display.Selected.Stroke" Depth="@_display.Selected.Depth"
+            <PatternPreview @key="_display.Selected.Pattern" ShowHeading="false"
+                            Pattern="@_display.Selected.Pattern" Speed="@_display.Selected.Speed" Stroke="@_display.Selected.Stroke" Depth="@_display.Selected.Depth"
                             Sensation="@_display.Selected.Sensation"
-                            RailLength="@(_status?.Preview?.RailLengthCm ?? 40)" AttachmentLength="@(_status?.Preview?.AttachmentLengthCm ?? 24)"
                             Animate="@(!_display.PreviewStopped && !_connectionLost && _status?.Device is { IsConnected: true, IsConnecting: false, IsResettingPosition: false })" />
           </div>
         <section class="widget settings-widget" role="region" aria-label="Requested settings">
@@ -85,10 +81,6 @@ else
           <div class="card-footer">
             <div class="send-bar">
               <div class="send-options">
-                @if (Ready)
-                {
-                  <p data-send-status class="send-status @(_display.Status == "Settings sent." ? "success" : _display.Status == "Resetting position ..." ? "warning" : "info")" role="status">@_display.Status</p>
-                }
                 <div class="auto-send">
                   <label class="switch-label" for="guest-auto-send">
                     <input id="guest-auto-send" type="checkbox" role="switch" data-auto-send disabled="@(!Ready)" />
@@ -97,9 +89,15 @@ else
                   </label>
                 </div>
               </div>
-              <button type="button" class="button warning" data-reset-position-button
-                      disabled="@(!Ready || _status?.Device?.IsResettingPosition == true)"
-                      title="Retract fully, then stop">Reset Position</button>
+              <div class="reset-actions">
+                @if (Ready)
+                {
+                  <p @key="_display.SentNoticeVersion" data-send-status class="send-status @(_display.Status == "Settings sent." ? "success" : _display.Status == "Resetting position ..." ? "warning" : "info")" role="status">@_display.Status</p>
+                }
+                <button type="button" class="button warning" data-reset-position-button
+                        disabled="@(!Ready || _status?.Device?.IsResettingPosition == true)"
+                        title="Retract fully, then stop">Reset Position</button>
+              </div>
               <div class="send-actions">
                 <button type="button" class="button success" data-send-button disabled="@(!Ready || !_display.CanSend)" aria-label="Send"
                         title="Send the selected settings">Send</button>

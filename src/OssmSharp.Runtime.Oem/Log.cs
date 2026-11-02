@@ -77,9 +77,9 @@ internal static partial class Log
     [LoggerMessage(25, LogLevel.Debug, "Device request {RequestId} for {Operation} left the transfer queue after {QueueDurationMilliseconds} ms.")]
     public static partial void RequestTransferStarted(this ILogger logger, uint requestId, string operation, double queueDurationMilliseconds);
 
-    [LoggerMessage(26, LogLevel.Debug, "Device request {RequestId} was rejected with {Code} in state {DeviceState}.")]
-    public static partial void RequestRejected(this ILogger logger, uint requestId, string code, string? deviceState);
+    [LoggerMessage(26, LogLevel.Warning, "Device request {RequestId} for {Operation} at {Path} was rejected with {Code} in state {DeviceState}.")]
+    public static partial void RequestRejected(this ILogger logger, uint requestId, string operation, string? path, string code, string? deviceState);
 
-    [LoggerMessage(27, LogLevel.Debug, "Pattern request is not ready in device state {DeviceState}; no motion settings were written.")]
-    public static partial void PatternNotReady(this ILogger logger, string? deviceState);
+    [LoggerMessage(27, LogLevel.Warning, "Pattern request is not ready in device state {DeviceState}; no motion settings were written. Preparation step: {PreparationStep}, setup state: {SetupState}, target state: {TargetState}.")]
+    public static partial void PatternNotReady(this ILogger logger, string? deviceState, string preparationStep, string? setupState, string? targetState);
 }

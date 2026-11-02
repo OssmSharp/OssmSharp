@@ -135,6 +135,39 @@ After a connection failure, call `ConnectAsync()` to reconnect. Disposal is fina
 Errors propagate; `SetResult.Status` distinguishes completed, superseded, and
 cancelled requests.
 
+## Tests
+
+The portable tests use xUnit v3, Microsoft.Testing.Platform v2, and CsCheck.
+From the repository root, with the SDK in [global.json](global.json):
+
+```sh
+dotnet test --project tests/OssmSharp.Runtime.Oem.Tests/OssmSharp.Runtime.Oem.Tests.csproj
+dotnet test --project tests/OssmSharp.Web.Api.Tests/OssmSharp.Web.Api.Tests.csproj
+```
+
+Generated tests explore individual calls and environmental events with fresh
+fixtures. They compare requested settings, confirmed request progress/results,
+and last known device observations separately. Arithmetic tests exhaust all
+10,201 valid integer speed/stroke pairs. Small specification models explore
+only their declared states and bounds; they do not prove every asynchronous
+schedule, firmware behavior, or physical safety.
+
+Normal discovery runs leave `CsCheck_Seed` unset. To replay a failure, keep the
+same CsCheck version and generator, copy its emitted seed, and select the failing
+method:
+
+```sh
+CsCheck_Seed=EMITTED_SEED dotnet test \
+  --project tests/OssmSharp.Runtime.Oem.Tests/OssmSharp.Runtime.Oem.Tests.csproj \
+  --filter-method "FULLY_QUALIFIED_METHOD" --show-live-output on
+```
+
+Use the web test project instead for a web failure. In PowerShell, set
+`$env:CsCheck_Seed` before running the same command, then remove it afterward.
+Retain the shrunk inputs as a named regression when changing a generator.
+Keep the existing example tests, browser checks, and hardware checks; generated
+tests supplement them.
+
 ## More
 
 - [Architecture](docs/ARCHITECTURE.md)

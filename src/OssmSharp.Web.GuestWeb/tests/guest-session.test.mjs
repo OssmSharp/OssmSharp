@@ -241,6 +241,33 @@ test("speed is sent unchanged and retains the selected speed", async () => {
   browser.guest.dispose();
 });
 
+test("current speed text rounds measured speed without changing markers or requests", async () => {
+  const browser = await createGuest();
+  const input = browser.element('[data-input="speed"]');
+  input.value = "64";
+  input.dispatchEvent(new Event("input"));
+  browser.click("[data-send-button]");
+  await setImmediate();
+  for (const [value, text] of [[0, "0"], [12.49, "12"], [12.5, "13"], [12.51, "13"],
+    [54.54545454545455, "55"], [123.5, "124"], [null, "--"]]) {
+    browser.guest.updateState({ joined: true, ready: true, current: { speed: value, stroke: value === null ? 0 : 10 } });
+    assert.equal(browser.element('[data-sent="speed"]').textContent, 64);
+    assert.equal(String(browser.element('[data-current="speed"]').textContent), text);
+    const marker = browser.element('[data-current-marker="speed"]');
+    assert.equal(marker.attributes.has("hidden"), value === null);
+    if (value !== null) {
+      assert.equal(marker.getAttribute("y1"), String(100 - Math.min(100, value)));
+      assert.equal(marker.getAttribute("data-outside-range"), value > 100 ? "above" : "");
+    }
+    assert.equal(input.value, "64");
+    assert.equal(input.getAttribute("aria-valuetext"),
+      `Selected value: 64. Sent value: 64. Current value: ${value === null ? "unavailable" : text}.`);
+  }
+  assert.equal(browser.calls("SubmitSettings").length, 1);
+  assert.equal(browser.calls("SubmitSettings")[0].payload.speed, 64);
+  browser.guest.dispose();
+});
+
 test("Send is unavailable when unchanged or Auto send is on", async () => {
   const browser = await createGuest();
   browser.click("[data-send-button]");
@@ -328,6 +355,81 @@ test("settings response timeout permits a newer request without Stop", async () 
   assert.equal(browser.calls("UpdateDisplay").at(-1).payload.error, null);
   assert.equal(browser.element('[data-input="speed"]').value, "30");
   browser.guest.dispose();
+});
+
+test("different pattern clears queued automatic edits but retains the active acknowledgement", async (t) => {
+  let finish;
+  const browser = await createGuest(async (method) => method === "SubmitSettings"
+    ? new Promise((resolve) => { finish = resolve; }) : { ok: true });
+  t.after(() => { finish?.({ ok: true }); browser.guest.dispose(); });
+  const auto = browser.element("[data-auto-send]");
+  auto.checked = true;
+  auto.dispatchEvent(new Event("change"));
+  await setImmediate();
+  const speed = browser.element('[data-input="speed"]');
+  speed.value = "57";
+  speed.dispatchEvent(new Event("input"));
+  await setImmediate();
+  browser.click('[data-pattern="4"]');
+  await setImmediate();
+  assert.equal(auto.checked, false);
+  assert.equal(browser.calls("SubmitSettings").length, 1);
+  assert.equal(browser.calls("UpdateDisplay").at(-1).payload.selected.pattern, 4);
+  finish({ ok: true });
+  await setImmediate();
+  const display = browser.calls("UpdateDisplay").at(-1).payload;
+  assert.equal(browser.calls("SubmitSettings").length, 1, "queued old-pattern edit must not run");
+  assert.deepEqual([display.sent.pattern, display.sent.speed], [0, 30], "active reply remains valid");
+  assert.deepEqual([display.selected.pattern, display.selected.speed], [4, 57]);
+  assert.equal(display.status, "Settings sent.");
+  assert.equal(display.previewStopped, false);
+  assert.equal(browser.element("[data-send-button]").disabled, false);
+  browser.click("[data-send-button]");
+  await setImmediate();
+  assert.deepEqual([browser.calls("SubmitSettings")[1].payload.pattern, browser.calls("SubmitSettings")[1].payload.speed], [4, 57]);
+  finish({ ok: true });
+  await setImmediate();
+});
+
+test("same pattern preserves automatic sends and queued edits", async (t) => {
+  let finish;
+  const browser = await createGuest(async (method) => method === "SubmitSettings"
+    ? new Promise((resolve) => { finish = resolve; }) : { ok: true });
+  t.after(() => { finish?.({ ok: true }); browser.guest.dispose(); });
+  const auto = browser.element("[data-auto-send]");
+  auto.checked = true;
+  auto.dispatchEvent(new Event("change"));
+  await setImmediate();
+  const speed = browser.element('[data-input="speed"]');
+  speed.value = "57";
+  speed.dispatchEvent(new Event("input"));
+  browser.click('[data-pattern="0"]');
+  assert.equal(auto.checked, true);
+  finish({ ok: true });
+  await setImmediate();
+  assert.equal(browser.calls("SubmitSettings").length, 2);
+  assert.deepEqual([browser.calls("SubmitSettings")[1].payload.pattern, browser.calls("SubmitSettings")[1].payload.speed], [0, 57]);
+  finish({ ok: true });
+  await setImmediate();
+});
+
+test("sent notice version advances on every successful reply but not snapshots or failures", async (t) => {
+  let ok = true;
+  const browser = await createGuest(async (method) => method === "SubmitSettings" ? { ok, code: "device-write-failed" } : { ok: true });
+  t.after(() => browser.guest.dispose());
+  assert.equal(browser.calls("UpdateDisplay").at(-1).payload.sentNoticeVersion, 0);
+  for (const [speed, expected] of [[30, 1], [40, 2], [50, 2], [60, 3]]) {
+    ok = speed !== 50;
+    const input = browser.element('[data-input="speed"]');
+    input.value = String(speed);
+    input.dispatchEvent(new Event("input"));
+    browser.click("[data-send-button]");
+    await setImmediate();
+    assert.equal(browser.calls("UpdateDisplay").at(-1).payload.sentNoticeVersion, expected);
+    browser.guest.updateState({ joined: true, ready: true, current: { speed: 12.49 } });
+    await setImmediate();
+    assert.equal(browser.calls("UpdateDisplay").at(-1).payload.sentNoticeVersion, expected);
+  }
 });
 
 for (const code of ["outcome-unknown", "device-write-failed"]) {
@@ -805,7 +907,7 @@ async function createObservedGuest({ storage = new Map(), url = "https://guest.e
   return { guest, root, elements, controls, document, storage, observers, reference, calls, element: root.querySelector };
 }
 
-test("all seven patterns reach manual and auto requests without snapshot replacement", async () => {
+test("all seven patterns reach manual requests after disabling automatic sends without snapshot replacement", async () => {
   for (const automatic of [false, true]) {
     const browser = await createGuest();
     browser.element('[data-input="speed"]').value = "50";
@@ -814,13 +916,16 @@ test("all seven patterns reach manual and auto requests without snapshot replace
     sensation.value = "75";
     sensation.dispatchEvent(new Event("input"));
     const toggle = browser.element("[data-auto-send]");
-    toggle.checked = automatic; // Pattern change, not enabling the toggle, owns each request below.
     for (let pattern = 0; pattern <= 6; pattern++) {
       const count = browser.calls("SubmitSettings").length;
+      if (pattern !== 0) toggle.checked = automatic;
       const input = browser.element(`[data-pattern="${pattern}"]`);
       input.dispatchEvent(new Event("click"));
       browser.guest.updateState({ joined: true, ready: true, current: { pattern: (pattern + 1) % 7 } });
-      if (!automatic) browser.click("[data-send-button]");
+      await setImmediate();
+      assert.equal(toggle.checked, false);
+      assert.equal(browser.calls("SubmitSettings").length, count);
+      browser.click("[data-send-button]");
       await setImmediate();
       assert.equal(browser.calls("SubmitSettings").length, count + 1);
       const payload = browser.calls("SubmitSettings").at(-1).payload;
@@ -859,14 +964,14 @@ test("requested values remain normalized while current observations stay exact",
   }
   for (const [speed, stroke] of [[50, 10], [12.5, 20], [33.333333333333336, 30], [null, 10], [null, 0], [50, null], [0, 10], [400, 10]]) {
     browser.guest.updateState({ joined: true, ready: true, current: { speed, stroke } });
-    assert.equal(browser.element('[data-current="speed"]').textContent, speed ?? "--");
+    assert.equal(browser.element('[data-current="speed"]').textContent, speed === null ? "--" : Math.round(speed));
     const marker = browser.element('[data-current-marker="speed"]');
     assert.equal(marker.attributes.has("hidden"), speed === null);
     assert.equal(browser.element('[data-input="speed"]').attributes.get("aria-valuetext"),
-      `Selected value: 100. Sent value: 100. Current value: ${speed ?? "unavailable"}.`);
+      `Selected value: 100. Sent value: 100. Current value: ${speed === null ? "unavailable" : Math.round(speed)}.`);
     browser.element('[data-input="stroke"]').value = "1";
     browser.element('[data-input="stroke"]').dispatchEvent(new Event("input"));
-    assert.equal(browser.element('[data-current="speed"]').textContent, speed ?? "--");
+    assert.equal(browser.element('[data-current="speed"]').textContent, speed === null ? "--" : Math.round(speed));
   }
   for (const [value, expected] of [[-1, 0], [0, 0], [100, 100], [101, 100]]) {
     for (const name of ["speed", "sensation", "depth", "stroke"]) {

@@ -858,3 +858,8 @@ dotnet_style_prefer_compound_assignment = true:suggestion
 dotnet_style_readonly_field = true:suggestion
 dotnet_style_require_accessibility_modifiers = omit_if_default:suggestion
 # END EditorConfigGen
+
+[tests/OssmSharp.Web.Api.Tests/{StateOnlyRenderer,ComponentTestAccess}.cs]
+# These test-only helpers intentionally inspect render trees and dispatch component lifecycle.
+# Browser tests cover real rendering; production code retains this diagnostic.
+dotnet_diagnostic.BL0006.severity = none

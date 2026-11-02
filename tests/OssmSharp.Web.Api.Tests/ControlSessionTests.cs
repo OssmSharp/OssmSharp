@@ -135,7 +135,8 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>, IAsync
             Mocks.Verify<IOssmDevice>(device => device.SetAsync(FastArg.Any<MotionSettings>(), FastArg.Any<CancellationToken>()), TimesSpec.NeverCalled);
             await Component.GuestDisconnectedAsync("first");
             Mocks.Verify<IOssmDevice>(device => device.EmergencyStopAsync(FastArg.Any<CancellationToken>()), TimesSpec.Once);
-            Assert.Equal(SettingsResponseStatus.Completed,
+            Assert.Equal(
+                SettingsResponseStatus.Completed,
                 (await Component.SubmitAsync("second", new("fresh", 0, 50, 30, 50, 50), token)).Status);
             Mocks.Verify<IOssmDevice>(device => device.ResetAsync(FastArg.Any<CancellationToken>()), TimesSpec.Once);
         }
@@ -211,7 +212,8 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>, IAsync
         Assert.Null(Component.AuthenticateGuestSession(redeemed.SessionToken));
         Assert.Null(Component.GetSavedGuestSession(identity));
         Assert.False((await Component.GetUserStateAsync(token)).GuestJoined);
-        Assert.Equal(SettingsResponseStatus.Rejected,
+        Assert.Equal(
+            SettingsResponseStatus.Rejected,
             (await Component.SubmitAsync("second", new("late", 0, 50, 30, 50, 50), token)).Status);
         Assert.NotEqual(invitation, (await Component.GetUserStateAsync(token)).Invitation);
         Clock.Advance(TimeSpan.FromSeconds(1));
@@ -252,20 +254,14 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>, IAsync
     }
 
     [Fact]
-    public async Task PreviewDimensionsAreSharedOnlyWithTheJoinedGuestAndIssueNoDeviceCommands()
+    public async Task SessionStateDoesNotExposePreviewDimensionsAndReadingIssuesNoDeviceCommands()
     {
         var token = TestContext.Current.CancellationToken;
-        Assert.Equal(new PreviewDimensions(), (await Component.GetUserStateAsync(token)).Preview);
-        Assert.Null((await Component.GetGuestStateAsync("not-joined", token)).Preview);
+        Assert.Null((await Component.GetUserStateAsync(token)).GetType().GetProperty("Preview"));
+        Assert.Null((await Component.GetGuestStateAsync("not-joined", token)).GetType().GetProperty("Preview"));
         var invitation = (await Component.GetUserStateAsync(token)).Invitation;
         Assert.True(JoinGuest("guest-1", new("join", invitation.Token)).Accepted);
-        var dimensions = new PreviewDimensions(45.5, 27.25);
-
-        Assert.Equal(new ControlResponse("preview", ControlResponseCodes.PreviewUpdated, true), Component.SetPreviewDimensions("preview", dimensions));
-
-        Assert.Equal(dimensions, (await Component.GetUserStateAsync(token)).Preview);
-        Assert.Equal(dimensions, (await Component.GetGuestStateAsync("guest-1", token)).Preview);
-        Assert.Null((await Component.GetGuestStateAsync("not-joined", token)).Preview);
+        Assert.Null((await Component.GetGuestStateAsync("guest-1", token)).GetType().GetProperty("Preview"));
         Assert.False((await Component.GetGuestStateAsync("guest-1", token)).ControlAllowed);
         Mocks.Verify<IOssmDevice>(device => device.SetAsync(FastArg.Any<MotionSettings>(), FastArg.Any<CancellationToken>()), TimesSpec.NeverCalled);
         Mocks.Verify<IOssmDevice>(device => device.ResetAsync(FastArg.Any<CancellationToken>()), TimesSpec.NeverCalled);
@@ -273,33 +269,20 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>, IAsync
         Mocks.Verify<IOssmDevice>(device => device.EmergencyStopAsync(FastArg.Any<CancellationToken>()), TimesSpec.NeverCalled);
     }
 
-    [Theory]
-    [InlineData(1, 0)]
-    [InlineData(500, 500)]
-    [InlineData(40, 80)]
-    [InlineData(40.5, 24.25)]
-    public async Task PreviewDimensionBoundariesPreserveTheirValues(double rail, double attachment)
+    [Fact]
+    public void RemovedPreviewTypeAndResponseCodesAreNotPublicContracts()
     {
-        var dimensions = new PreviewDimensions(rail, attachment);
-        Assert.True(Component.SetPreviewDimensions("preview", dimensions).Accepted);
-        Assert.Equal(dimensions, (await Component.GetUserStateAsync(TestContext.Current.CancellationToken)).Preview);
+        Assert.Null(typeof(UserSessionState).Assembly.GetType("OssmSharp.Web.Contracts.PreviewDimensions"));
+        Assert.Null(typeof(ControlResponseCodes).GetField("PreviewUpdated"));
+        Assert.Null(typeof(ControlResponseCodes).GetField("InvalidPreviewDimensions"));
     }
 
-    [Theory]
-    [InlineData(0, 24)]
-    [InlineData(501, 24)]
-    [InlineData(40, -1)]
-    [InlineData(40, 501)]
-    [InlineData(double.NaN, 24)]
-    [InlineData(40, double.PositiveInfinity)]
-    public async Task InvalidPreviewDimensionsDoNotReplaceSharedValues(double rail, double attachment)
+    [Fact]
+    public void PreviewDimensionsCannotBeSetThroughControlSessionOrAdminClient()
     {
-        var original = (await Component.GetUserStateAsync(TestContext.Current.CancellationToken)).Preview;
-        var response = Component.SetPreviewDimensions("preview", new(rail, attachment));
-        Assert.Equal(new ControlResponse("preview", ControlResponseCodes.InvalidPreviewDimensions, false), response);
-        Assert.Equal(original, (await Component.GetUserStateAsync(TestContext.Current.CancellationToken)).Preview);
-        Assert.Equal(ControlResponseCodes.InvalidPreviewDimensions, Component.SetPreviewDimensions("missing", null).Code);
-        Assert.Equal(ControlResponseCodes.InvalidCorrelation, Component.SetPreviewDimensions(string.Empty, new()).Code);
+        Assert.Null(typeof(ControlSession).GetMethod("SetPreviewDimensions"));
+        Assert.Null(typeof(OssmSharp.Web.Client.Clients.IAdminApiClient).GetMethod("SetPreviewDimensionsAsync"));
+        Assert.Null(typeof(OssmSharp.Web.Client.Clients.AdminApiClient).GetMethod("SetPreviewDimensionsAsync"));
     }
 
     [Fact]
@@ -707,13 +690,48 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>, IAsync
             ("lease_required", "device-control-lost"),
         })
         {
+            var failure = new DeviceWriteException(2, new IOException("Request failed.", new DeviceRequestException(code, "strokeEngine.pattern")));
             Device.Setup(device => device.SetAsync(It.IsAny<MotionSettings>(), It.IsAny<CancellationToken>()))
-                .ThrowsAsync(new DeviceWriteException(2, new IOException("Request failed.", new DeviceRequestException(code, "strokeEngine.pattern"))));
+                .ThrowsAsync(failure);
             var result = await Component.SubmitAsync("guest-1", new("set", 0, 57, 37, 100, 50), TestContext.Current.CancellationToken);
             Assert.Equal(SettingsResponseStatus.Failed, result.Status);
             Assert.Equal(2, result.CommandsWritten);
             Assert.Equal(expected, result.ErrorCode);
+            var entry = Assert.Single(
+                Mocks.GetOrCreateMock<ILogger<ControlSession>>().AsMoq().Invocations,
+                invocation => invocation.Method.Name == nameof(ILogger.Log) && ReferenceEquals(invocation.Arguments[3], failure));
+            Assert.Equal(LogLevel.Error, entry.Arguments[0]);
+            var fields = Assert.IsAssignableFrom<IEnumerable<KeyValuePair<string, object?>>>(entry.Arguments[2]).ToDictionary();
+            Assert.Equal(code, fields["FirmwareCode"]);
+            Assert.Equal("strokeEngine.pattern", fields["FirmwareState"]);
+            Assert.Equal(expected, fields["Code"]);
+            Assert.Equal(2, fields["CommandsWritten"]);
         }
+    }
+
+    [Fact]
+    public async Task ReadinessFailureLogsOriginalExceptionAndSessionState()
+    {
+        await JoinAndAllowAsync("guest-1");
+        Device.SetupGet(device => device.IsArmed).Returns(false);
+        var failure = new InvalidOperationException("Commands are disarmed; explicitly reset before submitting settings.");
+        Device.Setup(device => device.SetAsync(It.IsAny<MotionSettings>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(failure);
+
+        var result = await Component.SubmitAsync("guest-1", new("set", 0, 57, 37, 100, 50), TestContext.Current.CancellationToken);
+
+        Assert.Equal("device-not-ready", result.ErrorCode);
+        var entry = Assert.Single(
+            Mocks.GetOrCreateMock<ILogger<ControlSession>>().AsMoq().Invocations,
+            invocation => invocation.Method.Name == nameof(ILogger.Log) && ReferenceEquals(invocation.Arguments[3], failure));
+        Assert.Equal(LogLevel.Warning, entry.Arguments[0]);
+        var fields = Assert.IsAssignableFrom<IEnumerable<KeyValuePair<string, object?>>>(entry.Arguments[2]).ToDictionary();
+        Assert.Equal("Submit", fields["Operation"]);
+        Assert.Equal("device-not-ready", fields["Code"]);
+        Assert.Equal(true, fields["DeviceConnected"]);
+        Assert.Equal(false, fields["DeviceArmed"]);
+        Assert.Equal(false, fields["StopRequired"]);
+        Assert.Equal(false, fields["ResettingPosition"]);
     }
 
     [Fact]
@@ -1269,7 +1287,8 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>, IAsync
             await Component.ExpireGuestAsync();
             Assert.True(stopToken.IsCancellationRequested);
             Assert.False(pendingStop.Task.IsCompleted);
-            Assert.Equal(new ControlResponse("leave-1", "cancelled", false),
+            Assert.Equal(
+                new ControlResponse("leave-1", "cancelled", false),
                 await leave.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
             Device.Setup(device => device.ConnectAsync(It.IsAny<CancellationToken>()))
                 .Callback(() => Device.SetupGet(device => device.IsConnected).Returns(true))
@@ -1328,7 +1347,8 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>, IAsync
             Device.SetupGet(device => device.IsConnected).Returns(true);
             Device.Raise(device => device.StateChanged += null, EventArgs.Empty);
 
-            Assert.Equal(new SettingsResponse("set-1", SettingsResponseStatus.Cancelled, 0),
+            Assert.Equal(
+                new SettingsResponse("set-1", SettingsResponseStatus.Cancelled, 0),
                 await request.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
             Assert.True(workToken.IsCancellationRequested);
             Assert.False(rearming ? pendingReset.Task.IsCompleted : pendingSet.Task.IsCompleted);
@@ -1342,7 +1362,8 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>, IAsync
             Device.Setup(device => device.SetAsync(It.IsAny<MotionSettings>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(new SetResult(SetStatus.Completed, 5));
             await JoinAndAllowAsync("guest-2");
-            Assert.Equal(SettingsResponseStatus.Completed,
+            Assert.Equal(
+                SettingsResponseStatus.Completed,
                 (await Component.SubmitAsync("guest-2", new("set-2", 0, 60, 70, 80, 90), TestContext.Current.CancellationToken)).Status);
 
             pendingReset.TrySetResult();
@@ -1350,9 +1371,11 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>, IAsync
             var replacement = await Component.GetGuestStateAsync("guest-2", TestContext.Current.CancellationToken);
             Assert.True(replacement.Joined);
             Assert.True(replacement.ControlAllowed);
-            Assert.Equal(new DeviceSettingsSnapshot(0, 60, 70, 80, 90),
+            Assert.Equal(
+                new DeviceSettingsSnapshot(0, 60, 70, 80, 90),
                 (await Component.GetUserStateAsync(TestContext.Current.CancellationToken)).Device!.TransmittedSettings);
-            Mocks.Verify<IOssmDevice>(device => device.SetAsync(FastArg.Any<MotionSettings>(), FastArg.Any<CancellationToken>()),
+            Mocks.Verify<IOssmDevice>(
+                device => device.SetAsync(FastArg.Any<MotionSettings>(), FastArg.Any<CancellationToken>()),
                 TimesSpec.Exactly(rearming ? 1 : 2));
         }
         finally
@@ -1378,7 +1401,8 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>, IAsync
             await JoinAndAllowAsync("guest-2");
 
             // End guest cancels through thread-pool callbacks; observe that before releasing the late device result.
-            Assert.Equal(new SettingsResponse("set-1", SettingsResponseStatus.Cancelled, 0),
+            Assert.Equal(
+                new SettingsResponse("set-1", SettingsResponseStatus.Cancelled, 0),
                 await request.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
             pendingSet.SetResult(new(SetStatus.Completed, 2));
             var replacement = await Component.GetGuestStateAsync("guest-2", TestContext.Current.CancellationToken);
@@ -1411,7 +1435,8 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>, IAsync
 
             Assert.True(workToken.IsCancellationRequested);
             Assert.False(pendingSet.Task.IsCompleted);
-            Assert.Equal(new SettingsResponse("set-1", SettingsResponseStatus.Cancelled, 0),
+            Assert.Equal(
+                new SettingsResponse("set-1", SettingsResponseStatus.Cancelled, 0),
                 await request.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
             pendingSet.SetException(new DeviceWriteException(2, new IOException("Late write failure.")));
             Assert.True((await Component.GetGuestStateAsync("guest-1", TestContext.Current.CancellationToken)).ControlAllowed);
@@ -1462,9 +1487,11 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>, IAsync
 
             Assert.True(stopToken.IsCancellationRequested);
             Assert.False(pendingStop.Task.IsCompleted);
-            Assert.Equal(new ControlResponse("stop-1", "cancelled", false),
+            Assert.Equal(
+                new ControlResponse("stop-1", "cancelled", false),
                 await stop.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
-            Assert.Equal(new ControlResponse("leave-1", "cancelled", false),
+            Assert.Equal(
+                new ControlResponse("leave-1", "cancelled", false),
                 await leave.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
             Assert.False((await Component.GetUserStateAsync(TestContext.Current.CancellationToken)).GuestJoined);
             await JoinAndAllowAsync("guest-2");

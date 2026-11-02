@@ -13,7 +13,7 @@
   </div>
   <div class="setting-values">
     <span>Sent <strong data-sent="@Name">@(SentValue?.ToString() ?? "--")</strong></span>
-    <span>Current <strong data-current="@Name">@(CurrentValue?.ToString() ?? "--")</strong></span>
+    <span>Current <strong data-current="@Name">@CurrentText</strong></span>
   </div>
 </div>
 
@@ -26,5 +26,8 @@
   [Parameter] public int SelectedValue { get; set; }
   [Parameter] public int? SentValue { get; set; }
   [Parameter] public double? CurrentValue { get; set; }
+  private string CurrentText => CurrentValue is { } current
+      ? (Name == "speed" ? Math.Round(current, MidpointRounding.AwayFromZero) : current).ToString(System.Globalization.CultureInfo.InvariantCulture)
+      : "--";
   private string State => SentValue is null || SelectedValue != SentValue ? "unsent" : "sent";
 }

@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using System.Diagnostics.CodeAnalysis;
 using System.Reactive.Disposables;
 using System.Reactive.Linq;
 using System.Reactive.Threading.Tasks;
@@ -7,7 +6,6 @@ using System.Runtime.CompilerServices;
 using System.Runtime.ExceptionServices;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using System.Text.Json.Serialization.Metadata;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using OssmSharp.Runtime.Oem.Protocol;
@@ -89,7 +87,7 @@ public sealed class OssmDevice : IOssmDevice
     /// <summary>
     /// Correlates outstanding request identifiers with their terminal-response completions.
     /// </summary>
-    private readonly Dictionary<uint, TaskCompletionSource<RadResponse>> requests = [];
+    private readonly Dictionary<uint, (string Operation, string? Path, TaskCompletionSource<RadResponse> Completion)> requests = [];
 
     /// <summary>
     /// Shared Stop result joined by concurrent Stop callers, disconnect, and disposal while still in progress.
@@ -109,7 +107,6 @@ public sealed class OssmDevice : IOssmDevice
     /// <summary>
     /// Cancels the one-shot retract and excludes competing settings and rearming until Stop settles.
     /// </summary>
-    [SuppressMessage("Usage", "CA2213", Justification = "ResetPositionAsync owns and disposes this source after joining Stop, including when device disposal interrupts it.")]
     private CancellationTokenSource? resetPosition;
 
     /// <summary>
@@ -869,6 +866,13 @@ public sealed class OssmDevice : IOssmDevice
     }
 
     /// <summary>
+    /// Requires a positive firmware lease lifetime for renewal scheduling.
+    /// </summary>
+    private static TimeSpan ReadLeaseLifetime(LeaseResult result) => result.TtlMs != 0
+        ? TimeSpan.FromMilliseconds(result.TtlMs)
+        : throw new InvalidDataException("The device did not report a positive control lease lifetime.");
+
+    /// <summary>
     /// Records failure of the current connection, disarms, and discards settings not yet sent, without sending anything.
     /// </summary>
     /// <param name="current">The connection whose failure is being recorded.</param>
@@ -916,7 +920,6 @@ public sealed class OssmDevice : IOssmDevice
     /// subscription-readiness, lease-acquisition, stream-start, and initial-observation waits where used.
     /// Bluetooth access and issued GATT reads and writes are awaited without that token; cleanup is owned by ConnectAsync.
     /// </remarks>
-    [SuppressMessage("Usage", "CA1849", Justification = "Shiny's Async wrappers add a timeout that abandons issued GATT I/O; the raw observables are awaited to settlement.")]
     private async Task ConnectCoreAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -981,7 +984,7 @@ public sealed class OssmDevice : IOssmDevice
         await selected.ConnectAsync(new ConnectionConfig(AutoConnect: false), cancellationToken).ConfigureAwait(false);
         logger.ConnectionSetupStage("reading protocol information");
         var protocolInfo = await selected.ReadCharacteristic(BleProtocolConstants.Service, BleProtocolConstants.ProtocolInfo).ToTask().ConfigureAwait(false);
-        ValidateProtocolInfo(protocolInfo.Data);
+        RadJsonContext.ValidateProtocolInfo(protocolInfo.Data);
         logger.ConnectionSetupStage("subscribing to responses");
         await SubscribeAsync(current, selected, owned, BleProtocolConstants.Response, "response", true, HandleResponse, cancellationToken).ConfigureAwait(false);
         logger.ConnectionSetupStage("subscribing to motion observations");
@@ -1025,7 +1028,7 @@ public sealed class OssmDevice : IOssmDevice
 
         if (setup.StateAfter is "strokeEngine.preflight" or "strokeEngine.homing")
         {
-            logger.PatternNotReady(setup.StateAfter);
+            logger.PatternNotReady(setup.StateAfter, "speed-knob-limit", setup.StateAfter, null);
             return false;
         }
 
@@ -1033,7 +1036,7 @@ public sealed class OssmDevice : IOssmDevice
         var ready = response.StateAfter is "strokeEngine.idle" or "strokeEngine.pattern";
         if (!ready)
         {
-            logger.PatternNotReady(response.StateAfter);
+            logger.PatternNotReady(response.StateAfter, "select-pattern-mode", setup.StateAfter, response.StateAfter);
         }
 
         return ready;
@@ -1211,70 +1214,6 @@ public sealed class OssmDevice : IOssmDevice
     }
 
     /// <summary>
-    /// Rejects incompatible protocol information before subscribing or acquiring device control.
-    /// </summary>
-    private static void ValidateProtocolInfo(byte[]? data)
-    {
-        try
-        {
-            if (JsonSerializer.Deserialize(data ?? [], RadJsonContext.Default.ProtocolInfo) is { Protocol: "rad-ble", Version: 1 })
-            {
-                return;
-            }
-        }
-        catch (JsonException)
-        {
-        }
-
-        throw new InvalidDataException("The device does not report RAD BLE protocol version 1.");
-    }
-
-    /// <summary>
-    /// Decodes a required response object and translates absent or malformed results into the operation's protocol error.
-    /// </summary>
-    private static T ReadResult<T>(JsonElement result, JsonTypeInfo<T> type, string error)
-        where T : class
-    {
-        try
-        {
-            if (result.ValueKind == JsonValueKind.Object && result.Deserialize(type) is { } value)
-            {
-                return value;
-            }
-        }
-        catch (JsonException)
-        {
-        }
-
-        throw new InvalidDataException(error);
-    }
-
-    /// <summary>
-    /// Requires a positive firmware lease lifetime for renewal scheduling.
-    /// </summary>
-    private static TimeSpan ReadLeaseLifetime(LeaseResult result) => result.TtlMs != 0
-        ? TimeSpan.FromMilliseconds(result.TtlMs)
-        : throw new InvalidDataException("The device did not report a positive control lease lifetime.");
-
-    /// <summary>
-    /// Validates response size, version, and stage before correlation with an outstanding request.
-    /// </summary>
-    private static RadResponse ParseResponse(byte[]? data)
-    {
-        if (data is null || data.Length > MaximumMessageBytes)
-        {
-            throw new InvalidDataException("A RAD response must contain at most 509 bytes.");
-        }
-
-        if (JsonSerializer.Deserialize(data, RadJsonContext.Default.RadResponse) is not { V: 1, Stage: "accepted" or "completed" or "failed" } response)
-        {
-            throw new InvalidDataException("A RAD response requires v=1, an id, a known stage, and ok.");
-        }
-
-        return response;
-    }
-
-    /// <summary>
     /// Admits non-Stop work through the operation gate and rechecks connection availability after waiting.
     /// </summary>
     /// <remarks>
@@ -1420,7 +1359,7 @@ public sealed class OssmDevice : IOssmDevice
         catch (IOException exception) when (current.CommandsWritten == 0
             && exception.GetBaseException() is DeviceRequestException { Code: "guard_rejected" } rejection)
         {
-            logger.PatternNotReady(rejection.DeviceState);
+            logger.PatternNotReady(rejection.DeviceState, "firmware-guard", null, null);
             throw new InvalidOperationException("The device is not ready to run patterns. Wait for homing and preflight to finish, then request the settings again.", exception);
         }
         catch (Exception exception)
@@ -1869,7 +1808,7 @@ public sealed class OssmDevice : IOssmDevice
 
             token = leased ? lease : null;
             selected = peripheral!;
-            requests.Add(id, response);
+            requests.Add(id, (operation, path, response));
             if (priority is not null)
             {
                 stopTransfer = priority;
@@ -1925,7 +1864,7 @@ public sealed class OssmDevice : IOssmDevice
             priority?.TrySetResult();
             lock (sync)
             {
-                if (requests.TryGetValue(id, out var pending) && pending == response)
+                if (requests.TryGetValue(id, out var pending) && pending.Completion == response)
                 {
                     requests.Remove(id);
                 }
@@ -1940,7 +1879,6 @@ public sealed class OssmDevice : IOssmDevice
     /// Cancellation applies before issuance only. Passing it to ToTask would abandon ownership of an in-flight write.
     /// Terminal-response waiting occurs after this gate is released, allowing Stop to proceed independently.
     /// </remarks>
-    [SuppressMessage("Usage", "CA1849", Justification = "Shiny's Async wrapper adds a timeout that abandons issued GATT I/O; the raw observable is awaited to settlement.")]
     private async Task WriteRequestAsync(
         CancellationTokenSource current,
         IPeripheral selected,
@@ -1997,7 +1935,7 @@ public sealed class OssmDevice : IOssmDevice
         RadResponse response;
         try
         {
-            response = ParseResponse(data);
+            response = RadJsonContext.ParseResponse(data, MaximumMessageBytes);
         }
         catch (Exception exception) when (exception is JsonException or InvalidDataException)
         {
@@ -2006,7 +1944,7 @@ public sealed class OssmDevice : IOssmDevice
             return;
         }
 
-        TaskCompletionSource<RadResponse>? pending;
+        (string Operation, string? Path, TaskCompletionSource<RadResponse> Completion) pending;
         lock (sync)
         {
             if (!IsCurrent(current) || !requests.TryGetValue(response.Id, out pending))
@@ -2019,13 +1957,13 @@ public sealed class OssmDevice : IOssmDevice
         // Accepted requests remain pending until a terminal stage.
         if (response.Stage == "completed" && response.Ok)
         {
-            pending.TrySetResult(response);
+            pending.Completion.TrySetResult(response);
         }
         else if (response.Stage != "accepted")
         {
             var rejection = new DeviceRequestException(response.Code ?? "unknown", response.StateAfter, response.Message);
-            logger.RequestRejected(response.Id, rejection.Code, rejection.DeviceState);
-            pending.TrySetException(new IOException(rejection.Message, rejection));
+            logger.RequestRejected(response.Id, pending.Operation, pending.Path, rejection.Code, rejection.DeviceState);
+            pending.Completion.TrySetException(new IOException(rejection.Message, rejection));
         }
     }
 
@@ -2053,7 +1991,7 @@ public sealed class OssmDevice : IOssmDevice
                 leased: false,
                 stopping,
                 onFirstIssuance: () => requested = timeProvider.GetUtcNow()).ConfigureAwait(false);
-            var granted = ReadResult(response.Result, RadJsonContext.Default.LeaseResult, noLease);
+            var granted = RadJsonContext.ReadResult(response.Result, RadJsonContext.Default.LeaseResult, noLease);
             var token = granted.Lease != 0 ? granted.Lease : throw new InvalidDataException(noLease);
             lifetime = ReadLeaseLifetime(granted);
             lock (sync)
@@ -2106,7 +2044,7 @@ public sealed class OssmDevice : IOssmDevice
                 var remaining = expires - timeProvider.GetUtcNow();
                 // Issued renewal is bounded by lease expiry, not by disconnect.
                 var renewed = (await renewal.WaitAsync(remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero, timeProvider, CancellationToken.None).ConfigureAwait(false)).Result;
-                lifetime = ReadLeaseLifetime(ReadResult(renewed, RadJsonContext.Default.LeaseResult, "The device did not report a positive control lease lifetime."));
+                lifetime = ReadLeaseLifetime(RadJsonContext.ReadResult(renewed, RadJsonContext.Default.LeaseResult, "The device did not report a positive control lease lifetime."));
                 logger.LeaseRenewed((timeProvider.GetUtcNow() - queued).TotalMilliseconds, lifetime.TotalMilliseconds);
             }
             catch (OperationCanceledException) when (stopping.IsCancellationRequested)
@@ -2148,7 +2086,7 @@ public sealed class OssmDevice : IOssmDevice
     private async Task StartMotionStreamAsync(CancellationTokenSource current, CancellationToken cancellationToken)
     {
         const string notStarted = "The device did not start a motion stream.";
-        var started = ReadResult((await SendRequestAsync(current, "stream.start", "motion.speed", null, leased: true, cancellationToken).ConfigureAwait(false)).Result, RadJsonContext.Default.StreamResult, notStarted);
+        var started = RadJsonContext.ReadResult((await SendRequestAsync(current, "stream.start", "motion.speed", null, leased: true, cancellationToken).ConfigureAwait(false)).Result, RadJsonContext.Default.StreamResult, notStarted);
         if (started is not { StreamId: > 0 and <= byte.MaxValue, Surface: "motion" })
         {
             throw new InvalidDataException(notStarted);
@@ -2302,7 +2240,7 @@ public sealed class OssmDevice : IOssmDevice
             }
 
             active = false;
-            pending = [.. requests.Values];
+            pending = [.. requests.Values.Select(request => request.Completion)];
             requests.Clear();
             read = liveRead;
             liveRead = null;

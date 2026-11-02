@@ -10,7 +10,7 @@ before(async () => { browser = await launchBrowser(); }, { timeout: 20_000 });
 after(async () => { await browser?.close(); }, { timeout: 20_000 });
 const options = { timeout: 60_000 };
 
-test("public guest manual and auto send wire controls to RPC and leave scrubs capability", options, async (t) => {
+test("public guest manual and auto send wire controls to RPC without a Leave button", options, async (t) => {
   const fixture = await createBrowserFixture(t, browser);
   const invitation = "public-wiring-invite";
   const view = await fixture.openGuest(invitation, { publicHost: true });
@@ -31,27 +31,28 @@ test("public guest manual and auto send wire controls to RPC and leave scrubs ca
   assert.deepEqual(pickSettings(session.requests[0]), { pattern: 5, speed: 13, stroke: 10, depth: 20, sensation: 75 });
   await page.getByLabel("Auto send", { exact: true }).check();
   await button(page, "Deeper").click();
+  assert.equal(await page.getByLabel("Auto send", { exact: true }).isChecked(), false);
+  await until(() => preview(page).getAttribute("aria-label"), (label) => label.startsWith("Deeper preview"), "selected preview");
+  assert.equal(session.requests.length, 1, "Changing pattern turns off automatic sending");
+  await button(page, "Send").click();
   await sent(page, "Speed", 13);
-  await until(() => page.getByTestId("preview-pattern").innerText(), "Deeper", "Auto preview");
-  await waitFor(() => session.requests.length === 2, "Auto Submit");
+  await waitFor(() => session.requests.length === 2, "manual pattern Submit");
   assert.deepEqual(pickSettings(session.requests[1]), { pattern: 4, speed: 13, stroke: 10, depth: 20, sensation: 75 });
   await page.getByLabel("Auto send", { exact: true }).uncheck();
   await until(() => page.getByRole("status").filter({ hasText: "Settings sent." }).count(), 1, "send status");
   session.state.device = { ...session.state.device, speed: 33.333333333333336, stroke: 30 };
-  await currentSpeed(page, "33.333333333333336");
+  await currentSpeed(page, "33");
   await setRange(page, "Depth", 80);
   await until(() => preview(page).getAttribute("aria-label"), (label) => label.includes("80% depth"), "real UpdateDisplay preview");
   assert.equal(session.requests.length, 2, "Preview edits must not Submit");
-  await currentSpeed(page, "33.333333333333336");
+  await currentSpeed(page, "33");
   session.state.device = { ...session.state.device, speed: 400, stroke: 10 };
   await currentSpeed(page, "400");
   session.state.device = { ...session.state.device, speed: null, stroke: 0 };
   await currentSpeed(page, "unavailable");
-  await button(page, "Leave session").click();
-  await page.getByRole("alert").filter({ hasText: "You left the session." }).waitFor();
-  assert.equal(session.calls.filter((name) => name === "Leave").length, 1);
+  assert.equal(await button(page, "Leave session").count(), 0);
   assert.equal(session.calls.filter((name) => name === "LeaveSavedSession").length, 0);
-  assert.equal((await view.context.cookies()).some((cookie) => cookie.name === "ossm-guest-session"), false);
+  assert.equal(session.calls.filter((name) => name === "Leave").length, 0);
   assert.equal(new URL(page.url()).hash, "");
   assertCapabilityAbsent(view, [invitation, session.saved.credential], fixture.fixture.adminKey);
   assert.deepEqual(view.errors, []);
@@ -78,6 +79,10 @@ test("admin invitation keyboard connect and safety actions reach their RPCs", op
   await complete(session, "Stop");
   await until(() => button(page, "End guest").isEnabled(), true, "safety completion");
   assert.equal(await button(page, "Connect device").isDisabled(), true);
+  page.once("dialog", async dialog => {
+    assert.equal(dialog.message(), "The current guest will be disconnected and will need a new invite. Are you sure?");
+    await dialog.accept();
+  });
   await button(page, "End guest").click();
   await complete(session, "EndGuest");
   assert.deepEqual(commands(session), ["Connect", "Stop", "EndGuest"]);
@@ -251,7 +256,7 @@ test("polling an ended guest retains ended rather than disconnected semantics", 
   await until(() => notice.innerText(), (text) => text.includes("Session ended."), "ended guest notice");
   await notice.waitFor({ state: "visible" });
   assert.doesNotMatch(await notice.innerText(), /Connection lost|Reconnecting/);
-  assert.equal(await notice.getByRole("button", { name: "Leave session", exact: true }).isHidden(), true);
+  assert.equal(await notice.getByRole("button", { name: "Leave session", exact: true }).count(), 0);
   assert.equal(await button(page, "Send").count(), 0);
   assert.equal(await page.evaluate(() => sessionStorage.getItem("ossm-guest-connection-lost")), null);
   assert.equal(session.calls.includes("Renew"), false);
@@ -335,9 +340,7 @@ test("guest API loss keeps stale controls locked through markup replacement and 
   const notice = page.getByTestId("guest-disconnected");
   await notice.waitFor({ state: "visible" });
   for (const name of ["Send", "Stop", "Reset Position"]) assert.equal(await button(page, name).isDisabled(), true);
-  assert.equal(await page.getByRole("complementary", { name: "Pattern", exact: true })
-    .getByRole("button", { name: "Leave session", exact: true }).isDisabled(), true);
-  assert.equal(await notice.getByRole("button", { name: "Leave session", exact: true }).isEnabled(), true);
+  assert.equal(await button(page, "Leave session").count(), 0);
   assert.equal(await page.getByLabel("Auto send", { exact: true }).isDisabled(), true);
   assert.equal(await page.getByLabel("Speed", { exact: true }).inputValue(), "0");
   assert.match(await notice.innerText(), /Connection lost|Waiting for Stop/);
@@ -382,7 +385,7 @@ function pickSettings(request) {
 }
 
 function commands(session) {
-  return session.calls.filter((name) => !["Redeem", "GetSavedSession", "Join", "GetGuestState", "GetUserState", "SetPreviewDimensions"].includes(name));
+  return session.calls.filter((name) => !["Redeem", "GetSavedSession", "Join", "GetGuestState", "GetUserState"].includes(name));
 }
 
 async function currentSpeed(page, value) {

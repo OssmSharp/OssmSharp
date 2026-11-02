@@ -16,11 +16,6 @@ public sealed record GuestSessionState(
     bool CanResumeAfterStop = false)
 {
     /// <summary>
-    /// Gets preview-only lengths for an admitted guest, or null when unavailable.
-    /// </summary>
-    public PreviewDimensions? Preview { get; init; }
-
-    /// <summary>
     /// Gets the saved session's absolute expiry for the attached guest, or null when unavailable.
     /// Reconnecting and activity do not extend it.
     /// </summary>

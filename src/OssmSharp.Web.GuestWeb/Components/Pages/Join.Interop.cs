@@ -32,30 +32,56 @@ public partial class Join
     public async Task<BrowserReply> SubmitSettings(BrowserSettings settings)
     {
         if (!Ready)
+        {
+            var device = _status?.Device;
+            Logger.SendNotReady(
+                _joined && _status?.Joined == true,
+                _status?.ControlAllowed == true,
+                device?.IsConnected == true,
+                device?.IsConnecting == true,
+                device?.ConnectionFailed == true,
+                device?.IsArmed == true,
+                device?.IsResettingPosition == true,
+                _status?.CanResumeAfterStop == true,
+                _leaving,
+                _connectionLost,
+                _disposed);
             return new(false, "not-ready");
+        }
         if (settings is not { Pattern: >= 0 and <= 6, Sensation: >= 0 and <= 100, Speed: >= 0 and <= 100, Stroke: >= 0 and <= 100, Depth: >= 0 and <= 100 }
             || settings.Stroke > settings.Depth)
         {
+            Logger.SendInvalid();
             return new(false, "invalid-input");
         }
 
+        Logger.SendStarted(settings.Pattern, settings.Speed, settings.Stroke, settings.Depth, settings.Sensation);
         try
         {
             var response = await Client.SubmitAsync(
                 new(Guid.NewGuid().ToString("N"), settings.Pattern, settings.Speed, settings.Stroke, settings.Depth, settings.Sensation),
                 _lifetime.Token);
+            Logger.SendFinished(
+                response.Status is SettingsResponseStatus.Failed or SettingsResponseStatus.Rejected ? LogLevel.Warning
+                    : response.Status is SettingsResponseStatus.Cancelled or SettingsResponseStatus.Superseded ? LogLevel.Debug : LogLevel.Information,
+                response.Status.ToString(),
+                response.ErrorCode,
+                response.CommandsWritten);
             return new(response.Status == SettingsResponseStatus.Completed, response.ErrorCode ?? response.Status.ToString());
         }
-        catch (RpcClientRequestTimeoutException)
+        catch (RpcClientRequestTimeoutException error)
         {
+            Logger.SendFailed("outcome-unknown", error);
             return new(false, "outcome-unknown");
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
         {
+            Logger.SendCancelled();
             return new(false, "outcome-unknown");
         }
         catch (ApiClientException error)
         {
+            Logger.SendFailed(error.Code, error);
             return new(false, error.Code);
         }
     }

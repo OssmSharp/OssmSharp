@@ -1,3 +1,4 @@
+using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using FastMoq;
 using Microsoft.Extensions.Logging;
@@ -37,6 +38,62 @@ public sealed class OssmDeviceLoggingTests : MockerTestBase<OssmDevice>, IAsyncD
                 base.Dispose();
             }
         }
+    }
+
+    [Fact]
+    public async Task PatternPreparationFailureLogsBothResponseStatesAtWarning()
+    {
+        var token = TestContext.Current.CancellationToken;
+        await context.ConnectAsync(Component, token);
+        context.State = "menu.idle";
+        context.Write = request =>
+        {
+            if (BleTestContext.Operation(request) == "target.set")
+            {
+                context.State = "strokeEngine.preflight";
+            }
+
+            return null;
+        };
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => Component.SetAsync(new(0, 50, 10, 20, 75), token));
+
+        var entry = Assert.Single(logger.Entries, entry => entry.Id.Id == 27);
+        Assert.Equal(LogLevel.Warning, entry.Level);
+        var fields = entry.StructuredState.ToDictionary();
+        Assert.Equal("select-pattern-mode", fields["PreparationStep"]);
+        Assert.Equal("menu.idle", fields["SetupState"]);
+        Assert.Equal("strokeEngine.preflight", fields["TargetState"]);
+        Assert.Empty(context.RequestsFor("setting.write", "motion."));
+        Assert.True(Component.IsArmed);
+    }
+
+    [Fact]
+    public async Task FirmwareRejectionLogsOperationPathAndStateWithoutSensitiveFields()
+    {
+        var token = TestContext.Current.CancellationToken;
+        await context.ConnectAsync(Component, token);
+        context.Write = request =>
+        {
+            if (request["path"]?.GetValue<string>() != "setting.speedKnobAsLimit")
+            {
+                return null;
+            }
+
+            context.Respond(request, "failed", ok: false, code: "guard_rejected");
+            return Observable.Return(BleTestContext.WriteResult([]));
+        };
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => Component.SetAsync(new(0, 50, 10, 20, 75), token));
+
+        var entry = Assert.Single(logger.Entries, entry => entry.Id.Id == 26);
+        Assert.Equal(LogLevel.Warning, entry.Level);
+        var fields = entry.StructuredState.ToDictionary();
+        Assert.Equal("setting.write", fields["Operation"]);
+        Assert.Equal("setting.speedKnobAsLimit", fields["Path"]);
+        Assert.Equal("guard_rejected", fields["Code"]);
+        Assert.Equal(context.State, fields["DeviceState"]);
+        Assert.DoesNotContain(logger.Entries, entry => entry.StructuredState.Any(field => field.Key is "Lease" or "Payload" or "Identifier"));
     }
 
     [Fact]

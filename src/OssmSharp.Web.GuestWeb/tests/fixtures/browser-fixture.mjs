@@ -90,11 +90,6 @@ export async function createBrowserFixture(t, browser) {
           if (session.failReads) reject();
           else if (session.holdReads) session.pending.set(call.target, reply);
           else reply(session.state);
-        } else if (call.target === "SetPreviewDimensions") {
-          assert.equal(session, admin, "Only the user can update preview dimensions");
-          admin.state = { ...admin.state, preview: call.arguments[1] };
-          for (const guest of guests.values()) guest.state = { ...guest.state, preview: call.arguments[1] };
-          reply({ accepted: true, code: "preview-updated" });
         } else if (call.target === "Submit") {
           const submitted = call.arguments[0];
           session.requests.push(submitted);
@@ -147,7 +142,6 @@ export async function createBrowserFixture(t, browser) {
     provision(invitation, state = guestState()) {
       assert.equal(guests.has(invitation), false);
       const session = apiSession(state);
-      if (admin.state.preview) session.state = { ...session.state, preview: admin.state.preview };
       guests.set(invitation, session);
       return session;
     },

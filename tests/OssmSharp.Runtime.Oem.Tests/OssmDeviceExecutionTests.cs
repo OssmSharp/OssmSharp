@@ -1194,7 +1194,8 @@ public sealed class OssmDeviceExecutionTests : OssmDeviceTestBase
         }
 
         Assert.Equal(new(SetStatus.Cancelled, 0), await set);
-        Assert.Equal(["setting.write", "setting.write", "stream.stop", "control.release"],
+        Assert.Equal(
+            ["setting.write", "setting.write", "stream.stop", "control.release"],
             context.Requests.SkipWhile(request => !BleTestContext.IsMotionWrite(request)).Select(BleTestContext.Operation));
         Assert.Equal([new(FirmwareSetting.Pattern, 1), new(FirmwareSetting.Speed, 0)], Writes());
         Assert.Equal(1, context.DisconnectCalls);
@@ -1250,15 +1251,17 @@ public sealed class OssmDeviceExecutionTests : OssmDeviceTestBase
     private void Publish(DeviceState observation) => context.Publish(Motion(observation));
 
     private List<FirmwareCommand> Writes() => context.RequestsFor("setting.write", "motion.")
-        .Select(request => new FirmwareCommand(request["path"]!.GetValue<string>() switch
-        {
-            "motion.pattern" => FirmwareSetting.Pattern,
-            "motion.speed" => FirmwareSetting.Speed,
-            "motion.stroke" => FirmwareSetting.Stroke,
-            "motion.depth" => FirmwareSetting.Depth,
-            "motion.sensation" => FirmwareSetting.Sensation,
-            _ => throw new InvalidOperationException("Unknown firmware control."),
-        }, request["args"]!["value"]!.GetValue<int>())).ToList();
+        .Select(request => new FirmwareCommand(
+            request["path"]!.GetValue<string>() switch
+            {
+                "motion.pattern" => FirmwareSetting.Pattern,
+                "motion.speed" => FirmwareSetting.Speed,
+                "motion.stroke" => FirmwareSetting.Stroke,
+                "motion.depth" => FirmwareSetting.Depth,
+                "motion.sensation" => FirmwareSetting.Sensation,
+                _ => throw new InvalidOperationException("Unknown firmware control."),
+            },
+            request["args"]!["value"]!.GetValue<int>())).ToList();
 
     private long ConnectionVersion() => (long)typeof(OssmDevice)
         .GetField("connection", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
