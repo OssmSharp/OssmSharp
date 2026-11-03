@@ -6,8 +6,6 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace OssmSharp.Web.Api.Tests;
 
-#pragma warning disable BL0006 // Test-only lifecycle dispatch; browser tests own real rendering.
-
 internal sealed class StateOnlyRenderer : Renderer
 {
     private readonly ComponentBase _component;

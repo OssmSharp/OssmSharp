@@ -71,8 +71,10 @@ public static class ServiceCollectionExtensions
     /// <returns>The service collection for further registration.</returns>
     public static IServiceCollection AddSignalR(this IServiceCollection services)
     {
+        services.AddSingleton<ControlHubLoggingFilter>();
         services.AddSignalR(options =>
         {
+            options.AddFilter<ControlHubLoggingFilter>();
             options.EnableDetailedErrors = false;
             options.DisableImplicitFromServicesParameters = true;
             options.MaximumReceiveMessageSize = 16_384;

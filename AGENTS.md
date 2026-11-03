@@ -36,6 +36,10 @@ Use only OssmSharp OEM runtime source and documentation. Exclude ossm-rs.
 - OssmDevice has exclusive control of a device while connected.
 - There are no physical controls on the device.
 
+## Guidlines
+
+- Do not modifiy the project READMEs or RELEASING or CONTRIBUTING documents without authorisation from the user.
+
 ## Speed Contract
 
 Use speed percentages in public APIs, consumers, sliders, current markers, and previews.

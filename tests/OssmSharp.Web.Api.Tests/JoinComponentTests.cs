@@ -1,10 +1,10 @@
 using System.Security.Claims;
-using Microsoft.AspNetCore.Components.Authorization;
 using FastMoq;
 using FastMoq.Extensions;
 using FastMoq.Providers;
 using FastMoq.Providers.MoqProvider;
-using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.AspNetCore.Components.Authorization;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
 using Microsoft.JSInterop;
 using Moq;
@@ -30,6 +30,8 @@ public sealed class JoinComponentTests : MockerTestBase<Join>, IAsyncDisposable
         _module = new();
         _time = new();
         mocks.AddType<TimeProvider>(_time);
+        mocks.GetOrCreateMock<ILogger<Join>>().AsMoq()
+            .Setup(logger => logger.IsEnabled(It.IsAny<LogLevel>())).Returns(true);
         mocks.GetOrCreateMock<AuthenticationStateProvider>().AsMoq()
             .Setup(provider => provider.GetAuthenticationStateAsync())
             .ReturnsAsync(new AuthenticationState(new ClaimsPrincipal(new ClaimsIdentity(
@@ -45,7 +47,7 @@ public sealed class JoinComponentTests : MockerTestBase<Join>, IAsyncDisposable
         ComponentTestAccess.Inject(component, "Client", Mocks.GetRequiredObject<IGuestApiClient>());
         ComponentTestAccess.Inject(component, "Time", _time);
         ComponentTestAccess.Inject(component, "JavaScript", Mocks.GetRequiredObject<IJSRuntime>());
-        ComponentTestAccess.Inject(component, "Logger", NullLogger<Join>.Instance);
+        ComponentTestAccess.Inject(component, "Logger", Mocks.GetRequiredObject<ILogger<Join>>());
         ComponentTestAccess.Inject(component, "Authentication", Mocks.GetRequiredObject<AuthenticationStateProvider>());
         _renderer = new(component);
     };
@@ -54,7 +56,7 @@ public sealed class JoinComponentTests : MockerTestBase<Join>, IAsyncDisposable
     {
         try
         {
-            await _renderer.DisposeAsync();
+            await ((IAsyncDisposable)_renderer).DisposeAsync();
             await _module.DisposeAsync();
         }
         finally { base.Dispose(); }
@@ -65,6 +67,16 @@ public sealed class JoinComponentTests : MockerTestBase<Join>, IAsyncDisposable
     {
         Assert.False(Read<bool>("Ready"));
         Assert.Equal(new BrowserReply(false, "not-ready"), await Component.SubmitSettings(new(0, 50, 10, 20, 75)));
+        var rejection = Assert.Single(
+            Mocks.GetOrCreateMock<ILogger<Join>>().AsMoq().Invocations,
+            invocation => invocation.Method.Name == nameof(ILogger.Log) && ((EventId)invocation.Arguments[1]).Id == 6);
+        Assert.Equal(LogLevel.Warning, rejection.Arguments[0]);
+        var fields = Assert.IsAssignableFrom<IEnumerable<KeyValuePair<string, object?>>>(rejection.Arguments[2]).ToDictionary();
+        Assert.Equal(false, fields["Joined"]);
+        Assert.Equal(false, fields["ControlAllowed"]);
+        Assert.Equal(false, fields["DeviceConnected"]);
+        Assert.Equal(false, fields["DeviceArmed"]);
+        Assert.Equal(false, fields["Disposed"]);
         var usable = Device();
         foreach (var (device, allowed, resume, expected) in new (DeviceStateSnapshot?, bool, bool, bool)[]
         {
@@ -95,6 +107,40 @@ public sealed class JoinComponentTests : MockerTestBase<Join>, IAsyncDisposable
         Assert.False(Read<bool>("Ready"));
         SetState(new(false, true, null, usable));
         Assert.False(Read<bool>("Ready"));
+    }
+
+    [Fact]
+    public async Task SendFailureLogsPartialResultAndOriginalTimeout()
+    {
+        SetState(new(true, true, null, Device()));
+        var settings = new BrowserSettings(0, 50, 10, 20, 75);
+        _client.Setup(client => client.SubmitAsync(It.IsAny<SettingsRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SettingsResponse("set", SettingsResponseStatus.Failed, 2, "device-not-ready"));
+
+        Assert.Equal(new BrowserReply(false, "device-not-ready"), await Component.SubmitSettings(settings));
+
+        var result = Assert.Single(
+            Mocks.GetOrCreateMock<ILogger<Join>>().AsMoq().Invocations,
+            invocation => invocation.Method.Name == nameof(ILogger.Log) && ((EventId)invocation.Arguments[1]).Id == 9);
+        Assert.Equal(LogLevel.Warning, result.Arguments[0]);
+        var fields = Assert.IsAssignableFrom<IEnumerable<KeyValuePair<string, object?>>>(result.Arguments[2]).ToDictionary();
+        Assert.Equal("Failed", fields["Status"]);
+        Assert.Equal("device-not-ready", fields["Code"]);
+        Assert.Equal(2, fields["CommandsWritten"]);
+
+        var failure = new RpcClientRequestTimeoutException(new TimeoutException("Test response timed out."));
+        _client.Setup(client => client.SubmitAsync(It.IsAny<SettingsRequest>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(failure);
+
+        Assert.Equal(new BrowserReply(false, "outcome-unknown"), await Component.SubmitSettings(settings));
+
+        var timeout = Assert.Single(
+            Mocks.GetOrCreateMock<ILogger<Join>>().AsMoq().Invocations,
+            invocation => invocation.Method.Name == nameof(ILogger.Log) && ReferenceEquals(invocation.Arguments[3], failure));
+        Assert.Equal(LogLevel.Warning, timeout.Arguments[0]);
+        var timeoutFields = Assert.IsAssignableFrom<IEnumerable<KeyValuePair<string, object?>>>(timeout.Arguments[2]).ToDictionary();
+        Assert.Equal("outcome-unknown", timeoutFields["Code"]);
+        Assert.DoesNotContain("saved-credential", string.Join(' ', fields.Values.Concat(timeoutFields.Values)));
     }
 
     [Fact]
@@ -362,14 +408,16 @@ public sealed class JoinComponentTests : MockerTestBase<Join>, IAsyncDisposable
     }
 
     [Fact]
-    public void GuestPreviewUsesSharedDimensionsWithoutChangingSelectionOrCallingTheDevice()
+    public void GuestPreviewHidesHeadingAndUsesSelectedPatternWithoutDimensionsOrLeaveUi()
     {
-        var dimensions = new PreviewDimensions(48.5, 27.25);
-        SetState(new(true, true, null, Device()) { Preview = dimensions });
+        SetState(new(true, true, null, Device()));
+        ComponentTestAccess.Set(Component, "_display", new GuestDisplayState(new(4, 57, 10, 20, 75), null, string.Empty, null));
         var preview = Assert.Single(ComponentTestAccess.Parameters(Component, "PatternPreview"));
-        Assert.Equal(48.5, (double)preview["RailLength"]!);
-        Assert.Equal(27.25, (double)preview["AttachmentLength"]!);
-        Assert.Equal(0.0, (double)preview["Speed"]!);
+        Assert.False((bool)preview["ShowHeading"]!);
+        Assert.Equal((4, 57.0, 10, 20, 75), ((int?)preview["Pattern"], (double?)preview["Speed"], (int?)preview["Stroke"], (int?)preview["Depth"], (int?)preview["Sensation"]));
+        Assert.False(preview.ContainsKey("RailLength"));
+        Assert.False(preview.ContainsKey("AttachmentLength"));
+        Assert.DoesNotContain("Leave session", ComponentTestAccess.Buttons(Component).Keys);
         AssertNoMotion();
     }
 
@@ -402,7 +450,7 @@ public sealed class JoinComponentTests : MockerTestBase<Join>, IAsyncDisposable
         {
             await _renderer.RunAsync(() => ComponentTestAccess.InvokeTask(Component, "BrowserCallAsync", "updateState", Array.Empty<object?>()));
             Assert.True(Read<bool>("_connectionLost"));
-            _client.Verify<ValueTask>(client => client.DisposeAsync(), Times.Once);
+            Mocks.Verify<IGuestApiClient>(client => client.DisposeAsync(), TimesSpec.Once);
             Assert.True(Read<CancellationTokenSource>("_lifetime").IsCancellationRequested);
             Assert.False(Read<bool>("_joined"));
             Assert.False(Read<bool>("Ready"));

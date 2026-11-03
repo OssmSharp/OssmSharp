@@ -16,11 +16,6 @@ public sealed record UserSessionState(
     DeviceStateSnapshot? Device)
 {
     /// <summary>
-    /// Gets the shared preview-only lengths, or null when unavailable from an older service.
-    /// </summary>
-    public PreviewDimensions? Preview { get; init; }
-
-    /// <summary>
     /// Gets whether the admitted guest currently has an attached controller.
     /// Admission and permission can persist while the browser is offline.
     /// </summary>

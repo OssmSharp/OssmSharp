@@ -51,10 +51,15 @@
           Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'macos'" />
     </ItemGroup>
   </Target>
-  <Target Name="SelectApplicationPublishFiles" AfterTargets="ComputeFilesToPublish">
+  <!-- macOS computes bundle locations before ComputeFilesToPublish while preparing linker arguments. -->
+  <Target Name="SelectApplicationPublishFiles" AfterTargets="ComputeResolvedFilesToPublishList">
     <ItemGroup>
       <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
           Condition="('%(ResolvedFileToPublish.Filename)%(ResolvedFileToPublish.Extension)' == 'appsettings.json' And '%(ResolvedFileToPublish.FullPath)' != '$(_HostSettingsPath)') Or $([System.String]::Copy('%(ResolvedFileToPublish.RelativePath)').EndsWith('.staticwebassets.endpoints.json'))" />
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+          Condition="('%(ResolvedFileToPublish.Filename)' == 'apphost' Or '%(ResolvedFileToPublish.Filename)' == 'apphost_publish') And '%(ResolvedFileToPublish.FullPath)' != '$(AppHostIntermediatePath)' And '%(ResolvedFileToPublish.FullPath)' != '$(AppHostForPublishIntermediatePath)'" />
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+          Condition="$([System.String]::Copy('%(ResolvedFileToPublish.Filename)%(ResolvedFileToPublish.Extension)').EndsWith('.runtimeconfig.json')) And '%(ResolvedFileToPublish.FullPath)' != '$(ProjectRuntimeConfigFilePath)'" />
       <ResolvedFileToPublish Include="@(_PackagedApplicationAssets)" CopyToPublishDirectory="PreserveNewest" />
     </ItemGroup>
   </Target>

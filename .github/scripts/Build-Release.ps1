@@ -35,6 +35,11 @@ New-Item -ItemType Directory -Path $downloads, (Join-Path $output 'results') | O
 Push-Location $root
 try {
     Write-Information "Building $runtime at $($metadata.InformationalVersion)."
+    foreach ($executableExtension in @('', '.exe')) {
+        Invoke-CheckedCommand dotnet @('msbuild', 'tests/WebPublish.Tests.proj',
+            '-p:TargetFramework=net10.0', "-p:TestExecutableExtension=$executableExtension",
+            '-verbosity:minimal') | Out-Host
+    }
     Invoke-CheckedCommand dotnet @('build', 'OssmSharp.slnx', '-c', 'Release',
         '-p:ContinuousIntegrationBuild=true', '--verbosity', 'quiet',
         "-bl:$output/build-{}.binlog") | Out-Host

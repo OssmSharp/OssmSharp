@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 
 namespace OssmSharp.Runtime.Oem.Protocol;
 
@@ -11,7 +12,65 @@ namespace OssmSharp.Runtime.Oem.Protocol;
 [JsonSerializable(typeof(RadResponse))]
 [JsonSerializable(typeof(LeaseResult))]
 [JsonSerializable(typeof(StreamResult))]
-internal sealed partial class RadJsonContext : JsonSerializerContext;
+internal sealed partial class RadJsonContext : JsonSerializerContext
+{
+    /// <summary>
+    /// Rejects incompatible protocol information before subscribing or acquiring device control.
+    /// </summary>
+    internal static void ValidateProtocolInfo(byte[]? data)
+    {
+        try
+        {
+            if (JsonSerializer.Deserialize(data ?? [], Default.ProtocolInfo) is { Protocol: "rad-ble", Version: 1 })
+            {
+                return;
+            }
+        }
+        catch (JsonException)
+        {
+        }
+
+        throw new InvalidDataException("The device does not report RAD BLE protocol version 1.");
+    }
+
+    /// <summary>
+    /// Decodes a required response object and translates absent or malformed results into the operation's protocol error.
+    /// </summary>
+    internal static T ReadResult<T>(JsonElement result, JsonTypeInfo<T> type, string error)
+        where T : class
+    {
+        try
+        {
+            if (result.ValueKind == JsonValueKind.Object && result.Deserialize(type) is { } value)
+            {
+                return value;
+            }
+        }
+        catch (JsonException)
+        {
+        }
+
+        throw new InvalidDataException(error);
+    }
+
+    /// <summary>
+    /// Validates response size, version, and stage before correlation with an outstanding request.
+    /// </summary>
+    internal static RadResponse ParseResponse(byte[]? data, int maximumMessageBytes)
+    {
+        if (data is null || data.Length > maximumMessageBytes)
+        {
+            throw new InvalidDataException("A RAD response must contain at most 509 bytes.");
+        }
+
+        if (JsonSerializer.Deserialize(data, Default.RadResponse) is not { V: 1, Stage: "accepted" or "completed" or "failed" } response)
+        {
+            throw new InvalidDataException("A RAD response requires v=1, an id, a known stage, and ok.");
+        }
+
+        return response;
+    }
+}
 
 internal sealed record ProtocolInfo(string Protocol, uint Version);
 

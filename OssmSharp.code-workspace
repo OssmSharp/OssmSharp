@@ -10,6 +10,7 @@
   "settings": {
     "powershell.cwd": "ossm-web-controls",
     "dotnet.defaultSolution": "OssmSharp/OssmSharp.slnx",
+    "dotnet.testWindow.useTestingPlatformProtocol": true,
   },
   "extensions": {
     "recommendations": ["rust-lang.rust-analyzer"],

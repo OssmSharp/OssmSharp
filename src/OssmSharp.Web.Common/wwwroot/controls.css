@@ -338,17 +338,7 @@ body:has(#blazor-error-ui[style*="display: block"]) .connection-notice { display
     stroke: var(--background);
     stroke-width: 1.5;
 }
-.preview-attachment, .preview-attachment-still { fill: var(--accent); }
-.preview-inserted, .preview-inserted-still { fill: var(--success-bg); stroke: var(--success); stroke-width: 1.5; stroke-dasharray: 3 2; }
-.preview-person { fill: color-mix(in srgb, var(--text) 12%, var(--background)); stroke: var(--muted); stroke-width: 1; }
-.preview-entry { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 2 2; }
-.preview-label { fill: var(--text); font-size: 11px; font-weight: 550; }
-.preview-still, .preview-attachment-still, .preview-inserted-still { display: none; }
-.preview-legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; }
-.preview-key { display: inline-block; width: 12px; height: 8px; margin-right: 5px; background: var(--text); }
-.preview-key.attachment { border-radius: 4px; background: var(--accent); }
-.preview-key.inserted { border: 1px dashed var(--success); background: var(--success-bg); }
-.preview-caption { color: var(--muted); font-size: 12px; margin-top: 4px; }
+.preview-still { display: none; }
 
 @media (max-width: 1000px) {
     .page-header { padding-inline: 28px; }
@@ -364,22 +354,14 @@ body:has(#blazor-error-ui[style*="display: block"]) .connection-notice { display
 
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
-    .preview-carriage, .preview-attachment, .preview-inserted { display: none; }
-    .preview-still, .preview-attachment-still, .preview-inserted-still { display: initial; }
+    .preview-carriage { display: none; }
+    .preview-still { display: initial; }
 }
 
 @media (forced-colors: active) {
     .preview-track, .preview-ticks, .preview-range { stroke: CanvasText; }
     .preview-range { fill: Canvas; }
     .preview-carriage, .preview-still { fill: Highlight; stroke: CanvasText; }
-    .preview-attachment, .preview-attachment-still { fill: CanvasText; }
-    .preview-inserted, .preview-inserted-still { fill: Canvas; stroke: CanvasText; }
-    .preview-person { fill: Canvas; stroke: CanvasText; }
-    .preview-entry { stroke: CanvasText; }
-    .preview-label { fill: CanvasText; }
-    .preview-key { background: CanvasText; }
-    .preview-key.attachment { background: Highlight; }
-    .preview-key.inserted { background: Canvas; border-color: CanvasText; }
     .dot, .notice-icon { forced-color-adjust: none; }
     .switch::after { background: CanvasText; forced-color-adjust: none; }
     .switch-label input:checked + .switch::after { background: Highlight; }

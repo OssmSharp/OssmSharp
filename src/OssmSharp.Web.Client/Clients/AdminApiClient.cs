@@ -24,10 +24,6 @@ public sealed class AdminApiClient(IRpcClient connection)
     }
 
     /// <inheritdoc />
-    public Task<ControlResponse> SetPreviewDimensionsAsync(PreviewDimensions dimensions, CancellationToken cancellationToken = default) =>
-        InvokeRequestAsync("SetPreviewDimensions", [NewCorrelation(), dimensions], cancellationToken);
-
-    /// <inheritdoc />
     public Task<ControlResponse> AllowGuestAsync(CancellationToken cancellationToken = default) =>
         InvokeRequestAsync("AllowGuest", cancellationToken);
 

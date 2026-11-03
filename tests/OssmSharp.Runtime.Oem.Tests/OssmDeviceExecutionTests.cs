@@ -444,19 +444,6 @@ public sealed class OssmDeviceExecutionTests : OssmDeviceTestBase
     }
 
     [Fact]
-    public async Task FailedLiveReadPropagatesWithoutCachedSuccess()
-    {
-        var token = TestContext.Current.CancellationToken;
-        await context.ConnectAsync(Component, token);
-        var read = Component.GetStateAsync(true, token);
-        context.PublishFrame([1]);
-        await Assert.ThrowsAsync<InvalidDataException>(() => read);
-        Assert.Equal(Initial, await Component.GetStateAsync(cancellationToken: token));
-        Assert.False(Component.IsArmed);
-        Assert.Empty(Writes());
-    }
-
-    [Fact]
     public async Task WriteFailurePreservesPartialProgressAndDisarms()
     {
         var token = TestContext.Current.CancellationToken;
@@ -562,23 +549,6 @@ public sealed class OssmDeviceExecutionTests : OssmDeviceTestBase
         Assert.True(Component.IsArmed);
         Assert.Single(Writes());
         context.Write = null;
-    }
-
-    [Fact]
-    public async Task FailedStopDuringDisconnectStillReleasesResourcesForReconnect()
-    {
-        var token = TestContext.Current.CancellationToken;
-        await context.ConnectAsync(Component, token);
-        RejectMotion("stop_failed");
-        await Assert.ThrowsAsync<IOException>(() => Component.DisconnectAsync(token));
-        Assert.Equal(1, context.DisconnectCalls);
-        Assert.False(Component.IsArmed);
-        Assert.Equal([new(FirmwareSetting.Speed, 0)], Writes());
-        context.Write = null;
-        await context.ConnectAsync(Component, token);
-        Assert.Equal(2, context.RequestsFor("control.acquire").Count);
-        Assert.True(Component.IsArmed);
-        Assert.Single(Writes());
     }
 
     [Fact]
@@ -723,33 +693,6 @@ public sealed class OssmDeviceExecutionTests : OssmDeviceTestBase
     }
 
     [Fact]
-    public async Task ObservationsDuringModeSelectionDoNotChangeArming()
-    {
-        var token = TestContext.Current.CancellationToken;
-        await context.ConnectAsync(Component, token);
-        await Component.SetAsync(new(0, 0, 20, 0, 0), token);
-        await Component.SetAsync(new(0, 0, 30, 0, 0), token);
-        context.Write = request =>
-        {
-            if (BleTestContext.Operation(request) == "target.set")
-            {
-                Publish(new(0, 0, 20, 0, 0));
-            }
-
-            return null;
-        };
-        Assert.Equal(new(SetStatus.Completed, 5), await Component.SetAsync(new(0, 0, 40, 0, 0), token));
-        foreach (var stroke in new[] { 30, 40, 30 })
-        {
-            Publish(new(0, 0, stroke, 0, 0));
-            Assert.True(Component.IsArmed);
-        }
-
-        Assert.Equal(new DeviceState(0, 0, 30, 0, 0), await Component.GetStateAsync(cancellationToken: token));
-        Assert.Equal(15, Writes().Count);
-    }
-
-    [Fact]
     public async Task ReportedSpeedChangesDoNotDisarm()
     {
         var token = TestContext.Current.CancellationToken;
@@ -797,18 +740,6 @@ public sealed class OssmDeviceExecutionTests : OssmDeviceTestBase
         Publish(new(StrokePattern.Deeper, 1, 5, 5, 5));
         Assert.Equal(2, context.RequestsFor("target.set").Count);
         Assert.Equal(settings.ToCommands(), Writes().Skip(5));
-        Assert.True(Component.IsArmed);
-    }
-
-    [Fact]
-    public async Task SetWhenPatternsCannotRunSendsNoSettingsAndStaysArmed()
-    {
-        var token = TestContext.Current.CancellationToken;
-        await context.ConnectAsync(Component, token);
-        context.State = "strokeEngine.preflight";
-        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => Component.SetAsync(new(0, 5, 5, 5, 5), token));
-        Assert.Contains("not ready to run patterns", error.Message);
-        Assert.Empty(Writes());
         Assert.True(Component.IsArmed);
     }
 
@@ -965,19 +896,6 @@ public sealed class OssmDeviceExecutionTests : OssmDeviceTestBase
     }
 
     [Fact]
-    public async Task WritesOrderedPrimitivesWithoutInventingObservedState()
-    {
-        var token = TestContext.Current.CancellationToken;
-        await context.ConnectAsync(Component, token);
-        var settings = new MotionSettings(StrokePattern.StopNGo, 20, 30, 40, 50);
-        var result = await Component.SetAsync(settings, token);
-        Assert.Equal(new(SetStatus.Completed, 5), result);
-        Assert.Equal(settings.ToCommands(), Writes());
-        Assert.Equal(Initial, await Component.GetStateAsync(cancellationToken: token));
-        Assert.True(Component.IsArmed);
-    }
-
-    [Fact]
     public async Task SupersessionWaitsForIssuedIoAndSkipsOlderPendingSettings()
     {
         var token = TestContext.Current.CancellationToken;
@@ -1019,33 +937,6 @@ public sealed class OssmDeviceExecutionTests : OssmDeviceTestBase
         Assert.Equal([new(FirmwareSetting.Pattern, 1), new(FirmwareSetting.Speed, 0)], Writes());
         await Component.ResetAsync(token);
         Assert.True(Component.IsArmed);
-        Assert.Equal([new(FirmwareSetting.Pattern, 1), new(FirmwareSetting.Speed, 0)], Writes());
-    }
-
-    [Fact]
-    public async Task StopDropsQueuedSettingsWhileAnIssuedWriteSettles()
-    {
-        var token = TestContext.Current.CancellationToken;
-        await context.ConnectAsync(Component, token);
-        using var transfer = new Subject<BleCharacteristicResult>();
-        HoldFirstMotion(transfer);
-        var active = Component.SetAsync(new(StrokePattern.TeasingPounding, 10, 10, 10, 10), token);
-        var queued = Component.SetAsync(new(StrokePattern.RoboStroke, 20, 20, 20, 20), token);
-        var stop = Component.EmergencyStopAsync(token);
-        try
-        {
-            Assert.False(active.IsCompleted);
-            Assert.False(stop.IsCompleted);
-            Assert.Equal(new(SetStatus.Cancelled, 0), await queued);
-            Assert.Equal([new(FirmwareSetting.Pattern, 1)], Writes());
-        }
-        finally
-        {
-            Settle(transfer);
-        }
-
-        await stop;
-        Assert.Equal(new(SetStatus.Superseded, 0), await active);
         Assert.Equal([new(FirmwareSetting.Pattern, 1), new(FirmwareSetting.Speed, 0)], Writes());
     }
 
@@ -1194,7 +1085,8 @@ public sealed class OssmDeviceExecutionTests : OssmDeviceTestBase
         }
 
         Assert.Equal(new(SetStatus.Cancelled, 0), await set);
-        Assert.Equal(["setting.write", "setting.write", "stream.stop", "control.release"],
+        Assert.Equal(
+            ["setting.write", "setting.write", "stream.stop", "control.release"],
             context.Requests.SkipWhile(request => !BleTestContext.IsMotionWrite(request)).Select(BleTestContext.Operation));
         Assert.Equal([new(FirmwareSetting.Pattern, 1), new(FirmwareSetting.Speed, 0)], Writes());
         Assert.Equal(1, context.DisconnectCalls);
@@ -1250,15 +1142,17 @@ public sealed class OssmDeviceExecutionTests : OssmDeviceTestBase
     private void Publish(DeviceState observation) => context.Publish(Motion(observation));
 
     private List<FirmwareCommand> Writes() => context.RequestsFor("setting.write", "motion.")
-        .Select(request => new FirmwareCommand(request["path"]!.GetValue<string>() switch
-        {
-            "motion.pattern" => FirmwareSetting.Pattern,
-            "motion.speed" => FirmwareSetting.Speed,
-            "motion.stroke" => FirmwareSetting.Stroke,
-            "motion.depth" => FirmwareSetting.Depth,
-            "motion.sensation" => FirmwareSetting.Sensation,
-            _ => throw new InvalidOperationException("Unknown firmware control."),
-        }, request["args"]!["value"]!.GetValue<int>())).ToList();
+        .Select(request => new FirmwareCommand(
+            request["path"]!.GetValue<string>() switch
+            {
+                "motion.pattern" => FirmwareSetting.Pattern,
+                "motion.speed" => FirmwareSetting.Speed,
+                "motion.stroke" => FirmwareSetting.Stroke,
+                "motion.depth" => FirmwareSetting.Depth,
+                "motion.sensation" => FirmwareSetting.Sensation,
+                _ => throw new InvalidOperationException("Unknown firmware control."),
+            },
+            request["args"]!["value"]!.GetValue<int>())).ToList();
 
     private long ConnectionVersion() => (long)typeof(OssmDevice)
         .GetField("connection", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!

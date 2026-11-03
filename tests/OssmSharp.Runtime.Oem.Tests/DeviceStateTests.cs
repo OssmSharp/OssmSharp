@@ -1,14 +1,57 @@
 using System.Text;
 using AwesomeAssertions;
+using CsCheck;
 using FastMoq;
 using Xunit;
 
 namespace OssmSharp.Runtime.Oem.Tests;
 
-public sealed class DeviceStateTests : MockerTestBase<DeviceState>
+public sealed class DeviceStateTests(ITestOutputHelper output) : MockerTestBase<DeviceState>
 {
     protected override Type[] ComponentConstructorParameterTypes =>
         [typeof(StrokePattern), typeof(double), typeof(int), typeof(int), typeof(int)];
+
+    [Fact]
+    public void GeneratedFractionalObservationsPreserveSnapshotUnitsAndUnknownZeroStroke()
+    {
+        Gen.Int[0, 100000].Array[4].Sample(values =>
+        {
+            var velocity = values[0] / 1000.0;
+            var stroke = values[1] % 101;
+            var depth = values[2] % 101;
+            var sensation = values[3] % 101;
+            foreach (var pattern in Enum.GetValues<StrokePattern>())
+            {
+                var bytes = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new
+                {
+                    pattern = (int)pattern,
+                    speed = velocity,
+                    stroke,
+                    depth,
+                    sensation,
+                });
+                Assert.True(DeviceState.TryFromBytes(bytes, out var state, out var errors));
+                Assert.Empty(errors);
+                Assert.Equal(velocity, state.CurrentDeviceVelocityPercent);
+                Assert.Equal(pattern, state.Pattern);
+                Assert.Equal(stroke, state.Stroke);
+                Assert.Equal(depth, state.Depth);
+                Assert.Equal(sensation, state.Sensation);
+                if (stroke == 0)
+                {
+                    Assert.Null(state.Speed);
+                }
+                else
+                {
+                    // An independent inverse relation catches rounding/capping without an identity round trip.
+                    Assert.Equal(100 * velocity, state.Speed!.Value * stroke, precision: 8);
+                    if (velocity > stroke)
+                        Assert.True(state.Speed > 100);
+                }
+            }
+            Assert.Null(new DeviceState(StrokePattern.SimpleStroke, velocity, 0, depth, sensation).Speed);
+        }, threads: 1, writeLine: output.WriteLine);
+    }
 
     [Theory]
     [InlineData(12.5, 25, 50.0)]

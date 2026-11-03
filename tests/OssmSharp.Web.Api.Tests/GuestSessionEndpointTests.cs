@@ -9,6 +9,7 @@ using FastMoq.Providers.MoqProvider;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
@@ -70,6 +71,7 @@ public sealed class GuestSessionEndpointTests : IAsyncDisposable
         Assert.Equal(publicOrigin, header.Contains("; secure", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(Credential, header, StringComparison.Ordinal);
         Assert.DoesNotContain(Credential, await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken), StringComparison.Ordinal);
+        Assert.Equal("ready", (await BootstrapAsync(http)).GetProperty("code").GetString());
         if (!publicOrigin)
         {
             var cookie = _cookies.GetCookies(http.BaseAddress!)[GuestSessionEndpoints.CookieName]!;
@@ -113,7 +115,7 @@ public sealed class GuestSessionEndpointTests : IAsyncDisposable
         _client!.Setup(client => client.GetSavedSessionAsync(Credential, It.IsAny<CancellationToken>()))
             .ThrowsAsync(new ApiClientException(ControlResponseCodes.InvalidGuestSession));
 
-        var state = await BootstrapAsync(http);
+        var state = await BootstrapAsync(http, HttpStatusCode.Unauthorized);
 
         Assert.Equal(ControlResponseCodes.InvalidGuestSession, state.GetProperty("code").GetString());
         Assert.Null(_cookies.GetCookies(http.BaseAddress!)[GuestSessionEndpoints.CookieName]);
@@ -164,6 +166,10 @@ public sealed class GuestSessionEndpointTests : IAsyncDisposable
 
         Assert.Equal(stopFails ? HttpStatusCode.Conflict : HttpStatusCode.OK, response.StatusCode);
         Assert.Null(_cookies.GetCookies(http.BaseAddress!)[GuestSessionEndpoints.CookieName]);
+        var result = await response.Content.ReadFromJsonAsync<JsonElement>(TestContext.Current.CancellationToken);
+        Assert.Equal(stopFails ? ControlResponseCodes.DeviceIoFailed : ControlResponseCodes.Stopped, result.GetProperty("code").GetString());
+        Assert.Equal(!stopFails, result.GetProperty("accepted").GetBoolean());
+        Assert.Equal("no-session", (await BootstrapAsync(http)).GetProperty("code").GetString());
         _mocks.Verify<IGuestApiClient>(client => client.LeaveSavedSessionAsync(Credential, FastArg.Any<CancellationToken>()), TimesSpec.Once);
         _mocks.Verify<IGuestApiClient>(client => client.ResumeAsync(FastArg.Any<string>(), FastArg.Any<CancellationToken>()), TimesSpec.NeverCalled);
     }
@@ -284,6 +290,30 @@ public sealed class GuestSessionEndpointTests : IAsyncDisposable
         _mocks.Verify<IGuestApiClient>(client => client.RedeemAsync(Invitation, FastArg.Any<CancellationToken>()), TimesSpec.Once);
     }
 
+    private static HttpRequestMessage Mutation(string path, string requestToken, bool publicOrigin = false)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, path);
+        request.Headers.Add("Origin", publicOrigin ? "https://guest.example" : LocalOrigin);
+        request.Headers.Add("X-CSRF-TOKEN", requestToken);
+        return request;
+    }
+
+    private static async Task<JsonElement> BootstrapAsync(HttpClient http, HttpStatusCode expectedStatus = HttpStatusCode.OK)
+    {
+        using var response = await http.GetAsync("/guest-session", TestContext.Current.CancellationToken);
+        Assert.Equal(expectedStatus, response.StatusCode);
+        return await response.Content.ReadFromJsonAsync<JsonElement>(TestContext.Current.CancellationToken);
+    }
+
+    private static async Task RedeemAsync(HttpClient http)
+    {
+        var state = await BootstrapAsync(http);
+        using var request = Mutation("/guest-session/redeem", state.GetProperty("requestToken").GetString()!);
+        request.Content = JsonContent.Create(new GuestInvitation(Invitation));
+        using var response = await http.SendAsync(request, TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
     private async Task<HttpClient> StartAsync(bool publicOrigin = false)
     {
         _client = _mocks.GetOrCreateMock<IGuestApiClient>().AsMoq();
@@ -295,6 +325,7 @@ public sealed class GuestSessionEndpointTests : IAsyncDisposable
             .ReturnsAsync(new ControlResponse("leave", ControlResponseCodes.Stopped, true));
         _client.Setup(client => client.DisposeAsync()).Returns(ValueTask.CompletedTask);
         var builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseTestServer();
         builder.Configuration["AllowedHosts"] = "*";
         builder.Configuration["OSSM:ControlClient:EndpointUri"] = "http://127.0.0.1:1";
         builder.Logging.ClearProviders();
@@ -304,7 +335,11 @@ public sealed class GuestSessionEndpointTests : IAsyncDisposable
         builder.Services.AddDataProtection().UseEphemeralDataProtectionProvider();
         builder.Services.AddProblemDetails();
         _app = builder.Build();
-        _app.Urls.Add("http://127.0.0.1:0");
+        _app.Use(async (context, next) =>
+        {
+            context.Connection.RemoteIpAddress = IPAddress.Loopback;
+            await next(context);
+        });
         _app.UseWebSockets();
         _app.UseGuestAccessPolicy(new() { GuestPort = 5001, Hostname = publicOrigin ? "https://guest.example" : string.Empty });
         _app.UseAuthentication();
@@ -317,11 +352,23 @@ public sealed class GuestSessionEndpointTests : IAsyncDisposable
 
     private HttpClient CreateClient(bool publicOrigin = false)
     {
-        var client = new HttpClient(new HttpClientHandler { CookieContainer = _cookies, CheckCertificateRevocationList = true }, disposeHandler: true);
+        var handler = new SessionCookieHandler(_cookies)
+        {
+            InnerHandler = _app!.GetTestServer().CreateHandler(),
+        };
+        HttpClient client;
         try
         {
-            client.BaseAddress = new(_app!.Urls.Single());
-            client.DefaultRequestHeaders.Host = publicOrigin ? "guest.example" : "127.0.0.1:5001";
+            client = new HttpClient(handler, disposeHandler: true);
+        }
+        catch
+        {
+            handler.Dispose();
+            throw;
+        }
+        try
+        {
+            client.BaseAddress = new(publicOrigin ? "https://guest.example" : LocalOrigin);
             if (publicOrigin)
                 client.DefaultRequestHeaders.Add("X-Forwarded-Proto", "https");
             return client;
@@ -333,26 +380,23 @@ public sealed class GuestSessionEndpointTests : IAsyncDisposable
         }
     }
 
-    private static HttpRequestMessage Mutation(string path, string requestToken, bool publicOrigin = false)
+    private sealed class SessionCookieHandler(CookieContainer cookies) : DelegatingHandler
     {
-        var request = new HttpRequestMessage(HttpMethod.Post, path);
-        request.Headers.Add("Origin", publicOrigin ? "https://guest.example" : LocalOrigin);
-        request.Headers.Add("X-CSRF-TOKEN", requestToken);
-        return request;
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var uri = request.RequestUri!;
+            var cookie = cookies.GetCookieHeader(uri);
+            if (cookie.Length > 0)
+                request.Headers.Add("Cookie", cookie);
+
+            var response = await base.SendAsync(request, cancellationToken);
+            if (response.Headers.TryGetValues("Set-Cookie", out var headers))
+            {
+                foreach (var header in headers)
+                    cookies.SetCookies(uri, header);
+            }
+            return response;
+        }
     }
 
-    private static async Task<JsonElement> BootstrapAsync(HttpClient http)
-    {
-        using var response = await http.GetAsync("/guest-session", TestContext.Current.CancellationToken);
-        return await response.Content.ReadFromJsonAsync<JsonElement>(TestContext.Current.CancellationToken);
-    }
-
-    private static async Task RedeemAsync(HttpClient http)
-    {
-        var state = await BootstrapAsync(http);
-        using var request = Mutation("/guest-session/redeem", state.GetProperty("requestToken").GetString()!);
-        request.Content = JsonContent.Create(new GuestInvitation(Invitation));
-        using var response = await http.SendAsync(request, TestContext.Current.CancellationToken);
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-    }
 }

@@ -9,7 +9,9 @@
         <ProjectReference Include="../../src/OssmSharp.Web/OssmSharp.Web.csproj" />
         <PackageReference Include="xunit.v3.mtp-v2" />
         <PackageReference Include="AwesomeAssertions" />
+        <PackageReference Include="CsCheck" PrivateAssets="all" />
         <PackageReference Include="FastMoq.Core" />
+        <PackageReference Include="Microsoft.AspNetCore.TestHost" />
         <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
         <ProjectReference Include="../../src/OssmSharp.Web.Api/OssmSharp.Web.Api.csproj" />
         <ProjectReference Include="../../src/OssmSharp.Web.Client/OssmSharp.Web.Client.csproj" />

@@ -205,7 +205,7 @@ public sealed class GuestApiClientConnectionTests : MockerTestBase<GuestApiClien
         Assert.Equal(4, identities.Count);
         foreach (var principal in identities)
         {
-            Assert.Contains(principal.Identity!.AuthenticationType, new[] { "Bearer", "GuestSession" });
+            Assert.True(principal.Identity!.AuthenticationType is "Bearer" or "GuestSession");
             Assert.Equal(identity, principal.FindFirstValue(ClaimTypes.NameIdentifier));
             Assert.True(principal.IsInRole(principal.Identity.AuthenticationType == "Bearer" ? "Invitation" : "Guest"));
             Assert.DoesNotContain(principal.Claims, claim => claim.Value == invitation.Token);
@@ -239,7 +239,7 @@ public sealed class GuestApiClientConnectionTests : MockerTestBase<GuestApiClien
         await Assert.ThrowsAsync<HubException>(() => stale.InvokeAsync<UserSessionState>("GetUserState", TestContext.Current.CancellationToken));
         await Assert.ThrowsAsync<HubException>(() => stale.InvokeAsync<ControlResponse>("Stop", "stop", TestContext.Current.CancellationToken));
         await Assert.ThrowsAsync<HubException>(() => stale.InvokeAsync<ControlResponse>("ResetPosition", "position", TestContext.Current.CancellationToken));
-        await Assert.ThrowsAsync<HubException>(() => stale.InvokeAsync<ControlResponse>("SetPreviewDimensions", "preview", new PreviewDimensions(50, 25), TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<HubException>(() => stale.InvokeAsync<ControlResponse>("SetPreviewDimensions", "preview", new { railLengthCm = 50, attachmentLengthCm = 25 }, TestContext.Current.CancellationToken));
         await Assert.ThrowsAsync<HubException>(() => stale.InvokeAsync<ControlResponse>("GuestResetPosition", "position", TestContext.Current.CancellationToken));
         Mocks.Verify<IOssmDevice>(device => device.ResetPositionAsync(FastArg.Any<CancellationToken>()), TimesSpec.NeverCalled);
         await Assert.ThrowsAsync<HubException>(() => stale.InvokeAsync<GuestSessionState>("GetGuestState", TestContext.Current.CancellationToken));
@@ -248,12 +248,8 @@ public sealed class GuestApiClientConnectionTests : MockerTestBase<GuestApiClien
         await using var adminScope = new RpcClientTestScope(new() { EndpointUri = _options.EndpointUri, ServiceKey = AdminKey });
         await using var admin = new AdminApiClient(adminScope.Connection);
         Assert.True((await admin.GetStateAsync(TestContext.Current.CancellationToken)).GuestJoined);
-        var dimensions = new PreviewDimensions(50, 25.5);
-        Assert.True((await admin.SetPreviewDimensionsAsync(dimensions, TestContext.Current.CancellationToken)).Accepted);
-        Assert.Equal(dimensions, (await Component.GetStateAsync(TestContext.Current.CancellationToken)).Preview);
-        Assert.Equal(dimensions, (await admin.GetStateAsync(TestContext.Current.CancellationToken)).Preview);
-        var invalid = await Assert.ThrowsAsync<ApiClientException>(() => admin.SetPreviewDimensionsAsync(new(0, 25), TestContext.Current.CancellationToken));
-        Assert.Equal(ControlResponseCodes.InvalidPreviewDimensions, invalid.Code);
+        Assert.Null((await Component.GetStateAsync(TestContext.Current.CancellationToken)).GetType().GetProperty("Preview"));
+        Assert.Null((await admin.GetStateAsync(TestContext.Current.CancellationToken)).GetType().GetProperty("Preview"));
         Assert.True((await admin.EndGuestAsync(TestContext.Current.CancellationToken)).Accepted);
         var fresh = (await admin.GetStateAsync(TestContext.Current.CancellationToken)).Invitation;
         var rejected = await stale.InvokeAsync<GuestRedemptionResponse>("Redeem", new GuestJoinRequest("join", fresh.Token), TestContext.Current.CancellationToken);

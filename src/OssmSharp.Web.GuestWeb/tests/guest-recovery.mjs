@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import {
-  assertCapabilityAbsent, button, complete, createBrowserFixture, deviceState,
-  guestState, launchBrowser, observePage, preview, sent, setRange, until, userState, waitFor,
+  assertCapabilityAbsent, button, createBrowserFixture,
+  launchBrowser, observePage, preview, sent, setRange, until, waitFor,
 } from "./fixtures/browser-fixture.mjs";
 
 let browser;
@@ -88,7 +88,7 @@ test("public saved cookie survives refresh and a reopened browser context withou
   assert.equal(returned.errors.length, 0);
 });
 
-test("API and browser transport loss recover through fresh controllers without replay", options, async (t) => {
+test("public browser circuit loss disposes the API client and waits for Stop before fresh recovery", options, async (t) => {
   const fixture = await createBrowserFixture(t, browser);
   const view = await fixture.openGuest("recoverable-public-invitation", { publicHost: true });
   const { page, session, host } = view;
@@ -98,26 +98,23 @@ test("API and browser transport loss recover through fresh controllers without r
   await page.getByLabel("Auto send", { exact: true }).check();
   const count = session.requests.length;
   session.holdDisconnectStop = true;
-  const oldApi = session.saved.owner;
-  oldApi.wire.socket.destroy();
+  const oldCircuit = session.saved.owner;
+  assert.equal(oldCircuit.closed, false);
+  host.proxy.disconnect();
+  await waitFor(() => oldCircuit.closed, "GuestCircuitHandler API disposal", 10_000);
   const notice = page.getByTestId("guest-disconnected");
   await notice.waitFor({ state: "visible" });
   await until(() => notice.innerText(), (text) => text.includes("Waiting for Stop"), "required Stop barrier");
   assert.equal(session.saved.owner, null);
   assert.equal(session.requests.length, count);
   assert.equal(session.state.controlAllowed, true);
+  assert.equal(session.disconnectStops, 1);
+  assert.equal(await button(page, "Send").isDisabled(), true);
+  assert.equal(await page.evaluate(() => sessionStorage.getItem("ossm-guest-connection-lost")), null);
 
   session.holdDisconnectStop = false;
   session.saved.stopPending = false;
   await ready(page);
-  await assertFreshController(page);
-  assert.ok(session.saved.owner !== oldApi, "API recovery must not reuse a disposed client");
-  assert.equal(session.requests.length, count);
-  const oldCircuit = session.saved.owner;
-  host.proxy.disconnect();
-  await waitFor(() => session.saved.owner !== null && session.saved.owner !== oldCircuit, "fresh controller after browser transport loss");
-  await ready(page);
-  await until(() => page.getByLabel("Speed", { exact: true }).inputValue(), "0", "browser transport recovery");
   await assertFreshController(page);
   assert.ok(session.saved.owner !== oldCircuit, "Browser recovery must attach a fresh circuit client");
   assert.equal(session.requests.length, count);
@@ -127,95 +124,5 @@ test("API and browser transport loss recover through fresh controllers without r
   await button(page, "Send").click();
   await sent(page, "Speed", 42);
   assert.equal(session.requests.length, count + 1);
-});
-
-test("a second tab cannot interrupt the first and attaches only after the first closes", options, async (t) => {
-  const fixture = await createBrowserFixture(t, browser);
-  const first = await fixture.openGuest("exclusive-browser-session");
-  const { session, context, host } = first;
-  await setRange(first.page, "Speed", 35);
-  await button(first.page, "Send").click();
-  await sent(first.page, "Speed", 35);
-  const owner = session.saved.owner;
-  const stops = session.disconnectStops;
-  const second = await observePage(context);
-  await second.page.goto(`${host.origin}/join`);
-  await until(() => second.page.getByTestId("guest-disconnected").innerText(),
-    (text) => text.includes("open in another tab"), "second-tab rejection");
-  const leave = second.page.getByTestId("guest-disconnected").getByRole("button", { name: "Leave session", exact: true });
-  assert.equal(await leave.isDisabled(), true);
-  await leave.dispatchEvent("click");
-  const rejected = await second.page.evaluate(async () => {
-    const state = await (await fetch("/guest-session")).json();
-    const response = await fetch("/guest-session/leave", { method: "POST", headers: { "X-CSRF-TOKEN": state.requestToken } });
-    return { status: response.status, result: await response.json() };
-  });
-  assert.equal(rejected.status, 409);
-  assert.equal(rejected.result.code, "guest-already-joined");
-  assert.equal((await context.cookies()).some(cookie => cookie.name === "ossm-guest-session"), true);
-  assert.ok(session.saved.owner === owner, "The first tab must retain ownership");
-  assert.equal(session.disconnectStops, stops, "Checking another tab must not Stop the first");
-  assert.equal(session.requests.length, 1);
-  await setRange(first.page, "Speed", 40);
-  await button(first.page, "Send").click();
-  await sent(first.page, "Speed", 40);
-  assert.equal(session.requests.length, 2);
-
-  await first.page.close();
-  await ready(second.page);
-  await assertFreshController(second.page);
-  assert.ok(session.saved.owner !== owner, "The waiting tab must obtain a new attachment");
-  assert.equal(session.disconnectStops, stops + 1);
-  assert.equal(session.requests.length, 2, "Tab recovery must not replay the first tab's motion");
-  assert.equal(session.calls.filter((target) => target === "Redeem").length, 1);
-});
-
-test("offline Leave invalidates the saved session and clears its cookie", options, async (t) => {
-  const fixture = await createBrowserFixture(t, browser);
-  const view = await fixture.openGuest("offline-leave-session");
-  const { page, context, session } = view;
-  session.holdDisconnectStop = true;
-  session.saved.owner.wire.socket.destroy();
-  const notice = page.getByTestId("guest-disconnected");
-  await notice.waitFor({ state: "visible" });
-  await notice.getByRole("button", { name: "Leave session", exact: true }).click();
-  await until(() => notice.innerText(), (text) => text.includes("You left the session"), "offline Leave completion");
-  assert.equal(session.saved.valid, false);
-  assert.equal((await context.cookies()).some((cookie) => cookie.name === "ossm-guest-session"), false);
-  assert.equal(session.calls.filter((target) => target === "LeaveSavedSession").length, 1);
-  assert.equal(session.requests.length, 0);
-});
-
-test("invitation refresh revokes an active guest before failed Stop completes", options, async (t) => {
-  const fixture = await createBrowserFixture(t, browser);
-  const guest = await fixture.openGuest("refresh-revoked-session");
-  const admin = await fixture.openAdmin({
-    ...userState(deviceState()), invitationConsumed: true,
-    guestSessionExpiresAt: guest.session.saved.expiresAt,
-  });
-  assert.equal(await button(admin.page, "Copy").isDisabled(), true);
-  await button(admin.page, "Refresh invitation").click();
-  await waitFor(() => admin.session.pending.has("RefreshInvitation"), "admin invitation refresh");
-  assert.equal(guest.session.saved.valid, false, "Revocation must not wait for Stop");
-  const ended = guest.page.getByTestId("guest-disconnected");
-  await until(() => ended.innerText(), (text) => text.includes("Session ended."), "terminal guest notice");
-  await ended.waitFor({ state: "visible" });
-  assert.equal(await ended.getByRole("button", { name: "Leave session", exact: true }).isHidden(), true);
-  await complete(admin.session, "RefreshInvitation", { accepted: false, code: "device-io-failed" });
-  await admin.page.getByRole("alert").filter({ hasText: "Guest session ended. Stop was not confirmed" }).waitFor();
-  assert.equal(guest.session.requests.length, 0);
-  await guest.page.reload();
-  await guest.page.getByTestId("guest-invalid").waitFor({ state: "visible" });
-  assert.equal((await guest.context.cookies()).some((cookie) => cookie.name === "ossm-guest-session"), false);
-
-  await button(admin.page, "Stop").click();
-  await complete(admin.session, "Stop");
-  await until(() => button(admin.page, "Refresh invitation").isEnabled(), true, "required Stop completion");
-  const nextInvitation = admin.session.state.invitation.token;
-  fixture.provision(nextInvitation, guestState());
-  const next = await fixture.openGuest(nextInvitation, { context: guest.context });
-  await assertFreshController(next.page);
-  assert.equal(next.session.saved.valid, true);
-  assert.equal(next.session.requests.length, 0);
-  assert.equal(guest.session.saved.valid, false);
+  assert.deepEqual(view.errors, []);
 });

@@ -40,7 +40,7 @@ public partial class Join
     {
         Joined: true,
         ControlAllowed: true,
-        Device: { IsConnected: true, IsConnecting: false, ConnectionFailed: false } device
+        Device: { IsConnected: true, IsConnecting: false, ConnectionFailed: false } device,
     } && (device.IsArmed || _status.CanResumeAfterStop);
     private double? DeviceSpeed => _status?.Device?.Speed;
     private string SessionMessage => _status switch

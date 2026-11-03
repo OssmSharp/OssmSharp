@@ -146,8 +146,10 @@ internal sealed class BleTestContext : IDisposable
     {
         lock (Requests)
         {
-            return [.. Requests.Where(request => Operation(request) == operation
-                && (pathPrefix is null || request["path"]?.GetValue<string>().StartsWith(pathPrefix, StringComparison.Ordinal) == true))];
+            return [
+                .. Requests.Where(request => Operation(request) == operation
+                    && (pathPrefix is null || request["path"]?.GetValue<string>().StartsWith(pathPrefix, StringComparison.Ordinal) == true)),
+            ];
         }
     }
 

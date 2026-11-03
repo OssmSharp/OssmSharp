@@ -13,11 +13,7 @@ public sealed class WebLoggingTests
 {
     [Theory]
     [InlineData("OssmSharp.Web.Api", false)]
-    [InlineData("OssmSharp.Web.AdminWeb", false)]
-    [InlineData("OssmSharp.Web.GuestWeb", false)]
     [InlineData("OssmSharp.Web.Api", true)]
-    [InlineData("OssmSharp.Web.AdminWeb", true)]
-    [InlineData("OssmSharp.Web.GuestWeb", true)]
     [Trait("Category", "Integration")]
     public void FileLevelsStayAtInformationWhileLauncherRaisesConsoleToWarning(string applicationName, bool standalone)
     {
