@@ -133,7 +133,7 @@ a { color: var(--accent); }
 .section-heading h2 { font: var(--weight-label) var(--text-sm)/1.4 var(--font-data); text-transform: uppercase; letter-spacing: .02em; }
 .stop-symbol { width: var(--space-3); height: var(--space-3); flex-shrink: 0; background: currentColor; }
 .action-arrow { display: inline-block; width: var(--space-2); height: var(--space-2); border-top: var(--border-width) solid currentColor; border-right: var(--border-width) solid currentColor; }
-.header-actions { display: flex; align-items: center; flex-shrink: 0; gap: var(--space-3); }
+.header-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; flex-shrink: 1; min-width: 0; max-width: 100%; gap: var(--space-3); }
 .skip-link { position: absolute; top: var(--space-2); left: var(--page-gutter); z-index: 2; }
 .skip-link:not(:focus) { clip-path: inset(50%); width: 1px; height: 1px; overflow: hidden; }
 .dashboard-grid {

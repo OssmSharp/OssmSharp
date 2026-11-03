@@ -66,22 +66,14 @@ else
         {
           <button type="button" class="pattern-button" data-pattern="@pattern" disabled="@(!Ready)"
                   aria-pressed="@(_display.Selected.Pattern == pattern ? "true" : "false")">
-            <span class="pattern-index" aria-hidden="true">@($"{pattern + 1:00}")</span>
             <span>@label</span>
-            <span class="pattern-selection" aria-hidden="true"></span>
           </button>
         }
       </div>
     </section>
-    <div class="console-workspace">
       <section class="settings-console" aria-label="Requested settings">
         <div class="section-heading">
           <h2>Settings</h2>
-          <div class="settings-legend">
-            <span><i class="key selected" aria-hidden="true"></i>Selected</span>
-            <span><i class="key sent" aria-hidden="true"></i>Sent</span>
-            <span><i class="key current" aria-hidden="true"></i>Current</span>
-          </div>
         </div>
         <div class="slider-grid guest-controlled connection-sensitive device-sensitive">
           <SettingSlider Name="speed" Label="Speed" Maximum="100" InitialValue="0"
@@ -95,12 +87,9 @@ else
         </div>
         <p class="console-footnote">All settings are percentages. Current speed is unknown at zero device stroke.</p>
       </section>
-      <div class="preview-console guest-controlled connection-sensitive">
         <PatternPreview Pattern="@_display.Selected.Pattern" Speed="@_display.Selected.Speed" Stroke="@_display.Selected.Stroke" Depth="@_display.Selected.Depth"
                         Sensation="@_display.Selected.Sensation"
                         RailLength="@(_status?.Preview?.RailLengthCm ?? 40)" AttachmentLength="@(_status?.Preview?.AttachmentLengthCm ?? 24)"
                         Animate="@(!_display.PreviewStopped && !_connectionLost && _status?.Device is { IsConnected: true, IsConnecting: false, IsResettingPosition: false })" />
-      </div>
-    </div>
   </div>
 }

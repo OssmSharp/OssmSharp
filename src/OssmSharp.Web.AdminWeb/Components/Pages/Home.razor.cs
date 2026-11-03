@@ -72,6 +72,13 @@ public partial class Home
         _ => "neutral",
     };
     private bool DeviceUnavailable => _connectionLost || _state?.Device is not { IsConnected: true, IsConnecting: false };
+    private bool? _invitationExpanded;
+    private bool? _controlsExpanded;
+    private bool InvitationExpanded => _invitationExpanded ?? _state is not { GuestJoined: true, GuestConnected: true };
+    private bool ControlsExpanded => _controlsExpanded ?? (_state is { Device: { IsConnected: true, IsConnecting: false }, GuestJoined: true, GuestConnected: true }
+        || (_notice.IsError && _previewStopped));
+    private void ToggleInvitation() => _invitationExpanded = !InvitationExpanded;
+    private void ToggleControls() => _controlsExpanded = !ControlsExpanded;
     private LengthUnit Unit => Options.Value.LengthUnit;
     private string LengthUnitLabel => Unit is LengthUnit.Inches ? "\"" : "cm";
     private string LengthStep => Unit is LengthUnit.Inches ? "0.25" : "0.5";
@@ -91,7 +98,6 @@ public partial class Home
         {
             try
             {
-                await _module.InvokeVoidAsync("disposeConnectionTimer");
                 await _module.DisposeAsync();
             }
             catch (JSDisconnectedException) { }
@@ -119,8 +125,6 @@ public partial class Home
                 StateHasChanged();
                 _pollingTask = PollAsync();
             }
-            if (_module is not null)
-                await _module.InvokeVoidAsync("updateConnectionTimer", _lifetime.Token);
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
     }
@@ -203,8 +207,7 @@ public partial class Home
                         await _module.InvokeVoidAsync("writeAttachmentLength", _lifetime.Token, dimensions.AttachmentLengthCm);
                     if (dimensions.AttachmentLengthCm != _attachmentLengthCm)
                         continue;
-                    _noticeVariant = "success";
-                    _notice.Show("Preview dimensions updated.");
+                    _notice.Show(null);
                     return;
                 }
             }
@@ -277,7 +280,7 @@ public partial class Home
             else
             {
                 _noticeVariant = "success";
-                _notice.Show(message);
+                _notice.Show(message, fadeOut: action == nameof(IAdminApiClient.RefreshInvitationAsync));
             }
         }
         catch (Exception error) when (error is ApiClientException or RpcClientRequestTimeoutException)

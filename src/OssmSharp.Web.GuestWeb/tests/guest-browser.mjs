@@ -61,24 +61,29 @@ test("admin dashboard progresses from device connection to invitation to active 
   const fixture = await createBrowserFixture(t, browser);
   const { page, session, errors } = await fixture.openAdmin();
   await page.getByRole("region", { name: "Device connection", exact: true }).waitFor();
-  assert.equal(await page.getByTestId("guest-invitation-card").count(), 0);
-  assert.equal(await page.getByTestId("user-controls").count(), 0);
+  assert.equal(await page.getByTestId("guest-invitation-card").isVisible(), true);
+  assert.equal(await page.getByTestId("user-controls").getAttribute("open"), null);
   assert.equal(await preview(page).count(), 0);
   await button(page, "Connect device").focus();
   await page.keyboard.press("Enter");
   await waitFor(() => session.pending.has("Connect"), "keyboard Connect");
   await until(() => button(page, "Connect device").isDisabled(), true, "Connect busy");
-  assert.equal(await button(page, "Stop").count(), 0);
+  assert.equal(await button(page, "Stop").isHidden(), true);
   session.state = { ...session.state, device: deviceState(), guestJoined: false, guestConnected: false };
   await complete(session, "Connect");
   await page.getByTestId("guest-invitation-card").waitFor();
   assert.equal(await page.getByTestId("invitation-details").getAttribute("open"), "");
   assert.equal(await page.getByLabel("Guest invitation", { exact: true }).inputValue(), "https://guest.test/join#invite=isolated-admin-invite");
-  assert.equal(await page.getByTestId("user-controls").count(), 0);
+  assert.equal(await page.getByTestId("user-controls").getAttribute("open"), null);
   assert.equal(await preview(page).count(), 0);
   assert.equal(await button(page, "Connect device").count(), 0);
+  assert.equal(await page.getByRole("region", { name: "Device connection", exact: true }).count(), 0);
+  assert.equal(await page.getByRole("banner").getByTestId("device-connection-status").innerText(), "Connected");
+  assert.equal(await page.getByTestId("guest-status").innerText(), "No guest");
   session.state = { ...session.state, guestJoined: true, guestConnected: true };
-  await page.getByTestId("user-controls").waitFor();
+  await until(() => page.getByTestId("user-controls").getAttribute("open"), "", "controls expanded");
+  assert.equal(await page.getByTestId("user-controls").getByTestId("guest-status").innerText(), "Guest joined");
+  assert.equal(await page.getByRole("banner").getByTestId("guest-status").count(), 0);
   await page.getByRole("heading", { name: "Last settings", exact: true }).waitFor();
   assert.equal(await page.getByTestId("invitation-details").getAttribute("open"), null);
   assert.equal(await page.getByLabel("Guest invitation", { exact: true }).isHidden(), true);
@@ -87,14 +92,41 @@ test("admin dashboard progresses from device connection to invitation to active 
   await button(page, "Stop").click();
   await complete(session, "Stop");
   session.state = { ...session.state, guestConnected: false };
-  await page.getByTestId("user-controls").waitFor({ state: "detached" });
+  await until(() => page.getByTestId("user-controls").getAttribute("open"), null, "controls collapsed");
   assert.equal(await preview(page).count(), 0);
   assert.equal(await page.getByTestId("invitation-details").getAttribute("open"), "");
   session.state = { ...session.state, device: deviceState({ isConnected: false }) };
-  await page.getByTestId("guest-invitation-card").waitFor({ state: "detached" });
+  assert.equal(await page.getByTestId("guest-invitation-card").isVisible(), true);
   assert.equal(await button(page, "Connect device").isEnabled(), true);
   assert.deepEqual(commands(session), ["Connect", "Stop"]);
   assert.deepEqual(errors, []);
+});
+
+test("manual dashboard expansion survives guest and device connection changes", options, async (t) => {
+  const fixture = await createBrowserFixture(t, browser);
+  const { page, session } = await fixture.openAdmin(userState(deviceState()));
+  const invitation = page.getByTestId("invitation-details");
+  const controls = page.getByTestId("user-controls");
+  await invitation.locator("summary").focus();
+  await page.keyboard.press("Enter");
+  await until(() => invitation.getAttribute("open"), "", "manual invitation expansion");
+  await controls.locator("summary").click();
+  await until(() => controls.getAttribute("open"), null, "manual controls collapse");
+  await controls.locator("summary").focus();
+  await page.keyboard.press("Space");
+  await until(() => controls.getAttribute("open"), "", "manual controls expansion");
+  session.state = { ...session.state, guestConnected: false };
+  await until(() => page.getByTestId("guest-status").innerText(), "Guest offline", "guest disconnected");
+  assert.equal(await invitation.getAttribute("open"), "");
+  assert.equal(await controls.getAttribute("open"), "");
+  session.state = { ...session.state, guestConnected: true };
+  await until(() => page.getByTestId("guest-status").innerText(), "Guest joined", "guest reconnected");
+  assert.equal(await invitation.getAttribute("open"), "");
+  session.state = { ...session.state, device: deviceState({ isConnected: false }) };
+  await button(page, "Connect device").waitFor();
+  assert.equal(await invitation.getAttribute("open"), "");
+  assert.equal(await controls.getAttribute("open"), "");
+  assert.deepEqual(commands(session), []);
 });
 
 test("admin reset position uses its distinct RPC while Stop remains available", options, async (t) => {
@@ -266,26 +298,24 @@ test("polling an ended guest retains ended rather than disconnected semantics", 
   assert.deepEqual(errors, []);
 });
 
-test("admin metadata timer and API loss retain last requested state", options, async (t) => {
+test("admin header metadata and API loss retain last requested state without a duration", options, async (t) => {
   const fixture = await createBrowserFixture(t, browser);
   const name = "Isolated device";
   const identifier = "isolated-device-id";
-  const state = userState(deviceState({ name, identifier, isArmed: false, connectedAt: new Date(Date.now() - 3_661_000).toISOString(), transmittedSettings: settings }));
+  const state = userState(deviceState({ name, identifier, isArmed: false, transmittedSettings: settings }));
   const view = await fixture.openAdmin(state);
   const { page, session, errors } = view;
-  assert.equal(await page.getByTestId("device-name").innerText(), name);
-  assert.equal(await page.getByTestId("device-identifier").innerText(), identifier);
-  assert.equal(await page.getByTestId("device-connection-status").innerText(), "Connected");
+  const header = page.getByRole("banner");
+  assert.equal(await header.getByTestId("device-name").innerText(), name);
+  assert.equal(await header.getByTestId("device-identifier").innerText(), identifier);
+  assert.equal(await header.getByTestId("device-connection-status").innerText(), "Connected");
+  assert.equal(await header.locator(".header-actions > :first-child").getAttribute("data-testid"), "device-connection");
+  assert.equal(await page.getByTestId("device-duration").count(), 0);
+  assert.equal(await page.getByRole("region", { name: "Device connection", exact: true }).count(), 0);
   assert.doesNotMatch(await page.getByRole("main", { name: "User controls", exact: true }).innerText(),
     /Connecting\.\.\.|Device connected\.|Device connection requested\./);
-  const duration = page.getByTestId("device-duration");
-  await until(() => duration.innerText(), (value) => /^01:01:\d{2}$/.test(value), "real JS duration");
   session.holdReads = true;
   await waitFor(() => session.pending.has("GetUserState"), "poll held without render");
-  const before = seconds(await duration.innerText());
-  const frameCount = view.renderFrames.length;
-  await until(() => duration.innerText(), (value) => seconds(value) >= before + 2, "local timer advancement");
-  assert.equal(view.renderFrames.length, frameCount, "Local timer must not require a render batch");
   const label = await preview(page).getAttribute("aria-label");
   await session.api.wire.dispose();
   await page.getByRole("alert").filter({ hasText: "Unable to connect to the user service." }).waitFor();
@@ -396,8 +426,4 @@ function commands(session) {
 async function currentSpeed(page, value) {
   await until(() => page.getByLabel("Speed", { exact: true }).getAttribute("aria-valuetext"),
     (text) => text?.includes(`Current value: ${value}.`), "exact current speed");
-}
-
-function seconds(value) {
-  return /^\d{2}:\d{2}:\d{2}$/.test(value) ? value.split(":").reduce((total, part) => total * 60 + Number(part), 0) : NaN;
 }
