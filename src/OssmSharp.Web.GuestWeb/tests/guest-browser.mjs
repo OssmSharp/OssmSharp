@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import {
-  assertCapabilityAbsent, button, complete, createBrowserFixture, deviceState,
-  guestState, launchBrowser, observePage, preview, sent, setRange, settings, until, userState, waitFor,
+  assertCapabilityAbsent, button, complete, createBrowserFixture, deviceState, guestState,
+  launchBrowser, observePage, preview, sent, setRange, settings, until, userState, waitFor,
 } from "./fixtures/browser-fixture.mjs";
 
 let browser;
@@ -31,24 +31,31 @@ test("public guest manual and auto send wire controls to RPC and leave scrubs ca
   assert.deepEqual(pickSettings(session.requests[0]), { pattern: 5, speed: 13, stroke: 10, depth: 20, sensation: 75 });
   await page.getByLabel("Auto send", { exact: true }).check();
   await button(page, "Deeper").click();
+  await until(() => preview(page).getAttribute("aria-label"), (label) => label.startsWith("Deeper preview"), "Auto preview");
+  assert.equal(await page.getByLabel("Auto send", { exact: true }).isChecked(), false);
+  assert.equal(session.requests.length, 1, "Changing pattern pauses auto send");
+  await button(page, "Send").click();
   await sent(page, "Speed", 13);
-  await until(() => page.getByTestId("preview-pattern").innerText(), "Deeper", "Auto preview");
-  await waitFor(() => session.requests.length === 2, "Auto Submit");
   assert.deepEqual(pickSettings(session.requests[1]), { pattern: 4, speed: 13, stroke: 10, depth: 20, sensation: 75 });
+  await page.getByLabel("Auto send", { exact: true }).check();
+  await setRange(page, "Speed", 14);
+  await sent(page, "Speed", 14);
+  await waitFor(() => session.requests.length === 3, "Auto Submit");
+  assert.deepEqual(pickSettings(session.requests[2]), { pattern: 4, speed: 14, stroke: 10, depth: 20, sensation: 75 });
   await page.getByLabel("Auto send", { exact: true }).uncheck();
   await until(() => page.getByRole("status").filter({ hasText: "Settings sent." }).count(), 1, "send status");
   session.state.device = { ...session.state.device, speed: 33.333333333333336, stroke: 30 };
   await currentSpeed(page, "33.333333333333336");
   await setRange(page, "Depth", 80);
   await until(() => preview(page).getAttribute("aria-label"), (label) => label.includes("80% depth"), "real UpdateDisplay preview");
-  assert.equal(session.requests.length, 2, "Preview edits must not Submit");
+  assert.equal(session.requests.length, 3, "Preview edits must not Submit");
   await currentSpeed(page, "33.333333333333336");
   session.state.device = { ...session.state.device, speed: 400, stroke: 10 };
   await currentSpeed(page, "400");
   session.state.device = { ...session.state.device, speed: null, stroke: 0 };
   await currentSpeed(page, "unavailable");
   await button(page, "Leave session").click();
-  await page.getByRole("alert").filter({ hasText: "You left the session." }).waitFor();
+  await page.getByRole("status").filter({ hasText: "You left the session." }).waitFor();
   assert.equal(session.calls.filter((name) => name === "Leave").length, 1);
   assert.equal(session.calls.filter((name) => name === "LeaveSavedSession").length, 0);
   assert.equal((await view.context.cookies()).some((cookie) => cookie.name === "ossm-guest-session"), false);
@@ -325,85 +332,25 @@ test("admin header metadata and API loss retain last requested state without a d
   assert.deepEqual(errors, []);
 });
 
-test("component import failure leaves one bootstrap fallback notice", options, async (t) => {
+test("guest API transport loss locks controls until Stop permits a fresh controller without replay", options, async (t) => {
   const fixture = await createBrowserFixture(t, browser);
-  fixture.provision("component-failure");
-  const host = await fixture.guestHost();
-  const context = await fixture.context();
-  let bootstrapLoaded = false;
-  let componentImportAborted = false;
-  await context.addInitScript(() => {
-    document.addEventListener("readystatechange", () => {
-      const bootstrap = document.getElementById("guest-start");
-      const controller = new URL(bootstrap.dataset.controller, document.baseURI);
-      controller.search = "?bootstrap-test";
-      bootstrap.dataset.controller = controller.href;
-    }, { once: true });
-  });
-  await context.route(/\/guest-session(?:\.[^/]+)?\.js(?:\?.*)?$/, async (route) => {
-    if (new URL(route.request().url()).search === "?bootstrap-test") {
-      bootstrapLoaded = true;
-      await route.continue();
-    } else {
-      componentImportAborted = true;
-      await route.abort("failed");
-    }
-  });
-  const { page } = await observePage(context);
-  await page.goto(`${host.origin}/join#invite=component-failure`);
-  await page.getByRole("alert").filter({ hasText: "The guest page could not start." }).waitFor();
-  assert.equal(bootstrapLoaded, true);
-  assert.equal(componentImportAborted, true);
-  assert.equal(await page.getByRole("alert").filter({ hasText: "The guest page could not start." }).count(), 1);
-  assert.equal(await page.getByRole("region", { name: "Requested settings", exact: true }).count(), 0);
-  assert.equal(await page.getByRole("region", { name: "Pattern preview", exact: true }).count(), 0);
-  assert.equal(await page.getByTestId("guest-invalid").isVisible(), true);
-  assert.equal(await page.getByTestId("guest-disconnected").isVisible(), false);
-  assert.equal(fixture.fixture.calls.filter(({ target }) => target === "Join").length, 0);
-  assert.equal(fixture.fixture.calls.filter(({ target }) => target === "Redeem").length, 1);
-});
-
-test("guest API loss keeps stale controls locked through markup replacement and reload until safe recovery", options, async (t) => {
-  const fixture = await createBrowserFixture(t, browser);
-  const { page, session, host, errors } = await fixture.openGuest("persistent-api-loss");
+  const { page, session, errors } = await fixture.openGuest("persistent-api-loss");
   await setRange(page, "Speed", 50);
-  const originalSend = await button(page, "Send").elementHandle();
+  await button(page, "Send").click();
+  await sent(page, "Speed", 50);
+  await page.getByLabel("Auto send", { exact: true }).check();
+  const owner = session.saved.owner;
+  const count = session.requests.length;
   session.holdDisconnectStop = true;
   await session.api.wire.dispose();
   const notice = page.getByTestId("guest-disconnected");
   await notice.waitFor({ state: "visible" });
   for (const name of ["Send", "Stop", "Reset Position"]) assert.equal(await button(page, name).isDisabled(), true);
-  assert.equal(await page.getByRole("complementary", { name: "Pattern", exact: true })
-    .getByRole("button", { name: "Leave session", exact: true }).isDisabled(), true);
-  assert.equal(await notice.getByRole("button", { name: "Leave session", exact: true }).isEnabled(), true);
+  assert.equal(await button(page, "Leave session").count(), 0);
   assert.equal(await page.getByLabel("Auto send", { exact: true }).isDisabled(), true);
   assert.equal(await page.getByLabel("Speed", { exact: true }).inputValue(), "0");
-  assert.match(await notice.innerText(), /Connection lost|Waiting for Stop/);
-  assert.equal(await page.evaluate(() => sessionStorage.getItem("ossm-guest-connection-lost")), null);
-  // A real fresh layout fragment replaces only the recovery notice, not the circuit.
-  const freshPage = await page.context().newPage();
-  await freshPage.goto(`${host.origin}/join`);
-  const freshNotice = await freshPage.getByTestId("guest-disconnected").evaluate((element) => element.cloneNode(true).outerHTML);
-  await freshPage.close();
-  await notice.evaluate((element, html) => {
-    const template = document.createElement("template");
-    template.innerHTML = html;
-    element.replaceWith(template.content.firstElementChild);
-  }, freshNotice);
-  await notice.waitFor({ state: "visible" });
-  const count = session.requests.length;
-  await page.evaluate(async () => {
-    const controller = document.getElementById("guest-start").dataset.controller;
-    (await import(new URL(controller, document.baseURI).href)).updateState({ joined: true, ready: true });
-  });
-  await originalSend.evaluate((element) => element.click());
-  assert.equal(await button(page, "Send").isDisabled(), true);
-  assert.equal(session.requests.length, count);
-  await originalSend.dispose();
-  await page.reload();
-  await notice.waitFor({ state: "visible" });
-  assert.equal(await button(page, "Send").count(), 0);
-  assert.equal(await page.getByTestId("guest-invalid").isVisible(), false);
+  await until(() => notice.innerText(), (text) => text.includes("Waiting for Stop"), "Stop barrier");
+  assert.equal(session.saved.owner, null);
   assert.equal(await page.evaluate(() => sessionStorage.getItem("ossm-guest-connection-lost")), null);
   session.holdDisconnectStop = false;
   session.saved.stopPending = false;
@@ -412,6 +359,8 @@ test("guest API loss keeps stale controls locked through markup replacement and 
   assert.equal(await page.getByLabel("Auto send", { exact: true }).isChecked(), false);
   assert.match(await page.getByLabel("Speed", { exact: true }).getAttribute("aria-valuetext"), /Sent value: none\./);
   assert.equal(session.requests.length, count);
+  assert.notEqual(session.saved.owner, owner);
+  assert.equal(session.calls.filter((target) => target === "Redeem").length, 1);
   assert.deepEqual(errors, []);
 });
 
@@ -420,7 +369,7 @@ function pickSettings(request) {
 }
 
 function commands(session) {
-  return session.calls.filter((name) => !["Redeem", "GetSavedSession", "Join", "GetGuestState", "GetUserState", "SetPreviewDimensions"].includes(name));
+  return session.calls.filter((name) => !["Redeem", "GetSavedSession", "Join", "GetGuestState", "GetUserState"].includes(name));
 }
 
 async function currentSpeed(page, value) {

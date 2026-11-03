@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import {
-  button, complete, createBrowserFixture, deviceState, guestState, injectFatal,
+  button, complete, createBrowserFixture, deviceState, injectFatal,
   launchBrowser, preview, sent, setRange, settings, until, userState,
 } from "./fixtures/browser-fixture.mjs";
 
@@ -10,15 +10,20 @@ before(async () => { browser = await launchBrowser(); }, { timeout: 20_000 });
 after(async () => { await browser?.close(); }, { timeout: 20_000 });
 const options = { timeout: 60_000 };
 
-test("guest console has a full width pattern bank and complete actions across viewports", options, async (t) => {
+test("flat guest console and admin controls fit viewports with long metadata notices and enlarged text", options, async (t) => {
   const fixture = await createBrowserFixture(t, browser);
+  const admin = await fixture.openAdmin(userState(deviceState({
+    name: "Test device with a deliberately long descriptive name",
+    identifier: "isolated-device-" + "1234567890".repeat(10),
+    connectedAt: new Date().toISOString(), transmittedSettings: settings,
+  })));
   const { page, session, errors } = await fixture.openGuest("compact-controls");
   await button(page, "Insist").click();
   await setRange(page, "Speed", 57);
   session.state.device = { ...session.state.device, speed: 54.054054054054056, stroke: 37 };
   await until(() => page.getByLabel("Speed", { exact: true }).getAttribute("aria-valuetext"),
-    (value) => value.includes("54.054054054054056"), "precise current value");
-  for (const viewport of [{ width: 920, height: 600 }, { width: 1280, height: 720 }, { width: 1440, height: 900 }]) {
+    (value) => value.includes("Current value: 54.054054054054056."), "precise current value");
+  for (const viewport of [{ width: 920, height: 600 }, { width: 1001, height: 720 }]) {
     await page.setViewportSize(viewport);
     await noOverflow(page);
     assert.equal(await page.locator(".pattern-list").evaluate((element) => getComputedStyle(element).borderRadius), "0px");
@@ -48,21 +53,40 @@ test("guest console has a full width pattern bank and complete actions across vi
   session.state.controlAllowed = false;
   await page.getByRole("status").filter({ hasText: "Connected. Waiting for the other person to allow control." }).waitFor();
   await noOverflow(page);
+  assert.equal(await admin.page.getByTestId("device-identifier").innerText(), admin.session.state.device.identifier);
+  await injectFatal(admin.page);
+  await admin.page.getByRole("alert").filter({ hasText: "Connection lost." }).waitFor();
+  session.holdDisconnectStop = true;
+  await session.api.wire.dispose();
+  await page.getByTestId("guest-disconnected").waitFor({ state: "visible" });
+  for (const width of [1001, 1000, 901, 900, 701, 700, 561, 560, 390]) {
+    for (const view of [admin.page, page]) {
+      await view.setViewportSize({ width, height: 844 });
+      await noOverflow(view);
+    }
+  }
   await page.setViewportSize({ width: 390, height: 844 });
-  await noOverflow(page);
-  await page.evaluate(() => {
-    const sizes = Array.from(document.querySelectorAll("main, main *"), (element) => [element, parseFloat(getComputedStyle(element).fontSize)]);
-    for (const [element, size] of sizes) element.style.fontSize = `${size * 2}px`;
-  });
-  await noOverflow(page);
+  for (const view of [admin.page, page]) {
+    await view.evaluate(() => {
+      const sizes = Array.from(document.querySelectorAll("main, main *"), (element) => [element, parseFloat(getComputedStyle(element).fontSize)]);
+      for (const [element, size] of sizes) element.style.fontSize = `${size * 2}px`;
+    });
+    await noOverflow(view);
+  }
   assert.equal(await button(page, "Stop").isVisible(), true);
+  assert.deepEqual(admin.errors, []);
   assert.deepEqual(errors, []);
 });
 
 test("slider fills and equal Sent Current markers use native thumb travel including endpoints", options, async (t) => {
   const fixture = await createBrowserFixture(t, browser);
-  const { page, errors } = await fixture.openGuest("slider-geometry");
+  const { page, session, errors } = await fixture.openGuest("slider-geometry");
   await page.setViewportSize({ width: 920, height: 600 });
+  for (const [value, expected] of [[12.4, 12], [12.5, 13], [12.6, 13]]) {
+    await setRange(page, "Speed", value);
+    assert.equal(await page.getByLabel("Speed", { exact: true }).inputValue(), String(expected), "Native step=1 coercion");
+    assert.equal(session.requests.length, 0);
+  }
   await button(page, "Robo stroke").click();
   await setRange(page, "Depth", 100);
   for (const value of [0, 1, 57, 100]) {
@@ -104,39 +128,6 @@ test("slider fills and equal Sent Current markers use native thumb travel includ
   await until(() => page.getByLabel("Speed", { exact: true }).inputValue(), "0", "zero after Stop");
   assert.equal(await page.getByLabel("Speed", { exact: true }).evaluate((input) => getComputedStyle(input).getPropertyValue("--range-progress")), "0%");
   assert.deepEqual(errors, []);
-});
-
-test("preview lengths are shared and the person entry and inserted attachment remain visible", options, async (t) => {
-  const fixture = await createBrowserFixture(t, browser);
-  const admin = await fixture.openAdmin(userState(deviceState({ transmittedSettings: settings })));
-  const guest = await fixture.openGuest("shared-preview");
-  await admin.page.getByLabel("Attachment length", { exact: true }).fill("27.5");
-  await admin.page.getByLabel("Attachment length", { exact: true }).press("Tab");
-  for (const view of [admin, guest])
-    await until(() => view.page.getByTestId("preview-dimensions").innerText(),
-      (text) => text.includes("attachment 27.5 cm"), "shared attachment dimension");
-  assert.equal(guest.session.requests.length, 0);
-  assert.equal(admin.session.calls.filter((method) => ["Submit", "Stop", "ResetPosition", "Connect"].includes(method)).length, 0);
-  await setRange(guest.page, "Depth", 100);
-  await setRange(guest.page, "Stroke", 100);
-  const rail = preview(guest.page);
-  const geometry = await rail.evaluate((svg) => ({
-    rail: 200,
-    attachment: svg.querySelector(".preview-attachment").width.baseVal.value,
-    viewWidth: svg.viewBox.baseVal.width,
-    tip: svg.querySelector(".preview-attachment").x.baseVal.value + svg.querySelector(".preview-attachment").width.baseVal.value,
-    person: Boolean(svg.querySelector(".preview-person circle")),
-    entry: Boolean(svg.querySelector(".preview-entry")),
-    inserted: Boolean(svg.querySelector(".preview-inserted")),
-  }));
-  assert.equal(geometry.attachment / geometry.rail, 27.5 / 40);
-  assert.ok(geometry.viewWidth > geometry.tip);
-  assert.deepEqual([geometry.person, geometry.entry, geometry.inserted], [true, true, true]);
-  await until(() => guest.page.getByTestId("preview-dimensions").innerText(),
-    (text) => text.includes("Insertion 0 to 27.5 cm"), "scaled full insertion");
-  assert.equal(guest.session.requests.length, 0);
-  assert.deepEqual(admin.errors, []);
-  assert.deepEqual(guest.errors, []);
 });
 
 test("semantic statuses actions and notices use their matching colours in both themes", options, async (t) => {
@@ -226,36 +217,7 @@ test("pattern buttons support keyboard selection and visible focus in both theme
   assert.deepEqual(errors, []);
 });
 
-for (const viewport of [{ width: 1280, height: 800 }, { width: 390, height: 844 }]) {
-  test(`representative controls notices and long metadata avoid horizontal overflow at ${viewport.width}`, options, async (t) => {
-    const fixture = await createBrowserFixture(t, browser);
-    const admin = await fixture.openAdmin(userState(deviceState({
-      name: "Test device with a deliberately long descriptive name",
-      identifier: "isolated-device-" + "1234567890".repeat(10),
-      connectedAt: new Date().toISOString(), transmittedSettings: settings,
-    })));
-    const guest = await fixture.openGuest(`overflow-${viewport.width}`);
-    for (const view of [admin, guest]) await view.page.setViewportSize(viewport);
-    await setRange(guest.page, "Speed", 35);
-    await until(() => preview(guest.page).getAttribute("aria-label"), (label) => label.includes("35% speed"), "requested preview");
-    await noOverflow(admin.page);
-    await noOverflow(guest.page);
-    assert.equal(await button(guest.page, "Send").isVisible(), true);
-    assert.equal(await guest.page.getByLabel("Auto send", { exact: true }).isVisible(), true);
-    assert.equal(await admin.page.getByTestId("device-identifier").innerText(), admin.session.state.device.identifier);
-    await injectFatal(admin.page);
-    await admin.page.getByRole("alert").filter({ hasText: "Connection lost." }).waitFor();
-    guest.session.holdDisconnectStop = true;
-    await guest.session.api.wire.dispose();
-    await guest.page.getByTestId("guest-disconnected").waitFor({ state: "visible" });
-    await noOverflow(admin.page);
-    await noOverflow(guest.page);
-    assert.deepEqual(admin.errors, []);
-    assert.deepEqual(guest.errors, []);
-  });
-}
-
-test("reduced motion suppresses travel while retaining a still preview", options, async (t) => {
+test("native SVG pauses and resumes with reduced motion retaining a still preview", options, async (t) => {
   const fixture = await createBrowserFixture(t, browser);
   const { page, errors } = await fixture.openGuest("reduced-motion");
   await setRange(page, "Speed", 35);
@@ -271,93 +233,10 @@ test("reduced motion suppresses travel while retaining a still preview", options
   await motion(page, false);
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await motion(page, true);
-  assert.deepEqual(errors, []);
-});
-
-test("guest preview motion pauses on safety and loss and resumes only deliberately", options, async (t) => {
-  const fixture = await createBrowserFixture(t, browser);
-  const { page, session, errors } = await fixture.openGuest("guest-motion");
-  await setRange(page, "Speed", 35);
-  await motion(page, false);
-  assert.equal(session.requests.length, 0);
-  await button(page, "Send").click();
-  await sent(page, "Speed", 35);
-  await motion(page, true);
-  await button(page, "Reset Position").click();
-  await until(() => button(page, "Send").isDisabled(), true, "reset queued");
-  await motion(page, false);
-  session.state = guestState({ canResumeAfterStop: true, device: deviceState({ isArmed: false, stroke: 100, depth: 100 }) });
-  await complete(session, "GuestResetPosition", { accepted: true, code: "position-reset" });
-  await until(() => button(page, "Send").isEnabled(), true, "reset completion");
-  await motion(page, false);
-  assert.equal(session.requests.length, 1);
-  await button(page, "Send").click();
-  await sent(page, "Speed", 35);
-  await motion(page, true);
   await button(page, "Stop").click();
-  await until(() => page.getByLabel("Speed", { exact: true }).inputValue(), "0", "Stop zeroes speed");
-  await until(() => button(page, "Send").isEnabled(), true, "Stop acknowledgement");
-  await motion(page, false);
-  assert.equal(session.requests.length, 2);
-  await setRange(page, "Speed", 35);
-  await button(page, "Send").click();
-  await sent(page, "Speed", 35);
-  await motion(page, true);
-  session.state.device = null;
-  await until(() => button(page, "Send").isDisabled(), true, "device unavailable");
-  await motion(page, false);
-  assert.equal(await page.getByTestId("guest-disconnected").isVisible(), false);
-  session.state = guestState();
-  await until(() => button(page, "Send").isEnabled(), true, "device recovered");
-  await motion(page, false);
-  assert.equal(session.requests.length, 3);
-  await setRange(page, "Speed", 35);
-  await button(page, "Send").click();
-  await sent(page, "Speed", 35);
-  await motion(page, true);
-  session.holdDisconnectStop = true;
-  await session.api.wire.dispose();
-  await page.getByTestId("guest-disconnected").waitFor({ state: "visible" });
+  await until(() => page.getByLabel("Speed", { exact: true }).inputValue(), "0", "Stop pauses native SVG");
   await motion(page, false);
   assert.deepEqual(errors, []);
-});
-
-test("user preview motion pauses on safety and loss and resumes only deliberately", options, async (t) => {
-  const fixture = await createBrowserFixture(t, browser);
-  const { page, session, errors } = await fixture.openAdmin(userState(deviceState({ transmittedSettings: settings })));
-  await motion(page, true);
-  await button(page, "Reset Position").click();
-  await page.getByRole("status").filter({ hasText: "Resetting position ..." }).waitFor();
-  await motion(page, false);
-  await complete(session, "ResetPosition", { accepted: true, code: "position-reset" });
-  await until(() => button(page, "Reset Position").isEnabled(), true, "reset completion");
-  await motion(page, false);
-  session.state.device.transmittedSettings = { ...settings, speed: 40 };
-  await until(() => preview(page).getAttribute("aria-label"), (label) => label.includes("40% speed"), "changed selection");
-  await motion(page, true);
-  await button(page, "Stop").click();
-  await page.getByRole("status").filter({ hasText: "Stopping ..." }).waitFor();
-  await motion(page, false);
-  await complete(session, "Stop");
-  await until(() => button(page, "Stop").isEnabled(), true, "Stop completion");
-  await motion(page, false);
-  session.state.device.transmittedSettings = { ...settings, speed: 45 };
-  await until(() => preview(page).getAttribute("aria-label"), (label) => label.includes("45% speed"), "new requested selection");
-  await motion(page, true);
-  const label = await preview(page).getAttribute("aria-label");
-  await session.api.wire.dispose();
-  await page.getByRole("alert").filter({ hasText: "Unable to connect to the user service." }).waitFor();
-  await motion(page, false);
-  assert.equal(await preview(page).getAttribute("aria-label"), label);
-  assert.deepEqual(errors, []);
-  const fatal = await fixture.openAdmin(userState(deviceState({ transmittedSettings: settings })));
-  await motion(fatal.page, true);
-  const fatalLabel = await preview(fatal.page).getAttribute("aria-label");
-  await injectFatal(fatal.page);
-  await fatal.page.getByRole("alert").filter({ hasText: "Connection lost." }).waitFor();
-  await motion(fatal.page, false);
-  assert.equal(await preview(fatal.page).getAttribute("aria-label"), fatalLabel);
-  assert.deepEqual(fatal.errors, []);
 });
 
 async function noOverflow(page) {

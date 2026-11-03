@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import {
-  assertCapabilityAbsent, button, complete, createBrowserFixture, deviceState,
-  guestState, launchBrowser, observePage, preview, sent, setRange, until, userState, waitFor,
+  assertCapabilityAbsent, button, complete, createBrowserFixture, deviceState, guestState,
+  launchBrowser, observePage, preview, sent, setRange, until, userState, waitFor,
 } from "./fixtures/browser-fixture.mjs";
 
 let browser;
@@ -88,7 +88,7 @@ test("public saved cookie survives refresh and a reopened browser context withou
   assert.equal(returned.errors.length, 0);
 });
 
-test("API and browser transport loss recover through fresh controllers without replay", options, async (t) => {
+test("public browser circuit loss disposes the API client and waits for Stop before fresh recovery", options, async (t) => {
   const fixture = await createBrowserFixture(t, browser);
   const view = await fixture.openGuest("recoverable-public-invitation", { publicHost: true });
   const { page, session, host } = view;
@@ -98,26 +98,23 @@ test("API and browser transport loss recover through fresh controllers without r
   await page.getByLabel("Auto send", { exact: true }).check();
   const count = session.requests.length;
   session.holdDisconnectStop = true;
-  const oldApi = session.saved.owner;
-  oldApi.wire.socket.destroy();
+  const oldCircuit = session.saved.owner;
+  assert.equal(oldCircuit.closed, false);
+  host.proxy.disconnect();
+  await waitFor(() => oldCircuit.closed, "GuestCircuitHandler API disposal", 10_000);
   const notice = page.getByTestId("guest-disconnected");
   await notice.waitFor({ state: "visible" });
   await until(() => notice.innerText(), (text) => text.includes("Waiting for Stop"), "required Stop barrier");
   assert.equal(session.saved.owner, null);
   assert.equal(session.requests.length, count);
   assert.equal(session.state.controlAllowed, true);
+  assert.equal(session.disconnectStops, 1);
+  assert.equal(await button(page, "Send").isDisabled(), true);
+  assert.equal(await page.evaluate(() => sessionStorage.getItem("ossm-guest-connection-lost")), null);
 
   session.holdDisconnectStop = false;
   session.saved.stopPending = false;
   await ready(page);
-  await assertFreshController(page);
-  assert.ok(session.saved.owner !== oldApi, "API recovery must not reuse a disposed client");
-  assert.equal(session.requests.length, count);
-  const oldCircuit = session.saved.owner;
-  host.proxy.disconnect();
-  await waitFor(() => session.saved.owner !== null && session.saved.owner !== oldCircuit, "fresh controller after browser transport loss");
-  await ready(page);
-  await until(() => page.getByLabel("Speed", { exact: true }).inputValue(), "0", "browser transport recovery");
   await assertFreshController(page);
   assert.ok(session.saved.owner !== oldCircuit, "Browser recovery must attach a fresh circuit client");
   assert.equal(session.requests.length, count);
@@ -127,6 +124,7 @@ test("API and browser transport loss recover through fresh controllers without r
   await button(page, "Send").click();
   await sent(page, "Speed", 42);
   assert.equal(session.requests.length, count + 1);
+  assert.deepEqual(view.errors, []);
 });
 
 test("a second tab cannot interrupt the first and attaches only after the first closes", options, async (t) => {
@@ -196,6 +194,7 @@ test("invitation refresh revokes an active guest before failed Stop completes", 
   await admin.page.getByTestId("invitation-details").locator("summary").click();
   assert.equal(await button(admin.page, "Copy").isDisabled(), true);
   await button(admin.page, "Refresh invitation").click();
+  await button(admin.page, "Confirm guest action").click();
   await waitFor(() => admin.session.pending.has("RefreshInvitation"), "admin invitation refresh");
   assert.equal(guest.session.saved.valid, false, "Revocation must not wait for Stop");
   const ended = guest.page.getByTestId("guest-disconnected");

@@ -1,6 +1,5 @@
 :root {
     --connection-panel-width: 640px;
-    --attachment-field-width: 7rem;
 }
 .device-stage { min-width: 0; width: min(var(--connection-panel-width), 100%); padding: var(--space-4); border: var(--border-width) solid var(--border); background: var(--surface); }
 .device-stage .section-heading { margin-bottom: var(--space-3); }
@@ -27,10 +26,6 @@
 .controls-content { padding: var(--space-4); border-top: var(--border-width) solid var(--line); }
 .session-controls .button-row { gap: var(--space-3); }
 .preview-station .pattern-preview { padding: 0; border: 0; }
-.attachment-field { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-3); margin-top: var(--space-4); border-top: var(--border-width) solid var(--line); padding-top: var(--space-3); font-size: var(--text-sm); }
-.attachment-field label { font-weight: var(--weight-label); }
-.attachment-field input { flex: 0 1 var(--attachment-field-width); font-variant-numeric: tabular-nums; }
-.field-unit { color: var(--muted); }
 .invitation-desk { min-width: 0; border: var(--border-width) solid var(--border); background: var(--field); }
 .invitation-details summary { min-height: var(--control-size); padding: var(--space-3) var(--space-4); cursor: pointer; }
 .invitation-details summary h2 { display: inline; font-size: var(--text-base); }

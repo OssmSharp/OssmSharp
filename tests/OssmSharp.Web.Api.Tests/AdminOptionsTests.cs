@@ -11,10 +11,11 @@ namespace OssmSharp.Web.Api.Tests;
 public sealed class AdminOptionsTests : MockerTestBase<AdminOptions>
 {
     [Fact]
-    public void LengthSettingsHaveDocumentedDefaults()
+    public void AdminOptionsNoLongerExposeRailLengthOrLengthUnit()
     {
-        Assert.Equal(40, Component.RailLengthCm);
-        Assert.Equal(LengthUnit.Centimetres, Component.LengthUnit);
+        Assert.Null(Component.GetType().GetProperty("RailLengthCm"));
+        Assert.Null(Component.GetType().GetProperty("LengthUnit"));
+        Assert.Null(typeof(AdminOptions).Assembly.GetType("OssmSharp.Web.ServiceDefaults.Models.LengthUnit"));
     }
 
     [Theory]
@@ -50,45 +51,13 @@ public sealed class AdminOptionsTests : MockerTestBase<AdminOptions>
             Assert.Throws<OptionsValidationException>(() => provider.GetRequiredService<IOptions<AdminOptions>>().Value);
     }
 
-    [Theory]
-    [InlineData("1", 1d)]
-    [InlineData("32.5", 32.5d)]
-    [InlineData("500", 500d)]
-    public void RailLengthIsConfiguredInCentimetres(string configured, double expected)
-    {
-        var options = Resolve(new() { ["OSSM:Admin:RailLengthCm"] = configured });
-
-        Assert.Equal(expected, options.Value.RailLengthCm);
-        Assert.Equal(LengthUnit.Centimetres, options.Value.LengthUnit);
-    }
-
-    [Theory]
-    [InlineData("0")]
-    [InlineData("-5")]
-    [InlineData("501")]
-    public void RailLengthOutsideTheSupportedRangeIsRejected(string configured)
-    {
-        var options = Resolve(new() { ["OSSM:Admin:RailLengthCm"] = configured });
-
-        Assert.Throws<OptionsValidationException>(() => options.Value);
-    }
-
-    [Theory]
-    [InlineData("Inches", LengthUnit.Inches)]
-    [InlineData("Centimetres", LengthUnit.Centimetres)]
-    public void LengthUnitSelectsHowLengthsAreEntered(string configured, LengthUnit expected)
-    {
-        var options = Resolve(new() { ["OSSM:Admin:LengthUnit"] = configured });
-
-        Assert.Equal(expected, options.Value.LengthUnit);
-    }
-
     [Fact]
-    public void UndefinedLengthUnitIsRejected()
+    public void LegacyDimensionConfigurationIsRejectedAsUnknown()
     {
-        var options = Resolve(new() { ["OSSM:Admin:LengthUnit"] = "42" });
-
-        Assert.Throws<OptionsValidationException>(() => options.Value);
+        var options = Resolve(new() { ["OSSM:Admin:RailLengthCm"] = "40", ["OSSM:Admin:LengthUnit"] = "Centimetres" });
+        var error = Assert.Throws<InvalidOperationException>(() => options.Value);
+        Assert.Contains("RailLengthCm", error.Message);
+        Assert.Contains("LengthUnit", error.Message);
     }
 
     private static IOptions<AdminOptions> Resolve(Dictionary<string, string?> settings)

@@ -56,6 +56,8 @@
 .guest-session > .pattern-preview .preview-rail { margin-block: var(--space-3); }
 .guest-session[data-control-waiting] > .pattern-preview,
 .guest-session[data-connection-lost] > .pattern-preview { filter: grayscale(1); }
+.send-status.success { animation: send-status-fade .5s ease 3s forwards; }
+@keyframes send-status-fade { to { opacity: 0; } }
 .guest-session[data-connection-lost] .guest-session-message,
 .guest-session[data-connection-lost] [data-browser-alert] { display: none; }
 main > [data-testid="guest-disconnected"] { display: none; }
@@ -76,6 +78,10 @@ html[data-guest-connection-lost] #blazor-error-ui.fatal-notice { display: none !
     .setting-channel { grid-template-columns: minmax(0, 1fr); row-gap: var(--space-3); }
     .slider-heading { grid-row: auto; display: flex; align-items: baseline; justify-content: space-between; }
 }
+@media (prefers-reduced-motion: reduce) {
+    .send-status.success { animation: send-status-fade 0s 3s forwards !important; }
+}
+
 @media (forced-colors: active) {
     .current-marker, .sent-marker { stroke: CanvasText; }
     .setting-range { background: Canvas; border-color: CanvasText; }

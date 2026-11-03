@@ -2,6 +2,7 @@ using System.ComponentModel.DataAnnotations;
 using System.Net;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -11,7 +12,8 @@ using Xunit;
 
 namespace OssmSharp.Web.Api.Tests;
 
-public sealed class GuestAccessPolicyTests
+public sealed class GuestAccessPolicyTests(GuestAccessPolicyTests.PublicAccessPolicyHost publicHost)
+    : IClassFixture<GuestAccessPolicyTests.PublicAccessPolicyHost>
 {
     private const string LocalOrigin = "http://127.0.0.1:5001";
 
@@ -69,9 +71,8 @@ public sealed class GuestAccessPolicyTests
     public async Task AccessPolicyMatchesHostOriginProtocolAndPeer(
         string host, string? origin, string? protocol, string method, string? peer, int expectedStatus)
     {
-        await using var app = await StartAccessPolicyAsync("https://guest.example");
-        using var http = new HttpClient();
-        using var request = new HttpRequestMessage(new HttpMethod(method), app.Urls.Single() + "/test");
+        using var http = publicHost.CreateClient();
+        using var request = new HttpRequestMessage(new HttpMethod(method), "/test");
         request.Headers.Host = host == "local" ? new Uri(LocalOrigin).Authority : host;
         if (origin is not null)
             request.Headers.TryAddWithoutValidation("Origin", origin == "local" ? LocalOrigin : origin);
@@ -100,8 +101,8 @@ public sealed class GuestAccessPolicyTests
     public async Task LocalOnlyModeRejectsPublicHostEvenWithForwardedHeaders()
     {
         await using var app = await StartAccessPolicyAsync(string.Empty);
-        using var http = new HttpClient();
-        using var request = new HttpRequestMessage(HttpMethod.Get, app.Urls.Single() + "/test");
+        using var http = app.GetTestClient();
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/test");
         request.Headers.Host = "guest.example";
         request.Headers.Add("X-Forwarded-Proto", "https");
         using var response = await http.SendAsync(request, TestContext.Current.CancellationToken);
@@ -111,15 +112,16 @@ public sealed class GuestAccessPolicyTests
     private static async Task<WebApplication> StartAccessPolicyAsync(string publicOrigin)
     {
         var builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseTestServer();
         builder.Configuration["AllowedHosts"] = "*";
         builder.Logging.ClearProviders();
         builder.Services.AddProblemDetails();
         var app = builder.Build();
-        app.Urls.Add("http://127.0.0.1:0");
         app.Use(async (context, next) =>
         {
-            if (context.Request.Headers["X-Test-Peer"].FirstOrDefault() is { } peer)
-                context.Connection.RemoteIpAddress = IPAddress.Parse(peer);
+            context.Connection.RemoteIpAddress = context.Request.Headers["X-Test-Peer"].FirstOrDefault() is { } peer
+                ? IPAddress.Parse(peer)
+                : IPAddress.Loopback;
             await next(context);
         });
         app.UseWebSockets();
@@ -135,5 +137,18 @@ public sealed class GuestAccessPolicyTests
             await app.DisposeAsync();
             throw;
         }
+    }
+
+    // Only the immutable public configuration is shared. Each row owns its request,
+    // response and client; the middleware keeps no session state between requests.
+    public sealed class PublicAccessPolicyHost : IAsyncLifetime
+    {
+        private WebApplication _app = null!;
+
+        public HttpClient CreateClient() => _app.GetTestClient();
+
+        public async ValueTask InitializeAsync() => _app = await StartAccessPolicyAsync("https://guest.example");
+
+        public ValueTask DisposeAsync() => _app.DisposeAsync();
     }
 }

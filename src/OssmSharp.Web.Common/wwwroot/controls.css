@@ -41,7 +41,6 @@
     --text-title: 1rem;
     --text-display: 1.25rem;
     --text-readout: 1.25rem;
-    --text-preview: 11px;
     --weight-label: 700;
     --weight-heading: 800;
     --space-1: 4px;
@@ -62,7 +61,6 @@
     --plot-cell: 24px;
     --plot-line: color-mix(in srgb, var(--line) 25%, transparent);
     --preview-range: color-mix(in srgb, var(--accent) 18%, var(--field));
-    --preview-person: var(--surface);
 }
 
 [data-theme="dark"] {
@@ -382,18 +380,7 @@ body:has(#blazor-error-ui[style*="display: block"]) .connection-notice { display
     stroke: var(--background);
     stroke-width: 1.5;
 }
-.preview-attachment, .preview-attachment-still { fill: var(--accent); }
-.preview-inserted, .preview-inserted-still { fill: var(--success-bg); stroke: var(--success); stroke-width: 1.5; stroke-dasharray: 3 2; }
-.preview-person { fill: var(--preview-person); stroke: var(--muted); stroke-width: 1; }
-.preview-entry { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 2 2; }
-.preview-label { fill: var(--text); font: var(--weight-label) var(--text-preview) var(--font-data); }
-.preview-range, .preview-attachment, .preview-attachment-still, .preview-inserted, .preview-inserted-still { rx: var(--radius); }
-.preview-still, .preview-attachment-still, .preview-inserted-still { display: none; }
-.preview-legend { display: flex; flex-wrap: wrap; gap: var(--space-3); font: var(--text-xs)/1.5 var(--font-data); }
-.preview-key { display: inline-block; width: var(--space-3); height: var(--space-2); margin-right: var(--space-1); background: var(--text); }
-.preview-key.attachment { border-radius: var(--radius); background: var(--accent); }
-.preview-key.inserted { border: var(--border-width) dashed var(--success); background: var(--success-bg); }
-.preview-caption { color: var(--muted); font-size: var(--text-xs); margin-top: var(--space-1); }
+.preview-still { display: none; }
 
 @media (max-width: 700px) {
     .page-header { flex-wrap: wrap; gap: var(--space-3); }
@@ -403,22 +390,14 @@ body:has(#blazor-error-ui[style*="display: block"]) .connection-notice { display
 
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
-    .preview-carriage, .preview-attachment, .preview-inserted { display: none; }
-    .preview-still, .preview-attachment-still, .preview-inserted-still { display: initial; }
+    .preview-carriage { display: none; }
+    .preview-still { display: initial; }
 }
 
 @media (forced-colors: active) {
     .preview-track, .preview-ticks, .preview-range { stroke: CanvasText; }
     .preview-range { fill: Canvas; }
     .preview-carriage, .preview-still { fill: Highlight; stroke: CanvasText; }
-    .preview-attachment, .preview-attachment-still { fill: CanvasText; }
-    .preview-inserted, .preview-inserted-still { fill: Canvas; stroke: CanvasText; }
-    .preview-person { fill: Canvas; stroke: CanvasText; }
-    .preview-entry { stroke: CanvasText; }
-    .preview-label { fill: CanvasText; }
-    .preview-key { background: CanvasText; }
-    .preview-key.attachment { background: Highlight; }
-    .preview-key.inserted { background: Canvas; border-color: CanvasText; }
     .dot, .notice-icon { forced-color-adjust: none; }
     .switch::after { background: CanvasText; forced-color-adjust: none; }
     .switch-label input:checked + .switch::after { background: Highlight; }

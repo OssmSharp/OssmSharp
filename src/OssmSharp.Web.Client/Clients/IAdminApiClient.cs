@@ -23,17 +23,6 @@ public interface IAdminApiClient : IAsyncDisposable
     Task<UserSessionState> GetStateAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Shares preview-only rail and attachment lengths with the guest without changing device settings.
-    /// </summary>
-    /// <param name="dimensions">Lengths in centimetres: rail from 1 to 500 and attachment from 0 to 500.</param>
-    /// <param name="cancellationToken" />
-    /// <returns>The accepted preview update.</returns>
-    /// <exception cref="ApiClientException">The API is unavailable or rejects the dimensions.</exception>
-    /// <exception cref="RpcClientRequestTimeoutException">The update response deadline expires.</exception>
-    /// <exception cref="OperationCanceledException">The caller cancels startup or the response wait.</exception>
-    Task<ControlResponse> SetPreviewDimensionsAsync(PreviewDimensions dimensions, CancellationToken cancellationToken = default);
-
-    /// <summary>
     /// Re-arms the device if needed and allows the admitted guest to submit settings until permission is revoked.
     /// </summary>
     /// <returns>The acknowledgement that guest control was allowed.</returns>

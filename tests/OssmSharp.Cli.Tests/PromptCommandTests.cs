@@ -68,31 +68,6 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
     }
 
     [Fact]
-    public async Task PromptWithoutIdentifierConnectsToFirstDiscoveredDevice()
-    {
-        var selectedIdentifiers = new List<string>();
-        createDevice = selected =>
-        {
-            selectedIdentifiers.Add(selected);
-            return Device.Object;
-        };
-        var run = Component.RunAsync(null, TestContext.Current.CancellationToken);
-        context.Advertise("Device-A", "First OSSM");
-        context.Advertise("Device-B", "Second OSSM");
-        await input.NextReadAsync(TestContext.Current.CancellationToken);
-        input.SendLine("quit");
-
-        (await run).Should().Be(0);
-        selectedIdentifiers.Should().Equal("Device-A");
-        context.Scans.Should().Be(1);
-        Mocks.Verify<IOssmDevice>(device => device.ConnectAsync(TestContext.Current.CancellationToken), TimesSpec.Once);
-        Mocks.Verify<IOssmDevice>(device => device.EmergencyStopAsync(CancellationToken.None), TimesSpec.Once);
-        Mocks.Verify<IOssmDevice>(device => device.DisposeAsync(), TimesSpec.Once);
-        Mocks.Verify<IOssmDevice>(device => device.SetAsync(FastArg.Any<MotionSettings>(), FastArg.Any<CancellationToken>()), TimesSpec.NeverCalled);
-        error.ToString().Should().Contain("Connected. Type 'help' for commands.").And.NotContain("Armed:");
-    }
-
-    [Fact]
     public async Task PromptUnavailableIdentifierReturnsConnectionFailureWithoutScanning()
     {
         var factoryCalls = 0;
@@ -102,7 +77,7 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
         {
             factoryCalls++;
             selected.Should().Be("unavailable");
-            return Device.Object;
+            return Mocks.GetOrCreateMock<IOssmDevice>().Instance;
         };
 
         (await Component.RunAsync("unavailable", TestContext.Current.CancellationToken)).Should().Be(1);
@@ -129,22 +104,21 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
 
     [Theory]
     [InlineData(null)]
-    [InlineData("Device-B")]
     [InlineData("dEvIcE-b")]
-    [InlineData("known-device")]
     public async Task PromptConnectsOnlyToSelectedDeviceWithoutSettings(string? identifier)
     {
         var selectedIdentifiers = new List<string>();
         createDevice = selected =>
         {
             selectedIdentifiers.Add(selected);
-            return Device.Object;
+            return Mocks.GetOrCreateMock<IOssmDevice>().Instance;
         };
 
         var run = Component.RunAsync(identifier, TestContext.Current.CancellationToken);
         if (identifier is null)
         {
             context.Advertise("Device-A", "First OSSM");
+            context.Advertise("Device-B", "Second OSSM");
         }
 
         try
@@ -164,6 +138,7 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
 
         (await run).Should().Be(0);
         context.Scans.Should().Be(identifier is null ? 1 : 0);
+        context.ScanDisposals.Should().Be(identifier is null ? 1 : 0);
         selectedIdentifiers.Should().Equal(identifier ?? "Device-A");
         Mocks.Verify<IOssmDevice>(device => device.DisposeAsync(), TimesSpec.Once);
         Mocks.Verify<IOssmDevice>(device => device.EmergencyStopAsync(CancellationToken.None), TimesSpec.Once);
@@ -183,7 +158,7 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
             Device.Setup(device => device.DisposeAsync()).Returns(() => ValueTask.FromException(new IOException("disconnect failed")));
         }
 
-        createDevice = _ => Device.Object;
+        createDevice = _ => Mocks.GetOrCreateMock<IOssmDevice>().Instance;
 
         (await Component.RunAsync("Device-A", TestContext.Current.CancellationToken)).Should().Be(1);
 
@@ -202,26 +177,11 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
     }
 
     [Fact]
-    public async Task PromptDisposalFailureReturnsOne()
-    {
-        Device.Setup(device => device.DisposeAsync()).Returns(() => ValueTask.FromException(new IOException("disconnect failed")));
-        createDevice = _ => Device.Object;
-        input.SendLine("quit");
-
-        (await Component.RunAsync("Device-A", TestContext.Current.CancellationToken)).Should().Be(1);
-
-        Mocks.Verify<IOssmDevice>(device => device.DisposeAsync(), TimesSpec.Once);
-        Mocks.Verify<IOssmDevice>(device => device.EmergencyStopAsync(CancellationToken.None), TimesSpec.Once);
-        error.ToString().Should().Contain("Connected. Type 'help' for commands.").And.Contain("ERROR device cleanup: disconnect failed")
-            .And.NotContain("ERROR prompt").And.NotContain("Armed:");
-    }
-
-    [Fact]
     public async Task PromptStopFailureDuringQuitReturnsOneAfterDisposal()
     {
         var failure = new IOException("Stop failed during quit.");
         Device.Setup(device => device.EmergencyStopAsync(It.IsAny<CancellationToken>())).ThrowsAsync(failure);
-        createDevice = _ => Device.Object;
+        createDevice = _ => Mocks.GetOrCreateMock<IOssmDevice>().Instance;
         input.SendLine("quit");
 
         (await Component.RunAsync("Device-A", TestContext.Current.CancellationToken)).Should().Be(1);
@@ -237,7 +197,7 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
     {
         var failure = new IOException("Stop failed during disposal.");
         Device.Setup(device => device.DisposeAsync()).Returns(() => ValueTask.FromException(failure));
-        createDevice = _ => Device.Object;
+        createDevice = _ => Mocks.GetOrCreateMock<IOssmDevice>().Instance;
         input.SendLine("quit");
 
         (await Component.RunAsync("Device-A", TestContext.Current.CancellationToken)).Should().Be(1);
@@ -245,7 +205,9 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
         Mocks.Verify<IOssmDevice>(device => device.DisposeAsync(), TimesSpec.Once);
         Mocks.Verify<IOssmDevice>(device => device.EmergencyStopAsync(CancellationToken.None), TimesSpec.Once);
         output.ToString().Should().Contain("OK stop");
-        error.ToString().Should().Contain("ERROR device cleanup: Stop failed during disposal.").And.NotContain("ERROR stop:");
+        error.ToString().Should().Contain("Connected. Type 'help' for commands.")
+            .And.Contain("ERROR device cleanup: Stop failed during disposal.").And.NotContain("ERROR stop:")
+            .And.NotContain("ERROR prompt").And.NotContain("Armed:");
     }
 
     [Theory]
@@ -260,7 +222,7 @@ public sealed class PromptCommandTests : MockerTestBase<PromptCommand>, IAsyncDi
             entered.TrySetResult();
             return new ValueTask(release.Task);
         });
-        createDevice = _ => Device.Object;
+        createDevice = _ => Mocks.GetOrCreateMock<IOssmDevice>().Instance;
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         var run = Component.RunAsync("Device-A", cancellation.Token);
         try

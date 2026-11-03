@@ -48,8 +48,6 @@ public sealed class PatternPreviewTests : MockerTestBase<PatternPreview>
     [InlineData(30, 1, 1, "1.3333s")]
     [InlineData(100, 1, 1, "0.4s")]
     [InlineData(100, 100, 100, "0.4s")]
-    [InlineData(0, 10, 20, null)]
-    [InlineData(50, 10, 20, "0.8s")]
     public void IllustrativeTimingUsesRequestedSpeedAndTravelEligibility(double speed, int stroke, int depth, string? duration)
     {
         SetParameters(0, speed, stroke, depth, 50);
@@ -59,24 +57,37 @@ public sealed class PatternPreviewTests : MockerTestBase<PatternPreview>
     }
 
     [Fact]
-    public void AttachmentAndInsertionUseTheSameLengthScale()
+    public void CarriageRangeUsesPercentagesWithoutConfigurableDimensions()
     {
-        foreach (var (attachment, rail, stroke, depth, minimum, maximum) in new[]
+        foreach (var (stroke, depth, start, end) in new[]
         {
-            (24.0, 40.0, 100, 100, 0.0, 24.0),
-            (24.0, 40.0, 20, 60, 0.0, 8.0),
-            (24.0, 40.0, 0, 50, 4.0, 4.0),
-            (0.0, 40.0, 100, 100, 0.0, 0.0),
-            (80.0, 40.0, 100, 100, 40.0, 80.0),
+            (100, 100, 24.0, 224.0),
+            (20, 60, 104.0, 144.0),
+            (0, 50, 124.0, 124.0),
+            (100, 0, 24.0, 24.0),
         })
         {
-            ComponentTestAccess.Set(Component, nameof(PatternPreview.AttachmentLength), attachment);
-            ComponentTestAccess.Set(Component, nameof(PatternPreview.RailLength), rail);
             SetParameters(0, 50, stroke, depth, 50);
-            Assert.Equal(attachment / rail, Read<double>("AttachmentTravel"));
-            Assert.Equal(minimum, Read<double>("MinimumInsertionCm"), precision: 6);
-            Assert.Equal(maximum, Read<double>("MaximumInsertionCm"), precision: 6);
+            Assert.Equal(start, Read<double>("Start"));
+            Assert.Equal(end, Read<double>("End"));
+            Assert.Equal(start.ToString(System.Globalization.CultureInfo.InvariantCulture), Read<string>("RangeStart"));
+            Assert.Equal(Math.Max(1, end - start).ToString(System.Globalization.CultureInfo.InvariantCulture), Read<string>("RangeWidth"));
         }
+        Assert.Null(typeof(PatternPreview).GetProperty("AttachmentLength"));
+        Assert.Null(typeof(PatternPreview).GetProperty("RailLength"));
+    }
+
+    [Fact]
+    public void HeadingDefaultsVisibleAndCanBeHiddenWithoutLosingAccessibleLabel()
+    {
+        SetParameters(4, 50, 10, 20, 75);
+        Assert.True(Component.ShowHeading);
+        Assert.True(ComponentTestAccess.HasElement(Component, "h2"));
+        Assert.False(ComponentTestAccess.HasElement(Component, "circle"));
+        Assert.False(ComponentTestAccess.HasElement(Component, "p"));
+        ComponentTestAccess.Set(Component, nameof(PatternPreview.ShowHeading), false);
+        Assert.False(ComponentTestAccess.HasElement(Component, "h2"));
+        Assert.Equal("Deeper preview at 50% speed, 10% stroke, 20% depth, and 75% sensation", Read<string>("PreviewLabel"));
     }
 
     [Fact]

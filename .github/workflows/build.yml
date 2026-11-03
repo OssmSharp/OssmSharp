@@ -34,17 +34,17 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
-        with:
-          dotnet-version: 10.0.401
-          workloads: ${{ runner.os == 'macOS' && 'macos' || '' }}
-      - name: Select Xcode 27
+      - name: Select Xcode 27.1
         if: runner.os == 'macOS'
         run: |
-          $env:DEVELOPER_DIR = '/Applications/Xcode_27.0.app/Contents/Developer'
+          $env:DEVELOPER_DIR = '/Applications/Xcode_27.1.app/Contents/Developer'
           "DEVELOPER_DIR=$env:DEVELOPER_DIR" >> $env:GITHUB_ENV
           xcodebuild -version
-          if ($LASTEXITCODE -ne 0) { throw 'Xcode 27 is unavailable.' }
+          if ($LASTEXITCODE -ne 0) { throw 'Xcode 27.1 is unavailable.' }
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+          workloads: ${{ runner.os == 'macOS' && 'macos' || '' }}
       - name: Set up existing PowerShell test dependency
         run: |
           if (-not (Get-Module -ListAvailable Pester | Where-Object Version -EQ '6.1.0')) {

@@ -45,7 +45,7 @@ public sealed class ServiceKeyAuthenticatorTests : MockerTestBase<ServiceKeyAuth
     {
         var identity = Component.Authenticate(new StringValues([
             $"ServiceKey {AdminKey}",
-            $"ServiceKey {GuestKey}"
+            $"ServiceKey {GuestKey}",
         ]));
 
         Assert.Null(identity);

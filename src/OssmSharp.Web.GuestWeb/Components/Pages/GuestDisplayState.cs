@@ -10,6 +10,13 @@ namespace OssmSharp.Web.GuestWeb.Components.Pages;
 /// <param name="PreviewStopped">Whether Stop, reset, or unavailable control pauses the illustration.</param>
 /// <param name="ErrorVariant">The semantic style for feedback: danger, warning, or info.</param>
 /// <param name="CanSend">Whether the browser has a changed selection available for manual sending.</param>
+/// <param name="SentNoticeVersion">Identifies a completed send so its feedback fade restarts only for a new result.</param>
 public sealed record GuestDisplayState(
-    BrowserSettings Selected, BrowserSettings? Sent, string Status, string? Error, bool PreviewStopped = false,
-    string ErrorVariant = "danger", bool CanSend = false);
+    BrowserSettings Selected,
+    BrowserSettings? Sent,
+    string Status,
+    string? Error,
+    bool PreviewStopped = false,
+    string ErrorVariant = "danger",
+    bool CanSend = false,
+    long SentNoticeVersion = 0);

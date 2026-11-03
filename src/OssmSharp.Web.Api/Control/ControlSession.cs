@@ -18,7 +18,6 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
     private readonly IDeviceDiscovery _discovery;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<ControlSession> _logger;
-    private PreviewDimensions _previewDimensions = new();
     private IOssmDevice? _device;
     private string? _deviceIdentifier;
     private string? _deviceName;
@@ -91,7 +90,6 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
                 null,
                 device)
             {
-                Preview = _previewDimensions,
                 GuestConnected = _guestConnectionId is not null,
                 GuestSessionExpiresAt = _guestExpiresAt,
                 InvitationConsumed = _guestExpiresAt is not null,
@@ -110,6 +108,7 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
         }
         catch (Exception exception) when (exception is IOException or InvalidOperationException or OperationCanceledException)
         {
+            LogDeviceFailure("GetGuestState", exception is InvalidOperationException ? DeviceNotReady : DeviceIoFailed, exception);
         }
         var device = await GetDeviceStateAsync(cancellationToken).ConfigureAwait(false);
         lock (_sync)
@@ -118,38 +117,9 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
             var allowed = joined && HasActiveControlLocked();
             return new GuestSessionState(joined, allowed, null, joined ? device : null, joined && allowed && _guestStopped && !_stopRequired && !_resettingPosition)
             {
-                Preview = joined ? _previewDimensions : null,
                 SessionExpiresAt = joined ? _guestExpiresAt : null,
             };
         }
-    }
-
-    /// <inheritdoc />
-    public ControlResponse SetPreviewDimensions(string correlation, PreviewDimensions? dimensions)
-    {
-        if (!ValidCorrelation(correlation))
-        {
-            _logger.PreviewRejected(InvalidCorrelation);
-            return Rejected(correlation, InvalidCorrelation);
-        }
-        if (dimensions is null || !double.IsFinite(dimensions.RailLengthCm) || !double.IsFinite(dimensions.AttachmentLengthCm)
-            || dimensions.RailLengthCm is < PreviewDimensions.MinimumRailLengthCm or > PreviewDimensions.MaximumLengthCm
-            || dimensions.AttachmentLengthCm is < 0 or > PreviewDimensions.MaximumLengthCm)
-        {
-            _logger.PreviewRejected(InvalidPreviewDimensions);
-            return Rejected(correlation, InvalidPreviewDimensions);
-        }
-        lock (_sync)
-        {
-            if (_shuttingDown)
-            {
-                _logger.PreviewRejected(Cancelled);
-                return Rejected(correlation, Cancelled);
-            }
-            _previewDimensions = dimensions;
-        }
-        _logger.PreviewUpdated(dimensions.RailLengthCm, dimensions.AttachmentLengthCm);
-        return Accepted(correlation, ControlResponseCodes.PreviewUpdated);
     }
 
     /// <inheritdoc />
@@ -266,7 +236,7 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
             version = _permissionVersion;
         }
 
-        return await DeviceCommandAsync(correlation, ControlAllowed, async () =>
+        return await DeviceCommandAsync("AllowGuest", correlation, ControlAllowed, async () =>
         {
             if (!device.IsArmed)
             {
@@ -348,6 +318,7 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
             return RejectedSettings(request.Correlation, InvalidSettings);
         }
 
+        _logger.SettingsRequested(request.Pattern, request.Speed, request.Stroke, request.Depth, request.Sensation);
         Task<SetResult>? operation = null;
         string? rejection = null;
         lock (_sync)
@@ -367,6 +338,11 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
             else
             {
                 operation = SubmitDeviceAsync(connectionId, settings, cancellationToken);
+            }
+
+            if (rejection is not null)
+            {
+                _logger.SettingsRejected(rejection, _device?.IsConnected == true, _device?.IsArmed == true, _stopRequired, _resettingPosition);
             }
         }
 
@@ -392,19 +368,25 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
         }
         catch (DeviceWriteException exception)
         {
-            return new(request.Correlation, SettingsResponseStatus.Failed, exception.CommandsWritten, SettingsFailureCode(exception, DeviceWriteFailed));
+            var code = SettingsFailureCode(exception, DeviceWriteFailed);
+            LogDeviceFailure("Submit", code, exception, exception.CommandsWritten);
+            return new(request.Correlation, SettingsResponseStatus.Failed, exception.CommandsWritten, code);
         }
         catch (OperationCanceledException)
         {
+            _logger.ControlOperationCancelled("Submit");
             return new(request.Correlation, SettingsResponseStatus.Cancelled, 0);
         }
-        catch (InvalidOperationException)
+        catch (InvalidOperationException exception)
         {
+            LogDeviceFailure("Submit", DeviceNotReady, exception);
             return new(request.Correlation, SettingsResponseStatus.Failed, 0, DeviceNotReady);
         }
         catch (IOException exception)
         {
-            return new(request.Correlation, SettingsResponseStatus.Failed, 0, SettingsFailureCode(exception, DeviceIoFailed));
+            var code = SettingsFailureCode(exception, DeviceIoFailed);
+            LogDeviceFailure("Submit", code, exception);
+            return new(request.Correlation, SettingsResponseStatus.Failed, 0, code);
         }
     }
 
@@ -498,7 +480,7 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
 
     /// <inheritdoc />
     public Task<ControlResponse> ConnectAsync(string correlation, CancellationToken cancellationToken) =>
-        DeviceCommandAsync(correlation, Connected, () => ConnectDeviceAsync(cancellationToken));
+        DeviceCommandAsync("Connect", correlation, Connected, () => ConnectDeviceAsync(cancellationToken));
 
     /// <inheritdoc />
     public async Task ExpireGuestAsync()
@@ -590,35 +572,6 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
         }
     }
 
-    private static async Task<ControlResponse> DeviceCommandAsync(
-        string correlation,
-        string successCode,
-        Func<Task> operation)
-    {
-        if (!ValidCorrelation(correlation))
-        {
-            return Rejected(correlation, InvalidCorrelation);
-        }
-
-        try
-        {
-            await operation().ConfigureAwait(false);
-            return Accepted(correlation, successCode);
-        }
-        catch (OperationCanceledException)
-        {
-            return Rejected(correlation, Cancelled);
-        }
-        catch (InvalidOperationException)
-        {
-            return Rejected(correlation, DeviceNotReady);
-        }
-        catch (Exception exception) when (exception is IOException or AggregateException)
-        {
-            return Rejected(correlation, DeviceIoFailed);
-        }
-    }
-
     private static async Task CancelSelectionAsync(CancellationTokenSource cancellation, Task selection)
     {
         await cancellation.CancelAsync().ConfigureAwait(false);
@@ -640,6 +593,67 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
 
     private static SettingsResponse RejectedSettings(string? correlation, string code) =>
         new(correlation ?? string.Empty, SettingsResponseStatus.Rejected, 0, code);
+
+    private static async Task CancelWorkAsync(CancellationTokenSource cancellation)
+    {
+        try
+        {
+            await cancellation.CancelAsync().ConfigureAwait(false);
+        }
+        finally
+        {
+            cancellation.Dispose();
+        }
+    }
+
+    private static async Task WaitForDeviceWorkAsync(Task operation, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await operation.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _ = operation.ContinueWith(
+                completed => _ = completed.Exception,
+                CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+        }
+    }
+
+    private async Task<ControlResponse> DeviceCommandAsync(
+        string operationName,
+        string correlation,
+        string successCode,
+        Func<Task> operation)
+    {
+        if (!ValidCorrelation(correlation))
+        {
+            return Rejected(correlation, InvalidCorrelation);
+        }
+
+        try
+        {
+            await operation().ConfigureAwait(false);
+            return Accepted(correlation, successCode);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.ControlOperationCancelled(operationName);
+            return Rejected(correlation, Cancelled);
+        }
+        catch (InvalidOperationException exception)
+        {
+            LogDeviceFailure(operationName, DeviceNotReady, exception);
+            return Rejected(correlation, DeviceNotReady);
+        }
+        catch (Exception exception) when (exception is IOException or AggregateException)
+        {
+            LogDeviceFailure(operationName, DeviceIoFailed, exception);
+            return Rejected(correlation, DeviceIoFailed);
+        }
+    }
 
     private async Task ConnectDeviceAsync(CancellationToken cancellationToken)
     {
@@ -736,14 +750,17 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
         }
         catch (OperationCanceledException)
         {
+            _logger.ControlOperationCancelled("Stop");
             return Rejected(correlation, Cancelled);
         }
-        catch (InvalidOperationException)
+        catch (InvalidOperationException exception)
         {
+            LogDeviceFailure("Stop", DeviceNotConnected, exception);
             return Rejected(correlation, DeviceNotConnected);
         }
-        catch (IOException)
+        catch (IOException exception)
         {
+            LogDeviceFailure("Stop", DeviceIoFailed, exception);
             return Rejected(correlation, DeviceIoFailed);
         }
     }
@@ -756,10 +773,11 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
         }
         catch (OperationCanceledException)
         {
+            _logger.ControlOperationCancelled("AutomaticStop");
         }
         catch (Exception exception) when (exception is IOException or InvalidOperationException)
         {
-            _logger.GuestStopCleanupIncomplete(exception is IOException ? DeviceIoFailed : DeviceNotConnected);
+            _logger.GuestStopCleanupIncomplete(exception is IOException ? DeviceIoFailed : DeviceNotConnected, exception);
         }
     }
 
@@ -914,7 +932,7 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
             _resettingPosition = true;
             _guestStopped = _guestControlAllowed;
             _lastSentSettings = null;
-            return DeviceCommandAsync(correlation, PositionReset, () => ResetPositionDeviceAsync(_device, cancellationToken));
+            return DeviceCommandAsync("ResetPosition", correlation, PositionReset, () => ResetPositionDeviceAsync(_device, cancellationToken));
         }
     }
 
@@ -954,6 +972,32 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
                     _resettingPosition = false;
                 }
             }
+        }
+    }
+
+    private void LogDeviceFailure(string operation, string code, Exception exception, int commandsWritten = 0)
+    {
+        if (exception is OperationCanceledException)
+        {
+            _logger.ControlOperationCancelled(operation);
+            return;
+        }
+
+        var rejection = exception.GetBaseException() as DeviceRequestException;
+        lock (_sync)
+        {
+            _logger.DeviceOperationFailed(
+                exception is InvalidOperationException ? LogLevel.Warning : LogLevel.Error,
+                operation,
+                code,
+                commandsWritten,
+                _device?.IsConnected == true,
+                _device?.IsArmed == true,
+                _stopRequired,
+                _resettingPosition,
+                rejection?.Code,
+                rejection?.DeviceState,
+                exception);
         }
     }
 
@@ -1105,34 +1149,6 @@ public sealed class ControlSession : IControlSession, IAsyncDisposable
 
     private CancellationToken GetWorkTokenLocked() =>
         (_workCancellation ??= new CancellationTokenSource()).Token;
-
-    private static async Task CancelWorkAsync(CancellationTokenSource cancellation)
-    {
-        try
-        {
-            await cancellation.CancelAsync().ConfigureAwait(false);
-        }
-        finally
-        {
-            cancellation.Dispose();
-        }
-    }
-
-    private static async Task WaitForDeviceWorkAsync(Task operation, CancellationToken cancellationToken)
-    {
-        try
-        {
-            await operation.WaitAsync(cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            _ = operation.ContinueWith(
-                completed => _ = completed.Exception,
-                CancellationToken.None,
-                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
-                TaskScheduler.Default);
-        }
-    }
 
     private bool IsCurrentGuestLocked(string connectionId)
     {

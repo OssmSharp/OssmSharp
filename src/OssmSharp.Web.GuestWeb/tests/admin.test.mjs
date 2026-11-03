@@ -5,26 +5,25 @@ import { createContext, SourceTextModule } from "node:vm";
 
 const source = await readFile(new URL("../../OssmSharp.Web.AdminWeb/wwwroot/admin.js", import.meta.url), "utf8");
 
-async function adminHarness(storage) {
-  const context = createContext({ localStorage: storage });
+async function adminHarness(clipboard) {
+  const context = createContext({ navigator: { clipboard } });
   const module = new SourceTextModule(source, { context });
   await module.link(() => assert.fail("Unexpected import"));
   await module.evaluate();
-  return { api: module.namespace };
+  return module.namespace;
 }
 
-test("saving attachment length preserves centimetres and surfaces unavailable storage", async () => {
-  const stored = new Map();
-  const failure = new Error("Storage unavailable.");
-  const storage = {
-    setItem(key, value) { stored.set(key, value); },
-    getItem(key) { return stored.get(key) ?? null; },
-  };
-  const h = await adminHarness(storage);
-  h.api.writeAttachmentLength(27.25);
-  assert.equal(stored.get("ossm-admin-attachment-length-cm"), "27.25");
-  assert.equal(h.api.readAttachmentLength(24), 27.25);
-  storage.setItem = () => { throw failure; };
-  assert.throws(() => h.api.writeAttachmentLength(28), (error) => error === failure);
-  assert.equal(stored.get("ossm-admin-attachment-length-cm"), "27.25");
+test("copy passes the exact invitation to the clipboard and confirms completion", async () => {
+  const copied = [];
+  const api = await adminHarness({ writeText: async (text) => copied.push(text) });
+  const invitation = "https://guest.example/join#invite=isolated-invite";
+  assert.equal(await api.copy(invitation), true);
+  assert.deepEqual(copied, [invitation]);
+});
+
+test("copy returns failure when clipboard access is rejected or unavailable", async () => {
+  for (const clipboard of [undefined, { writeText: async () => { throw new Error("Clipboard unavailable"); } }]) {
+    const api = await adminHarness(clipboard);
+    assert.equal(await api.copy("isolated-invite"), false);
+  }
 });

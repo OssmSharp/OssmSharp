@@ -3,6 +3,7 @@ using FastMoq;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Time.Testing;
 using OssmSharp.Web.Client.Clients;
 using OssmSharp.Web.Client.Connections;
 using OssmSharp.Web.Client.Models;
@@ -163,7 +164,8 @@ public sealed class AdminApiClientConnectionTests : MockerTestBase<AdminApiClien
         app.MapHub<BlockingControlHub>("/hubs/control/v2");
         await app.StartAsync(TestContext.Current.CancellationToken);
         options.EndpointUri = app.Urls.Single();
-        await using var scope = new RpcClientTestScope(options);
+        var clock = new DeadlineTimeProvider();
+        await using var scope = new RpcClientTestScope(options, timeProvider: clock);
         await using var client = new AdminApiClient(scope.Connection);
         using var pending = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         var connect = resetPosition ? client.ResetPositionAsync(pending.Token) : client.ConnectAsync(pending.Token);
@@ -171,17 +173,33 @@ public sealed class AdminApiClientConnectionTests : MockerTestBase<AdminApiClien
         {
             await entered.Task.WaitAsync(TestContext.Current.CancellationToken);
 
-            await Assert.ThrowsAsync<RpcClientRequestTimeoutException>(
-                () => client.StopAsync(TestContext.Current.CancellationToken));
-
+            var stop = client.StopAsync(TestContext.Current.CancellationToken);
+            await clock.DeadlineRegistered.Task.WaitAsync(TestContext.Current.CancellationToken);
+            Assert.False(stop.IsCompleted);
+            clock.Advance(TimeSpan.FromSeconds(2));
+            await Assert.ThrowsAsync<RpcClientRequestTimeoutException>(() => stop);
             Assert.False(connect.IsCompleted);
+            await pending.CancelAsync();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => connect);
         }
         finally
         {
             await pending.CancelAsync();
-            try { await connect; }
-            catch (OperationCanceledException) { }
-            catch (RpcClientRequestTimeoutException) { }
+            if (!connect.IsCompleted)
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => connect);
+        }
+    }
+
+    private sealed class DeadlineTimeProvider : FakeTimeProvider
+    {
+        public TaskCompletionSource DeadlineRegistered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            var timer = base.CreateTimer(callback, state, dueTime, period);
+            if (dueTime == TimeSpan.FromSeconds(1))
+                DeadlineRegistered.TrySetResult();
+            return timer;
         }
     }
 

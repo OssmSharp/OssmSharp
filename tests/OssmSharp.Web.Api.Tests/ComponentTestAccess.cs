@@ -5,8 +5,6 @@ using Microsoft.AspNetCore.Components.RenderTree;
 
 namespace OssmSharp.Web.Api.Tests;
 
-#pragma warning disable BL0006 // Deliberate test-only access to the existing Razor render branches.
-
 // These tests intentionally exercise state/calculations, not browser markup or lifecycle wiring.
 internal static class ComponentTestAccess
 {

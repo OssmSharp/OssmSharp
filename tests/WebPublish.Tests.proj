@@ -1,0 +1,48 @@
+<Project DefaultTargets="Test">
+  <Import Project="../src/OssmSharp.Web/OssmSharp.Web.csproj" />
+
+  <PropertyGroup>
+    <AssemblyName>OssmSharp.Web</AssemblyName>
+    <_HostSettingsPath>$([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)', '../src/OssmSharp.Web/appsettings.json'))</_HostSettingsPath>
+    <AppHostIntermediatePath>$([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)', 'host/apphost$(TestExecutableExtension)'))</AppHostIntermediatePath>
+    <AppHostForPublishIntermediatePath>$([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)', 'host/apphost_publish$(TestExecutableExtension)'))</AppHostForPublishIntermediatePath>
+    <ProjectRuntimeConfigFilePath>$([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)', 'host/OssmSharp.Web.runtimeconfig.json'))</ProjectRuntimeConfigFilePath>
+  </PropertyGroup>
+
+  <!-- Exercise the real selection target without compiling applications or restoring packages. -->
+  <Target Name="ComputeResolvedFilesToPublishList">
+    <ItemGroup>
+      <_ExcludedPublishFile Include="admin/apphost$(TestExecutableExtension);guest/apphost$(TestExecutableExtension);guest/apphost_publish$(TestExecutableExtension);api/OssmSharp.Web.Api.runtimeconfig.json;admin/OssmSharp.Web.AdminWeb.runtimeconfig.json;guest/OssmSharp.Web.GuestWeb.runtimeconfig.json;../src/OssmSharp.Web.Api/appsettings.json;../src/OssmSharp.Web.AdminWeb/appsettings.json;../src/OssmSharp.Web.GuestWeb/appsettings.json" />
+      <_ExpectedPublishFile Include="$(_HostSettingsPath);$(AppHostIntermediatePath);$(AppHostForPublishIntermediatePath);$(ProjectRuntimeConfigFilePath);OssmSharp.Web.dll;OssmSharp.Web.Api.dll;OssmSharp.Web.AdminWeb.dll;OssmSharp.Web.GuestWeb.dll;libdependency.dylib;unrelated.json" />
+      <_PackagedApplicationAssets Include="applications/OssmSharp.Web.AdminWeb/wwwroot/admin.css;applications/OssmSharp.Web.GuestWeb/wwwroot/guest.css;OssmSharp.Web.AdminWeb.staticwebassets.endpoints.json;OssmSharp.Web.GuestWeb.staticwebassets.endpoints.json" />
+      <_PackagedApplicationAssets>
+        <RelativePath>%(_PackagedApplicationAssets.Identity)</RelativePath>
+      </_PackagedApplicationAssets>
+      <ResolvedFileToPublish Include="@(_ExcludedPublishFile);@(_ExpectedPublishFile);admin/OssmSharp.Web.AdminWeb.staticwebassets.endpoints.json;guest/OssmSharp.Web.GuestWeb.staticwebassets.endpoints.json" />
+      <ResolvedFileToPublish>
+        <RelativePath>%(ResolvedFileToPublish.Identity)</RelativePath>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+  </Target>
+
+  <!-- macOS calculates bundle locations while preparing linker arguments, before ComputeFilesToPublish. -->
+  <Target Name="_ComputePublishLocation">
+    <ItemGroup>
+      <_UnexpectedPublishFile Include="@(ResolvedFileToPublish)" />
+      <_UnexpectedPublishFile Remove="@(_ExpectedPublishFile);@(_PackagedApplicationAssets)" />
+      <_MissingPublishFile Include="@(_ExpectedPublishFile);@(_PackagedApplicationAssets)" />
+      <_MissingPublishFile Remove="@(ResolvedFileToPublish)" />
+      <_RequiredPublishFile Include="@(_ExpectedPublishFile);@(_PackagedApplicationAssets)" />
+    </ItemGroup>
+    <Error Condition="'@(_UnexpectedPublishFile)' != ''" Text="Unexpected files at bundle location calculation: @(_UnexpectedPublishFile)" />
+    <Error Condition="'@(_MissingPublishFile)' != ''" Text="Required files missing at bundle location calculation: @(_MissingPublishFile)" />
+    <Error Condition="'@(ResolvedFileToPublish->Count())' != '@(_RequiredPublishFile->Count())'"
+        Text="Publish files must not contain duplicates." />
+  </Target>
+
+  <Target Name="ComputeFilesToPublish" DependsOnTargets="ComputeResolvedFilesToPublishList" />
+
+  <Target Name="Test" DependsOnTargets="ComputeResolvedFilesToPublishList;_ComputePublishLocation;ComputeFilesToPublish">
+    <Message Importance="High" Text="Web publish selection preserves host files and panel assets and excludes referenced executable files before bundle location calculation." />
+  </Target>
+</Project>

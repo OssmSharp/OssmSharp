@@ -32,18 +32,6 @@ public sealed class ProgramTests
     }
 
     [Fact]
-    public async Task MainVersionReturnsZeroWithoutDeviceAccess()
-    {
-        using var output = new StringWriter();
-        using var error = new StringWriter();
-
-        (await Program.InvokeAsync(["--version"], output, error)).Should().Be(0);
-
-        output.ToString().Trim().Should().MatchRegex(@"^\d+\.\d+\.\d+[^\r\n]*$");
-        error.ToString().Should().BeEmpty();
-    }
-
-    [Fact]
     public async Task MainVersionMatchesApplicationMetadataExactly()
     {
         using var output = new StringWriter();
@@ -54,6 +42,7 @@ public sealed class ProgramTests
 
         version.Should().NotBeNull();
         output.ToString().Should().Be(version!.InformationalVersion + Environment.NewLine);
+        output.ToString().Trim().Should().MatchRegex(@"^\d+\.\d+\.\d+[^\r\n]*$");
         error.ToString().Should().BeEmpty();
     }
 

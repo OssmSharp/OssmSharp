@@ -33,8 +33,11 @@ internal static class GuestSessionEndpoints
             var session = await client.GetSavedSessionAsync(credential, context.RequestAborted);
             return Results.Ok(new
             {
-                code = "ready", requestToken = antiforgery.GetAndStoreTokens(context).RequestToken, connected = session.Connected,
-                canAttach = session.CanAttach, expiresAt = session.ExpiresAt,
+                code = "ready",
+                requestToken = antiforgery.GetAndStoreTokens(context).RequestToken,
+                connected = session.Connected,
+                canAttach = session.CanAttach,
+                expiresAt = session.ExpiresAt,
             });
         }
         catch (ApiClientException error) when (error.Code == ControlResponseCodes.InvalidGuestSession)
