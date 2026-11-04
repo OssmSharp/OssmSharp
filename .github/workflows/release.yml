@@ -1,8 +1,12 @@
 name: Release
 
+# Only draft releases can receive binaries. Published releases fail preflight.
 on:
   push:
     tags: ["v*"]
+  release:
+    types: [published]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -11,25 +15,31 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
+defaults:
+  run:
+    shell: bash
+
+env:
+  RELEASE_TAG: ${{ github.ref_name }}
+  GH_TOKEN: ${{ github.token }}
+  GH_REPO: ${{ github.repository }}
+
 jobs:
   preflight:
-    name: Validate release tag
+    name: Require draft release
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Require matching stable tag
-        shell: pwsh
+      - name: Check release before building
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
           NUGET_USER: ${{ vars.NUGET_USER }}
         run: |
-          Import-Module ./.github/scripts/ReleaseTools.psm1
-          Get-ReleaseMetadata $PWD -Tag $env:RELEASE_TAG | Out-Null
-          if ([string]::IsNullOrWhiteSpace($env:NUGET_USER)) { throw 'Configure the NUGET_USER repository variable and NuGet trusted publishing.' }
+          [[ "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || { echo "::error::Run this workflow on a stable vX.Y.Z tag."; exit 1; }
+          draft=$(gh api --paginate "repos/$GH_REPO/releases" | jq -sr --arg tag "$RELEASE_TAG" '[.[][] | select(.tag_name == $tag)][0] | if . == null then "missing" else .draft | tostring end')
+          [[ "$draft" != false ]] || { echo "::error::Release $RELEASE_TAG is already published. Binaries require a draft release. Use a new version and let this workflow publish it."; exit 1; }
+          [[ -n "$NUGET_USER" ]] || { echo "::error::Configure NUGET_USER and NuGet trusted publishing."; exit 1; }
+          if [[ "$draft" == missing ]]; then gh release create "$RELEASE_TAG" --verify-tag --draft --generate-notes; fi
 
   build:
     needs: preflight
@@ -45,12 +55,6 @@ jobs:
     permissions:
       contents: write
       id-token: write
-    defaults:
-      run:
-        shell: pwsh
-    env:
-      RELEASE_TAG: ${{ github.ref_name }}
-      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -65,10 +69,10 @@ jobs:
           pattern: downloads-*
           merge-multiple: true
           path: .artifacts/release-input/
-      - name: Create or reuse the GitHub draft
-        run: ./.github/scripts/Publish-Release.ps1 -Tag $env:RELEASE_TAG -Directory .artifacts/release-input -Stage Prepare -Confirm:$false
-      - name: Upload release assets
-        run: ./.github/scripts/Publish-Release.ps1 -Tag $env:RELEASE_TAG -Directory .artifacts/release-input -Stage Upload -Confirm:$false
+      - name: Upload binaries to the draft
+        run: |
+          [[ "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" == true ]] || { echo "::error::Release must still be a draft."; exit 1; }
+          gh release upload "$RELEASE_TAG" .artifacts/release-input/* --clobber
       - name: Obtain a short-lived NuGet publishing key
         id: nuget
         uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1.2.0
@@ -76,7 +80,8 @@ jobs:
           user: ${{ vars.NUGET_USER }}
       - name: Publish NuGet package
         env:
+          # NuGet/login obtains this temporary key through OIDC trusted publishing.
           NUGET_API_KEY: ${{ steps.nuget.outputs.NUGET_API_KEY }}
-        run: ./.github/scripts/Publish-Release.ps1 -Tag $env:RELEASE_TAG -Directory .artifacts/release-input -Stage NuGet -Confirm:$false
+        run: dotnet nuget push ".artifacts/release-input/OssmSharp.Runtime.Oem.${RELEASE_TAG#v}.nupkg" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
       - name: Publish the stable GitHub release
-        run: ./.github/scripts/Publish-Release.ps1 -Tag $env:RELEASE_TAG -Directory .artifacts/release-input -Stage Publish -Confirm:$false
+        run: gh release edit "$RELEASE_TAG" --draft=false --prerelease=false --latest
