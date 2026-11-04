@@ -159,8 +159,11 @@ Describe 'Release downloads and publication' {
         Should -Invoke Invoke-CheckedCommand -Times 1 -Exactly -ParameterFilter { $Arguments[1] -eq 'create' }
     }
 
-    It 'creates a draft with generated notes, uploads assets, pushes NuGet, and publishes' {
+    It 'pushes NuGet before creating a draft with generated notes, uploading assets, and publishing' {
         $global:OssmReleaseTestState.Release = $null
+        Mock Invoke-CheckedCommand {
+            $global:OssmReleaseTestState.Release | Should -BeNullOrEmpty
+        } -ParameterFilter { $FileName -eq 'dotnet' -and $Arguments[1] -eq 'push' }
 
         & $publishScript -Tag v0.1.0 -Directory $directory -Confirm:$false
 
@@ -215,7 +218,7 @@ Describe 'Release downloads and publication' {
     It 'refuses to replace a different existing asset' {
         $global:OssmReleaseTestState.Release.assets = @([pscustomobject] @{ name = $names[0]; digest = 'sha256:different' })
 
-        { & $publishScript -Tag v0.1.0 -Directory $directory -Confirm:$false } |
+        { & $publishScript -Tag v0.1.0 -Directory $directory -Stage Upload -Confirm:$false } |
             Should -Throw '*Existing release asset differs*'
         Should -Invoke Invoke-CheckedCommand -Times 0 -Exactly -ParameterFilter { $Arguments[1] -in @('upload', 'push', 'edit') }
     }
@@ -255,6 +258,35 @@ Describe 'Release downloads and publication' {
         Should -Invoke Invoke-WebRequest -Times 1 -Exactly
         Should -Invoke Invoke-CheckedCommand -Times 1 -Exactly -ParameterFilter { $FileName -eq 'dotnet' -and $Arguments[1] -eq 'push' }
         Should -Invoke Invoke-CheckedCommand -Times 0 -Exactly -ParameterFilter { $Arguments[1] -in @('upload', 'edit') }
+    }
+
+    It 'publishes NuGet independently of a <State> GitHub release' -ForEach @(
+        @{ State = 'missing' }
+        @{ State = 'draft' }
+        @{ State = 'published' }
+    ) {
+        if ($State -eq 'missing') {
+            $global:OssmReleaseTestState.Release = $null
+        }
+        else {
+            $global:OssmReleaseTestState.Release.isDraft = $State -eq 'draft'
+            $global:OssmReleaseTestState.Release.assets = @()
+        }
+        Mock Invoke-CheckedCommand { throw 'GitHub must not be required for NuGet publication' } -ParameterFilter { $FileName -eq 'gh' }
+
+        & $publishScript -Tag v0.1.0 -Directory $directory -Stage NuGet -Confirm:$false
+
+        Should -Invoke Invoke-CheckedCommand -Times 1 -Exactly -ParameterFilter { $FileName -eq 'dotnet' -and $Arguments[1] -eq 'push' }
+        Should -Invoke Invoke-CheckedCommand -Times 0 -Exactly -ParameterFilter { $FileName -eq 'gh' }
+    }
+
+    It 'leaves GitHub untouched when NuGet publication fails' {
+        Mock Invoke-CheckedCommand { throw 'NuGet push failed' } -ParameterFilter { $FileName -eq 'dotnet' }
+
+        { & $publishScript -Tag v0.1.0 -Directory $directory -Confirm:$false } |
+            Should -Throw '*NuGet push failed*'
+
+        Should -Invoke Invoke-CheckedCommand -Times 0 -Exactly -ParameterFilter { $FileName -eq 'gh' }
     }
 
     It 'refuses to skip a NuGet version with different payloads' {

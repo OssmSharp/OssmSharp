@@ -1,7 +1,7 @@
 name: Release
 
-# Supports both pushed tags and GitHub UI releases. Drafts receive assets before
-# publication; already-published releases are left untouched.
+# Both entry points publish to NuGet before handling GitHub release assets.
+# Drafts receive assets before publication; published releases are left untouched.
 on:
   push:
     tags: ["v*"]
@@ -17,25 +17,23 @@ concurrency:
 
 jobs:
   preflight:
-    name: Validate tag and prepare draft
+    name: Validate tag
     runs-on: ubuntu-24.04
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Validate tag and prepare draft release
+      - name: Validate tag and publishing configuration
         shell: pwsh
         env:
           RELEASE_TAG: ${{ github.ref_name }}
           NUGET_USER: ${{ vars.NUGET_USER }}
-          GH_TOKEN: ${{ github.token }}
         run: |
           if ([string]::IsNullOrWhiteSpace($env:NUGET_USER)) { throw 'Configure the NUGET_USER repository variable and NuGet trusted publishing.' }
-          ./.github/scripts/Publish-Release.ps1 -Tag $env:RELEASE_TAG -Stage Prepare -Confirm:$false
+          Import-Module ./.github/scripts/ReleaseTools.psm1
+          Get-ReleaseMetadata $PWD -Tag $env:RELEASE_TAG | Out-Null
 
   build:
     needs: preflight
@@ -71,8 +69,6 @@ jobs:
           pattern: downloads-*
           merge-multiple: true
           path: .artifacts/release-input/
-      - name: Upload release assets
-        run: ./.github/scripts/Publish-Release.ps1 -Tag $env:RELEASE_TAG -Directory .artifacts/release-input -Stage Upload -Confirm:$false
       - name: Obtain a short-lived NuGet publishing key
         id: nuget
         uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1.2.0
@@ -82,5 +78,9 @@ jobs:
         env:
           NUGET_API_KEY: ${{ steps.nuget.outputs.NUGET_API_KEY }}
         run: ./.github/scripts/Publish-Release.ps1 -Tag $env:RELEASE_TAG -Directory .artifacts/release-input -Stage NuGet -Confirm:$false
+      - name: Prepare GitHub release
+        run: ./.github/scripts/Publish-Release.ps1 -Tag $env:RELEASE_TAG -Stage Prepare -Confirm:$false
+      - name: Upload release assets
+        run: ./.github/scripts/Publish-Release.ps1 -Tag $env:RELEASE_TAG -Directory .artifacts/release-input -Stage Upload -Confirm:$false
       - name: Publish the stable GitHub release
         run: ./.github/scripts/Publish-Release.ps1 -Tag $env:RELEASE_TAG -Directory .artifacts/release-input -Stage Publish -Confirm:$false

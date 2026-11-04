@@ -4,8 +4,9 @@
 Publishes the validated tag artifacts to NuGet and GitHub.
 .DESCRIPTION
 Requires a clean matching tag and the downloads from both native jobs in one run.
-Publication has four stages: prepare a draft, upload assets, push NuGet, and publish
-the draft. Retries retain existing assets and packages only when their content
+Publication has four stages: push NuGet, prepare a draft, upload assets, and publish
+the draft. NuGet publication does not depend on GitHub release state or assets.
+Retries retain existing assets and packages only when their content
 matches. GH_TOKEN and, for a new package, NUGET_API_KEY must be in the environment.
 Published releases are never modified; the workflow still publishes their NuGet
 package. Use -WhatIf to check local inputs without publication. This script does not create tags.
@@ -28,7 +29,7 @@ $root = Split-Path (Split-Path $PSScriptRoot)
 $metadata = Get-ReleaseMetadata $root -Tag $Tag
 $repository = 'OssmSharp/OssmSharp'
 $expectedAssetNames = @(Get-ExpectedReleaseArtifactNames $metadata)
-$stages = if ($Stage -eq 'All') { @('Prepare', 'Upload', 'NuGet', 'Publish') } else { @($Stage) }
+$stages = if ($Stage -eq 'All') { @('NuGet', 'Prepare', 'Upload', 'Publish') } else { @($Stage) }
 $assets = @()
 $directoryPath = $null
 if ($stages | Where-Object { $_ -ne 'Prepare' }) {
@@ -134,7 +135,6 @@ No .NET installation is required. Downloads are not Developer ID signed or notar
             Assert-ReleaseAssets (Get-ReleaseDetails)
         }
         NuGet {
-            Assert-ReleaseAssets (Get-ReleaseDetails)
             $package = Join-Path $directoryPath "OssmSharp.Runtime.Oem.$($metadata.Version).nupkg"
             $url = "https://api.nuget.org/v3-flatcontainer/ossmsharp.runtime.oem/$($metadata.Version)/ossmsharp.runtime.oem.$($metadata.Version).nupkg"
             $download = [IO.Path]::GetTempFileName()
