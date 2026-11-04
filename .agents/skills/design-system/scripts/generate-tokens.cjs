@@ -46,25 +46,17 @@ Options:
 }
 
 /**
- * Resolve token references like {primitive.color.blue.600}
+ * Preserve token references as aliases to the emitted CSS variables.
  */
 function resolveReference(value, tokens) {
   if (typeof value !== 'string' || !value.startsWith('{')) {
     return value;
   }
 
-  const path = value.slice(1, -1).split('.');
-  let result = tokens;
-
-  for (const key of path) {
-    result = result?.[key];
-  }
-
-  if (result?.$value) {
-    return resolveReference(result.$value, tokens);
-  }
-
-  return result || value;
+  const reference = value.slice(1, -1).split('.');
+  if (reference[0] === 'semantic' || reference[0] === 'component')
+    reference.shift();
+  return `var(${toCssVarName(reference)})`;
 }
 
 /**
@@ -147,7 +139,7 @@ function generateTailwind(tokens) {
   const colors = {};
   for (const [key, value] of Object.entries(semantic)) {
     if (key.includes('color')) {
-      const name = key.replace('--color-', '').replace(/-/g, '.');
+      const name = key.replace('--color-', '');
       colors[name] = `var(${key})`;
     }
   }

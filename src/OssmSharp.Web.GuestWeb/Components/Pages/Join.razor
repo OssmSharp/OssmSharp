@@ -87,7 +87,7 @@ else
         </div>
         <p class="console-footnote">All settings are percentages. Current speed is unknown at zero device stroke.</p>
       </section>
-        <PatternPreview @key="_display.Selected.Pattern" Pattern="@_display.Selected.Pattern" Speed="@_display.Selected.Speed" Stroke="@_display.Selected.Stroke" Depth="@_display.Selected.Depth"
+        <PatternPreview @key="_display.Selected.Pattern" ShowHeading="false" Pattern="@_display.Selected.Pattern" Speed="@_display.Selected.Speed" Stroke="@_display.Selected.Stroke" Depth="@_display.Selected.Depth"
                         Sensation="@_display.Selected.Sensation"
                         Animate="@(!_display.PreviewStopped && !_connectionLost && _status?.Device is { IsConnected: true, IsConnecting: false, IsResettingPosition: false })" />
   </div>

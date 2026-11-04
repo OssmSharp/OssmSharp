@@ -16,11 +16,13 @@ const path = require('path');
 // Find project root (look for assets/design-tokens.css)
 function findProjectRoot(startDir) {
   let dir = startDir;
-  while (dir !== '/') {
+  while (true) {
     if (fs.existsSync(path.join(dir, 'assets', 'design-tokens.css'))) {
       return dir;
     }
-    dir = path.dirname(dir);
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
   }
   return null;
 }
