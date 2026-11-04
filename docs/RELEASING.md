@@ -7,7 +7,7 @@ NuGet package.
 
 ```mermaid
 flowchart LR
-    Tag[Push version tag] --> Build --> Test --> Package
+    Tag[Push version tag] --> Draft[Require or create draft] --> Build --> Test --> Package
     Package --> Verify[Check downloads] --> Publish[Publish NuGet and GitHub release]
 ```
 
@@ -34,6 +34,15 @@ git push origin v0.1.0
 4. Monitor the Release workflow and approve the `release` environment if required.
 5. Verify the public GitHub release, NuGet listing, and download checksums.
 
+The workflow creates a draft if none exists. An existing release must still be a
+draft: published releases fail before any build or NuGet publication, because
+immutable releases cannot receive binaries.
+
+In the GitHub web interface, **save a draft**, not **Publish release**. Ensure its
+tag exists, then run `gh workflow run release.yml --ref v0.1.0`. Saving a draft
+does not trigger Actions or necessarily create its tag. The workflow uploads
+binaries and publishes the draft itself.
+
 Use stable tags such as `v0.1.0`; prerelease tags are rejected.
 Keep tagged source public for AGPL compliance. Protect `main` with the required
 [Validate](../.github/workflows/validate.yml) checks and protect `v*` tags.
@@ -43,6 +52,8 @@ Keep tagged source public for AGPL compliance. Protect `main` with the required
 GitHub supplies an OIDC identity token. `NuGet/login` exchanges it for a
 short-lived publishing key after NuGet checks the configured trust policy.
 No long-lived NuGet API key is stored in GitHub.
+The `--api-key` argument to `dotnet nuget push` uses only the temporary credential
+returned by `NuGet/login`; do not configure an API-key secret.
 
 One-time configuration:
 
@@ -69,18 +80,10 @@ Outputs: `.artifacts/release/<runtime>/`.
 
 ## Recover
 
-Fix the cause, then **rerun failed jobs** in the original run. Do not rebuild
-successful native jobs: archives can differ even at the same commit.
-
-Reuse original downloads. Artifacts expire after seven days; if originals are
-unavailable, release a new version.
-
-For manual recovery with credentials configured:
-
-```powershell
-./.github/scripts/Publish-Release.ps1 -Tag v0.1.0 -Directory .artifacts/release-input -WhatIf
-./.github/scripts/Publish-Release.ps1 -Tag v0.1.0 -Directory .artifacts/release-input
-```
+While the release is still a draft, fix the cause and **rerun failed jobs**.
+Draft assets are replaced on retry; NuGet skips an already-published version.
+If someone published the GitHub release prematurely, use a new version rather
+than trying to modify the immutable release.
 
 Never move a public tag or replace published content. Use a new version.
 Diagnose CI failures from run logs and artifacts; do not upload credentials,
