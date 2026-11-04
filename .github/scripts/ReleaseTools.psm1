@@ -141,6 +141,25 @@ function Assert-ApplicationVersion {
     }
 }
 
+function Get-ExpectedReleaseArtifactNames {
+    <#
+    .SYNOPSIS
+    Returns the required release asset names for a version.
+    #>
+    [CmdletBinding()]
+    param([pscustomobject] $Metadata)
+
+    return @(
+        "OssmSharp.Cli-$($Metadata.Version)-win-x64.zip",
+        "OssmSharp.Web-$($Metadata.Version)-win-x64.zip",
+        "OssmSharp.Cli-$($Metadata.Version)-osx-arm64.tar.gz",
+        "OssmSharp.Web-$($Metadata.Version)-osx-arm64.tar.gz",
+        "OssmSharp.Runtime.Oem.$($Metadata.Version).nupkg",
+        'SHA256SUMS-win-x64.txt',
+        'SHA256SUMS-osx-arm64.txt'
+    )
+}
+
 function Test-ReleaseArtifacts {
     <#
     .SYNOPSIS
@@ -161,15 +180,7 @@ function Test-ReleaseArtifacts {
     param([string] $Directory, [pscustomobject] $Metadata)
 
     $directoryPath = (Resolve-Path -LiteralPath $Directory).Path
-    $expected = @(
-        "OssmSharp.Cli-$($Metadata.Version)-win-x64.zip",
-        "OssmSharp.Web-$($Metadata.Version)-win-x64.zip",
-        "OssmSharp.Cli-$($Metadata.Version)-osx-arm64.tar.gz",
-        "OssmSharp.Web-$($Metadata.Version)-osx-arm64.tar.gz",
-        "OssmSharp.Runtime.Oem.$($Metadata.Version).nupkg",
-        'SHA256SUMS-win-x64.txt',
-        'SHA256SUMS-osx-arm64.txt'
-    )
+    $expected = Get-ExpectedReleaseArtifactNames $Metadata
     foreach ($name in $expected) {
         if (-not (Test-Path -LiteralPath (Join-Path $directoryPath $name) -PathType Leaf)) {
             throw "Missing release output: $name"
@@ -178,4 +189,5 @@ function Test-ReleaseArtifacts {
     return $expected | ForEach-Object { Join-Path $directoryPath $_ }
 }
 
-Export-ModuleMember -Function Invoke-CheckedCommand, Get-ReleaseMetadata, Assert-ApplicationVersion, Test-ReleaseArtifacts
+Export-ModuleMember -Function Invoke-CheckedCommand, Get-ReleaseMetadata, Assert-ApplicationVersion,
+    Get-ExpectedReleaseArtifactNames, Test-ReleaseArtifacts

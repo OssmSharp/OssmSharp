@@ -1,5 +1,7 @@
 name: Release
 
+# Push the tag, not a published release. This workflow creates a draft, uploads
+# validated assets, and publishes only after all assets are in place.
 on:
   push:
     tags: ["v*"]
@@ -13,23 +15,25 @@ concurrency:
 
 jobs:
   preflight:
-    name: Validate release tag
+    name: Validate tag and prepare draft
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Require matching stable tag
+      - name: Validate tag and prepare draft release
         shell: pwsh
         env:
           RELEASE_TAG: ${{ github.ref_name }}
           NUGET_USER: ${{ vars.NUGET_USER }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          Import-Module ./.github/scripts/ReleaseTools.psm1
-          Get-ReleaseMetadata $PWD -Tag $env:RELEASE_TAG | Out-Null
           if ([string]::IsNullOrWhiteSpace($env:NUGET_USER)) { throw 'Configure the NUGET_USER repository variable and NuGet trusted publishing.' }
+          ./.github/scripts/Publish-Release.ps1 -Tag $env:RELEASE_TAG -Stage Prepare -Confirm:$false
 
   build:
     needs: preflight
@@ -65,8 +69,6 @@ jobs:
           pattern: downloads-*
           merge-multiple: true
           path: .artifacts/release-input/
-      - name: Create or reuse the GitHub draft
-        run: ./.github/scripts/Publish-Release.ps1 -Tag $env:RELEASE_TAG -Directory .artifacts/release-input -Stage Prepare -Confirm:$false
       - name: Upload release assets
         run: ./.github/scripts/Publish-Release.ps1 -Tag $env:RELEASE_TAG -Directory .artifacts/release-input -Stage Upload -Confirm:$false
       - name: Obtain a short-lived NuGet publishing key

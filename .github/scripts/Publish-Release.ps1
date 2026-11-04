@@ -7,7 +7,8 @@ Requires a clean matching tag and the downloads from both native jobs in one run
 Publication has four stages: prepare a draft, upload assets, push NuGet, and publish
 the draft. Retries retain existing assets and packages only when their content
 matches. GH_TOKEN and, for a new package, NUGET_API_KEY must be in the environment.
-Use -WhatIf to check local inputs without publication. This script does not create tags.
+Published releases are never modified; all required assets must be present before
+publishing. Use -WhatIf to check local inputs without publication. This script does not create tags.
 .PARAMETER Stage
 Run one publication stage, or All (the default).
 .EXAMPLE
@@ -16,7 +17,7 @@ Run one publication stage, or All (the default).
 [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
 param(
     [Parameter(Mandatory)][string] $Tag,
-    [Parameter(Mandatory)][string] $Directory,
+    [string] $Directory,
     [ValidateSet('All', 'Prepare', 'Upload', 'NuGet', 'Publish')]
     [string] $Stage = 'All'
 )
@@ -25,9 +26,16 @@ $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'ReleaseTools.psm1')
 $root = Split-Path (Split-Path $PSScriptRoot)
 $metadata = Get-ReleaseMetadata $root -Tag $Tag
-$directoryPath = (Resolve-Path -LiteralPath $Directory).Path
-$assets = @(Test-ReleaseArtifacts $directoryPath $metadata)
 $repository = 'OssmSharp/OssmSharp'
+$expectedAssetNames = @(Get-ExpectedReleaseArtifactNames $metadata)
+$stages = if ($Stage -eq 'All') { @('Prepare', 'Upload', 'NuGet', 'Publish') } else { @($Stage) }
+$assets = @()
+$directoryPath = $null
+if ($stages | Where-Object { $_ -ne 'Prepare' }) {
+    if ([string]::IsNullOrWhiteSpace($Directory)) { throw 'Directory is required for release asset stages.' }
+    $directoryPath = (Resolve-Path -LiteralPath $Directory).Path
+    $assets = @(Test-ReleaseArtifacts $directoryPath $metadata)
+}
 
 function Get-PackageContentHashes {
     param([string] $Path)
@@ -47,7 +55,31 @@ function Get-PackageContentHashes {
     finally { $archive.Dispose() }
 }
 
-$stages = if ($Stage -eq 'All') { @('Prepare', 'Upload', 'NuGet', 'Publish') } else { @($Stage) }
+function Get-ReleaseDetails {
+    Invoke-CheckedCommand gh @('release', 'view', $Tag, '--repo', $repository,
+        '--json', 'isDraft,assets') | ConvertFrom-Json
+}
+
+function Assert-ReleaseAssets {
+    param([pscustomobject] $Release)
+
+    foreach ($name in $expectedAssetNames) {
+        $matches = @($Release.assets | Where-Object name -CEQ $name)
+        if ($matches.Count -ne 1) {
+            if ($Release.isDraft) { throw "Draft release is missing required asset: $name." }
+            throw "Published release $Tag is missing required asset $name. Published releases are immutable; create a new tag and let the workflow prepare a draft before publishing."
+        }
+        if ([string]::IsNullOrWhiteSpace($matches[0].digest)) {
+            throw "Existing release asset has no digest: $name."
+        }
+        $assetPath = Join-Path $directoryPath $name
+        $digest = 'sha256:' + (Get-FileHash -LiteralPath $assetPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($matches[0].digest -cne $digest) {
+            throw "Existing release asset differs: $name. Reuse the original workflow artifacts."
+        }
+    }
+}
+
 foreach ($currentStage in $stages) {
     if (-not $PSCmdlet.ShouldProcess("$repository $Tag", "Release stage: $currentStage")) { continue }
     switch ($currentStage) {
@@ -56,7 +88,16 @@ foreach ($currentStage in $stages) {
             $query = ".[] | select(.tag_name == `"$Tag`")"
             $release = Invoke-CheckedCommand gh @('api', '--paginate', "repos/$repository/releases",
                 '--jq', $query) | ConvertFrom-Json
-            if ($release) { break }
+            if ($release) {
+                if (-not $release.draft) {
+                    $existingNames = @($release.assets | ForEach-Object name)
+                    $missingNames = @($expectedAssetNames | Where-Object { $_ -notin $existingNames })
+                    if ($missingNames.Count -gt 0) {
+                        throw "Published release $Tag is missing required assets: $($missingNames -join ', '). Published releases are immutable; create a new tag and let the workflow prepare a draft before publishing."
+                    }
+                }
+                break
+            }
             $notes = @"
 Download the web app or CLI for Windows x64 or Apple silicon macOS. Extract the
 entire archive and follow the [setup instructions](https://github.com/$repository/blob/$Tag/README.web.md).
@@ -68,16 +109,24 @@ No .NET installation is required. Downloads are not Developer ID signed or notar
             Invoke-CheckedCommand gh @('release', 'create', $Tag, '--repo', $repository,
                 '--verify-tag', '--draft', '--title', "OssmSharp $($metadata.Version)",
                 '--generate-notes', '--notes', $notes) | Out-Host
+            $release = Get-ReleaseDetails
+            if (-not $release.isDraft) { throw "GitHub release $Tag was not created as a draft." }
         }
         Upload {
-            $release = Invoke-CheckedCommand gh @('release', 'view', $Tag, '--repo', $repository,
-                '--json', 'isDraft,assets') | ConvertFrom-Json
+            $release = Get-ReleaseDetails
+            if (-not $release.isDraft) {
+                Assert-ReleaseAssets $release
+                break
+            }
             foreach ($asset in $assets) {
                 $name = [IO.Path]::GetFileName($asset)
-                $existing = $release.assets | Where-Object name -CEQ $name
+                $existing = @($release.assets | Where-Object name -CEQ $name)
                 if ($existing) {
+                    if ($existing.Count -ne 1 -or [string]::IsNullOrWhiteSpace($existing[0].digest)) {
+                        throw "Existing release asset has invalid digest metadata: $name."
+                    }
                     $digest = 'sha256:' + (Get-FileHash -LiteralPath $asset -Algorithm SHA256).Hash.ToLowerInvariant()
-                    if ($existing.digest -cne $digest) {
+                    if ($existing[0].digest -cne $digest) {
                         throw "Existing release asset differs: $name. Reuse the original workflow artifacts."
                     }
                 }
@@ -85,8 +134,10 @@ No .NET installation is required. Downloads are not Developer ID signed or notar
                     Invoke-CheckedCommand gh @('release', 'upload', $Tag, $asset, '--repo', $repository) | Out-Host
                 }
             }
+            Assert-ReleaseAssets (Get-ReleaseDetails)
         }
         NuGet {
+            Assert-ReleaseAssets (Get-ReleaseDetails)
             $package = Join-Path $directoryPath "OssmSharp.Runtime.Oem.$($metadata.Version).nupkg"
             $url = "https://api.nuget.org/v3-flatcontainer/ossmsharp.runtime.oem/$($metadata.Version)/ossmsharp.runtime.oem.$($metadata.Version).nupkg"
             $download = [IO.Path]::GetTempFileName()
@@ -109,8 +160,13 @@ No .NET installation is required. Downloads are not Developer ID signed or notar
             finally { Remove-Item -LiteralPath $download -Force }
         }
         Publish {
-            Invoke-CheckedCommand gh @('release', 'edit', $Tag, '--repo', $repository,
-                '--draft=false', '--prerelease=false', '--latest') | Out-Host
+            $release = Get-ReleaseDetails
+            Assert-ReleaseAssets $release
+            if ($release.isDraft) {
+                Invoke-CheckedCommand gh @('release', 'edit', $Tag, '--repo', $repository,
+                    '--draft=false', '--prerelease=false', '--latest') | Out-Host
+                if ((Get-ReleaseDetails).isDraft) { throw "GitHub release $Tag is still a draft after publishing." }
+            }
         }
     }
 }

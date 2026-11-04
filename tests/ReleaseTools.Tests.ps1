@@ -72,6 +72,12 @@ Describe 'Release downloads and publication' {
         Remove-Item -LiteralPath $package
         New-TestPackage $package
         $global:OssmReleaseTestState.Release = [pscustomobject] @{ isDraft = $true; assets = @() }
+        $global:OssmReleaseTestState.Release.assets = @($names | ForEach-Object {
+            [pscustomobject] @{
+                name = $_
+                digest = 'sha256:' + (Get-FileHash (Join-Path $directory $_)).Hash.ToLowerInvariant()
+            }
+        })
         $global:OssmReleaseTestState.ExistingPackage = $null
         $global:OssmReleaseTestState.NuGetStatus = 404
         $savedKey = $env:NUGET_API_KEY
@@ -79,11 +85,29 @@ Describe 'Release downloads and publication' {
 
         Mock Get-ReleaseMetadata { $metadata }
         Mock Invoke-CheckedCommand {
-            if ($FileName -eq 'gh' -and ($Arguments[0] -eq 'api' -or $Arguments[1] -eq 'view')) {
+            if ($FileName -eq 'gh' -and $Arguments[0] -eq 'api') {
+                if ($global:OssmReleaseTestState.Release) {
+                    return [pscustomobject] @{
+                        draft = $global:OssmReleaseTestState.Release.isDraft
+                        assets = $global:OssmReleaseTestState.Release.assets
+                    } | ConvertTo-Json -Depth 5 -Compress
+                }
+            }
+            elseif ($FileName -eq 'gh' -and $Arguments[1] -eq 'view') {
                 if ($global:OssmReleaseTestState.Release) { return $global:OssmReleaseTestState.Release | ConvertTo-Json -Depth 5 -Compress }
             }
             elseif ($FileName -eq 'gh' -and $Arguments[1] -eq 'create') {
                 $global:OssmReleaseTestState.Release = [pscustomobject] @{ isDraft = $true; assets = @() }
+            }
+            elseif ($FileName -eq 'gh' -and $Arguments[1] -eq 'upload') {
+                $assetPath = $Arguments[3]
+                $global:OssmReleaseTestState.Release.assets += [pscustomobject] @{
+                    name = [IO.Path]::GetFileName($assetPath)
+                    digest = 'sha256:' + (Get-FileHash -LiteralPath $assetPath).Hash.ToLowerInvariant()
+                }
+            }
+            elseif ($FileName -eq 'gh' -and $Arguments[1] -eq 'edit') {
+                $global:OssmReleaseTestState.Release.isDraft = $false
             }
         }
         Mock Invoke-WebRequest {
@@ -118,6 +142,21 @@ Describe 'Release downloads and publication' {
 
         Should -Invoke Invoke-CheckedCommand -Times 0 -Exactly
         Should -Invoke Invoke-WebRequest -Times 0 -Exactly
+    }
+
+    It 'reuses an existing draft during preflight without requiring build artifacts' {
+        & $publishScript -Tag v0.1.0 -Stage Prepare -Confirm:$false
+
+        Should -Invoke Invoke-CheckedCommand -Times 0 -Exactly -ParameterFilter { $Arguments[1] -eq 'create' }
+    }
+
+    It 'creates a draft during preflight when a tag has no release' {
+        $global:OssmReleaseTestState.Release = $null
+
+        & $publishScript -Tag v0.1.0 -Stage Prepare -Confirm:$false
+
+        $global:OssmReleaseTestState.Release.isDraft | Should -BeTrue
+        Should -Invoke Invoke-CheckedCommand -Times 1 -Exactly -ParameterFilter { $Arguments[1] -eq 'create' }
     }
 
     It 'creates a draft with generated notes, uploads assets, pushes NuGet, and publishes' {
@@ -181,12 +220,42 @@ Describe 'Release downloads and publication' {
         Should -Invoke Invoke-CheckedCommand -Times 0 -Exactly -ParameterFilter { $Arguments[1] -in @('upload', 'push', 'edit') }
     }
 
-    It 'uploads only missing assets to an already published release' {
+    It 'fails before building assets when a published release is incomplete' {
+        $global:OssmReleaseTestState.Release.isDraft = $false
+        $global:OssmReleaseTestState.Release.assets = @()
+
+        { & $publishScript -Tag v0.1.0 -Stage Prepare -Confirm:$false } |
+            Should -Throw '*Published release v0.1.0 is missing required assets*immutable*'
+
+        Should -Invoke Invoke-CheckedCommand -Times 0 -Exactly -ParameterFilter { $Arguments[1] -in @('create', 'upload', 'push', 'edit') }
+    }
+
+    It 'never uploads to an already published release' {
+        $global:OssmReleaseTestState.Release.isDraft = $false
+        $global:OssmReleaseTestState.Release.assets = @()
+
+        { & $publishScript -Tag v0.1.0 -Directory $directory -Stage Upload -Confirm:$false } |
+            Should -Throw '*Published release v0.1.0 is missing required asset*immutable*'
+
+        Should -Invoke Invoke-CheckedCommand -Times 0 -Exactly -ParameterFilter { $Arguments[1] -eq 'upload' }
+    }
+
+    It 'reuses complete published assets without modifying the release' {
         $global:OssmReleaseTestState.Release.isDraft = $false
 
         & $publishScript -Tag v0.1.0 -Directory $directory -Stage Upload -Confirm:$false
 
-        Should -Invoke Invoke-CheckedCommand -Times 7 -Exactly -ParameterFilter { $Arguments[1] -eq 'upload' }
+        Should -Invoke Invoke-CheckedCommand -Times 0 -Exactly -ParameterFilter { $Arguments[1] -in @('upload', 'edit') }
+    }
+
+    It 'does not publish NuGet when a release asset is missing' {
+        $global:OssmReleaseTestState.Release.assets = @()
+
+        { & $publishScript -Tag v0.1.0 -Directory $directory -Stage NuGet -Confirm:$false } |
+            Should -Throw '*Draft release is missing required asset*'
+
+        Should -Invoke Invoke-WebRequest -Times 0 -Exactly
+        Should -Invoke Invoke-CheckedCommand -Times 0 -Exactly -ParameterFilter { $FileName -eq 'dotnet' }
     }
 
     It 'refuses to skip a NuGet version with different payloads' {
@@ -196,7 +265,7 @@ Describe 'Release downloads and publication' {
 
         { & $publishScript -Tag v0.1.0 -Directory $directory -Stage NuGet -Confirm:$false } |
             Should -Throw '*already exists with different content*'
-        Should -Invoke Invoke-CheckedCommand -Times 0 -Exactly
+        Should -Invoke Invoke-CheckedCommand -Times 0 -Exactly -ParameterFilter { $FileName -eq 'dotnet' }
     }
 
     It 'stops on NuGet service errors instead of attempting a push' {
@@ -204,7 +273,7 @@ Describe 'Release downloads and publication' {
 
         { & $publishScript -Tag v0.1.0 -Directory $directory -Stage NuGet -Confirm:$false } |
             Should -Throw '*HTTP 503*'
-        Should -Invoke Invoke-CheckedCommand -Times 0 -Exactly
+        Should -Invoke Invoke-CheckedCommand -Times 0 -Exactly -ParameterFilter { $FileName -eq 'dotnet' }
     }
 
     It 'requires credentials only for a new NuGet package' {
@@ -212,7 +281,7 @@ Describe 'Release downloads and publication' {
 
         { & $publishScript -Tag v0.1.0 -Directory $directory -Stage NuGet -Confirm:$false } |
             Should -Throw '*NUGET_API_KEY*'
-        Should -Invoke Invoke-CheckedCommand -Times 0 -Exactly
+        Should -Invoke Invoke-CheckedCommand -Times 0 -Exactly -ParameterFilter { $FileName -eq 'dotnet' }
     }
 
     It 'does not treat GitHub lookup failures as a missing release' {
