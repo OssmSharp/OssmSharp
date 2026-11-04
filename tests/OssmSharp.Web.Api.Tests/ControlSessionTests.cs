@@ -43,9 +43,11 @@ public sealed class ControlSessionTests : MockerTestBase<ControlSession>, IAsync
             .ReturnsAsync(new DeviceState(StrokePattern.SimpleStroke, 0, 50, 17, 29));
         var result = await Component.SubmitAsync("guest-1", new("request", 0, 53, 10, 17, 29), token);
         Assert.Equal(new SettingsResponse("request", SettingsResponseStatus.Completed, 5), result);
-        Device.Verify(device => device.SetAsync(
-            It.Is<MotionSettings>(settings => settings.Pattern == StrokePattern.SimpleStroke && settings.Speed == 53 && settings.Stroke == 10 && settings.Depth == 17 && settings.Sensation == 29),
-            It.IsAny<CancellationToken>()), Times.Once);
+        Device.Verify(
+            device => device.SetAsync(
+                It.Is<MotionSettings>(settings => settings.Pattern == StrokePattern.SimpleStroke && settings.Speed == 53 && settings.Stroke == 10 && settings.Depth == 17 && settings.Sensation == 29),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
         var beforeObservation = await Component.GetUserStateAsync(token);
         Assert.Equal(new DeviceSettingsSnapshot(0, 53, 10, 17, 29), beforeObservation.Device!.TransmittedSettings);
         Assert.Equal(0.0, beforeObservation.Device.Speed);

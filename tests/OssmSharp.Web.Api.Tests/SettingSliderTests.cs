@@ -4,21 +4,21 @@ using Xunit;
 
 namespace OssmSharp.Web.Api.Tests;
 
-public sealed class VerticalSliderTests : MockerTestBase<VerticalSlider>
+public sealed class SettingSliderTests : MockerTestBase<SettingSlider>
 {
     [Fact]
     public void Requested53AtStroke10DisplaysCurrent50Independently()
     {
-        ComponentTestAccess.Set(Component, nameof(VerticalSlider.Name), "speed");
-        ComponentTestAccess.Set(Component, nameof(VerticalSlider.SelectedValue), 53);
-        ComponentTestAccess.Set(Component, nameof(VerticalSlider.SentValue), 53);
-        ComponentTestAccess.Set(Component, nameof(VerticalSlider.CurrentValue), 50.0);
+        ComponentTestAccess.Set(Component, nameof(SettingSlider.Name), "speed");
+        ComponentTestAccess.Set(Component, nameof(SettingSlider.SelectedValue), 53);
+        ComponentTestAccess.Set(Component, nameof(SettingSlider.SentValue), 53);
+        ComponentTestAccess.Set(Component, nameof(SettingSlider.CurrentValue), 50.0);
         Assert.Equal("50", ComponentTestAccess.Get<string>(Component, "CurrentText"));
         Assert.Equal(53, Component.SelectedValue);
         Assert.Equal(53, Component.SentValue);
         Assert.Equal(50.0, Component.CurrentValue);
 
-        ComponentTestAccess.Set(Component, nameof(VerticalSlider.CurrentValue), null);
+        ComponentTestAccess.Set(Component, nameof(SettingSlider.CurrentValue), null);
         Assert.Equal("--", ComponentTestAccess.Get<string>(Component, "CurrentText"));
         Assert.Equal(53, Component.SelectedValue);
         Assert.Equal(53, Component.SentValue);
@@ -36,10 +36,10 @@ public sealed class VerticalSliderTests : MockerTestBase<VerticalSlider>
     [InlineData(null, "--")]
     public void CurrentSpeedTextPreservesPrecisionWithoutChangingMeasuredOrRequestedValues(double? measured, string expected)
     {
-        ComponentTestAccess.Set(Component, nameof(VerticalSlider.Name), "speed");
-        ComponentTestAccess.Set(Component, nameof(VerticalSlider.CurrentValue), measured);
-        ComponentTestAccess.Set(Component, nameof(VerticalSlider.SelectedValue), 64);
-        ComponentTestAccess.Set(Component, nameof(VerticalSlider.SentValue), 64);
+        ComponentTestAccess.Set(Component, nameof(SettingSlider.Name), "speed");
+        ComponentTestAccess.Set(Component, nameof(SettingSlider.CurrentValue), measured);
+        ComponentTestAccess.Set(Component, nameof(SettingSlider.SelectedValue), 64);
+        ComponentTestAccess.Set(Component, nameof(SettingSlider.SentValue), 64);
         Assert.Equal(expected, ComponentTestAccess.Get<string>(Component, "CurrentText"));
         Assert.Equal(measured, Component.CurrentValue);
         Assert.Equal(64, Component.SelectedValue);
@@ -52,8 +52,8 @@ public sealed class VerticalSliderTests : MockerTestBase<VerticalSlider>
     [InlineData("sensation")]
     public void NonSpeedCurrentTextPreservesFractionalValue(string name)
     {
-        ComponentTestAccess.Set(Component, nameof(VerticalSlider.Name), name);
-        ComponentTestAccess.Set(Component, nameof(VerticalSlider.CurrentValue), 12.5);
+        ComponentTestAccess.Set(Component, nameof(SettingSlider.Name), name);
+        ComponentTestAccess.Set(Component, nameof(SettingSlider.CurrentValue), 12.5);
         Assert.Equal("12.5", ComponentTestAccess.Get<string>(Component, "CurrentText"));
         Assert.Equal(12.5, Component.CurrentValue);
     }

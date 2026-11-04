@@ -190,19 +190,6 @@ public sealed class AdminApiClientConnectionTests : MockerTestBase<AdminApiClien
         }
     }
 
-    private sealed class DeadlineTimeProvider : FakeTimeProvider
-    {
-        public TaskCompletionSource DeadlineRegistered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
-        {
-            var timer = base.CreateTimer(callback, state, dueTime, period);
-            if (dueTime == TimeSpan.FromSeconds(1))
-                DeadlineRegistered.TrySetResult();
-            return timer;
-        }
-    }
-
     [Fact]
     public async Task CallerCancellationIsNotTranslatedToConnectionFailure()
     {
@@ -270,6 +257,19 @@ public sealed class AdminApiClientConnectionTests : MockerTestBase<AdminApiClien
         {
             response.TrySetResult();
             await disposal;
+        }
+    }
+
+    private sealed class DeadlineTimeProvider : FakeTimeProvider
+    {
+        public TaskCompletionSource DeadlineRegistered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            var timer = base.CreateTimer(callback, state, dueTime, period);
+            if (dueTime == TimeSpan.FromSeconds(1))
+                DeadlineRegistered.TrySetResult();
+            return timer;
         }
     }
 }

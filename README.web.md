@@ -87,6 +87,15 @@ To check the version, add `--version`:
 2. Copy the link under **Invite a guest** and give it to your guest.
 3. After the guest opens the link and joins, click **Allow control**.
 
+Before the device connects, use the connection panel. The invitation and Controls
+boxes stay on the page, with Controls initially collapsed.
+Once connected, the header shows **Connected**, the device name, and its ID beside
+the theme button. The invitation is the main action. When your guest connects,
+Controls expands and the preview appears; the invitation collapses under
+**Invite a guest** but stays on the page. Guest status appears in **Controls**.
+You can expand or collapse either box yourself; your choice takes priority over
+automatic changes until you reload the page.
+
 Use **Stop** to stop motion and **End guest** to end guest access.
 Share invitations only with your intended guest.
 
@@ -134,6 +143,14 @@ Choose a pattern and settings, then click **Send**. **Auto send** sends later
 changes as you make them. **Stop** stops motion.
 
 Only one guest can be active at a time.
+
+Both control pages have a **Toggle colour theme** button in the header. Choose
+light or dark; your choice is saved in that browser. Use <kbd>Tab</kbd> to move
+between controls, <kbd>Enter</kbd> or <kbd>Space</kbd> to activate buttons, and
+arrow keys to adjust a focused slider. The guest page has pattern buttons and
+horizontal setting sliders, with **Sent** and **Current** values below each
+slider. Settings and preview are separate panels. Session actions are above the
+settings; scroll as needed on smaller screens.
 
 ## If something goes wrong
 

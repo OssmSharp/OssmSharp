@@ -2,6 +2,7 @@ using FastMoq;
 using FastMoq.Extensions;
 using FastMoq.Providers;
 using FastMoq.Providers.MoqProvider;
+using Microsoft.AspNetCore.Components;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
@@ -11,6 +12,7 @@ using OssmSharp.Web.AdminWeb;
 using OssmSharp.Web.AdminWeb.Components.Pages;
 using OssmSharp.Web.Client.Clients;
 using OssmSharp.Web.Client.Models;
+using OssmSharp.Web.Common.Components;
 using OssmSharp.Web.Contracts;
 using OssmSharp.Web.ServiceDefaults.Models;
 using Xunit;
@@ -52,6 +54,173 @@ public sealed class HomeComponentTests : MockerTestBase<Home>, IAsyncDisposable
 
     private UserNoticeState Notice => Read<UserNoticeState>("_notice");
 
+    [Theory]
+    [InlineData(3499, true)]
+    [InlineData(3500, true)]
+    [InlineData(3799, true)]
+    [InlineData(3800, false)]
+    public async Task InvitationRefreshConfirmationExpiresAfterDisplayAndFade(int elapsedMilliseconds, bool visible)
+    {
+        SetupCommand("RefreshInvitation", Task.FromResult(new ControlResponse("refresh", "invitation-refreshed", true)));
+        await _renderer.RunAsync(() => Call("RefreshInvitation"));
+        Assert.True(Notice.FadeOut);
+        _time.Advance(TimeSpan.FromMilliseconds(elapsedMilliseconds));
+        Assert.Equal(visible ? "Invitation refreshed. The previous guest session ended." : null, Notice.Message);
+        Notice.Show("Unable to refresh invitation.", true);
+        _time.Advance(TimeSpan.FromSeconds(10));
+        Assert.False(Notice.FadeOut);
+        Assert.Equal("Unable to refresh invitation.", Notice.Message);
+    }
+
+    [Fact]
+    public void DashboardBoxesAutomaticallyFollowGuestConnection()
+    {
+        foreach (var connected in new[] { false, true, false })
+        {
+            ComponentTestAccess.Set(Component, "_state", State(Device()) with { GuestConnected = connected });
+            Assert.Equal(connected, Read<bool>("ControlsExpanded"));
+            Assert.Equal(!connected, Read<bool>("InvitationExpanded"));
+            Assert.Contains("Controls", ComponentTestAccess.ElementText(Component, "user-controls"));
+            Assert.Contains("Invite a guest", ComponentTestAccess.ElementText(Component, "invitation-details"));
+        }
+    }
+
+    [Theory]
+    [InlineData("ToggleInvitation", "InvitationExpanded", true)]
+    [InlineData("ToggleControls", "ControlsExpanded", false)]
+    public void ManuallyExpandedDashboardBoxStaysOpenAcrossConnectionChanges(string toggle, string expanded, bool initiallyConnected)
+    {
+        ComponentTestAccess.Set(Component, "_state", State(Device()) with { GuestConnected = initiallyConnected });
+        Assert.False(Read<bool>(expanded));
+        ComponentTestAccess.Invoke(Component, toggle);
+        foreach (var connected in new[] { false, true, false })
+        {
+            ComponentTestAccess.Set(Component, "_state", State(Device()) with { GuestConnected = connected });
+            Assert.True(Read<bool>(expanded));
+        }
+        ComponentTestAccess.Invoke(Component, toggle);
+        Assert.False(Read<bool>(expanded));
+        ComponentTestAccess.Set(Component, "_state", State(Device()) with { GuestConnected = !initiallyConnected });
+        Assert.False(Read<bool>(expanded));
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void DisconnectedDeviceKeepsDashboardBoxesAndConnectionAction(bool connecting, bool guestConnected)
+    {
+        ComponentTestAccess.Set(Component, "_state", State(Device() with { IsConnected = false, IsConnecting = connecting }) with { GuestConnected = guestConnected });
+        var buttons = ComponentTestAccess.Buttons(Component);
+        Assert.Contains("Connect device", buttons.Keys);
+        Assert.Equal(connecting, buttons["Connect device"]);
+        Assert.Empty(ComponentTestAccess.Parameters(Component, "PatternPreview"));
+        Assert.True(ComponentTestAccess.HasElement(Component, "input"));
+        Assert.True(ComponentTestAccess.HasElement(Component, "details"));
+        Assert.False(Read<bool>("ControlsExpanded"));
+        Assert.Equal(connecting ? "Connecting" : "Disconnected", ComponentTestAccess.ElementText(Component, "device-connection-status"));
+        Assert.Empty(_client.Invocations);
+    }
+
+    [Fact]
+    public void MissingDeviceKeepsDashboardBoxesAndConnectionAction()
+    {
+        var buttons = ComponentTestAccess.Buttons(Component);
+        Assert.Contains("Connect device", buttons.Keys);
+        Assert.False(buttons["Connect device"]);
+        Assert.Empty(ComponentTestAccess.Parameters(Component, "PatternPreview"));
+        Assert.True(ComponentTestAccess.HasElement(Component, "input"));
+        Assert.True(ComponentTestAccess.HasElement(Component, "details"));
+        Assert.False(Read<bool>("ControlsExpanded"));
+        Assert.Equal("Unknown", ComponentTestAccess.ElementText(Component, "device-connection-status"));
+        Assert.Empty(_client.Invocations);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void ConnectedDeviceWithoutActiveGuestPrioritizesInvitation(bool joined, bool connected)
+    {
+        ComponentTestAccess.Set(Component, "_state", State(Device()) with { GuestJoined = joined, GuestConnected = connected });
+        var buttons = ComponentTestAccess.Buttons(Component);
+        Assert.Contains(Notice.CopyLabel, buttons.Keys);
+        Assert.Contains("Refresh invitation", buttons.Keys);
+        Assert.DoesNotContain("Connect device", buttons.Keys);
+        Assert.False(Read<bool>("ControlsExpanded"));
+        Assert.True(Read<bool>("InvitationExpanded"));
+        Assert.Empty(ComponentTestAccess.Parameters(Component, "PatternPreview"));
+        Assert.True(ComponentTestAccess.HasElement(Component, "details"));
+        Assert.Contains("Invite a guest", ComponentTestAccess.ElementText(Component, "invitation-details"));
+        Assert.Empty(_client.Invocations);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ConnectedDeviceMetadataIsInHeaderAndGuestStatusIsInControls(bool guestConnected)
+    {
+        ComponentTestAccess.Set(Component, "_state", State(Device() with
+        {
+            Name = "Test device", Identifier = "isolated-device",
+            ConnectedAt = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero),
+        }) with { GuestConnected = guestConnected });
+        var layout = Assert.Single(ComponentTestAccess.Parameters(Component, "ControlLayout"));
+        var header = new ControlLayout();
+        var body = new ControlLayout();
+        ComponentTestAccess.Set(header, nameof(ControlLayout.HeaderContent), Assert.IsType<RenderFragment>(layout["HeaderContent"]));
+        ComponentTestAccess.Set(body, nameof(ControlLayout.ChildContent), Assert.IsType<RenderFragment>(layout["ChildContent"]));
+
+        Assert.Equal("Connected", ComponentTestAccess.ElementText(header, "device-connection-status"));
+        Assert.Equal("Test device", ComponentTestAccess.ElementText(header, "device-name"));
+        Assert.Equal("isolated-device", ComponentTestAccess.ElementText(header, "device-identifier"));
+        Assert.Throws<InvalidOperationException>(() => ComponentTestAccess.ElementText(body, "device-connection"));
+        Assert.Throws<InvalidOperationException>(() => ComponentTestAccess.ElementText(header, "guest-status"));
+        Assert.Throws<InvalidOperationException>(() => ComponentTestAccess.ElementText(Component, "device-duration"));
+        Assert.False(ComponentTestAccess.HasElement(body, "dl"));
+        if (guestConnected)
+        {
+            Assert.Equal("Guest joined", ComponentTestAccess.ElementText(body, "guest-status"));
+            Assert.Contains("Guest joined", ComponentTestAccess.ElementText(body, "user-controls"));
+        }
+        else
+            Assert.Equal("Guest offline", ComponentTestAccess.ElementText(body, "guest-status"));
+        Assert.Empty(_client.Invocations);
+    }
+
+    [Fact]
+    public void ConnectedGuestRevealsControlsAndPreviewAndDeviceLossHidesThemAgain()
+    {
+        foreach (var active in new[] { true, false, true })
+        {
+            ComponentTestAccess.Set(Component, "_state", State(Device() with { IsConnected = active }));
+            var buttons = ComponentTestAccess.Buttons(Component);
+            Assert.True(buttons.ContainsKey("Allow control"));
+            Assert.True(buttons.ContainsKey("Stop"));
+            Assert.True(buttons.ContainsKey("Reset Position"));
+            Assert.True(buttons.ContainsKey("End guest"));
+            Assert.Equal(active, Read<bool>("ControlsExpanded"));
+            Assert.Equal(active ? 1 : 0, ComponentTestAccess.Parameters(Component, "PatternPreview").Count());
+            Assert.Equal(!active, buttons.ContainsKey("Connect device"));
+            Assert.True(ComponentTestAccess.HasElement(Component, "details"));
+        }
+        Assert.Empty(_client.Invocations);
+    }
+
+    [Fact]
+    public void FailedStopRetainsRecoveryActionAfterGuestSessionEnds()
+    {
+        ComponentTestAccess.Set(Component, "_state", State(Device()) with { GuestJoined = false, GuestConnected = false });
+        ComponentTestAccess.Set(Component, "_previewStopped", true);
+        Notice.Show("Guest session ended. Stop was not confirmed. Use Stop again.", true);
+        var buttons = ComponentTestAccess.Buttons(Component);
+        Assert.False(buttons["Stop"]);
+        Assert.True(Read<bool>("ControlsExpanded"));
+        Assert.Empty(ComponentTestAccess.Parameters(Component, "PatternPreview"));
+        Assert.Empty(_client.Invocations);
+    }
+
     [Fact]
     public void Requested53AtStroke10PreviewUsesCompletedRequestNotCurrent50()
     {
@@ -91,6 +260,11 @@ public sealed class HomeComponentTests : MockerTestBase<Home>, IAsyncDisposable
     [InlineData("AllowGuest", "RefreshInvitation", true)]
     public async Task SafetyCommandsBypassNormalBusyAndBoundTheirOwnDuplicates(string normal, string safety, bool normalFirst)
     {
+        if (normal == "AllowGuest")
+        {
+            _state = State(Device());
+            ComponentTestAccess.Set(Component, "_state", _state);
+        }
         var pending = new TaskCompletionSource<ControlResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
         var urgent = new TaskCompletionSource<ControlResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
         SetupCommand(normal, pending.Task);
@@ -101,19 +275,32 @@ public sealed class HomeComponentTests : MockerTestBase<Home>, IAsyncDisposable
         {
             normalTask = Call(normal);
             var buttons = ComponentTestAccess.Buttons(Component);
-            Assert.False(buttons["Stop"]);
-            Assert.False(buttons["End guest"]);
-            Assert.True(buttons[normal == "Connect" ? "Connect device" : "Allow control"]);
-            Assert.True(buttons["Reset Position"]);
+            if (normal == "Connect")
+            {
+                Assert.True(buttons["Connect device"]);
+                Assert.False(Read<bool>("ControlsExpanded"));
+            }
+            else
+            {
+                Assert.False(buttons["Stop"]);
+                Assert.False(buttons["End guest"]);
+                Assert.True(buttons["Allow control"]);
+                Assert.True(buttons["Reset Position"]);
+            }
             safetyTask = Call(safety);
             return Task.CompletedTask;
         });
         Assert.True(Read<bool>("_busy"));
         Assert.True(Read<bool>("_safetyBusy"));
         Assert.Null(Read<UserSessionState>("_state").Device?.TransmittedSettings);
-        var preview = Assert.Single(ComponentTestAccess.Parameters(Component, "PatternPreview"));
-        foreach (var parameter in new[] { "Pattern", "Speed", "Stroke", "Depth", "Sensation" })
-            Assert.Null(preview[parameter]);
+        if (normal == "Connect")
+            Assert.Empty(ComponentTestAccess.Parameters(Component, "PatternPreview"));
+        else
+        {
+            var preview = Assert.Single(ComponentTestAccess.Parameters(Component, "PatternPreview"));
+            foreach (var parameter in new[] { "Pattern", "Speed", "Stroke", "Depth", "Sensation" })
+                Assert.Null(preview[parameter]);
+        }
         await _renderer.RunAsync(() => Call(normal));
         await _renderer.RunAsync(() => Call(safety));
         Assert.Equal(1, CommandCalls(normal));
@@ -251,7 +438,7 @@ public sealed class HomeComponentTests : MockerTestBase<Home>, IAsyncDisposable
         Assert.Equal("Guest allowed (offline)", Read<string>("GuestStatus"));
         Assert.Equal("success", Read<string>("GuestVariant"));
         var buttons = ComponentTestAccess.Buttons(Component);
-        Assert.False(buttons["End guest"]);
+        Assert.False(Read<bool>("ControlsExpanded"));
         Assert.False(buttons["Refresh invitation"]);
         Assert.True(buttons[Notice.CopyLabel]);
         _client.Setup(client => client.EndGuestAsync(It.IsAny<CancellationToken>()))
@@ -261,7 +448,7 @@ public sealed class HomeComponentTests : MockerTestBase<Home>, IAsyncDisposable
     }
 
     [Fact]
-    public async Task RefreshInvitationIsAvailableWithoutDeviceConnectionAndUpdatesConsumedState()
+    public async Task RefreshInvitationRemainsAvailableWithoutDeviceConnection()
     {
         _state = State(null) with { InvitationConsumed = true, GuestConnected = false };
         ComponentTestAccess.Set(Component, "_state", _state);
@@ -369,12 +556,20 @@ public sealed class HomeComponentTests : MockerTestBase<Home>, IAsyncDisposable
             ComponentTestAccess.Set(Component, "_state", State(device));
             Assert.Equal(status, Read<string>("ConnectionStatus"));
             Assert.Null(Notice.Message);
-            foreach (var testId in new[] { "device-name", "device-identifier", "device-duration" })
-                Assert.Equal("Unknown", ComponentTestAccess.ElementText(Component, testId));
             var buttons = ComponentTestAccess.Buttons(Component);
             Assert.DoesNotContain("Reset", buttons.Keys);
-            Assert.Equal(status is "Connected" or "Connecting", buttons["Connect device"]);
-            Assert.Equal(status != "Connected", buttons["Reset Position"]);
+            if (status == "Connected")
+            {
+                foreach (var testId in new[] { "device-name", "device-identifier" })
+                    Assert.Equal("Unknown", ComponentTestAccess.ElementText(Component, testId));
+                Assert.DoesNotContain("Connect device", buttons.Keys);
+                Assert.False(buttons["Reset Position"]);
+            }
+            else
+            {
+                Assert.Equal(status == "Connecting", buttons["Connect device"]);
+                Assert.True(buttons["Reset Position"]);
+            }
         }
         ComponentTestAccess.Set(Component, "_state", State(Device() with { ConnectionFailed = true }));
         Assert.Equal("Connected", Read<string>("ConnectionStatus"));

@@ -6,6 +6,7 @@ import { connectionHarness, connectionSource, guestSource } from "./fixtures/con
 
 const source = await readFile(new URL("../wwwroot/guest-start.js", import.meta.url), "utf8");
 const authSource = await readFile(new URL("../wwwroot/guest-auth.js", import.meta.url), "utf8");
+const themeSource = await readFile(new URL("../../OssmSharp.Web.Common/wwwroot/theme.js", import.meta.url), "utf8");
 const ready = { code: "ready", requestToken: "csrf", connected: false, canAttach: true };
 
 async function bootstrap(failure, responses = [ready]) {
@@ -22,6 +23,7 @@ async function bootstrap(failure, responses = [ready]) {
       setItem: (key, value) => storage.set(key, value),
       removeItem: (key) => storage.delete(key),
     },
+    localStorage: { getItem: () => "light" },
     history: { replaceState: (_state, _title, path) => { location.href = new URL(path, location).href; order.push("scrub"); } },
     fetch: async (path, options) => {
       order.push(options.method ?? "GET");
@@ -55,6 +57,8 @@ async function bootstrap(failure, responses = [ready]) {
   await guest.link(() => assert.fail("Unexpected guest import"));
   const auth = new SourceTextModule(authSource, { context: h.context });
   await auth.link(() => assert.fail("Unexpected authentication import"));
+  const theme = new SourceTextModule(themeSource, { context: h.context });
+  await theme.link(() => assert.fail("Unexpected theme import"));
   const start = new SourceTextModule(source, {
     context: h.context,
     importModuleDynamically: async (url) => {
@@ -67,6 +71,7 @@ async function bootstrap(failure, responses = [ready]) {
   });
   await start.link((specifier) => {
     if (specifier === "./guest-auth.js") return auth;
+    if (specifier === "./_content/OssmSharp.Web.Common/theme.js") return theme;
     assert.equal(specifier, "./_content/OssmSharp.Web.Common/connection-ui.js");
     return connection;
   });
@@ -81,6 +86,7 @@ test("invitation scrubbing and saved-cookie validation precede Blazor startup", 
   assert.equal(h.guest.namespace.takeInvitation(), null);
   assert.equal(h.guest.namespace.getSessionCode(), "ready");
   assert.equal(h.document.documentElement.dataset.connectionLost, undefined);
+  assert.equal(h.document.documentElement.dataset.theme, "light");
   h.guest.namespace.dispose();
 });
 

@@ -408,7 +408,7 @@ public sealed class JoinComponentTests : MockerTestBase<Join>, IAsyncDisposable
     }
 
     [Fact]
-    public void GuestPreviewHidesHeadingAndUsesSelectedPatternWithoutDimensionsOrLeaveUi()
+    public void GuestPreviewHidesHeadingAndUsesSelectedPatternWithoutDimensionsWhileRetainingLeave()
     {
         SetState(new(true, true, null, Device()));
         ComponentTestAccess.Set(Component, "_display", new GuestDisplayState(new(4, 57, 10, 20, 75), null, string.Empty, null));
@@ -417,7 +417,7 @@ public sealed class JoinComponentTests : MockerTestBase<Join>, IAsyncDisposable
         Assert.Equal((4, 57.0, 10, 20, 75), ((int?)preview["Pattern"], (double?)preview["Speed"], (int?)preview["Stroke"], (int?)preview["Depth"], (int?)preview["Sensation"]));
         Assert.False(preview.ContainsKey("RailLength"));
         Assert.False(preview.ContainsKey("AttachmentLength"));
-        Assert.DoesNotContain("Leave session", ComponentTestAccess.Buttons(Component).Keys);
+        Assert.False(ComponentTestAccess.Buttons(Component)["Leave session"]);
         AssertNoMotion();
     }
 

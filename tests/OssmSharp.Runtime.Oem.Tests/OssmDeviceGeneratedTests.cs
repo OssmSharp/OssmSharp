@@ -15,7 +15,8 @@ public sealed class OssmDeviceGeneratedTests(ITestOutputHelper output) : OssmDev
 
     [Fact]
     public Task GeneratedObsoleteConnectionCallbacksCannotChangeNewObservationsOrControl() =>
-        Gen.Int[0, 2].Array[0, 20].SampleAsync(async events =>
+        Gen.Int[0, 2].Array[0, 20].SampleAsync(
+            async events =>
         {
             await using var test = CreateCase();
             var observers = test.CaptureFailureObservers();
@@ -60,13 +61,16 @@ public sealed class OssmDeviceGeneratedTests(ITestOutputHelper output) : OssmDev
             Assert.False(test.Device.IsArmed);
             Assert.Same(failure, test.Device.ConnectionFailure);
             Assert.Equal(expected, await test.Device.GetStateAsync(cancellationToken: TestContext.Current.CancellationToken));
-        }, threads: 1, writeLine: output.WriteLine);
+            },
+            threads: 1,
+            writeLine: output.WriteLine);
 
     [Fact]
     public Task GeneratedTransferResponseAndCancellationEventsKeepThreeTruthsSeparate() =>
         Gen.Int[0, 100].Array[4]
             .Select(values => new Event((Kind)(values[0] % 10), values[1], values[2], values[3] % 5))
-            .Array[0, 24].SampleAsync(async trace =>
+            .Array[0, 24].SampleAsync(
+                async trace =>
             {
                 await using var test = CreateCase();
                 await test.ConnectAsync();
@@ -212,7 +216,9 @@ public sealed class OssmDeviceGeneratedTests(ITestOutputHelper output) : OssmDev
                         active.Dispose();
                     }
                 }
-            }, threads: 1, writeLine: output.WriteLine);
+                },
+                threads: 1,
+                writeLine: output.WriteLine);
 
     [Fact]
     public async Task Requested53AtStroke10CompletesRequestsWithoutInventingCurrent50()
@@ -269,7 +275,8 @@ public sealed class OssmDeviceGeneratedTests(ITestOutputHelper output) : OssmDev
 
     [Fact]
     public Task GeneratedRegisteredTimeoutsRetryTheSameIdAndPayloadWithoutDoubleCounting() =>
-        Gen.Int[0, 2].Array[0, 12].SampleAsync(async events =>
+        Gen.Int[0, 2].Array[0, 12].SampleAsync(
+            async events =>
         {
             await using var test = CreateCase();
             await test.ConnectAsync();
@@ -340,7 +347,9 @@ public sealed class OssmDeviceGeneratedTests(ITestOutputHelper output) : OssmDev
                     test.Ble.Complete(original);
                 await set;
             }
-        }, threads: 1, writeLine: output.WriteLine);
+            },
+            threads: 1,
+            writeLine: output.WriteLine);
 
     private static MotionSettings Settings(Event action) => new(StrokePattern.TeasingPounding, action.Speed, action.Stroke, 17, 29);
     private static IEnumerable<(string Path, int Value)> Expected(Event action)
