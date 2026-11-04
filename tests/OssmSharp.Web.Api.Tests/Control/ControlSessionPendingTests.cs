@@ -14,6 +14,8 @@ namespace OssmSharp.Web.Api.Tests.Control;
 
 public sealed class ControlSessionPendingTests(ITestOutputHelper output) : ControlSessionTestCase
 {
+    private static readonly int[] CancelledCommandCounts = [0, 5];
+
     [Fact]
     public async Task GeneratedPendingSettingsKeepNewerSelectionsPermissionAndObservationsIndependent()
     {
@@ -25,7 +27,9 @@ public sealed class ControlSessionPendingTests(ITestOutputHelper output) : Contr
                     < 12 => EventKind.CompleteOldest,
                     < 16 => EventKind.CompleteNewest,
                     var choice => (EventKind)(choice - 16),
-                }, values[1], values[2]))
+                },
+                values[1],
+                values[2]))
             .Array[0, 24].SampleAsync(CheckPendingSettingsAsync, threads: 1, writeLine: output.WriteLine);
 
         // Reduced from the native mutation counterexample: the older completion
@@ -128,7 +132,7 @@ public sealed class ControlSessionPendingTests(ITestOutputHelper output) : Contr
                             else if (!completion.WorkToken.IsCancellationRequested)
                                 Assert.Equal(5, completed.CommandsWritten);
                             else
-                                Assert.Contains(completed.CommandsWritten, new[] { 0, 5 });
+                                Assert.Contains(completed.CommandsWritten, CancelledCommandCounts);
                             completion.Settled = true;
                             break;
                         case EventKind.GuestStop:
@@ -214,7 +218,8 @@ public sealed class ControlSessionPendingTests(ITestOutputHelper output) : Contr
                             break;
                     }
 
-                    Assert.Equal(expectedEmitted.Select(request => (request.Pattern, request.Speed, request.Stroke, request.Depth, request.Sensation)),
+                    Assert.Equal(
+                        expectedEmitted.Select(request => (request.Pattern, request.Speed, request.Stroke, request.Depth, request.Sensation)),
                         emitted.Select(settings => ((int)settings.Pattern, settings.Speed, settings.Stroke, settings.Depth, settings.Sensation)));
                     var user = await test.Component.GetUserStateAsync(TestContext.Current.CancellationToken);
                     Assert.Equal(admitted, user.GuestJoined);
@@ -353,7 +358,8 @@ public sealed class ControlSessionPendingTests(ITestOutputHelper output) : Contr
 
     [Fact]
     public Task GeneratedPendingAllowAndRearmCannotRestoreRevokedPermission() =>
-        Gen.Int[0, 9].Array[0, 20].SampleAsync(async events =>
+        Gen.Int[0, 9].Array[0, 20].SampleAsync(
+            async events =>
         {
             await using var test = CreateCase();
             test.Redeem(true);
@@ -363,7 +369,11 @@ public sealed class ControlSessionPendingTests(ITestOutputHelper output) : Contr
             var resets = 0;
             test.Device.SetupGet(device => device.IsArmed).Returns(false);
             test.Device.Setup(device => device.ResetAsync(It.IsAny<CancellationToken>()))
-                .Callback(() => { resets++; resetIssued.TrySetResult(); }).Returns(reset.Task);
+                .Callback(() =>
+                {
+                    resets++;
+                    resetIssued.TrySetResult();
+                }).Returns(reset.Task);
             var allow = test.Component.AllowGuestAsync("pending-allow", TestContext.Current.CancellationToken);
             var admitted = true;
             var connected = true;
@@ -470,5 +480,7 @@ public sealed class ControlSessionPendingTests(ITestOutputHelper output) : Contr
                 reset.TrySetResult();
                 await allow;
             }
-        }, threads: 1, writeLine: output.WriteLine);
+            },
+            threads: 1,
+            writeLine: output.WriteLine);
 }

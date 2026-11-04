@@ -34,7 +34,8 @@ public sealed class MotionSettingsTests(ITestOutputHelper output) : MockerTestBa
     [Fact]
     public void GeneratedCommandsKeepPatternDepthAndSensationIndependentOfVelocity()
     {
-        Gen.Int[0, 100].Array[5].Sample(values =>
+        Gen.Int[0, 100].Array[5].Sample(
+            values =>
         {
             var speed = values[0];
             var stroke = values[1];
@@ -51,7 +52,9 @@ public sealed class MotionSettingsTests(ITestOutputHelper output) : MockerTestBa
             {
                 Assert.Equal(commands[4], new MotionSettings(alternative, speed, stroke, 100 - values[3], 100 - values[4]).ToCommands()[4]);
             }
-        }, threads: 1, writeLine: output.WriteLine);
+            },
+            threads: 1,
+            writeLine: output.WriteLine);
     }
 
     [Theory]

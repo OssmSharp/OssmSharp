@@ -48,9 +48,6 @@ public class ControlSessionTestCase : MockerTestBase<ControlSession>, IAsyncDisp
             .ReturnsAsync(new SetResult(SetStatus.Completed, 5));
     };
 
-    protected ControlSessionTestCase CreateCase() =>
-        Interlocked.Exchange(ref caseCreated, 1) == 0 ? this : new ControlSessionTestCase();
-
     public GuestRedemptionResponse Redeem(bool valid)
     {
         PrepareAdmission();
@@ -68,7 +65,7 @@ public class ControlSessionTestCase : MockerTestBase<ControlSession>, IAsyncDisp
         reads.Add(reading);
         // The tracked mock explicitly supplies completed cached reads. Conformance
         // remains synchronous; this guard rejects a future asynchronous adapter.
-        Assert.True(reading.IsCompletedSuccessfully, reading.Exception?.ToString());
+        Assert.True(reading.IsCompletedSuccessfully);
     }
 
     public bool IsAttached(string tab)
@@ -94,6 +91,22 @@ public class ControlSessionTestCase : MockerTestBase<ControlSession>, IAsyncDisp
     {
         Connected = true;
         return Component.ConnectAsync("connect", TestContext.Current.CancellationToken);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (Interlocked.Exchange(ref disposed, 1) != 0)
+            return;
+        try
+        {
+            try { await Component.DisposeAsync(); }
+            finally { await Task.WhenAll(reads); }
+        }
+        finally
+        {
+            base.Dispose();
+            GC.SuppressFinalize(this);
+        }
     }
 
     internal async Task ApplyAsync(ControlSessionAction action)
@@ -149,17 +162,8 @@ public class ControlSessionTestCase : MockerTestBase<ControlSession>, IAsyncDisp
         LastView = new(user.GuestJoined, user.GuestConnected, user.GuestControlAllowed, first.Joined, first.CanResumeAfterStop, user.Device.IsConnected, user.Device.TransmittedSettings, reply);
     }
 
-    public async ValueTask DisposeAsync()
-    {
-        if (Interlocked.Exchange(ref disposed, 1) != 0)
-            return;
-        try
-        {
-            try { await Component.DisposeAsync(); }
-            finally { await Task.WhenAll(reads); }
-        }
-        finally { base.Dispose(); }
-    }
+    protected ControlSessionTestCase CreateCase() =>
+        Interlocked.Exchange(ref caseCreated, 1) == 0 ? this : new ControlSessionTestCase();
 
     private static string CheckedReply(ControlResponse response)
     {
