@@ -81,10 +81,9 @@ No .NET installation is required. Downloads are not Developer ID signed or notar
                         throw "Existing release asset differs: $name. Reuse the original workflow artifacts."
                     }
                 }
-                elseif ($release.isDraft) {
+                else {
                     Invoke-CheckedCommand gh @('release', 'upload', $Tag, $asset, '--repo', $repository) | Out-Host
                 }
-                else { throw "Published release is missing $name; prepare a new version." }
             }
         }
         NuGet {

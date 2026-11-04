@@ -181,12 +181,12 @@ Describe 'Release downloads and publication' {
         Should -Invoke Invoke-CheckedCommand -Times 0 -Exactly -ParameterFilter { $Arguments[1] -in @('upload', 'push', 'edit') }
     }
 
-    It 'refuses to add missing assets to an already published release' {
+    It 'uploads only missing assets to an already published release' {
         $global:OssmReleaseTestState.Release.isDraft = $false
 
-        { & $publishScript -Tag v0.1.0 -Directory $directory -Stage Upload -Confirm:$false } |
-            Should -Throw '*Published release is missing*'
-        Should -Invoke Invoke-CheckedCommand -Times 0 -Exactly -ParameterFilter { $Arguments[1] -eq 'upload' }
+        & $publishScript -Tag v0.1.0 -Directory $directory -Stage Upload -Confirm:$false
+
+        Should -Invoke Invoke-CheckedCommand -Times 7 -Exactly -ParameterFilter { $Arguments[1] -eq 'upload' }
     }
 
     It 'refuses to skip a NuGet version with different payloads' {
