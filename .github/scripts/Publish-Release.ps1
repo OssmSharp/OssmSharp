@@ -7,8 +7,8 @@ Requires a clean matching tag and the downloads from both native jobs in one run
 Publication has four stages: prepare a draft, upload assets, push NuGet, and publish
 the draft. Retries retain existing assets and packages only when their content
 matches. GH_TOKEN and, for a new package, NUGET_API_KEY must be in the environment.
-Published releases are never modified; all required assets must be present before
-publishing. Use -WhatIf to check local inputs without publication. This script does not create tags.
+Published releases are never modified; the workflow still publishes their NuGet
+package. Use -WhatIf to check local inputs without publication. This script does not create tags.
 .PARAMETER Stage
 Run one publication stage, or All (the default).
 .EXAMPLE
@@ -63,11 +63,12 @@ function Get-ReleaseDetails {
 function Assert-ReleaseAssets {
     param([pscustomobject] $Release)
 
+    if (-not $Release.isDraft) { return }
+
     foreach ($name in $expectedAssetNames) {
         $matches = @($Release.assets | Where-Object name -CEQ $name)
         if ($matches.Count -ne 1) {
-            if ($Release.isDraft) { throw "Draft release is missing required asset: $name." }
-            throw "Published release $Tag is missing required asset $name. Published releases are immutable; create a new tag and let the workflow prepare a draft before publishing."
+            throw "Draft release is missing required asset: $name."
         }
         if ([string]::IsNullOrWhiteSpace($matches[0].digest)) {
             throw "Existing release asset has no digest: $name."
@@ -90,11 +91,7 @@ foreach ($currentStage in $stages) {
                 '--jq', $query) | ConvertFrom-Json
             if ($release) {
                 if (-not $release.draft) {
-                    $existingNames = @($release.assets | ForEach-Object name)
-                    $missingNames = @($expectedAssetNames | Where-Object { $_ -notin $existingNames })
-                    if ($missingNames.Count -gt 0) {
-                        throw "Published release $Tag is missing required assets: $($missingNames -join ', '). Published releases are immutable; create a new tag and let the workflow prepare a draft before publishing."
-                    }
+                    Write-Warning "Release $Tag is already published; leaving its GitHub assets unchanged."
                 }
                 break
             }
@@ -115,7 +112,7 @@ No .NET installation is required. Downloads are not Developer ID signed or notar
         Upload {
             $release = Get-ReleaseDetails
             if (-not $release.isDraft) {
-                Assert-ReleaseAssets $release
+                Write-Warning "Release $Tag is already published; skipping GitHub asset uploads."
                 break
             }
             foreach ($asset in $assets) {
@@ -161,11 +158,14 @@ No .NET installation is required. Downloads are not Developer ID signed or notar
         }
         Publish {
             $release = Get-ReleaseDetails
-            Assert-ReleaseAssets $release
             if ($release.isDraft) {
+                Assert-ReleaseAssets $release
                 Invoke-CheckedCommand gh @('release', 'edit', $Tag, '--repo', $repository,
                     '--draft=false', '--prerelease=false', '--latest') | Out-Host
                 if ((Get-ReleaseDetails).isDraft) { throw "GitHub release $Tag is still a draft after publishing." }
+            }
+            else {
+                Write-Information "Release $Tag is already published; no GitHub release changes are needed."
             }
         }
     }

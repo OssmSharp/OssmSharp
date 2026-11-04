@@ -1,10 +1,12 @@
 name: Release
 
-# Push the tag, not a published release. This workflow creates a draft, uploads
-# validated assets, and publishes only after all assets are in place.
+# Supports both pushed tags and GitHub UI releases. Drafts receive assets before
+# publication; already-published releases are left untouched.
 on:
   push:
     tags: ["v*"]
+  release:
+    types: [published]
 
 permissions:
   contents: read

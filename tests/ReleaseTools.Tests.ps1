@@ -220,22 +220,20 @@ Describe 'Release downloads and publication' {
         Should -Invoke Invoke-CheckedCommand -Times 0 -Exactly -ParameterFilter { $Arguments[1] -in @('upload', 'push', 'edit') }
     }
 
-    It 'fails before building assets when a published release is incomplete' {
+    It 'reuses a published release during preflight without requiring build artifacts' {
         $global:OssmReleaseTestState.Release.isDraft = $false
         $global:OssmReleaseTestState.Release.assets = @()
 
-        { & $publishScript -Tag v0.1.0 -Stage Prepare -Confirm:$false } |
-            Should -Throw '*Published release v0.1.0 is missing required assets*immutable*'
+        & $publishScript -Tag v0.1.0 -Stage Prepare -Confirm:$false
 
-        Should -Invoke Invoke-CheckedCommand -Times 0 -Exactly -ParameterFilter { $Arguments[1] -in @('create', 'upload', 'push', 'edit') }
+        Should -Invoke Invoke-CheckedCommand -Times 0 -Exactly -ParameterFilter { $Arguments[1] -eq 'create' }
     }
 
-    It 'never uploads to an already published release' {
+    It 'skips asset uploads to an already published release' {
         $global:OssmReleaseTestState.Release.isDraft = $false
         $global:OssmReleaseTestState.Release.assets = @()
 
-        { & $publishScript -Tag v0.1.0 -Directory $directory -Stage Upload -Confirm:$false } |
-            Should -Throw '*Published release v0.1.0 is missing required asset*immutable*'
+        & $publishScript -Tag v0.1.0 -Directory $directory -Stage Upload -Confirm:$false
 
         Should -Invoke Invoke-CheckedCommand -Times 0 -Exactly -ParameterFilter { $Arguments[1] -eq 'upload' }
     }
@@ -248,14 +246,15 @@ Describe 'Release downloads and publication' {
         Should -Invoke Invoke-CheckedCommand -Times 0 -Exactly -ParameterFilter { $Arguments[1] -in @('upload', 'edit') }
     }
 
-    It 'does not publish NuGet when a release asset is missing' {
+    It 'publishes NuGet without modifying an already-published release with no assets' {
+        $global:OssmReleaseTestState.Release.isDraft = $false
         $global:OssmReleaseTestState.Release.assets = @()
 
-        { & $publishScript -Tag v0.1.0 -Directory $directory -Stage NuGet -Confirm:$false } |
-            Should -Throw '*Draft release is missing required asset*'
+        & $publishScript -Tag v0.1.0 -Directory $directory -Confirm:$false
 
-        Should -Invoke Invoke-WebRequest -Times 0 -Exactly
-        Should -Invoke Invoke-CheckedCommand -Times 0 -Exactly -ParameterFilter { $FileName -eq 'dotnet' }
+        Should -Invoke Invoke-WebRequest -Times 1 -Exactly
+        Should -Invoke Invoke-CheckedCommand -Times 1 -Exactly -ParameterFilter { $FileName -eq 'dotnet' -and $Arguments[1] -eq 'push' }
+        Should -Invoke Invoke-CheckedCommand -Times 0 -Exactly -ParameterFilter { $Arguments[1] -in @('upload', 'edit') }
     }
 
     It 'refuses to skip a NuGet version with different payloads' {
