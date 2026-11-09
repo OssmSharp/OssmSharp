@@ -27,8 +27,7 @@
     <PackageReference Include="Shiny.BluetoothLE" />
     <InternalsVisibleTo Include="OssmSharp.Runtime.Oem.Tests" />
     <None Include="../../LICENSE" Pack="true" PackagePath="" />
-    <None Remove="README.md" />
-    <None Include="README.md" Pack="true" PackagePath="" />
+    <None Include="../../README.md" Pack="true" PackagePath="" />
   </ItemGroup>
   <!-- Include the shared contracts and their documentation beside each target's device assembly. -->
   <Target Name="IncludeRuntimeAssembly" DependsOnTargets="ResolveReferences">
