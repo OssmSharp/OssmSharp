@@ -11,7 +11,7 @@
     <DebugType Condition="'$(PublishProfile)' == 'win-x64'">embedded</DebugType>
     <AnalysisMode>latest-All</AnalysisMode>
     <ArtifactsPath>$(MSBuildThisFileDirectory).artifacts</ArtifactsPath>
-    <VersionPrefix>0.1.1</VersionPrefix>
+    <VersionPrefix>0.1.3</VersionPrefix>
     <AssemblyVersion>$(VersionPrefix).0</AssemblyVersion>
     <FileVersion>$(VersionPrefix).0</FileVersion>
     <ApplicationDisplayVersion>$(VersionPrefix)</ApplicationDisplayVersion>
