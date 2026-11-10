@@ -1,31 +1,45 @@
-.user-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    align-items: stretch;
-    gap: 42px 32px;
+:root {
+    --connection-panel-width: 640px;
 }
-
-.user-grid > .widget { padding-top: 26px; border-top: 1px solid var(--line); }
-.user-status-heading { flex-wrap: wrap; }
-.user-status-heading .status-mark { margin-left: auto; }
-.invite-row { display: flex; align-items: center; gap: 14px; }
-.invite-row input { flex: 1 1 12rem; }
-.button.refresh-invitation:not(:disabled) { --button-bg: var(--muted); --button-ink: var(--background); border-color: var(--button-bg); }
-.connection-details { display: grid; gap: 14px; margin: 0 0 24px; }
-.connection-details > div {
-    padding: 12px 14px;
-    border-left: 2px solid var(--neutral);
-    border-radius: var(--radius);
-    background: var(--neutral-bg);
+.device-stage { min-width: 0; width: min(var(--connection-panel-width), 100%); padding: var(--space-4); border: var(--border-width) solid var(--border); background: var(--surface); }
+.device-stage .section-heading { margin-bottom: var(--space-3); }
+.device-summary { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); min-width: 0; max-width: 100%; font: var(--text-xs)/1.5 var(--font-data); }
+.device-summary > span { min-width: 0; overflow-wrap: anywhere; }
+.device-summary .status-mark { white-space: nowrap; }
+.connection-badge { padding: var(--space-1) var(--space-2); background: var(--status-bg); border: var(--border-width) solid var(--status); }
+.device-identifier { color: var(--muted); }
+.fading-notice { animation: notice-fade .3s ease-out 3.5s forwards; }
+@keyframes notice-fade {
+    to { opacity: 0; visibility: hidden; }
 }
-.connection-details dt { color: var(--muted); font-size: .78rem; }
-.connection-details dd { margin: 3px 0 0; overflow-wrap: anywhere; font-weight: 550; }
-[data-testid="device-duration"] { font-variant-numeric: tabular-nums; }
-
-@media (max-width: 900px) {
-    .user-grid { grid-template-columns: 1fr; gap: 28px; }
+@media (prefers-reduced-motion: reduce) {
+    .fading-notice { animation: none; }
 }
+.session-dashboard { display: grid; gap: var(--space-4); }
+.session-workspace { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-4); align-items: start; }
+.session-controls, .preview-station { min-width: 0; border: var(--border-width) solid var(--border); background: var(--field); }
+.preview-station { padding: var(--space-4); }
+.session-controls:not([open]) { grid-column: 1 / -1; }
+.session-controls summary { min-height: var(--control-size); padding: var(--space-3) var(--space-4); cursor: pointer; }
+.session-controls summary h2 { display: inline; font-size: var(--text-base); }
+.session-controls summary .status-mark { margin-inline-start: var(--space-3); }
+.controls-content { padding: var(--space-4); border-top: var(--border-width) solid var(--line); }
+.session-controls .button-row { gap: var(--space-3); }
+.preview-station .pattern-preview { padding: 0; border: 0; }
+.invitation-desk { min-width: 0; border: var(--border-width) solid var(--border); background: var(--field); }
+.invitation-details summary { min-height: var(--control-size); padding: var(--space-3) var(--space-4); cursor: pointer; }
+.invitation-details summary h2 { display: inline; font-size: var(--text-base); }
+.invitation-details[open] summary { border-bottom: var(--border-width) solid var(--line); }
+.invitation-content { padding: var(--space-4); }
+.invite-row { display: flex; align-items: stretch; gap: var(--space-3); }
+.invite-row input { flex: 1; }
+.invitation-footer { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-4); margin-top: var(--space-3); }
+.invitation-footer p { flex: 1 1 16rem; min-width: 0; color: var(--muted); font-size: var(--text-xs); }
+.session-expiry { color: var(--muted); font: var(--text-xs)/1.5 var(--font-data); overflow-wrap: anywhere; margin-top: var(--space-4); }
 
-@media (max-width: 560px) {
-    .invite-row { align-items: stretch; flex-direction: column; }
+@media (max-width: 760px) {
+    .session-workspace { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 480px) {
+    .invite-row { flex-direction: column; }
 }

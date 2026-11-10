@@ -13,7 +13,7 @@ internal sealed class ControlSessionReference
     public bool Admitted { get; private set; }
     public bool Allowed { get; private set; }
     public int Tab { get; private set; }
-    public string Reply { get; private set; } = "";
+    public string Reply { get; private set; } = string.Empty;
     public List<string> Requests { get; } = [];
     public ControlSessionView View => new(Admitted, Tab != 0, Allowed, Tab == 1, Tab == 1 && Allowed && stopped, connected, connected ? sent : null, Reply);
 

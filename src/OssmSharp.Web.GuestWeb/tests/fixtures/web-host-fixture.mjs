@@ -428,7 +428,7 @@ export async function openCircuit(fixture, host, { invitation = null, headers = 
             "Blazor._internal.attachWebRendererInterop",
             "Blazor._internal.navigationManager.enableNavigationInterception",
             "Blazor._internal.domWrapper.focusBySelector",
-            "updateState", "updateConnectionTimer", "disposeConnectionTimer", "dispose", "disconnect", "endSession", "disarm",
+            "updateState", "dispose", "disconnect", "endSession", "disarm",
           ].includes(identifier))
             throw new Error(`Unsupported circuit JS collaborator method: ${identifier}`);
           wire.send(hubMessage([1, {}, null, "EndInvokeJSFromDotNet", [handle, true, JSON.stringify([handle, true, result])], []]));

@@ -1,6 +1,8 @@
 import { initialize } from "./_content/OssmSharp.Web.Common/connection-ui.js";
+import { initializeTheme } from "./_content/OssmSharp.Web.Common/theme.js";
 import { createSession } from "./guest-auth.js";
 
+initializeTheme();
 let guest;
 const session = createSession((code) => guest?.showSessionState(code));
 const connection = initialize(() => guest?.disconnect());

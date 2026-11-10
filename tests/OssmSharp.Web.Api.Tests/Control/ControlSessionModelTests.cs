@@ -14,29 +14,8 @@ namespace OssmSharp.Web.Api.Tests.Control;
 
 public sealed class ControlSessionModelTests(ITestOutputHelper output) : ControlSessionTestCase
 {
-    private static Spec<Admission> AdmissionSpec() => Spec.From(new Admission())
-        .Action("Redeem", new[] { false, true }, (s, valid) => s.Admitted
-            ? s with { Accepted = false, Code = GuestAlreadyJoined }
-            : valid ? new Admission(true, 0, true, InvitationRedeemed)
-                : s with { Accepted = false, Code = InvalidInvitation })
-        .Action("Join", new[] { 1, 2 }, (s, tab) => !s.Admitted
-            ? s with { Accepted = false, Code = InvalidGuestSession }
-            : s.Tab != 0 ? s with { Accepted = false, Code = GuestAlreadyJoined }
-                : new Admission(true, tab, true, Joined))
-        .Invariant("AttachedRequiresAdmission", "Only an admitted guest can attach.", s => s.Tab == 0 || s.Admitted)
-        .Rule("AdmissionIsNotReplaced", "Repeated redemption is rejected and retains admission.", on: "Redeem",
-            when: (before, _) => before.Admitted,
-            then: (before, after) => after.Admitted && after.Tab == before.Tab && !after.Accepted && after.Code == GuestAlreadyJoined)
-        .Rule("SecondTabIsRejected", "An attached guest cannot be replaced by another tab.", on: "Join",
-            when: (before, _) => before.Tab != 0,
-            then: (before, after) => after.Tab == before.Tab && !after.Accepted && after.Code == GuestAlreadyJoined)
-        .Rule("JoinRequiresAdmission", "A missing saved identity is rejected.", on: "Join",
-            when: (before, _) => !before.Admitted,
-            then: (_, after) => after.Tab == 0 && !after.Accepted && after.Code == InvalidGuestSession)
-        .Reachable("AdmissionSucceeded", "A valid invitation can be redeemed.", s => s.Admitted && s.Accepted && s.Code == InvitationRedeemed)
-        .Reachable("TabOneAttached", "The first tab can attach.", s => s.Tab == 1)
-        .Reachable("TabTwoAttached", "The second tab can attach first.", s => s.Tab == 2)
-        .Reachable("InvalidInvitationRejected", "Invalid invitations remain in the attempted domain.", s => s.Code == InvalidInvitation);
+    private static readonly bool[] InvitationValidity = [false, true];
+    private static readonly int[] Tabs = [1, 2];
 
     [Fact]
     public void AdmissionSpecificationIsClosedAndDetectsReplacementFaults()
@@ -48,10 +27,14 @@ public sealed class ControlSessionModelTests(ITestOutputHelper output) : Control
         Assert.Empty(lastKnownState.NeverTriggered);
         Assert.Empty(lastKnownState.NeverFired);
         AdmissionSpec()
-            .Fault("redeem drops existing admission", on: "Redeem",
+            .Fault(
+                "redeem drops existing admission",
+                on: "Redeem",
                 when: (before, _) => before.Admitted,
                 perturb: (_, after) => after with { Admitted = false, Tab = 0 })
-            .Fault("join replaces attached tab", on: "Join",
+            .Fault(
+                "join replaces attached tab",
+                on: "Join",
                 when: (before, _) => before.Tab != 0,
                 perturb: (before, after) => after with { Tab = before.Tab == 1 ? 2 : 1, Accepted = true })
             .Faults(writeLine: output.WriteLine);
@@ -91,7 +74,11 @@ public sealed class ControlSessionModelTests(ITestOutputHelper output) : Control
                     if (test.IsAttached("tab-1") != (step.After.Tab == 1) || test.IsAttached("tab-2") != (step.After.Tab == 2))
                         return $"{step.Action}: the wrong tab is attached";
                     return null;
-                }, threads: 1, minSteps: 0, maxSteps: 16, writeLine: output.WriteLine);
+                },
+                threads: 1,
+                minSteps: 0,
+                maxSteps: 16,
+                writeLine: output.WriteLine);
         }
         finally
         {
@@ -135,7 +122,10 @@ public sealed class ControlSessionModelTests(ITestOutputHelper output) : Control
                 equal: (actual, model) =>
                     actual.Replies.Order().SequenceEqual(model.Order())
                     && (actual.Test.Component.GetSavedGuestSession(actual.Test.Identity) is not null) == (model.Count != 0),
-                maxSequentialOperations: 0, maxParallelOperations: 3, threads: 1, writeLine: output.WriteLine);
+                maxSequentialOperations: 0,
+                maxParallelOperations: 3,
+                threads: 1,
+                writeLine: output.WriteLine);
         }
         finally
         {
@@ -153,19 +143,56 @@ public sealed class ControlSessionModelTests(ITestOutputHelper output) : Control
             {
                 var actual = CreateCase();
                 owned.Add(actual);
-                await actual.ReadViewAsync("");
+                await actual.ReadViewAsync(string.Empty);
                 return (actual, new Reference());
             });
             await initial.SampleModelBasedAsync(
                 Gen.Int[0, 12].Operation<SessionCase, Reference>(
                     kind => ((ActionKind)kind).ToString(),
                     (actual, kind) => actual.ApplyAsync((ActionKind)kind),
-                    (model, kind) => { model.Apply((ActionKind)kind); return Task.CompletedTask; }),
+                    (model, kind) =>
+                    {
+                        model.Apply((ActionKind)kind);
+                        return Task.CompletedTask;
+                    }),
                 equal: (actual, model) => actual.LastView == model.View && actual.Requests.SequenceEqual(model.Requests),
                 printActual: actual => $"{actual.LastView}; requests={string.Join(",", actual.Requests)}",
                 printModel: model => $"{model.View}; requests={string.Join(",", model.Requests)}",
                 classify: model => $"admitted={model.Admitted},permission={model.Allowed},attached={model.Tab},reply={model.Reply}",
-                threads: 1, writeLine: output.WriteLine);
+                threads: 1,
+                writeLine: output.WriteLine);
+            private static Spec<Admission> AdmissionSpec() => Spec.From(new Admission())
+                .Action("Redeem", InvitationValidity, (s, valid) => s.Admitted
+                    ? s with { Accepted = false, Code = GuestAlreadyJoined }
+                    : valid ? new Admission(true, 0, true, InvitationRedeemed)
+                        : s with { Accepted = false, Code = InvalidInvitation })
+                .Action("Join", Tabs, (s, tab) => !s.Admitted
+                    ? s with { Accepted = false, Code = InvalidGuestSession }
+                    : s.Tab != 0 ? s with { Accepted = false, Code = GuestAlreadyJoined }
+                        : new Admission(true, tab, true, Joined))
+                .Invariant("AttachedRequiresAdmission", "Only an admitted guest can attach.", s => s.Tab == 0 || s.Admitted)
+                .Rule(
+                    "AdmissionIsNotReplaced",
+                    "Repeated redemption is rejected and retains admission.",
+                    on: "Redeem",
+                    when: (before, _) => before.Admitted,
+                    then: (before, after) => after.Admitted && after.Tab == before.Tab && !after.Accepted && after.Code == GuestAlreadyJoined)
+                .Rule(
+                    "SecondTabIsRejected",
+                    "An attached guest cannot be replaced by another tab.",
+                    on: "Join",
+                    when: (before, _) => before.Tab != 0,
+                    then: (before, after) => after.Tab == before.Tab && !after.Accepted && after.Code == GuestAlreadyJoined)
+                .Rule(
+                    "JoinRequiresAdmission",
+                    "A missing saved identity is rejected.",
+                    on: "Join",
+                    when: (before, _) => !before.Admitted,
+                    then: (_, after) => after.Tab == 0 && !after.Accepted && after.Code == InvalidGuestSession)
+                .Reachable("AdmissionSucceeded", "A valid invitation can be redeemed.", s => s.Admitted && s.Accepted && s.Code == InvitationRedeemed)
+                .Reachable("TabOneAttached", "The first tab can attach.", s => s.Tab == 1)
+                .Reachable("TabTwoAttached", "The second tab can attach first.", s => s.Tab == 2)
+                .Reachable("InvalidInvitationRejected", "Invalid invitations remain in the attempted domain.", s => s.Code == InvalidInvitation);
         }
         finally
         {

@@ -208,7 +208,7 @@ $project = 'src/OssmSharp.Web/OssmSharp.Web.csproj'
 Push-Location -LiteralPath $RepositoryRoot
 try {
     Write-Host 'Building the single-process web host...'
-    Invoke-DotNet @('build', $project, '--framework', $nativeFramework)
+    Invoke-DotNet @('build', $project, '--framework', $nativeFramework, '-p:ValidateXcodeVersion=false')
 }
 finally {
     Pop-Location

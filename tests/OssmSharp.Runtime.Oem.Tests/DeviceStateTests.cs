@@ -14,7 +14,8 @@ public sealed class DeviceStateTests(ITestOutputHelper output) : MockerTestBase<
     [Fact]
     public void GeneratedFractionalObservationsPreserveSnapshotUnitsAndUnknownZeroStroke()
     {
-        Gen.Int[0, 100000].Array[4].Sample(values =>
+        Gen.Int[0, 100000].Array[4].Sample(
+            values =>
         {
             var velocity = values[0] / 1000.0;
             var stroke = values[1] % 101;
@@ -50,7 +51,9 @@ public sealed class DeviceStateTests(ITestOutputHelper output) : MockerTestBase<
                 }
             }
             Assert.Null(new DeviceState(StrokePattern.SimpleStroke, velocity, 0, depth, sensation).Speed);
-        }, threads: 1, writeLine: output.WriteLine);
+            },
+            threads: 1,
+            writeLine: output.WriteLine);
     }
 
     [Theory]

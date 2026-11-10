@@ -1,14 +1,258 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import {
-  assertCapabilityAbsent, button, createBrowserFixture, deviceState,
-  launchBrowser, observePage, sent, setRange, settings, until, userState, waitFor,
+  assertCapabilityAbsent, button, complete, createBrowserFixture, deviceState, guestState,
+  launchBrowser, observePage, preview, sent, setRange, settings, until, userState, waitFor,
 } from "./fixtures/browser-fixture.mjs";
 
 let browser;
 before(async () => { browser = await launchBrowser(); }, { timeout: 20_000 });
 after(async () => { await browser?.close(); }, { timeout: 20_000 });
 const options = { timeout: 60_000 };
+
+test("public guest manual and auto send wire controls to RPC and leave scrubs capability", options, async (t) => {
+  const fixture = await createBrowserFixture(t, browser);
+  const invitation = "public-wiring-invite";
+  const view = await fixture.openGuest(invitation, { publicHost: true });
+  const { page, session } = view;
+  await page.getByRole("region", { name: "Requested settings", exact: true }).waitFor();
+  await page.getByRole("region", { name: "Pattern preview", exact: true }).waitFor();
+  assert.doesNotMatch(await page.getByRole("main", { name: "Guest controls", exact: true }).innerText(), /Last known|Control enabled\./);
+  for (const [value, expected] of [[12.4, 12], [12.5, 13], [12.6, 13]]) {
+    await setRange(page, "Speed", value);
+    assert.equal(await page.getByLabel("Speed", { exact: true }).inputValue(), String(expected), "Native step=1 coercion");
+    assert.equal(session.requests.length, 0);
+  }
+  await button(page, "Stop / go").click();
+  await setRange(page, "Sensation", 75);
+  await button(page, "Send").click();
+  await sent(page, "Speed", 13);
+  assert.equal(session.requests.length, 1);
+  assert.deepEqual(pickSettings(session.requests[0]), { pattern: 5, speed: 13, stroke: 10, depth: 20, sensation: 75 });
+  await page.getByLabel("Auto send", { exact: true }).check();
+  await button(page, "Deeper").click();
+  await until(() => preview(page).getAttribute("aria-label"), (label) => label.startsWith("Deeper preview"), "Auto preview");
+  assert.equal(await page.getByLabel("Auto send", { exact: true }).isChecked(), false);
+  assert.equal(session.requests.length, 1, "Changing pattern pauses auto send");
+  await button(page, "Send").click();
+  await sent(page, "Speed", 13);
+  assert.deepEqual(pickSettings(session.requests[1]), { pattern: 4, speed: 13, stroke: 10, depth: 20, sensation: 75 });
+  await page.getByLabel("Auto send", { exact: true }).check();
+  await setRange(page, "Speed", 14);
+  await sent(page, "Speed", 14);
+  await waitFor(() => session.requests.length === 3, "Auto Submit");
+  assert.deepEqual(pickSettings(session.requests[2]), { pattern: 4, speed: 14, stroke: 10, depth: 20, sensation: 75 });
+  await page.getByLabel("Auto send", { exact: true }).uncheck();
+  await until(() => page.getByRole("status").filter({ hasText: "Settings sent." }).count(), 1, "send status");
+  session.state.device = { ...session.state.device, speed: 33.333333333333336, stroke: 30 };
+  await currentSpeed(page, "33.333333333333336");
+  await setRange(page, "Depth", 80);
+  await until(() => preview(page).getAttribute("aria-label"), (label) => label.includes("80% depth"), "real UpdateDisplay preview");
+  assert.equal(session.requests.length, 3, "Preview edits must not Submit");
+  await currentSpeed(page, "33.333333333333336");
+  session.state.device = { ...session.state.device, speed: 400, stroke: 10 };
+  await currentSpeed(page, "400");
+  session.state.device = { ...session.state.device, speed: null, stroke: 0 };
+  await currentSpeed(page, "unavailable");
+  await button(page, "Leave session").click();
+  await page.getByRole("status").filter({ hasText: "You left the session." }).waitFor();
+  assert.equal(session.calls.filter((name) => name === "Leave").length, 1);
+  assert.equal(session.calls.filter((name) => name === "LeaveSavedSession").length, 0);
+  assert.equal((await view.context.cookies()).some((cookie) => cookie.name === "ossm-guest-session"), false);
+  assert.equal(new URL(page.url()).hash, "");
+  assertCapabilityAbsent(view, [invitation, session.saved.credential], fixture.fixture.adminKey);
+  assert.deepEqual(view.errors, []);
+});
+
+test("admin dashboard progresses from device connection to invitation to active guest controls", options, async (t) => {
+  const fixture = await createBrowserFixture(t, browser);
+  const { page, session, errors } = await fixture.openAdmin();
+  await page.getByRole("region", { name: "Device connection", exact: true }).waitFor();
+  assert.equal(await page.getByTestId("guest-invitation-card").isVisible(), true);
+  assert.equal(await page.getByTestId("user-controls").getAttribute("open"), null);
+  assert.equal(await preview(page).count(), 0);
+  await button(page, "Connect device").focus();
+  await page.keyboard.press("Enter");
+  await waitFor(() => session.pending.has("Connect"), "keyboard Connect");
+  await until(() => button(page, "Connect device").isDisabled(), true, "Connect busy");
+  assert.equal(await button(page, "Stop").isHidden(), true);
+  session.state = { ...session.state, device: deviceState(), guestJoined: false, guestConnected: false };
+  await complete(session, "Connect");
+  await page.getByTestId("guest-invitation-card").waitFor();
+  assert.equal(await page.getByTestId("invitation-details").getAttribute("open"), "");
+  assert.equal(await page.getByLabel("Guest invitation", { exact: true }).inputValue(), "https://guest.test/join#invite=isolated-admin-invite");
+  assert.equal(await page.getByTestId("user-controls").getAttribute("open"), null);
+  assert.equal(await preview(page).count(), 0);
+  assert.equal(await button(page, "Connect device").count(), 0);
+  assert.equal(await page.getByRole("region", { name: "Device connection", exact: true }).count(), 0);
+  assert.equal(await page.getByRole("banner").getByTestId("device-connection-status").innerText(), "Connected");
+  assert.equal(await page.getByTestId("guest-status").innerText(), "No guest");
+  session.state = { ...session.state, guestJoined: true, guestConnected: true };
+  await until(() => page.getByTestId("user-controls").getAttribute("open"), "", "controls expanded");
+  assert.equal(await page.getByTestId("user-controls").getByTestId("guest-status").innerText(), "Guest joined");
+  assert.equal(await page.getByRole("banner").getByTestId("guest-status").count(), 0);
+  await page.getByRole("heading", { name: "Last settings", exact: true }).waitFor();
+  assert.equal(await page.getByTestId("invitation-details").getAttribute("open"), null);
+  assert.equal(await page.getByLabel("Guest invitation", { exact: true }).isHidden(), true);
+  assert.equal(await button(page, "Allow control").isEnabled(), true);
+  assert.equal(await button(page, "Stop").isEnabled(), true);
+  await button(page, "Stop").click();
+  await complete(session, "Stop");
+  session.state = { ...session.state, guestConnected: false };
+  await until(() => page.getByTestId("user-controls").getAttribute("open"), null, "controls collapsed");
+  assert.equal(await preview(page).count(), 0);
+  assert.equal(await page.getByTestId("invitation-details").getAttribute("open"), "");
+  session.state = { ...session.state, device: deviceState({ isConnected: false }) };
+  assert.equal(await page.getByTestId("guest-invitation-card").isVisible(), true);
+  assert.equal(await button(page, "Connect device").isEnabled(), true);
+  assert.deepEqual(commands(session), ["Connect", "Stop"]);
+  assert.deepEqual(errors, []);
+});
+
+test("manual dashboard expansion survives guest and device connection changes", options, async (t) => {
+  const fixture = await createBrowserFixture(t, browser);
+  const { page, session } = await fixture.openAdmin(userState(deviceState()));
+  const invitation = page.getByTestId("invitation-details");
+  const controls = page.getByTestId("user-controls");
+  await invitation.locator("summary").focus();
+  await page.keyboard.press("Enter");
+  await until(() => invitation.getAttribute("open"), "", "manual invitation expansion");
+  await controls.locator("summary").click();
+  await until(() => controls.getAttribute("open"), null, "manual controls collapse");
+  await controls.locator("summary").focus();
+  await page.keyboard.press("Space");
+  await until(() => controls.getAttribute("open"), "", "manual controls expansion");
+  session.state = { ...session.state, guestConnected: false };
+  await until(() => page.getByTestId("guest-status").innerText(), "Guest offline", "guest disconnected");
+  assert.equal(await invitation.getAttribute("open"), "");
+  assert.equal(await controls.getAttribute("open"), "");
+  session.state = { ...session.state, guestConnected: true };
+  await until(() => page.getByTestId("guest-status").innerText(), "Guest joined", "guest reconnected");
+  assert.equal(await invitation.getAttribute("open"), "");
+  session.state = { ...session.state, device: deviceState({ isConnected: false }) };
+  await button(page, "Connect device").waitFor();
+  assert.equal(await invitation.getAttribute("open"), "");
+  assert.equal(await controls.getAttribute("open"), "");
+  assert.deepEqual(commands(session), []);
+});
+
+test("admin reset position uses its distinct RPC while Stop remains available", options, async (t) => {
+  const fixture = await createBrowserFixture(t, browser);
+  const { page, session, errors } = await fixture.openAdmin(userState(deviceState({ transmittedSettings: settings })));
+  const label = await preview(page).getAttribute("aria-label");
+  await button(page, "Reset Position").click();
+  await waitFor(() => session.pending.has("ResetPosition"), "ResetPosition");
+  await page.getByRole("status").filter({ hasText: "Resetting position ..." }).waitFor();
+  assert.equal(await button(page, "Reset Position").isDisabled(), true);
+  assert.equal(await button(page, "Stop").isEnabled(), true);
+  await button(page, "Stop").click();
+  await complete(session, "Stop");
+  await complete(session, "ResetPosition", { accepted: false, code: "cancelled" });
+  await until(() => button(page, "Reset Position").isEnabled(), true, "reset settles");
+  assert.deepEqual(commands(session), ["ResetPosition", "Stop"]);
+  assert.equal(await preview(page).getAttribute("aria-label"), label);
+  assert.equal(session.state.guestControlAllowed, false);
+  assert.deepEqual(errors, []);
+});
+
+test("guest reset and acknowledged Stop permit only deliberate recovery", options, async (t) => {
+  const fixture = await createBrowserFixture(t, browser);
+  const { page, session, errors } = await fixture.openGuest("guest-safety");
+  await setRange(page, "Speed", 35);
+  await button(page, "Insist").click();
+  await page.getByLabel("Auto send", { exact: true }).check();
+  await sent(page, "Speed", 35);
+  await button(page, "Reset Position").click();
+  await waitFor(() => session.pending.has("GuestResetPosition"), "GuestResetPosition");
+  await page.getByRole("status").filter({ hasText: "Resetting position ..." }).waitFor();
+  assert.equal(await button(page, "Send").isDisabled(), true);
+  assert.equal(await page.getByLabel("Auto send", { exact: true }).isChecked(), false);
+  assert.equal(await page.getByLabel("Speed", { exact: true }).inputValue(), "35");
+  assert.equal(await button(page, "Insist").getAttribute("aria-pressed"), "true");
+  assert.equal(await button(page, "Stop").isEnabled(), true);
+  session.holdStop = true;
+  await button(page, "Stop").click();
+  await complete(session, "GuestStop", { accepted: false, code: "outcome-unknown" });
+  await page.getByRole("alert").filter({ hasText: "Stop was not acknowledged." }).waitFor();
+  await complete(session, "GuestResetPosition", { accepted: false, code: "cancelled" });
+  assert.equal(await button(page, "Send").isDisabled(), true);
+  await button(page, "Stop").click();
+  session.state = guestState({ canResumeAfterStop: true, device: deviceState({ isArmed: false }) });
+  await complete(session, "GuestStop");
+  await until(() => button(page, "Send").isEnabled(), true, "acknowledged Stop recovery");
+  assert.equal(session.requests.length, 1);
+  await setRange(page, "Speed", 35);
+  await button(page, "Send").click();
+  await sent(page, "Speed", 35);
+  assert.equal(session.requests.length, 2);
+  session.state.controlAllowed = false;
+  await page.getByRole("status").filter({ hasText: "Connected. Waiting for the other person to allow control." }).waitFor();
+  assert.equal(await page.getByLabel("Speed", { exact: true }).inputValue(), "0");
+  assert.equal(await button(page, "Send").isDisabled(), true);
+  session.state = guestState({ device: deviceState({ isArmed: false }) });
+  await until(() => page.getByRole("status").filter({ hasText: "Waiting for the other person to start." }).count(), 0, "permission restored");
+  assert.equal(await button(page, "Send").isDisabled(), true, "Permission cannot bypass a disarmed device");
+  session.state.device.isArmed = true;
+  await until(() => button(page, "Send").isEnabled(), true, "positive readiness");
+  assert.equal(session.requests.length, 2);
+  assert.equal(await page.getByLabel("Auto send", { exact: true }).isChecked(), false);
+  assert.equal(await page.getByTestId("guest-disconnected").isVisible(), false);
+  assert.equal(session.calls.includes("Renew"), false);
+  assert.deepEqual(commands(session), ["Submit", "GuestResetPosition", "GuestStop", "GuestStop", "Submit"]);
+  assert.deepEqual(errors, []);
+});
+
+test("rejected invitation renders invalid without a transport-loss view", options, async (t) => {
+  const fixture = await createBrowserFixture(t, browser);
+  const host = await fixture.publicHost();
+  const context = await fixture.context({ ignoreHTTPSErrors: true });
+  const { page } = await observePage(context);
+  await page.goto(`${host.origin}/join#invite=rejected-invite`);
+  await page.getByTestId("guest-invalid").waitFor({ state: "visible" });
+  assert.equal(await page.getByTestId("guest-disconnected").isVisible(), false);
+  assert.equal(await page.getByRole("region", { name: "Requested settings", exact: true }).count(), 0);
+  assert.equal(new URL(page.url()).hash, "");
+});
+
+test("initial API rejection renders a terminal error without a reload loop or fabricated guest controls", options, async (t) => {
+  const fixture = await createBrowserFixture(t, browser);
+  const session = fixture.provision("initial-api-failure");
+  session.failReads = true;
+  const host = await fixture.guestHost();
+  const context = await fixture.context();
+  const { page, errors } = await observePage(context);
+  await page.goto(`${host.origin}/join#invite=initial-api-failure`);
+  await page.getByTestId("guest-disconnected").waitFor({ state: "visible" });
+  assert.equal(await page.getByRole("alert").filter({ hasText: "The guest page could not start." }).count(), 1);
+  assert.equal(await page.getByRole("region", { name: "Requested settings", exact: true }).count(), 0);
+  assert.equal(await page.getByTestId("guest-invalid").count(), 0);
+  assert.equal(new URL(page.url()).hash, "");
+  assert.equal(session.saved.owner, null);
+  assert.equal(fixture.fixture.calls.filter(({ target }) => target === "Join").length, 1);
+  assert.deepEqual(errors, []);
+});
+
+test("public circuit loss disposes its API connection and pauses controls until Stop permits fresh recovery", options, async (t) => {
+  const fixture = await createBrowserFixture(t, browser);
+  const { page, session, host } = await fixture.openGuest("public-circuit-loss", { publicHost: true });
+  const owner = session.saved.owner;
+  session.holdDisconnectStop = true;
+  assert.equal(owner.closed, false);
+  host.proxy.disconnect();
+  await waitFor(() => owner.closed, "GuestCircuitHandler API disposal", 10_000);
+  await page.getByTestId("guest-disconnected").waitFor({ state: "visible" });
+  assert.equal(await button(page, "Send").isDisabled(), true);
+  assert.equal(await page.evaluate(() => sessionStorage.getItem("ossm-guest-connection-lost")), null);
+  assert.equal(session.state.controlAllowed, true);
+  assert.equal(session.disconnectStops, 1);
+  session.holdDisconnectStop = false;
+  session.saved.stopPending = false;
+  await until(() => button(page, "Send").isEnabled(), true, "fresh circuit attachment");
+  assert.ok(session.saved.owner !== owner);
+  assert.equal(await page.getByLabel("Speed", { exact: true }).inputValue(), "0");
+  assert.equal(await page.getByLabel("Auto send", { exact: true }).isChecked(), false);
+  assert.equal(session.requests.length, 0);
+});
 
 test("fresh and same-document invitation links resume saved authority without capability navigation frames", options, async (t) => {
   const fixture = await createBrowserFixture(t, browser);
@@ -40,36 +284,51 @@ test("fresh and same-document invitation links resume saved authority without ca
   assert.deepEqual(view.errors, []);
 });
 
-test("admin metadata timer advances locally without a Blazor render", options, async (t) => {
+test("polling an ended guest retains ended rather than disconnected semantics", options, async (t) => {
+  const fixture = await createBrowserFixture(t, browser);
+  const { page, session, errors } = await fixture.openGuest("poll-ended", { state: guestState({ device: null }), ready: false });
+  assert.equal(await button(page, "Send").isDisabled(), true);
+  assert.equal(await page.getByTestId("guest-disconnected").isVisible(), false);
+  session.state = guestState();
+  await until(() => button(page, "Send").isEnabled(), true, "initial device recovery");
+  assert.equal(session.requests.length, 0);
+  session.state = guestState({ joined: false, controlAllowed: false, device: null });
+  session.saved.valid = false;
+  const notice = page.getByTestId("guest-disconnected");
+  await until(() => notice.innerText(), (text) => text.includes("Session ended."), "ended guest notice");
+  await notice.waitFor({ state: "visible" });
+  assert.doesNotMatch(await notice.innerText(), /Connection lost|Reconnecting/);
+  assert.equal(await notice.getByRole("button", { name: "Leave session", exact: true }).isHidden(), true);
+  assert.equal(await button(page, "Send").count(), 0);
+  assert.equal(await page.evaluate(() => sessionStorage.getItem("ossm-guest-connection-lost")), null);
+  assert.equal(session.calls.includes("Renew"), false);
+  assert.deepEqual(errors, []);
+});
+
+test("admin header metadata and API loss retain last requested state without a duration", options, async (t) => {
   const fixture = await createBrowserFixture(t, browser);
   const name = "Isolated device";
   const identifier = "isolated-device-id";
-  const now = new Date("2030-01-01T01:01:01Z");
-  const state = userState(deviceState({ name, identifier, isArmed: false, connectedAt: "2030-01-01T00:00:00Z", transmittedSettings: settings }));
-  // Install the clock before the real module registers its interval.
-  const host = await fixture.adminHost();
-  const context = await fixture.context();
-  fixture.admin.state = state;
-  const view = { ...await observePage(context), session: fixture.admin };
-  await view.page.clock.install();
-  await view.page.clock.setFixedTime(now);
-  await view.page.goto(host.origin);
+  const state = userState(deviceState({ name, identifier, isArmed: false, transmittedSettings: settings }));
+  const view = await fixture.openAdmin(state);
   const { page, session, errors } = view;
-  await until(() => page.getByTestId("device-name").innerText(), name, "loaded metadata");
-  assert.equal(await page.getByTestId("device-identifier").innerText(), identifier);
-  assert.equal(await page.getByTestId("device-connection-status").innerText(), "Connected");
+  const header = page.getByRole("banner");
+  assert.equal(await header.getByTestId("device-name").innerText(), name);
+  assert.equal(await header.getByTestId("device-identifier").innerText(), identifier);
+  assert.equal(await header.getByTestId("device-connection-status").innerText(), "Connected");
+  assert.equal(await header.locator(".header-actions > :first-child").getAttribute("data-testid"), "device-connection");
+  assert.equal(await page.getByTestId("device-duration").count(), 0);
+  assert.equal(await page.getByRole("region", { name: "Device connection", exact: true }).count(), 0);
   assert.doesNotMatch(await page.getByRole("main", { name: "User controls", exact: true }).innerText(),
     /Connecting\.\.\.|Device connected\.|Device connection requested\./);
-  const duration = page.getByTestId("device-duration");
-  await until(() => duration.innerText(), "01:01:01", "real JS duration");
   session.holdReads = true;
   await waitFor(() => session.pending.has("GetUserState"), "poll held without render");
-  const frameCount = view.renderFrames.length;
-  // Drive the real registered interval, not a replacement implementation.
-  await page.clock.setFixedTime(new Date(now.valueOf() + 2000));
-  await page.clock.runFor(2000);
-  assert.equal(await duration.innerText(), "01:01:03");
-  assert.equal(view.renderFrames.length, frameCount, "Local timer must not require a render batch");
+  const label = await preview(page).getAttribute("aria-label");
+  await session.api.wire.dispose();
+  await page.getByRole("alert").filter({ hasText: "Unable to connect to the user service." }).waitFor();
+  assert.equal(await page.getByTestId("device-name").innerText(), name);
+  assert.equal(await page.getByTestId("device-identifier").innerText(), identifier);
+  assert.equal(await preview(page).getAttribute("aria-label"), label);
   assert.deepEqual(errors, []);
 });
 
@@ -104,3 +363,16 @@ test("guest API transport loss locks controls until Stop permits a fresh control
   assert.equal(session.calls.filter((target) => target === "Redeem").length, 1);
   assert.deepEqual(errors, []);
 });
+
+function pickSettings(request) {
+  return Object.fromEntries(["pattern", "speed", "stroke", "depth", "sensation"].map((name) => [name, request[name]]));
+}
+
+function commands(session) {
+  return session.calls.filter((name) => !["Redeem", "GetSavedSession", "Join", "GetGuestState", "GetUserState"].includes(name));
+}
+
+async function currentSpeed(page, value) {
+  await until(() => page.getByLabel("Speed", { exact: true }).getAttribute("aria-valuetext"),
+    (text) => text?.includes(`Current value: ${value}.`), "exact current speed");
+}

@@ -1,22 +1,21 @@
 @if (ShowHeader)
 {
+  <a class="button secondary skip-link" href="#dashboard-content">Skip to controls</a>
   <header class="page-header">
-    <div class="page-identity">
-      <span class="eyebrow">OSSM control</span>
-      <span class="site-label">@Label</span>
-    </div>
+    <span class="site-label">@Label</span>
     <div class="header-actions">
       @HeaderContent
-      <button class="icon-button theme-button" type="button" data-theme-toggle
+      <button class="button secondary theme-button" type="button" data-theme-toggle
               aria-label="Toggle colour theme" title="Toggle colour theme">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+        <span>Light / dark</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
           <path d="M20 15.2A8.5 8.5 0 0 1 8.8 4a8.5 8.5 0 1 0 11.2 11.2Z" />
         </svg>
       </button>
     </div>
   </header>
 }
-<main class="dashboard-grid" tabindex="-1" aria-label="@Label" data-connection-lost="@(ConnectionLost ? "true" : null)">
+<main id="dashboard-content" class="dashboard-grid" tabindex="-1" aria-label="@Label" data-connection-lost="@(ConnectionLost ? "true" : null)">
   <ConnectionNotice />
   @ChildContent
 </main>

@@ -10,7 +10,7 @@
         <path class="preview-ticks" d="M74 79V85 M124 79V85 M174 79V85" />
         @if (BoundedStroke is not null && BoundedDepth is not null)
         {
-            <rect class="preview-range" x="@RangeStart" y="78" width="@RangeWidth" height="8" rx="2" />
+            <rect class="preview-range" x="@RangeStart" y="78" width="@RangeWidth" height="8" />
             <path class="preview-carriage" d="@CarriagePath" aria-hidden="true">
                 @if (ShowAnimation)
                 {

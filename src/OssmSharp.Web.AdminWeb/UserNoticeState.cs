@@ -10,9 +10,13 @@ public sealed class UserNoticeState(TimeProvider time)
     private long _messageAt;
     private long? _copiedAt;
     /// <summary>
-    /// Gets the active notice; non-error notices expire after three seconds.
+    /// Gets the active notice; fading notices expire after 3.8 seconds, other non-error notices after three seconds.
     /// </summary>
-    public string? Message => IsError || time.GetElapsedTime(_messageAt) < TimeSpan.FromSeconds(3) ? _message : null;
+    public string? Message => IsError || time.GetElapsedTime(_messageAt) < TimeSpan.FromSeconds(FadeOut ? 3.8 : 3) ? _message : null;
+    /// <summary>
+    /// Gets whether the notice fades after its initial 3.5-second display.
+    /// </summary>
+    public bool FadeOut { get; private set; }
     /// <summary>
     /// Gets whether the notice remains visible until replaced or cleared.
     /// </summary>
@@ -31,10 +35,12 @@ public sealed class UserNoticeState(TimeProvider time)
     /// </summary>
     /// <param name="message">The notice to show, or null to clear it.</param>
     /// <param name="isError">Whether the notice stays visible until replaced.</param>
-    public void Show(string? message, bool isError = false)
+    /// <param name="fadeOut">Whether a non-error notice fades before expiring.</param>
+    public void Show(string? message, bool isError = false, bool fadeOut = false)
     {
         _message = message;
         IsError = isError;
+        FadeOut = fadeOut && !isError;
         _messageAt = time.GetTimestamp();
     }
 
