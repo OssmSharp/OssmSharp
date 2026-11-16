@@ -1,3 +1,4 @@
+import "./_content/OssmSharp.Web.Common/astryx/elements.js";
 import { initialize } from "./_content/OssmSharp.Web.Common/connection-ui.js";
 import { initializeTheme } from "./_content/OssmSharp.Web.Common/theme.js";
 import { createSession } from "./guest-auth.js";

@@ -244,7 +244,7 @@ export async function createWebHostFixture({ inherited = process.env, api = {} }
           : { OSSM__Admin__ListenPort: String(port), OSSM__Admin__GuestHostname: "https://guest.test" }),
         ...settings,
       });
-      const assembly = join(root, ".artifacts", "bin", projectName.toLowerCase(), "debug", `${projectName}.dll`);
+      const assembly = join(root, ".artifacts", "bin", projectName, "debug", `${projectName}.dll`);
       await access(assembly);
       const child = spawn("dotnet", [assembly], { cwd: join(root, "src", projectName), env, stdio: ["ignore", "pipe", "pipe"] });
       const exited = once(child, "exit");

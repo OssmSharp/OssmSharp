@@ -75,11 +75,11 @@ test("admin dashboard progresses from device connection to invitation to active 
   await page.keyboard.press("Enter");
   await waitFor(() => session.pending.has("Connect"), "keyboard Connect");
   await until(() => button(page, "Connect device").isDisabled(), true, "Connect busy");
-  assert.equal(await button(page, "Stop").isHidden(), true);
+  assert.equal(await button(page, "Stop").isEnabled(), true);
   session.state = { ...session.state, device: deviceState(), guestJoined: false, guestConnected: false };
   await complete(session, "Connect");
   await page.getByTestId("guest-invitation-card").waitFor();
-  assert.equal(await page.getByTestId("invitation-details").getAttribute("open"), "");
+  await until(() => page.getByTestId("invitation-details").getAttribute("open"), "", "invitation available");
   assert.equal(await page.getByLabel("Guest invitation", { exact: true }).inputValue(), "https://guest.test/join#invite=isolated-admin-invite");
   assert.equal(await page.getByTestId("user-controls").getAttribute("open"), null);
   assert.equal(await preview(page).count(), 0);
@@ -88,7 +88,7 @@ test("admin dashboard progresses from device connection to invitation to active 
   assert.equal(await page.getByRole("banner").getByTestId("device-connection-status").innerText(), "Connected");
   assert.equal(await page.getByTestId("guest-status").innerText(), "No guest");
   session.state = { ...session.state, guestJoined: true, guestConnected: true };
-  await until(() => page.getByTestId("user-controls").getAttribute("open"), "", "controls expanded");
+  await until(() => page.getByTestId("guest-status").innerText(), "Guest joined", "guest joined");
   assert.equal(await page.getByTestId("user-controls").getByTestId("guest-status").innerText(), "Guest joined");
   assert.equal(await page.getByRole("banner").getByTestId("guest-status").count(), 0);
   await page.getByRole("heading", { name: "Last settings", exact: true }).waitFor();
@@ -99,9 +99,9 @@ test("admin dashboard progresses from device connection to invitation to active 
   await button(page, "Stop").click();
   await complete(session, "Stop");
   session.state = { ...session.state, guestConnected: false };
-  await until(() => page.getByTestId("user-controls").getAttribute("open"), null, "controls collapsed");
+  await until(() => page.getByTestId("guest-status").innerText(), "Guest offline", "guest disconnected");
   assert.equal(await preview(page).count(), 0);
-  assert.equal(await page.getByTestId("invitation-details").getAttribute("open"), "");
+  await until(() => page.getByTestId("invitation-details").getAttribute("open"), "", "invitation available");
   session.state = { ...session.state, device: deviceState({ isConnected: false }) };
   assert.equal(await page.getByTestId("guest-invitation-card").isVisible(), true);
   assert.equal(await button(page, "Connect device").isEnabled(), true);
@@ -113,26 +113,21 @@ test("manual dashboard expansion survives guest and device connection changes", 
   const fixture = await createBrowserFixture(t, browser);
   const { page, session } = await fixture.openAdmin(userState(deviceState()));
   const invitation = page.getByTestId("invitation-details");
-  const controls = page.getByTestId("user-controls");
   await invitation.locator("summary").focus();
   await page.keyboard.press("Enter");
   await until(() => invitation.getAttribute("open"), "", "manual invitation expansion");
-  await controls.locator("summary").click();
-  await until(() => controls.getAttribute("open"), null, "manual controls collapse");
-  await controls.locator("summary").focus();
-  await page.keyboard.press("Space");
-  await until(() => controls.getAttribute("open"), "", "manual controls expansion");
+  assert.equal(await button(page, "Stop").isVisible(), true);
   session.state = { ...session.state, guestConnected: false };
   await until(() => page.getByTestId("guest-status").innerText(), "Guest offline", "guest disconnected");
   assert.equal(await invitation.getAttribute("open"), "");
-  assert.equal(await controls.getAttribute("open"), "");
+  assert.equal(await button(page, "Stop").isVisible(), true);
   session.state = { ...session.state, guestConnected: true };
   await until(() => page.getByTestId("guest-status").innerText(), "Guest joined", "guest reconnected");
   assert.equal(await invitation.getAttribute("open"), "");
   session.state = { ...session.state, device: deviceState({ isConnected: false }) };
   await button(page, "Connect device").waitFor();
   assert.equal(await invitation.getAttribute("open"), "");
-  assert.equal(await controls.getAttribute("open"), "");
+  assert.equal(await button(page, "Stop").isVisible(), true);
   assert.deepEqual(commands(session), []);
 });
 
@@ -346,7 +341,7 @@ test("guest API transport loss locks controls until Stop permits a fresh control
   const notice = page.getByTestId("guest-disconnected");
   await notice.waitFor({ state: "visible" });
   for (const name of ["Send", "Stop", "Reset Position"]) assert.equal(await button(page, name).isDisabled(), true);
-  assert.equal(await button(page, "Leave session").count(), 0);
+  await until(() => button(page, "Leave session").count(), 0, "guest controller removed");
   assert.equal(await page.getByLabel("Auto send", { exact: true }).isDisabled(), true);
   assert.equal(await page.getByLabel("Speed", { exact: true }).inputValue(), "0");
   await until(() => notice.innerText(), (text) => text.includes("Waiting for Stop"), "Stop barrier");
@@ -376,3 +371,20 @@ async function currentSpeed(page, value) {
   await until(() => page.getByLabel("Speed", { exact: true }).getAttribute("aria-valuetext"),
     (text) => text?.includes(`Current value: ${value}.`), "exact current speed");
 }
+
+test("rebuilt guest layout keeps actions accessible on mobile in both themes", options, async (t) => {
+  const fixture = await createBrowserFixture(t, browser);
+  const { page, errors } = await fixture.openGuest("mobile-layout");
+  await page.setViewportSize({ width: 390, height: 844 });
+  for (const mode of ["light", "dark"]) {
+    await page.evaluate((mode) => { document.documentElement.dataset.theme = mode; }, mode);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    await page.getByLabel("Depth", { exact: true }).focus();
+    await page.keyboard.press("ArrowRight");
+    await button(page, "Stop").scrollIntoViewIfNeeded();
+    assert.equal(await button(page, "Stop").isVisible(), true);
+    assert.equal(await button(page, "Send").isVisible(), true);
+    if (process.env.UI_SCREENSHOT_DIR) await page.screenshot({ path: `${process.env.UI_SCREENSHOT_DIR}/ossm-guest-${mode}-mobile.png`, fullPage: true });
+  }
+  assert.deepEqual(errors, []);
+});

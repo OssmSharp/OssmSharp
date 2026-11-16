@@ -48,3 +48,8 @@ Thumbs.db
 /logs/
 src/OssmSharp.Web.*/logs/
 .local
+
+# UI dependency and browser output
+ui/node_modules/
+ui/test-results/
+ui/playwright-report/
