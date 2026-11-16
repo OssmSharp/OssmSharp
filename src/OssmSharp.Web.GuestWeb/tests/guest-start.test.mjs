@@ -59,6 +59,8 @@ async function bootstrap(failure, responses = [ready]) {
   await auth.link(() => assert.fail("Unexpected authentication import"));
   const theme = new SourceTextModule(themeSource, { context: h.context });
   await theme.link(() => assert.fail("Unexpected theme import"));
+  const elements = new SourceTextModule("", { context: h.context });
+  await elements.link(() => assert.fail("Unexpected element import"));
   const start = new SourceTextModule(source, {
     context: h.context,
     importModuleDynamically: async (url) => {
@@ -70,6 +72,7 @@ async function bootstrap(failure, responses = [ready]) {
     },
   });
   await start.link((specifier) => {
+    if (specifier === "./_content/OssmSharp.Web.Common/astryx/elements.js") return elements;
     if (specifier === "./guest-auth.js") return auth;
     if (specifier === "./_content/OssmSharp.Web.Common/theme.js") return theme;
     assert.equal(specifier, "./_content/OssmSharp.Web.Common/connection-ui.js");

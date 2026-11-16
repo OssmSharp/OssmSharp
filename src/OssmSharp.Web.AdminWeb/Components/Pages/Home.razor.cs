@@ -24,7 +24,6 @@ public partial class Home
     private DeviceSettingsSnapshot? _stoppedSettings;
     private string _noticeVariant = "success";
     private bool? _invitationExpanded;
-    private bool? _controlsExpanded;
 
     [Inject]
     private IAdminApiClient Control { get; set; } = null!;
@@ -71,8 +70,6 @@ public partial class Home
     };
     private bool DeviceUnavailable => _connectionLost || _state?.Device is not { IsConnected: true, IsConnecting: false };
     private bool InvitationExpanded => _invitationExpanded ?? _state is not { GuestJoined: true, GuestConnected: true };
-    private bool ControlsExpanded => _controlsExpanded ?? (_state is { Device: { IsConnected: true, IsConnecting: false }, GuestJoined: true, GuestConnected: true }
-        || (_notice.IsError && _previewStopped));
 
     /// <summary>
     /// Cancels and awaits polling before releasing the control connection.
@@ -116,7 +113,6 @@ public partial class Home
     }
 
     private void ToggleInvitation() => _invitationExpanded = !InvitationExpanded;
-    private void ToggleControls() => _controlsExpanded = !ControlsExpanded;
 
     private async Task PollAsync()
     {

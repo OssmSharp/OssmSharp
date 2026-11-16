@@ -163,11 +163,12 @@ function showDisconnect() {
   document.documentElement.dataset.guestConnectionLost = "true";
   guestRoot?.setAttribute("data-connection-lost", "true");
   document.querySelector(".preview-rail")?.pauseAnimations();
-  for (const control of document.querySelectorAll?.(".guest-session button, .guest-session input, .guest-session select") ?? []) control.disabled = true;
+  for (const control of document.querySelectorAll?.(".guest-session button, .guest-session ossm-button, .guest-session input, .guest-session select") ?? []) control.disabled = true;
   document.querySelector("main > [data-testid='guest-disconnected']")?.removeAttribute("hidden");
   const notice = document.querySelector("main > [data-testid='guest-disconnected']");
   const message = notice?.querySelector("[data-session-message]");
   if (message) message.textContent = sessionMessage();
+  notice?.setAttribute("role", sessionCode === "guest-left" || sessionCode === "session-ended" || sessionCode === "session-in-use" ? "status" : "alert");
   notice?.classList?.remove("danger", "warning", "info", "success");
   notice?.classList?.add(sessionCode === "guest-left" ? "success"
     : sessionCode === "session-ended" || sessionCode === "session-in-use" ? "info"

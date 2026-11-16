@@ -1,0 +1,35 @@
+name: Web UI
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  ui:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+        with:
+          global-json-file: global.json
+      - run: npm ci
+        working-directory: ui
+      - run: npm run build
+        working-directory: ui
+      - run: git diff --exit-code -- src/OssmSharp.Web.Common/wwwroot/astryx
+      - run: npx playwright install --with-deps chromium
+        working-directory: ui
+      - run: npm test
+        working-directory: ui
+      - run: dotnet build src/OssmSharp.Web.AdminWeb
+      - run: dotnet build src/OssmSharp.Web.GuestWeb
+      - run: node --experimental-vm-modules --test src/OssmSharp.Web.GuestWeb/tests/*.test.mjs
+      - run: node --test src/OssmSharp.Web.GuestWeb/tests/guest-browser.mjs
+        env:
+          PLAYWRIGHT_MODULE: ${{ github.workspace }}/ui/package.json

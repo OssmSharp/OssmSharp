@@ -4,7 +4,11 @@
 @using OssmSharp.Web.Client.Models
 
 <PageTitle>Guest controls</PageTitle>
-<h1 class="visually-hidden">Guest controls</h1>
+<section class="experience-intro guest-intro" aria-labelledby="guest-title">
+  <p class="eyebrow">A SHARED SESSION</p>
+  <h1 id="guest-title">@(!_joined ? "Let's get you connected" : !Ready ? "Take a moment" : "Find your rhythm")</h1>
+  <p>@(!_joined ? "Your invitation connects you privately to one device." : !Ready ? "Settings stay here while you wait. Control becomes available when the other person allows it and the device is ready." : "Choose a pattern, adjust your settings, then send when you're ready.")</p>
+</section>
 
 @if (_connectionLost && _status is not { Joined: true })
 {
@@ -34,46 +38,24 @@ else
     {
       <InlineNotification Variant="@SessionMessageVariant" CssClass="guest-session-message" Role="status">@SessionMessage</InlineNotification>
     }
-    <section class="console-toolbar" aria-label="Session actions">
-      <div class="send-options">
-        @if (Ready)
-        {
-          <p @key="_display.SentNoticeVersion" data-send-status class="send-status @(_display.Status == "Settings sent." ? "success" : _display.Status == "Resetting position ..." ? "warning" : "info")" role="status">@_display.Status</p>
-        }
-        <label class="switch-label" for="guest-auto-send">
-          <input id="guest-auto-send" type="checkbox" role="switch" data-auto-send disabled="@(!Ready)" />
-          <span class="switch" aria-hidden="true"></span>Auto send
-        </label>
-      </div>
-      <div class="send-actions">
-        <button type="button" class="button success send-button" data-send-button disabled="@(!Ready || !_display.CanSend)" aria-label="Send"
-                title="Send the selected settings">Send<span class="action-arrow" aria-hidden="true"></span></button>
-        <button type="button" class="button danger" data-stop-button disabled="@_connectionLost" aria-label="Stop"
-                title="Stop motion and pause control">Stop<span class="stop-symbol" aria-hidden="true"></span></button>
-        <button type="button" class="button warning" data-reset-position-button
-                disabled="@(!Ready || _status?.Device?.IsResettingPosition == true)" title="Retract fully, then stop">Reset Position</button>
-        <button type="button" class="button secondary" @onclick="LeaveAsync" disabled="@(_leaving || _connectionLost)"
-                aria-label="Leave session" title="Stop control and leave this session">Leave session</button>
-      </div>
-    </section>
     <section class="pattern-bank guest-controlled connection-sensitive device-sensitive" aria-labelledby="patterns-heading">
       <div class="section-heading">
-        <h2 id="patterns-heading">Pattern</h2>
+        <h2 id="patterns-heading"><span class="step-number">01</span> Choose a pattern</h2>
       </div>
       <div class="pattern-list" role="group" aria-label="Pattern">
         @foreach (var (pattern, label) in new[] { (0, "Simple stroke"), (1, "Teasing / pounding"), (2, "Robo stroke"),
           (3, "Half / half"), (4, "Deeper"), (5, "Stop / go"), (6, "Insist") })
         {
-          <button type="button" class="pattern-button" data-pattern="@pattern" disabled="@(!Ready)"
+          <ossm-button type="button" class="pattern-button" data-pattern="@pattern" disabled="@(!Ready)"
                   aria-pressed="@(_display.Selected.Pattern == pattern ? "true" : "false")">
             <span>@label</span>
-          </button>
+          </ossm-button>
         }
       </div>
     </section>
       <section class="settings-console" role="region" aria-label="Requested settings">
         <div class="section-heading">
-          <h2>Settings</h2>
+          <h2><span class="step-number">02</span> Make it yours</h2>
         </div>
         <div class="slider-grid guest-controlled connection-sensitive device-sensitive">
           <SettingSlider Name="speed" Label="Speed" Maximum="100" InitialValue="0"
@@ -87,7 +69,30 @@ else
         </div>
         <p class="console-footnote">All settings are percentages. Current speed is unknown at zero device stroke.</p>
       </section>
-        <PatternPreview @key="_display.Selected.Pattern" ShowHeading="false" Pattern="@_display.Selected.Pattern" Speed="@_display.Selected.Speed" Stroke="@_display.Selected.Stroke" Depth="@_display.Selected.Depth"
+    <section class="console-toolbar" aria-label="Session actions">
+      <div class="action-context"><h2>Ready to send?</h2><p>Changes stay local until you send. Auto send applies each change.</p></div>
+      <div class="send-options">
+        @if (Ready)
+        {
+          <p @key="_display.SentNoticeVersion" data-send-status class="send-status @(_display.Status == "Settings sent." ? "success" : _display.Status == "Resetting position ..." ? "warning" : "info")" role="status">@_display.Status</p>
+        }
+        <label class="switch-label" for="guest-auto-send">
+          <input id="guest-auto-send" type="checkbox" role="switch" data-auto-send disabled="@(!Ready)" />
+          <span class="switch" aria-hidden="true"></span>Auto send
+        </label>
+      </div>
+      <div class="send-actions">
+        <ossm-button type="button" class="button success send-button" data-send-button disabled="@(!Ready || !_display.CanSend)" aria-label="Send"
+                title="Send the selected settings">Send<span class="action-arrow" aria-hidden="true"></span></ossm-button>
+        <ossm-button type="button" class="button danger" data-stop-button disabled="@_connectionLost" aria-label="Stop"
+                title="Stop motion and pause control">Stop<span class="stop-symbol" aria-hidden="true"></span></ossm-button>
+        <ossm-button type="button" class="button warning" data-reset-position-button
+                disabled="@(!Ready || _status?.Device?.IsResettingPosition == true)" title="Retract fully, then stop">Reset Position</ossm-button>
+        <ossm-button type="button" class="button secondary" @onclick="LeaveAsync" disabled="@(_leaving || _connectionLost)"
+                aria-label="Leave session" title="Stop control and leave this session">Leave session</ossm-button>
+      </div>
+    </section>
+        <PatternPreview @key="_display.Selected.Pattern" Title="Pattern preview" ShowHeading="true" Pattern="@_display.Selected.Pattern" Speed="@_display.Selected.Speed" Stroke="@_display.Selected.Stroke" Depth="@_display.Selected.Depth"
                         Sensation="@_display.Selected.Sensation"
                         Animate="@(!_display.PreviewStopped && !_connectionLost && _status?.Device is { IsConnected: true, IsConnecting: false, IsResettingPosition: false })" />
   </div>
